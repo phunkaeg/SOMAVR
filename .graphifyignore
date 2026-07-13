@@ -1,0 +1,20 @@
+# Generated build trees and third-party dependencies
+build*/
+out/
+
+# Runtime/generated artifacts
+graphify-out/
+logs/
+tools/
+somavr.ini
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.obj
+*.user
+*.suo
+
+# Local metadata that does not describe SOMAVR architecture
+.git/
+.agents/

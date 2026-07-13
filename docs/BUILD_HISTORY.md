@@ -1,0 +1,272 @@
+# Build History
+
+## 2026-07-13
+
+### 0.5.8-onekey
+
+- Promoted F10 from a camera-only toggle to the normal VR-mode control.
+- F10 now requests OpenXR manual startup through `OpenXRRuntime`, waits
+  asynchronously for valid head and stereo views, calibrates the neutral pose,
+  enables native head tracking and AFR stereo, and forces the proven fully
+  centered projection policy.
+- A second F10 press cancels a pending activation or exits tracking/stereo and
+  restores SOMA's base camera. F8 and F11 remain available as low-level runtime
+  and stereo diagnostics but are no longer required for normal activation.
+- Added bounded `hpl_vr_mode requested/activated/cancelled/disabled` telemetry
+  and API-attributed OpenXR manual-start logging.
+- Built default and OpenXR x64 Release flavors. OpenXR output:
+  `build-openxr-onekey\Release`.
+- Established the first maintainability baseline without changing runtime
+  behavior or the build version: extracted `HPLCameraMath`,
+  `OpenGLMatrixAnalysis`, and `OpenXRHelpers`; added deterministic render-math
+  tests and `ARCHITECTURE.md` ownership rules. Both Release flavors and tests pass.
+
+### 0.5.7-fullcenter
+
+- Triaged `0.5.6`: F3 patched program `985` for `369` draws with no visual
+  effect, rejecting view-depth reflection fade as the window/oven artifact owner.
+- F4 showed little translation dependence; the user isolated dynamic-shadow
+  motion primarily to HMD pitch and roll.
+- Confirmed the prior centered policy only removed horizontal asymmetry. The
+  vertical projection center remained `-0.193187` in every stereo row.
+- Extended centered projection to both axes while preserving each eye's original
+  horizontal and vertical tangent span. OpenXR submission uses the same modified
+  FOV as rendering.
+- Accepted clean shutdown: the corrected lifecycle hook installed, logged
+  pre-graphics OpenXR shutdown begin/complete, and SOMA exited normally.
+- Built default and OpenXR x64 Release flavors. OpenXR output:
+  `build-openxr-fullcenter\Release`.
+
+### 0.5.6-stability
+
+- Accepted F5 as a successful stereo-compatibility result. Shadow UBO offset
+  `96` changes from opposite `-0.242513/+0.242513` eye projection centers to
+  `0/0`, exactly matching the user-confirmed convergence.
+- Made centered horizontal projection the active development default while
+  retaining F5 as a reversible comparison.
+- Added F4 room-scale isolation. Disabled mode removes tracked head-center
+  translation but preserves eye separation and head orientation, testing whether
+  camera-relative shadow/light state owns the remaining movement.
+- Identified program `988` as a depth-driven translucent/refraction path with
+  block-backed reflection size and fade parameters. Added F3 to bypass the
+  view-depth reflection fade around affected draws and immediately restore the
+  authored UBO values.
+- Corrected the pre-graphics lifecycle signature to include the leading `0x40`
+  byte confirmed in the installed executable and Ghidra. `0.5.5` correctly
+  failed closed rather than installing against a mismatched guard.
+- Updated Ghidra's lifecycle comment/bookmark and built default/OpenXR x64
+  Release flavors. OpenXR output: `build-openxr-stability\Release`.
+
+### 0.5.5-reconstruct
+
+- Analyzed three successful F6 captures covering both AFR eyes. Direct temporal
+  and inverse camera matrices alternate correctly, while the live deferred shadow
+  programs `942/944` obtain their reconstruction camera packet from uniform
+  blocks rather than direct uniforms.
+- Confirmed the live world reflection/water program `989` uses the same
+  uniform-block route for inverse projection/view and screen-space reflection
+  parameters. This matches the observed shadow displacement and gives both
+  defects a common reconstruction hypothesis.
+- Extended F6 to snapshot bound uniform-buffer ranges per program and eye,
+  including block/member metadata and raw 32-bit values.
+- Added an F5 projection-center A/B. It preserves eye translation and vertical
+  FOV but temporarily makes each eye's horizontal projection symmetric; the
+  submitted OpenXR FOV is kept identical to the rendered FOV.
+- Analyzed `Soma_NoSteam-10384.dmp`: only SOMA's main thread survived, stopped in
+  OpenGL with Virtual Desktop runtime frames. No SOMAVR worker thread remained.
+- Mapped and named `HPL3_cSDLEngineSetup_Destructor` at `0x1403b16e0` in Ghidra.
+  A signature-guarded lifecycle hook now shuts OpenXR down before HPL deletes
+  Graphics and calls `SDL_Quit` at `0x1403b1803`.
+- Built x64 default and OpenXR Release flavors successfully. The OpenXR test
+  output is `build-openxr-reconstruct\Release`.
+
+## 2026-07-12
+
+### 0.5.4-renderdiag
+
+- Triaged `0.5.3-shadowjitter`: F7 toggled at frames `2072`, `3098`, and `3197`, but every row reported `uploads=0 overrides=0`. The correct conclusion is that the live shader never reached the targeted uniform, not that a zero radius failed visually.
+- Added reflection RE. SOMA supports eye-vector cubemap reflections and screen-coordinate world reflections; HPL2 renders the latter from a mirrored current frustum into a reused reflection buffer.
+- Added F6 four-frame render capture spanning both AFR eyes twice. It writes per-eye draw order/FBO/program data, all matrix uploads, active uniform inventories, and attached generated GLSL sources under `logs\render-captures`.
+- Added shader-source classification for shadow, reflection, environment, temporal, and water paths.
+- Added current AFR eye and render-pose frame to the camera bridge status so diagnostic rows have explicit eye ownership.
+- Diagnosed the lingering process as an orphaned SOMAVR worker: the observed process had no window and exactly one thread. The worker now returns when it is the process's final thread, avoiding the prior stop-event/DLL-detach cycle.
+- Added `somavr_dumper.exe`, which creates a thread-aware minidump by PID or executable name and supports optional `--full` memory capture.
+- Built the x64 default Release flavor successfully. The OpenXR test output is `build-openxr-renderdiag\Release`.
+
+### 0.5.3-shadowjitter
+
+- Triaged the successful `0.5.2-audiopost` run. It reached game frame `10920`, `6350` stereo submissions, and `6571` total submissions without OpenXR failure, stereo suspension, signature mismatch, or hook failure.
+- Accepted the user-confirmed audio result as provisionally correct; a stronger directional-source test remains.
+- Rejected the all-post-effect chain as the owner of the principal stereo defect. F12 mainly changed contrast while realtime shadows remained different between eyes and moved with player motion.
+- Mapped SOMA's deferred soft-shadow path. `deferred_light_frag.hpsl` selects jitter samples from screen pixel coordinates and scales them by `avShadowMapOffsetMul`; HPL2 confirms this value is uploaded through `glUniform2f`.
+- Added targeted shadow/split uniform discovery that remains active after the general uniform-name log budget is exhausted.
+- Added signature-independent OpenGL interception for `glUniform2f` and `glUniform2fv`. F7 toggles only `avShadowMapOffsetMul` between authored and zero values, preserving shadow maps, light matrices, and camera state.
+- Added bounded `shadow_jitter_upload`, toggle, and shutdown counters. Suppression defaults off and is controlled by `[Hooks] HPLShadowJitterControl` and `HPLShadowJitterSuppressedDefault`.
+- Built x64 Release default and OpenXR flavors successfully. The OpenXR output is `build-openxr-shadowjitter\Release`.
+
+### 0.5.2-audiopost
+
+- Triaged the successful `0.5.1-compatprobe` run. F8 started OpenXR at game frame `2296`, F10 enabled native HMD tracking at `2438`, and F11 produced user-confirmed full stereo at `2890`.
+- The focused session reached at least `2383` total OpenXR submissions and `1765` stereo submissions with no OpenXR failure, eye-cache failure, hook mismatch, or stereo suspension.
+- Confirmed the gameplay render split: world resolves FBO `0 -> 11`, active post effects resolve `11 -> 0`, and final screen GUI remains `0 -> 0`. Post effects averaged about `125 us` in sampled F11 gameplay frames.
+- Confirmed hypothesis S11: listener forward/up remained fixed across large HMD quaternion changes and changed only with SOMA's authored camera/state.
+- Added orientation-only FMOD correction while F10 is active. SOMA's authored forward/up are rotated by the current physical HMD delta, used only during the native listener commit, then immediately restored. Position and velocity remain authored.
+- Added an audio quaternion self-test. Failure disables only listener correction while retaining camera, stereo, and telemetry.
+- Added a signature-guarded `HPL3_PostEffectComposite_HasActiveEffects` hook. F12 reversibly bypasses all active post effects for shader-defect A/B testing; default is passthrough and HUD/screen GUI remain active.
+- Added `[Hooks] HPLAudioListenerCorrection`, `HPLPostEffectControl`, and `HPLPostEffectBypassDefault`.
+- Built x64 Release default and OpenXR flavors successfully. The OpenXR output is `build-openxr-audiopost\Release`.
+
+## 2026-07-11
+
+### 0.5.1-compatprobe
+
+- Integrated the compatibility RE pass as passive runtime telemetry; F8/F10/F11 rendering behavior remains unchanged from `0.5.0-afrstereo`.
+- Added `HPLCompatibilityProbe` with independent exact-signature guards for render viewport `0x140298630`, world render `0x1401f9790`, world/3D-GUI callbacks `0x140297670`, post effects `0x14033bd80`, `PostPostEffect` callbacks `0x1401f1480`, final screen GUI `0x1402981e0`, and FMOD listener update `0x140289340`.
+- Render-stage samples record a pending render-frame number, nested sequence, viewport and render mask, before/after draw/read framebuffer, shader program, GL viewport, and CPU duration. Initial calls and up to eight calls per 120-frame sample are logged.
+- Audio samples record listener position, velocity, forward/up vectors, center-head OpenXR pose, and current F10/F11 bridge state. The hook observes the engine listener commit but does not modify FMOD arguments.
+- Added bounded shutdown totals for every stage, audio updates, samples, and successfully installed hooks.
+- Added `[Hooks] HPLRenderStageProbe`, `HPLAudioListenerProbe`, and `HPLCompatibilityLogInterval`; both probes are enabled in the active development config.
+- Built x64 Release default and OpenXR flavors successfully. The OpenXR test output is `build-openxr-compatprobe\Release`.
+
+## 2026-07-10
+
+### 0.5.0-afrstereo
+
+- Triaged the successful live `0.4.0-hplcamera` run. F10 selected the confirmed render-viewport camera and applied native HMD orientation for `1210` consecutive renders before restoring the pristine view.
+- Native rotation reached approximately `35.7` degrees, and F9's four spaced buckets showed changing temporal-view and inverse-view-projection matrices. This confirms HMD motion reached HPL3 camera state rather than mouse input.
+- OpenXR remained healthy beyond `1800` submitted frames with no frame failure or suspension. Runtime IPD stayed near `0.06852` meters.
+- Added F11-gated alternating-eye stereo while preserving F10 mono orientation as the fallback. F11 can be disabled independently and F10 also shuts stereo down before restoring the base view.
+- Added per-eye OpenXR pose/FOV snapshots. Each eye view uses the calibrated head-relative position, including runtime IPD and positional head movement, mapped through configurable `HPLWorldScale`.
+- Added OpenGL right-handed asymmetric projection generation from `XrFovf`. Eye axes remain parallel; convergence comes from eye translation and off-axis projection rather than camera toe-in.
+- Added a projection self-test against SOMA's known 70-degree, 16:9, `0.03-1000` matrix. Failure disables only F11 stereo.
+- Added persistent per-eye OpenGL cache textures/FBOs. The current backbuffer updates one cache each game frame; both cached eyes are copied into acquired OpenXR swapchain images and submitted with the exact poses/FOVs used to render them.
+- Stereo waits until both eye caches have valid renders, then reports `stereo=1` and bounded capture/submission counters. Eight consecutive cache-capture failures suspend the stereo submission branch.
+- Added `[Hooks] HPLStereoAFR` and `HPLWorldScale`. The active value is `1.0` SOMA units per OpenXR meter.
+- Built x64 Release default and OpenXR flavors successfully. The OpenXR output is `build-openxr-afrstereo\Release`.
+
+### 0.4.0-hplcamera
+
+- Triaged two successful F9 captures from `0.3.1-cameramap`. Sequence 1 included mouse input; sequence 2 contained only deliberate HMD yaw/roll/pitch and is the clean control.
+- In sequence 2 the OpenXR head quaternion changed from approximately `-0.00615,-0.58891,0.02084,0.80791` to `-0.07509,-0.59820,0.03994,0.79682`, while the sampled SOMA camera matrices did not follow it. This proves pose capture is live and the native game camera is still independent.
+- Stable matrix-upload stacks mapped `+0x55ab0a` to the GLSL setter, `+0x435b33` to low-level `SetMatrix`, `+0x2ac5f0` to `iRenderFunctions::SetProjectionMatrix`, and `+0x2ad979` to normal frustum projection selection.
+- Matched `0x140271b80` to `cCamera::GetFrustum` and `0x140270230` to `cFrustum::SetupPerspectiveProj` using Ghidra and the released HPL2 source. The latter updates view-projection, culling planes, sphere, vertices, and bounding volume, making it safer than late uniform mutation.
+- Added `HPLCameraBridge`, guarded by exact prologue signatures for both target functions plus the confirmed main render-viewport return RVA `+0x298697`. A mismatch disables only this branch.
+- F10 now toggles an orientation-only bridge. Enabling captures the current OpenXR orientation as neutral and locks the current perspective camera; disabling immediately restores SOMA's pristine cached view.
+- The hook runs at `cCamera::GetFrustum` on every camera query, then calls native `SetupPerspectiveProj`, so headset-only movement can update the frustum even when SOMA did not mark its own camera dirty.
+- Added base-matrix preservation keyed by SOMA's base/secondary frustum dirty flags to prevent HMD rotation from accumulating across frames. Orthographic frustums and non-camera perspective ranges are rejected.
+- Added bounded native-camera candidate, calibration, application, pose-miss, and shutdown summary logging. F9 capture remains enabled for downstream matrix confirmation.
+- Changed F9 full-matrix sampling from the first four matching uploads to four evenly spaced capture-window buckets, so the next log can correlate early, middle, and late HPL matrices with the arm/complete OpenXR poses.
+- Built x64 Release default and OpenXR flavors successfully. The OpenXR test output is `build-openxr-hplcamera\Release`.
+
+### 0.3.1-cameramap
+
+- Triaged the successful `0.3.0-xrframe` live run. F8 triggered immediately at game frame `2783`; both `2688x2880` `GL_SRGB8_ALPHA8` eye swapchains were created with three complete FBO-backed images each; the session progressed through `READY`, `SYNCHRONIZED`, `VISIBLE`, and `FOCUSED`.
+- The run completed at least `938` consecutive projection-layer submissions with changing eye poses, `openxrFrameSubmitFailed=0`, and no logged OpenXR errors or suspension. OpenXR transport and frame timing are now considered proven.
+- Added an F9 camera-attribution window. It runs for 120 frames and captures only matrix uniforms whose names contain `View` or `Projection`.
+- Added one module-relative stack trace per unique uniform callsite, suitable for direct RVA navigation in Ghidra. Plain absolute addresses are not used as the durable anchor.
+- Added up to four full 4x4 samples per camera uniform, including program, location, transpose flag, and render-frame number.
+- Added compact OpenXR pose telemetry with pose-validity flags, center-head position/orientation, pose frame, and measured IPD so matrix changes can be correlated with deliberate headset movement.
+- Added `[Hooks] MatrixCapture`, `MatrixCaptureFrames`, `MatrixCaptureStackDepth`, `MatrixCaptureMaxSites`, and `MatrixCaptureSamplesPerUniform`.
+- The current `0.3.0` DLL was locked by the still-running SOMA process, so the OpenXR flavor was built successfully to `build-openxr-cameramap\Release`. The default flavor was built normally to `build\Release`.
+
+### 0.3.0-xrframe
+
+- Triaged the successful `0.2.7-xrmanual` live run: F8 triggered at game frame `4200`, `VirtualDesktopXR 1.0.10` accepted SOMA's active `hglrc=0x30000`, the session reached `READY`, two views and seven swapchain formats were reported, and the session stayed alive through later gameplay frames.
+- Fixed the F8 reliability issue discovered from that run. OpenXR had been updated only when a `frame_summary` was emitted, so a `FrameSummaryInterval=120` setting sampled F8 once every 120 frames. OpenXR now runs at every real `SwapBuffers`; telemetry remains independently throttled.
+- Added `OpenXRGLBridge`, following UEVR's runtime/backend separation. It selects a runtime-supported color format, creates one OpenGL swapchain per eye at the runtime-recommended size, enumerates images, and validates an FBO for each image.
+- Added session lifecycle handling: begin on `READY`, end on `STOPPING`, and stop submission on session loss.
+- Added a complete frame path: `xrWaitFrame`, `xrBeginFrame`, `xrLocateViews`, swapchain acquire/wait/release, mirrored SOMA backbuffer blits, and `xrEndFrame` with a two-view projection layer.
+- Added `[OpenXR] FrameSubmit`, `MirrorBackbuffer`, and `ResolutionScalePercent`. The active config enables all three at 100 percent resolution after manual F8 start.
+- Added bounded frame-error logging and automatic suspension after 60 consecutive submission failures so the experimental presentation branch does not repeatedly hammer SOMA or the runtime.
+- Reviewed local UEVR architecture and Praydog's reverse-engineering write-up. The applicable decisions are recorded in `docs\UEVR_LEARNINGS.md`.
+- Built x64 Release default and OpenXR flavors. The OpenXR output is `build-openxr\Release\somavr.dll` with `version=0.3.0-xrframe`.
+
+### 0.2.7-xrmanual
+
+- Triaged live `0.2.6-xrhold`: OpenXR session creation succeeded on the main render context at frame `120`, stayed alive through the configured `HoldFrames=600` window, then released at frame `720` with `openxr_runtime released_after_probe reason=hold_complete`.
+- Later summaries continued after release with `openxrSessionAlive=0` and `openxrInstanceAlive=0`, giving us a clean manual-start target for loading a save first.
+- Added `[OpenXR] ManualStart=1` / `StartOnF8=1` support. When enabled, SOMAVR keeps the launch-time hooks installed but defers OpenXR bootstrap until F8 is pressed.
+- Added `openxr_manual_start waiting` and `openxr_manual_start triggered` rows, plus summary fields `openxrManualStart=`, `openxrManualStartArmed=`, and `openxrManualStartFrame=`.
+- Updated the active runtime config for the next pass: `Probe=1`, `SessionProbe=1`, `ReleaseAfterProbe=0`, `BootstrapFrame=120`, `HoldFrames=0`, and `ManualStart=1`.
+- This build still does not call `xrBeginSession`, create swapchains, or submit frames. It is a stable "start XR after save load" gate before the first real OpenXR presentation work.
+- Built x64 Release default and OpenXR probes. The flavor files now report `version=0.2.7-xrmanual`, with `openxr=0` in `build\Release` and `openxr=1` in `build-openxr\Release`.
+
+## 2026-07-09
+
+### 0.2.6-xrhold
+
+- Triaged live `0.2.5-xrframeprobe`: OpenXR bootstrap deferred as intended. Frame `120` still showed `openxrAttempted=0`, then the OpenXR probe ran on the frame context `hdc=0x420117aa hglrc=0x30000`.
+- `xrCreateSession` succeeded on the frame context, reached `READY`, reported the same `VIEW/LOCAL/STAGE` reference spaces and seven GL swapchain formats, and released cleanly.
+- Later frame summaries continued through frame `3240` with `openxrSessionAlive=0`, `openxrInstanceAlive=0`, `openxrSessionReleasedAfterProbe=1`, and `openxrSwapchainFormats=7`.
+- Windows Error Reporting still showed no newer `Soma_NoSteam.exe` crash after the frame-context one-shot.
+- Added `[OpenXR] HoldFrames=600`. With `ReleaseAfterProbe=1`, a successful session probe now keeps the frame-context OpenXR session alive for the configured frame window, polls OpenXR events, then releases with `openxr_runtime released_after_probe reason=hold_complete`.
+- This build intentionally does not call `xrBeginSession`, create swapchains, or submit frames. It only tests whether VirtualDesktop tolerates a live OpenXR session inside SOMA for a short controlled window.
+- Built x64 Release default and OpenXR probes. The flavor files now report `version=0.2.6-xrhold`, with `openxr=0` in `build\Release` and `openxr=1` in `build-openxr\Release`.
+
+### 0.2.5-xrframeprobe
+
+- Triaged live `0.2.4-xrsessiononeshot`: `xrCreateSession` succeeded, the runtime reported reference spaces `VIEW`, `LOCAL`, and `STAGE`, and `xrEnumerateSwapchainFormats` returned seven GL formats: `GL_RGBA16F`, `GL_SRGB8_ALPHA8`, `GL_RGBA8`, `GL_DEPTH_COMPONENT32F`, `GL_DEPTH32F_STENCIL8`, `GL_DEPTH24_STENCIL8`, and `GL_DEPTH_COMPONENT16`.
+- The session reached `READY`, then SOMAVR released both session and instance via `openxr_runtime released_after_probe reason=session_probe_complete releasedSession=1 releasedInstance=1`.
+- Later frame summaries continued through frame `2040` with `openxrSessionCreated=1`, `openxrSessionAlive=0`, `openxrSessionReleasedAfterProbe=1`, `openxrInstanceAlive=0`, and `openxrSwapchainFormats=7`.
+- Windows Error Reporting still showed no newer `Soma_NoSteam.exe` crash after the one-shot session probe.
+- Important nuance: `0.2.4` created the OpenXR session on SOMA's early startup context (`hglrc=0x10000`), while later render frame summaries used the main frame context (`hglrc=0x30000`). `0.2.5` adds `[OpenXR] BootstrapFrame=120` so OpenXR bootstrap/session probing can be deferred to a real frame boundary and use the frame's current `HDC/HGLRC`.
+- Updated the active runtime config for the next pass: `Probe=1`, `SessionProbe=1`, `ReleaseAfterProbe=1`, and `BootstrapFrame=120`.
+- Built x64 Release default and OpenXR probes. The flavor files now report `version=0.2.5-xrframeprobe`, with `openxr=0` in `build\Release` and `openxr=1` in `build-openxr\Release`.
+
+### 0.2.4-xrsessiononeshot
+
+- Triaged live `0.2.3-xroneshot`: the OpenXR static probe completed, released the instance, and SOMA continued producing frame summaries for more than a minute afterward. The latest run reached frame `2280` with `openxrInstanceAlive=0` and `openxrInstanceReleasedAfterProbe=1`.
+- Windows Error Reporting showed no new `Soma_NoSteam.exe` crash after the `0.2.3` run; the previous SOMA crash remained the older `0.2.2` VirtualDesktop runtime crash from before instance release.
+- Added `[OpenXR] ReleaseAfterProbe=1` and extended the one-shot pattern to session probing. With `SessionProbe=1`, SOMAVR now calls `xrCreateSession`, logs reference spaces, swapchain formats, and bounded events if creation succeeds, then immediately destroys the OpenXR session and instance.
+- Added summary fields `openxrReleaseAfterProbe=`, `openxrSessionAlive=`, and `openxrSessionReleasedAfterProbe=`. Expected safe session-probe summaries should end with `openxrInstanceAlive=0` and `openxrSessionAlive=0`.
+- Updated the active runtime config for the next pass: `Probe=1`, `SessionProbe=1`, and `ReleaseAfterProbe=1`.
+- Built x64 Release default and OpenXR probes. The flavor files now report `version=0.2.4-xrsessiononeshot`, with `openxr=0` in `build\Release` and `openxr=1` in `build-openxr\Release`.
+
+### 0.2.3-xroneshot
+
+- Triaged live `0.2.2-xrloaderpath`: the prior delay-load crash is fixed. The run loaded `openxr_loader.dll` from `build-openxr\Release`, enumerated `XR_KHR_opengl_enable`, created an OpenXR instance on `VirtualDesktopXR 1.0.10`, found `Meta Quest 3`, confirmed OpenGL requirements `minGL=4.0.0 maxGL=5.0.0`, and reported two recommended stereo views of `2688x2880`.
+- `SessionProbe=0` worked as intended: no `xrCreateSession` was attempted, and frame summaries reported `openxrInitialized=1`, `openxrLoaderLoaded=1`, `openxrViews=2`, and `openxrSwapchainFormats=0`.
+- The process still crashed later in `VirtualDesktop.LibOVRRT64_1.dll` with exception `0xc0000005`. Since no session was created, the strongest next suspect is lifetime/teardown of a live OpenXR instance/runtime inside SOMA.
+- Changed the no-session path to one-shot discovery: when `SessionProbe=0`, SOMAVR now destroys the OpenXR instance immediately after requirements/view/blend discovery and logs `openxr_instance released_after_static_probe reason=session_probe_disabled`.
+- Added summary fields `openxrInstanceAlive=` and `openxrInstanceReleasedAfterProbe=` so the next run can prove the instance was not kept alive while SOMA continues starting.
+
+### 0.2.2-xrloaderpath
+
+- Built x64 Release default probe: `build\Release\somavr.dll` and `build\Release\somavr_injector.exe`.
+- Built x64 Release OpenXR probe: `build-openxr\Release\somavr.dll`, `build-openxr\Release\somavr_injector.exe`, and `build-openxr\Release\openxr_loader.dll`.
+- Triaged the latest `0.2.1-xrpathguard` crash. The DLL was the correct OpenXR build (`buildOpenXR=1`), hooks installed, and the log reached `gl_context_info`, then stopped before `openxr_extensions`. Windows Error Reporting showed `Soma_NoSteam.exe` failing in `KERNELBASE.dll` with exception `0xc06d007e`, which matches a delay-load module-not-found failure.
+- Likely cause: `somavr.dll` is injected from `build-openxr\Release`, but the first delayed `xr*` import searches from SOMA's process/search path and does not reliably find `openxr_loader.dll` beside the injected DLL.
+- Added explicit `openxr_loader.dll` preload from the directory containing `somavr.dll` before any OpenXR API call. New rows are `openxr_loader_load attempt`, `openxr_loader_load ok`, or `openxr_loader_load failed ... lastError=...`.
+- Added `openxrLoaderLoaded=` to OpenXR frame/proof summaries.
+- Changed the active runtime config and default config to `SessionProbe=0` for the immediate retry. Expected next run should proceed from `gl_context_info` to `openxr_loader_load ok`, then `openxr_extensions`, `openxr_system`, `requirements_ok`, view/blend rows, and `openxr_session_probe skipped enabled=0`. If loader load fails, it should log the Windows error instead of crashing.
+
+### 0.2.1-xrpathguard
+
+- Built x64 Release default probe: `build\Release\somavr.dll` and `build\Release\somavr_injector.exe`.
+- Built x64 Release OpenXR probe: `build-openxr\Release\somavr.dll`, `build-openxr\Release\somavr_injector.exe`, and `build-openxr\Release\openxr_loader.dll`.
+- Triaged the latest `0.2.0-xrprobe` log. It was a clean OpenGL telemetry run, but it loaded `D:\Dev Debug\SOMAVR\build\Release\somavr.dll`, so `openxr_config buildOpenXR=0 enabled=1 sessionProbe=1` and no OpenXR runtime discovery was exercised.
+- The same run confirmed the lower-noise logging budget worked: the log was about 100 KB, frame summaries appeared every 120 frames, and `a_mtxModelViewProjection` remained the active projection-like uniform at 70 degree vertical FOV.
+- Added a generated `somavr_build_flavor.txt` beside each DLL. Default builds write `flavor=opengl/openxr=0`; OpenXR builds write `flavor=openxr/openxr=1`.
+- Added injector-side mismatch detection. If `[OpenXR] Probe=1` and the selected DLL is not OpenXR-enabled, the injector prints a warning before injection with the OpenXR build path to use.
+- Upgraded the non-OpenXR DLL's OpenXR-unavailable row to an error-level `build_without_openxr` message that explicitly says to use `build-openxr\Release\somavr.dll` or disable `[OpenXR] Probe`.
+- Simplified the documented OpenXR launch command: run `build-openxr\Release\somavr_injector.exe --launch ...` and let that injector pick the DLL beside itself.
+
+### 0.2.0-xrprobe
+
+- Built x64 Release default probe: `build\Release\somavr.dll` and `build\Release\somavr_injector.exe`.
+- Built x64 Release OpenXR probe: `build-openxr\Release\somavr.dll`, `build-openxr\Release\somavr_injector.exe`, and `build-openxr\Release\openxr_loader.dll`.
+- Triaged the first live `0.1.0-bootstrap` log. It confirmed safe injection, NVIDIA OpenGL 4.6, a 3440x1440 viewport, and a shader-uniform projection path. Fixed-function projection remained invalid, while `a_mtxModelViewProjection` matched SOMA's configured 70 degree vertical FOV.
+- Reduced default log volume: frame summaries now default to every 120 frames, matrix sampling remains broad enough to see the per-frame projection uniforms, and individual `uniform_matrix` rows are capped and projection-only by default.
+- Expanded the OpenXR probe from graphics requirements only to runtime/system/view/session discovery. New expected rows include `openxr_extensions`, `openxr_system`, `openxr_view_configurations`, `openxr_view`, `openxr_blend_modes`, `openxr_session_probe`, `openxr_reference_spaces`, `openxr_swapchain_formats`, and `openxr_event`.
+- Added `[OpenXR] SessionProbe=1` so `xrCreateSession` can be disabled independently if a runtime dislikes being probed from SOMA's active OpenGL context.
+- Updated the active runtime `somavr.ini` for the next OpenXR run: `Probe=1`, `SessionProbe=1`, `FrameSummaryInterval=120`, `UniformMatrixProjectionOnly=1`, and `UniformMatrixLogLimit=256`.
+
+## 0.1.0-bootstrap
+
+Initial SOMAVR scaffold:
+
+- x64 CMake project.
+- launch/attach injector.
+- OpenGL/WGL telemetry DLL.
+- optional OpenXR build switch with an OpenGL requirements probe.
+- first notes from Ghidra and HPL2 source comparison.

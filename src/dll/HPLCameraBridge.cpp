@@ -1,0 +1,896 @@
+#include "HPLCameraBridge.h"
+
+#include "HPLCameraMath.h"
+#include "Logger.h"
+
+#include <Windows.h>
+
+#include <MinHook.h>
+
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <intrin.h>
+#include <mutex>
+
+namespace somavr {
+namespace {
+
+using camera_math::BuildOpenXRProjection;
+using camera_math::CenterProjectionFov;
+using camera_math::Conjugate;
+using camera_math::MatrixMultiply;
+using camera_math::Multiply;
+using camera_math::Normalize;
+using camera_math::Quaternion;
+using camera_math::RotateVector;
+using camera_math::RotationMatrix;
+using camera_math::TranslationMatrix;
+using camera_math::ValidateStereoProjectionMath;
+using camera_math::Vector3;
+
+constexpr uintptr_t kCameraGetFrustumRva = 0x271b80;
+constexpr uintptr_t kSetupPerspectiveFrustumRva = 0x270230;
+constexpr uintptr_t kRenderViewportGetFrustumReturnRva = 0x298697;
+
+constexpr size_t kFrustumFarOffset = 0x18;
+constexpr size_t kFrustumNearOffset = 0x1c;
+constexpr size_t kFrustumAspectOffset = 0x20;
+constexpr size_t kFrustumFovOffset = 0x24;
+constexpr size_t kFrustumInfiniteFarOffset = 0x30;
+constexpr size_t kFrustumProjectionTypeOffset = 0x34;
+constexpr size_t kFrustumOriginOffset = 0x38;
+constexpr size_t kFrustumProjectionMatrixOffset = 0xd8;
+constexpr size_t kFrustumViewMatrixOffset = 0x158;
+
+constexpr size_t kCameraSecondaryRotationXOffset = 0x60;
+constexpr size_t kCameraSecondaryRotationYOffset = 0x64;
+constexpr size_t kCameraSecondaryRotationZOffset = 0x68;
+constexpr size_t kCameraBaseFrustumDirtyOffset = 0x70c;
+constexpr size_t kCameraSecondaryFrustumDirtyOffset = 0x70d;
+
+using CameraGetFrustumFn = void* (*)(void* camera, bool projectionFlag);
+using SetupPerspectiveFrustumFn = void (*)(
+    void* frustum,
+    const float* projection,
+    const float* view,
+    float farPlane,
+    float nearPlane,
+    float fov,
+    float aspect,
+    const float* origin,
+    bool infiniteFar,
+    const float* customFarProjection,
+    bool obliqueNearPlane);
+
+struct FrustumParameters {
+    float farPlane = 0.0f;
+    float nearPlane = 0.0f;
+    float aspect = 0.0f;
+    float fov = 0.0f;
+    std::array<float, 3> origin{};
+    bool infiniteFar = false;
+    int projectionType = -1;
+};
+
+struct BridgeState {
+    bool f10Down = false;
+    bool f11Down = false;
+    bool activationPending = false;
+    bool trackingEnabled = false;
+    bool stereoEnabled = false;
+    bool baseMatricesValid = false;
+    uint32_t nextEyeIndex = 0;
+    int currentEyeIndex = -1;
+    uint64_t currentEyePoseFrame = 0;
+    void* activeCamera = nullptr;
+    void* activeFrustum = nullptr;
+    Quaternion neutralOrientation{};
+    Vector3 neutralPosition{};
+    std::array<float, 16> baseProjection{};
+    std::array<float, 16> baseView{};
+    FrustumParameters parameters{};
+};
+
+Config g_config;
+OpenXRRuntime* g_openxr = nullptr;
+CameraGetFrustumFn g_originalCameraGetFrustum = nullptr;
+SetupPerspectiveFrustumFn g_setupPerspectiveFrustum = nullptr;
+void* g_cameraGetFrustumTarget = nullptr;
+uintptr_t g_executableBase = 0;
+std::mutex g_stateMutex;
+BridgeState g_state;
+std::atomic<uint64_t> g_getFrustumCalls = 0;
+std::atomic<uint64_t> g_candidateCalls = 0;
+std::atomic<uint64_t> g_appliedCalls = 0;
+std::atomic<uint64_t> g_baseRefreshes = 0;
+std::atomic<uint64_t> g_poseMisses = 0;
+std::atomic<uint64_t> g_stereoAppliedCalls = 0;
+std::atomic<uint64_t> g_stereoEyeCalls[2] = {};
+std::atomic<bool> g_projectionCenterF5Down = false;
+std::atomic<bool> g_projectionCentered = false;
+std::atomic<bool> g_roomscaleF4Down = false;
+std::atomic<bool> g_roomscaleEnabled = true;
+
+template <typename T>
+T ReadField(const void* object, size_t offset)
+{
+    T value{};
+    std::memcpy(&value, static_cast<const std::byte*>(object) + offset, sizeof(value));
+    return value;
+}
+
+bool MatchBytes(const void* address, const uint8_t* expected, size_t size)
+{
+    return address != nullptr && std::memcmp(address, expected, size) == 0;
+}
+
+bool IsInsideImage(HMODULE module, uintptr_t rva, size_t bytes)
+{
+    if (module == nullptr) {
+        return false;
+    }
+
+    const auto* base = reinterpret_cast<const std::byte*>(module);
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) {
+        return false;
+    }
+
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) {
+        return false;
+    }
+
+    const size_t imageSize = nt->OptionalHeader.SizeOfImage;
+    return rva < imageSize && bytes <= imageSize - rva;
+}
+
+FrustumParameters ReadFrustumParameters(const void* frustum)
+{
+    FrustumParameters parameters;
+    parameters.farPlane = ReadField<float>(frustum, kFrustumFarOffset);
+    parameters.nearPlane = ReadField<float>(frustum, kFrustumNearOffset);
+    parameters.aspect = ReadField<float>(frustum, kFrustumAspectOffset);
+    parameters.fov = ReadField<float>(frustum, kFrustumFovOffset);
+    parameters.infiniteFar = ReadField<uint8_t>(frustum, kFrustumInfiniteFarOffset) != 0;
+    parameters.projectionType = ReadField<int>(frustum, kFrustumProjectionTypeOffset);
+    std::memcpy(
+        parameters.origin.data(),
+        static_cast<const std::byte*>(frustum) + kFrustumOriginOffset,
+        sizeof(parameters.origin));
+    return parameters;
+}
+
+bool IsCameraPerspective(const FrustumParameters& parameters)
+{
+    return parameters.projectionType == 0
+        && std::isfinite(parameters.farPlane)
+        && std::isfinite(parameters.nearPlane)
+        && std::isfinite(parameters.fov)
+        && std::isfinite(parameters.aspect)
+        && parameters.farPlane > 10.0f
+        && parameters.nearPlane > 0.0f
+        && parameters.nearPlane < 0.5f
+        && parameters.fov > 0.4f
+        && parameters.fov < 2.6f
+        && parameters.aspect > 0.5f
+        && parameters.aspect < 4.0f;
+}
+
+bool WasFrustumDirty(const void* camera)
+{
+    const float secondaryX = ReadField<float>(camera, kCameraSecondaryRotationXOffset);
+    const float secondaryY = ReadField<float>(camera, kCameraSecondaryRotationYOffset);
+    const float secondaryZ = ReadField<float>(camera, kCameraSecondaryRotationZOffset);
+    const bool usesSecondaryFrustum = secondaryX != 0.0f || secondaryY != 0.0f || secondaryZ != 0.0f;
+    return ReadField<uint8_t>(
+        camera,
+        usesSecondaryFrustum ? kCameraSecondaryFrustumDirtyOffset : kCameraBaseFrustumDirtyOffset) != 0;
+}
+
+bool ReadHeadPose(Quaternion& orientation, Vector3& position, uint64_t& gameFrame)
+{
+    if (g_openxr == nullptr) {
+        return false;
+    }
+
+    OpenXRHeadPose pose;
+    if (!g_openxr->GetLatestHeadPose(pose)) {
+        return false;
+    }
+
+    orientation = Normalize({
+        pose.orientationX,
+        pose.orientationY,
+        pose.orientationZ,
+        pose.orientationW,
+    });
+    position = {pose.positionX, pose.positionY, pose.positionZ};
+    gameFrame = pose.gameFrame;
+    return true;
+}
+
+bool ReadStereoViews(OpenXRStereoViewSnapshot& views)
+{
+    return g_openxr != nullptr && g_openxr->GetLatestStereoViews(views);
+}
+
+void RefreshBaseMatrices(void* frustum, const FrustumParameters& parameters)
+{
+    std::memcpy(
+        g_state.baseProjection.data(),
+        static_cast<const std::byte*>(frustum) + kFrustumProjectionMatrixOffset,
+        sizeof(g_state.baseProjection));
+    std::memcpy(
+        g_state.baseView.data(),
+        static_cast<const std::byte*>(frustum) + kFrustumViewMatrixOffset,
+        sizeof(g_state.baseView));
+    g_state.parameters = parameters;
+    g_state.activeFrustum = frustum;
+    g_state.baseMatricesValid = true;
+    g_baseRefreshes.fetch_add(1, std::memory_order_relaxed);
+}
+
+void SetupFrustum(
+    void* frustum,
+    const std::array<float, 16>& projection,
+    const std::array<float, 16>& view,
+    float fov,
+    float aspect,
+    const std::array<float, 3>& origin)
+{
+    const FrustumParameters& parameters = g_state.parameters;
+    g_setupPerspectiveFrustum(
+        frustum,
+        projection.data(),
+        view.data(),
+        parameters.farPlane,
+        parameters.nearPlane,
+        fov,
+        aspect,
+        origin.data(),
+        parameters.infiniteFar,
+        nullptr,
+        false);
+}
+
+void SetupWithView(void* frustum, const std::array<float, 16>& view)
+{
+    SetupFrustum(
+        frustum,
+        g_state.baseProjection,
+        view,
+        g_state.parameters.fov,
+        g_state.parameters.aspect,
+        g_state.parameters.origin);
+}
+
+void RestoreBaseView(void* frustum)
+{
+    if (g_state.baseMatricesValid && g_setupPerspectiveFrustum != nullptr && frustum != nullptr) {
+        SetupWithView(frustum, g_state.baseView);
+    }
+}
+
+bool ApplyStereoEye(
+    void* frustum,
+    const OpenXRStereoViewSnapshot& views,
+    uint32_t eyeIndex,
+    bool wasDirty)
+{
+    if (eyeIndex >= 2 || !views.valid || !views.eyes[eyeIndex].valid) {
+        return false;
+    }
+
+    const OpenXREyeView& eye = views.eyes[eyeIndex];
+    const bool projectionCentered = g_projectionCentered.load(std::memory_order_relaxed);
+    const OpenXREyeView renderEye = projectionCentered ? CenterProjectionFov(eye) : eye;
+    const Quaternion eyeOrientation = Normalize({
+        eye.orientationX,
+        eye.orientationY,
+        eye.orientationZ,
+        eye.orientationW,
+    });
+    const Quaternion eyeViewRotation = Normalize(Multiply(
+        Conjugate(eyeOrientation),
+        g_state.neutralOrientation));
+
+    const Vector3 currentHeadCenter{
+        (views.eyes[0].positionX + views.eyes[1].positionX) * 0.5f,
+        (views.eyes[0].positionY + views.eyes[1].positionY) * 0.5f,
+        (views.eyes[0].positionZ + views.eyes[1].positionZ) * 0.5f,
+    };
+    const bool roomscaleEnabled = g_roomscaleEnabled.load(std::memory_order_relaxed);
+    const Vector3 referenceOffset = roomscaleEnabled
+        ? Vector3{
+            eye.positionX - g_state.neutralPosition.x,
+            eye.positionY - g_state.neutralPosition.y,
+            eye.positionZ - g_state.neutralPosition.z,
+        }
+        : Vector3{
+            eye.positionX - currentHeadCenter.x,
+            eye.positionY - currentHeadCenter.y,
+            eye.positionZ - currentHeadCenter.z,
+        };
+    Vector3 relativeEyePosition = RotateVector(
+        Conjugate(g_state.neutralOrientation),
+        referenceOffset);
+    relativeEyePosition.x *= g_config.hplWorldScale;
+    relativeEyePosition.y *= g_config.hplWorldScale;
+    relativeEyePosition.z *= g_config.hplWorldScale;
+
+    const std::array<float, 16> inverseEyeTranslation = TranslationMatrix({
+        -relativeEyePosition.x,
+        -relativeEyePosition.y,
+        -relativeEyePosition.z,
+    });
+    const std::array<float, 16> eyeDeltaView = MatrixMultiply(
+        RotationMatrix(eyeViewRotation),
+        inverseEyeTranslation);
+    const std::array<float, 16> modifiedView = MatrixMultiply(
+        eyeDeltaView,
+        g_state.baseView);
+
+    std::array<float, 16> eyeProjection{};
+    float eyeFov = 0.0f;
+    float eyeAspect = 0.0f;
+    if (!BuildOpenXRProjection(
+            renderEye,
+            g_state.parameters.nearPlane,
+            g_state.parameters.farPlane,
+            eyeProjection,
+            eyeFov,
+            eyeAspect)) {
+        return false;
+    }
+
+    const std::array<float, 3> eyeOrigin = {
+        g_state.parameters.origin[0]
+            + g_state.baseView[0] * relativeEyePosition.x
+            + g_state.baseView[4] * relativeEyePosition.y
+            + g_state.baseView[8] * relativeEyePosition.z,
+        g_state.parameters.origin[1]
+            + g_state.baseView[1] * relativeEyePosition.x
+            + g_state.baseView[5] * relativeEyePosition.y
+            + g_state.baseView[9] * relativeEyePosition.z,
+        g_state.parameters.origin[2]
+            + g_state.baseView[2] * relativeEyePosition.x
+            + g_state.baseView[6] * relativeEyePosition.y
+            + g_state.baseView[10] * relativeEyePosition.z,
+    };
+
+    SetupFrustum(
+        frustum,
+        eyeProjection,
+        modifiedView,
+        eyeFov,
+        eyeAspect,
+        eyeOrigin);
+    if (g_openxr == nullptr || !g_openxr->MarkRenderedStereoEye(eyeIndex, renderEye)) {
+        return false;
+    }
+    g_state.currentEyeIndex = static_cast<int>(eyeIndex);
+    g_state.currentEyePoseFrame = eye.gameFrame;
+
+    const uint64_t stereoApplied = g_stereoAppliedCalls.fetch_add(1, std::memory_order_relaxed) + 1;
+    g_stereoEyeCalls[eyeIndex].fetch_add(1, std::memory_order_relaxed);
+    g_appliedCalls.fetch_add(1, std::memory_order_relaxed);
+    const uint64_t logInterval = static_cast<uint64_t>(std::max(g_config.hplCameraLogInterval, 1));
+    if (stereoApplied <= 2 || stereoApplied % logInterval == 0) {
+        constexpr float kRadiansToDegrees = 57.29577951308232f;
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_stereo applied=%llu eye=%u poseFrame=%llu dirtyBefore=%d worldScale=%.4f eyeOffset=%.5f,%.5f,%.5f fovDegrees=%.3f aspect=%.5f projectionCentered=%d roomscale=%d projectionOffset=%.6f,%.6f",
+            static_cast<unsigned long long>(stereoApplied),
+            eyeIndex,
+            static_cast<unsigned long long>(eye.gameFrame),
+            wasDirty ? 1 : 0,
+            g_config.hplWorldScale,
+            relativeEyePosition.x,
+            relativeEyePosition.y,
+            relativeEyePosition.z,
+            eyeFov * kRadiansToDegrees,
+            eyeAspect,
+            projectionCentered ? 1 : 0,
+            roomscaleEnabled ? 1 : 0,
+            eyeProjection[2],
+            eyeProjection[6]);
+    }
+    return true;
+}
+
+void* HookCameraGetFrustum(void* camera, bool projectionFlag)
+{
+    const uintptr_t returnAddress = reinterpret_cast<uintptr_t>(_ReturnAddress());
+    const uintptr_t callerRva = returnAddress >= g_executableBase
+        ? returnAddress - g_executableBase
+        : UINTPTR_MAX;
+    g_getFrustumCalls.fetch_add(1, std::memory_order_relaxed);
+    if (g_originalCameraGetFrustum == nullptr) {
+        return nullptr;
+    }
+
+    const bool wasDirty = camera != nullptr && WasFrustumDirty(camera);
+    void* frustum = g_originalCameraGetFrustum(camera, projectionFlag);
+    if (camera == nullptr || frustum == nullptr || g_setupPerspectiveFrustum == nullptr) {
+        return frustum;
+    }
+    if (callerRva != kRenderViewportGetFrustumReturnRva) {
+        return frustum;
+    }
+
+    const FrustumParameters parameters = ReadFrustumParameters(frustum);
+    if (!IsCameraPerspective(parameters)) {
+        return frustum;
+    }
+
+    const uint64_t candidate = g_candidateCalls.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (candidate <= 8) {
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_camera candidate=%llu callerRva=0x%llx camera=%p frustum=%p dirtyBefore=%d projectionFlag=%d far=%.5f near=%.5f fov=%.5f aspect=%.5f",
+            static_cast<unsigned long long>(candidate),
+            static_cast<unsigned long long>(callerRva),
+            camera,
+            frustum,
+            wasDirty ? 1 : 0,
+            projectionFlag ? 1 : 0,
+            parameters.farPlane,
+            parameters.nearPlane,
+            parameters.fov,
+            parameters.aspect);
+    }
+
+    std::lock_guard lock(g_stateMutex);
+    if (g_config.hplRoomscaleControl) {
+        const bool f4Down = (GetAsyncKeyState(VK_F4) & 0x8000) != 0;
+        const bool wasF4Down = g_roomscaleF4Down.exchange(f4Down, std::memory_order_relaxed);
+        if (f4Down && !wasF4Down) {
+            const bool enabled = !g_roomscaleEnabled.load(std::memory_order_relaxed);
+            g_roomscaleEnabled.store(enabled, std::memory_order_relaxed);
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_roomscale enabled=%d key=F4 policy=retain_ipd_and_orientation stereo=%d",
+                enabled ? 1 : 0,
+                g_state.stereoEnabled ? 1 : 0);
+        }
+    }
+    if (g_config.hplProjectionCenterControl) {
+        const bool f5Down = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
+        const bool wasF5Down = g_projectionCenterF5Down.exchange(f5Down, std::memory_order_relaxed);
+        if (f5Down && !wasF5Down) {
+            const bool centered = !g_projectionCentered.load(std::memory_order_relaxed);
+            g_projectionCentered.store(centered, std::memory_order_relaxed);
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_projection_center enabled=%d key=F5 policy=fully_symmetric_fov stereo=%d",
+                centered ? 1 : 0,
+                g_state.stereoEnabled ? 1 : 0);
+        }
+    }
+    const bool f10Down = (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
+    const bool f10Pressed = f10Down && !g_state.f10Down;
+    g_state.f10Down = f10Down;
+    const bool f11Down = (GetAsyncKeyState(VK_F11) & 0x8000) != 0;
+    const bool f11Pressed = f11Down && !g_state.f11Down;
+    g_state.f11Down = f11Down;
+
+    if (f10Pressed && (g_state.trackingEnabled || g_state.activationPending)) {
+        if (g_state.activationPending && !g_state.trackingEnabled) {
+            g_state = BridgeState{};
+            g_state.f10Down = true;
+            g_state.f11Down = f11Down;
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_vr_mode cancelled key=F10 reason=user_request");
+            return frustum;
+        }
+        if (g_openxr != nullptr) {
+            g_openxr->SetStereoSubmissionEnabled(false);
+        }
+        const bool restored = g_state.activeCamera == camera;
+        if (restored) {
+            RestoreBaseView(frustum);
+        }
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "hpl_vr_mode disabled key=F10 camera=%p frustum=%p restored=%d applied=%llu",
+            camera,
+            frustum,
+            restored ? 1 : 0,
+            static_cast<unsigned long long>(g_appliedCalls.load(std::memory_order_relaxed)));
+        g_state = BridgeState{};
+        g_state.f10Down = true;
+        g_state.f11Down = f11Down;
+        return frustum;
+    }
+
+    if ((g_state.trackingEnabled || g_state.activationPending) && g_state.activeCamera != camera) {
+        return frustum;
+    }
+
+    if (f10Pressed && !g_state.trackingEnabled) {
+        const bool runtimeRequested = g_openxr != nullptr && g_openxr->RequestManualStart();
+        if (!runtimeRequested) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_vr_mode request_failed key=F10 reason=openxr_unavailable camera=%p",
+                camera);
+            return frustum;
+        }
+        g_projectionCentered.store(true, std::memory_order_relaxed);
+        g_roomscaleEnabled.store(g_config.hplRoomscaleEnabledDefault, std::memory_order_relaxed);
+        g_state.activationPending = true;
+        g_state.activeCamera = camera;
+        g_state.activeFrustum = frustum;
+        g_state.baseMatricesValid = false;
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "hpl_vr_mode requested key=F10 runtimeRequested=%d camera=%p frustum=%p policy=openxr_tracking_stereo_fullcenter",
+            runtimeRequested ? 1 : 0,
+            camera,
+            frustum);
+    }
+
+    if (g_state.activationPending && g_state.activeCamera == camera) {
+        Quaternion orientation;
+        Vector3 position;
+        uint64_t poseFrame = 0;
+        OpenXRStereoViewSnapshot views;
+        const bool poseReady = ReadHeadPose(orientation, position, poseFrame);
+        const bool stereoReady = !g_config.hplStereoAfr || ReadStereoViews(views);
+        if (!poseReady || !stereoReady) {
+            return frustum;
+        }
+
+        g_state.activationPending = false;
+        g_state.trackingEnabled = true;
+        g_state.neutralOrientation = orientation;
+        g_state.neutralPosition = position;
+        g_state.baseMatricesValid = false;
+        if (g_config.hplStereoAfr) {
+            g_state.stereoEnabled = true;
+            g_state.nextEyeIndex = 0;
+            g_state.currentEyeIndex = -1;
+            g_state.currentEyePoseFrame = 0;
+            if (g_openxr != nullptr) {
+                g_openxr->SetStereoSubmissionEnabled(true);
+            }
+        }
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "hpl_vr_mode activated key=F10 camera=%p frustum=%p poseFrame=%llu tracking=1 stereo=%d projectionCentered=%d roomscale=%d neutralPosition=%.6f,%.6f,%.6f neutralQuaternion=%.6f,%.6f,%.6f,%.6f",
+            camera,
+            frustum,
+            static_cast<unsigned long long>(poseFrame),
+            g_state.stereoEnabled ? 1 : 0,
+            g_projectionCentered.load(std::memory_order_relaxed) ? 1 : 0,
+            g_roomscaleEnabled.load(std::memory_order_relaxed) ? 1 : 0,
+            position.x,
+            position.y,
+            position.z,
+            orientation.x,
+            orientation.y,
+            orientation.z,
+            orientation.w);
+    }
+
+    if (!g_state.trackingEnabled || g_state.activeCamera != camera) {
+        if (f11Pressed) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_stereo enable_ignored key=F11 reason=head_tracking_disabled");
+        }
+        return frustum;
+    }
+
+    if (f11Pressed) {
+        if (g_state.stereoEnabled) {
+            g_state.stereoEnabled = false;
+            g_state.currentEyeIndex = -1;
+            g_state.currentEyePoseFrame = 0;
+            if (g_openxr != nullptr) {
+                g_openxr->SetStereoSubmissionEnabled(false);
+            }
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_stereo disabled key=F11 fallback=mono_orientation");
+        } else if (!g_config.hplStereoAfr) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_stereo enable_ignored key=F11 reason=config_disabled");
+        } else {
+            OpenXRStereoViewSnapshot views;
+            if (!ReadStereoViews(views)) {
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "hpl_stereo enable_ignored key=F11 reason=stereo_views_unavailable");
+            } else {
+                g_state.stereoEnabled = true;
+                g_state.nextEyeIndex = 0;
+                g_state.currentEyeIndex = -1;
+                g_state.currentEyePoseFrame = 0;
+                if (g_openxr != nullptr) {
+                    g_openxr->SetStereoSubmissionEnabled(true);
+                }
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "hpl_stereo enabled key=F11 mode=alternating_eye worldScale=%.4f poseFrame=%llu ipdMeters=%.5f",
+                    g_config.hplWorldScale,
+                    static_cast<unsigned long long>(views.gameFrame),
+                    std::sqrt(
+                        (views.eyes[1].positionX - views.eyes[0].positionX)
+                            * (views.eyes[1].positionX - views.eyes[0].positionX)
+                        + (views.eyes[1].positionY - views.eyes[0].positionY)
+                            * (views.eyes[1].positionY - views.eyes[0].positionY)
+                        + (views.eyes[1].positionZ - views.eyes[0].positionZ)
+                            * (views.eyes[1].positionZ - views.eyes[0].positionZ)));
+            }
+        }
+    }
+
+    if (wasDirty || !g_state.baseMatricesValid || g_state.activeFrustum != frustum) {
+        RefreshBaseMatrices(frustum, parameters);
+    }
+
+    if (g_state.stereoEnabled) {
+        OpenXRStereoViewSnapshot views;
+        const uint32_t eyeIndex = g_state.nextEyeIndex;
+        if (ReadStereoViews(views) && ApplyStereoEye(frustum, views, eyeIndex, wasDirty)) {
+            g_state.nextEyeIndex ^= 1;
+            return frustum;
+        }
+
+        g_state.stereoEnabled = false;
+        g_state.currentEyeIndex = -1;
+        g_state.currentEyePoseFrame = 0;
+        if (g_openxr != nullptr) {
+            g_openxr->SetStereoSubmissionEnabled(false);
+        }
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "hpl_stereo suspended reason=invalid_view_or_projection fallback=mono_orientation");
+    }
+
+    Quaternion currentOrientation;
+    Vector3 currentPosition;
+    uint64_t poseFrame = 0;
+    if (!ReadHeadPose(currentOrientation, currentPosition, poseFrame)) {
+        const uint64_t misses = g_poseMisses.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (misses <= 4) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_head_tracking pose_unavailable miss=%llu camera=%p",
+                static_cast<unsigned long long>(misses),
+                camera);
+        }
+        RestoreBaseView(frustum);
+        return frustum;
+    }
+
+    const Quaternion headViewRotation = Normalize(Multiply(
+        Conjugate(currentOrientation),
+        g_state.neutralOrientation));
+    const std::array<float, 16> modifiedView = MatrixMultiply(
+        RotationMatrix(headViewRotation),
+        g_state.baseView);
+    SetupWithView(frustum, modifiedView);
+
+    const uint64_t applied = g_appliedCalls.fetch_add(1, std::memory_order_relaxed) + 1;
+    const int logInterval = std::max(g_config.hplCameraLogInterval, 1);
+    if (applied == 1 || applied % static_cast<uint64_t>(logInterval) == 0) {
+        constexpr float kRadiansToDegrees = 57.29577951308232f;
+        const float angleDegrees = 2.0f * std::acos(std::clamp(std::abs(headViewRotation.w), 0.0f, 1.0f))
+            * kRadiansToDegrees;
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_head_tracking applied=%llu poseFrame=%llu camera=%p frustum=%p dirtyBefore=%d deltaAngleDeg=%.4f viewQuaternion=%.6f,%.6f,%.6f,%.6f viewRow0=%.6f,%.6f,%.6f,%.6f",
+            static_cast<unsigned long long>(applied),
+            static_cast<unsigned long long>(poseFrame),
+            camera,
+            frustum,
+            wasDirty ? 1 : 0,
+            angleDegrees,
+            headViewRotation.x,
+            headViewRotation.y,
+            headViewRotation.z,
+            headViewRotation.w,
+            modifiedView[0],
+            modifiedView[1],
+            modifiedView[2],
+            modifiedView[3]);
+    }
+
+    return frustum;
+}
+
+} // namespace
+
+bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
+{
+    if (!config.hplCameraBridge) {
+        Logger::Instance().Write(LogLevel::Info, "hpl_camera_bridge install_skipped enabled=0");
+        return true;
+    }
+
+    HMODULE executable = GetModuleHandleW(nullptr);
+    if (!IsInsideImage(executable, kCameraGetFrustumRva, 32)
+        || !IsInsideImage(executable, kSetupPerspectiveFrustumRva, 32)) {
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_camera_bridge install_failed reason=rva_outside_image cameraRva=0x%llx setupRva=0x%llx",
+            static_cast<unsigned long long>(kCameraGetFrustumRva),
+            static_cast<unsigned long long>(kSetupPerspectiveFrustumRva));
+        return false;
+    }
+
+    auto* base = reinterpret_cast<std::byte*>(executable);
+    void* cameraTarget = base + kCameraGetFrustumRva;
+    void* setupTarget = base + kSetupPerspectiveFrustumRva;
+    static constexpr uint8_t kCameraSignature[] = {
+        0x40, 0x55, 0x56, 0x41, 0x54, 0x48, 0x8d, 0x6c, 0x24,
+        0x90, 0x48, 0x81, 0xec, 0x70, 0x01, 0x00, 0x00,
+    };
+    static constexpr uint8_t kSetupSignature[] = {
+        0x48, 0x83, 0xec, 0x48, 0xf3, 0x0f, 0x10, 0x44, 0x24,
+        0x78, 0x0f, 0xb6, 0x84, 0x24, 0xa0, 0x00, 0x00, 0x00,
+    };
+    if (!MatchBytes(cameraTarget, kCameraSignature, sizeof(kCameraSignature))
+        || !MatchBytes(setupTarget, kSetupSignature, sizeof(kSetupSignature))) {
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_camera_bridge install_failed reason=signature_mismatch exe=%s cameraRva=0x%llx setupRva=0x%llx",
+            ModulePath(executable).c_str(),
+            static_cast<unsigned long long>(kCameraGetFrustumRva),
+            static_cast<unsigned long long>(kSetupPerspectiveFrustumRva));
+        return false;
+    }
+
+    g_config = config;
+    g_projectionCentered.store(config.hplProjectionCenteredDefault, std::memory_order_relaxed);
+    g_roomscaleEnabled.store(config.hplRoomscaleEnabledDefault, std::memory_order_relaxed);
+    if (g_config.hplStereoAfr && !ValidateStereoProjectionMath()) {
+        g_config.hplStereoAfr = false;
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_stereo disabled reason=projection_self_test_failed");
+    }
+    g_openxr = openxr;
+    g_setupPerspectiveFrustum = reinterpret_cast<SetupPerspectiveFrustumFn>(setupTarget);
+    g_cameraGetFrustumTarget = cameraTarget;
+    g_executableBase = reinterpret_cast<uintptr_t>(executable);
+    {
+        std::lock_guard lock(g_stateMutex);
+        g_state = BridgeState{};
+    }
+    g_getFrustumCalls.store(0, std::memory_order_relaxed);
+    g_candidateCalls.store(0, std::memory_order_relaxed);
+    g_appliedCalls.store(0, std::memory_order_relaxed);
+    g_baseRefreshes.store(0, std::memory_order_relaxed);
+    g_poseMisses.store(0, std::memory_order_relaxed);
+    g_stereoAppliedCalls.store(0, std::memory_order_relaxed);
+    g_stereoEyeCalls[0].store(0, std::memory_order_relaxed);
+    g_stereoEyeCalls[1].store(0, std::memory_order_relaxed);
+
+    MH_STATUS status = MH_CreateHook(
+        cameraTarget,
+        reinterpret_cast<void*>(&HookCameraGetFrustum),
+        reinterpret_cast<void**>(&g_originalCameraGetFrustum));
+    if (status != MH_OK) {
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_camera_bridge install_failed reason=create_hook status=%s",
+            MH_StatusToString(status));
+        return false;
+    }
+
+    status = MH_EnableHook(cameraTarget);
+    if (status != MH_OK && status != MH_ERROR_ENABLED) {
+        MH_RemoveHook(cameraTarget);
+        g_originalCameraGetFrustum = nullptr;
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_camera_bridge install_failed reason=enable_hook status=%s",
+            MH_StatusToString(status));
+        return false;
+    }
+
+    Logger::Instance().Write(
+        LogLevel::Warn,
+        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 projectionKey=F5 roomscaleKey=F4 stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d worldScale=%.4f logInterval=%d",
+        ModulePath(executable).c_str(),
+        executable,
+        static_cast<unsigned long long>(kCameraGetFrustumRva),
+        static_cast<unsigned long long>(kSetupPerspectiveFrustumRva),
+        static_cast<unsigned long long>(kRenderViewportGetFrustumReturnRva),
+        g_config.hplStereoAfr ? 1 : 0,
+        g_projectionCentered.load(std::memory_order_relaxed) ? 1 : 0,
+        g_roomscaleEnabled.load(std::memory_order_relaxed) ? 1 : 0,
+        g_config.hplWorldScale,
+        g_config.hplCameraLogInterval);
+    return true;
+}
+
+void LogHPLCameraBridgeSummary()
+{
+    std::lock_guard lock(g_stateMutex);
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu activationPending=%d trackingEnabled=%d stereoEnabled=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu",
+        static_cast<unsigned long long>(g_getFrustumCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_candidateCalls.load(std::memory_order_relaxed)),
+        g_state.activationPending ? 1 : 0,
+        g_state.trackingEnabled ? 1 : 0,
+        g_state.stereoEnabled ? 1 : 0,
+        g_state.activeCamera,
+        g_state.activeFrustum,
+        static_cast<unsigned long long>(g_appliedCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_stereoAppliedCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_stereoEyeCalls[0].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_stereoEyeCalls[1].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_baseRefreshes.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_poseMisses.load(std::memory_order_relaxed)));
+}
+
+HPLCameraBridgeStatus GetHPLCameraBridgeStatus()
+{
+    std::lock_guard lock(g_stateMutex);
+    HPLCameraBridgeStatus status;
+    status.installed = g_cameraGetFrustumTarget != nullptr;
+    status.trackingEnabled = g_state.trackingEnabled;
+    status.stereoEnabled = g_state.stereoEnabled;
+    status.projectionCentered = g_projectionCentered.load(std::memory_order_relaxed);
+    status.roomscaleEnabled = g_roomscaleEnabled.load(std::memory_order_relaxed);
+    status.stereoRenderEye = g_state.currentEyeIndex;
+    status.stereoRenderPoseFrame = g_state.currentEyePoseFrame;
+    status.activeCamera = g_state.activeCamera;
+    status.activeFrustum = g_state.activeFrustum;
+    if (g_state.trackingEnabled) {
+        Quaternion currentOrientation;
+        Vector3 currentPosition;
+        uint64_t poseFrame = 0;
+        if (ReadHeadPose(currentOrientation, currentPosition, poseFrame)) {
+            const Quaternion headViewRotation = Normalize(Multiply(
+                Conjugate(currentOrientation),
+                g_state.neutralOrientation));
+            const Quaternion headWorldRotation = Conjugate(headViewRotation);
+            status.headWorldRotationValid = true;
+            status.headPoseFrame = poseFrame;
+            status.headWorldRotationX = headWorldRotation.x;
+            status.headWorldRotationY = headWorldRotation.y;
+            status.headWorldRotationZ = headWorldRotation.z;
+            status.headWorldRotationW = headWorldRotation.w;
+        }
+    }
+    return status;
+}
+
+void RemoveHPLCameraBridge()
+{
+    std::lock_guard lock(g_stateMutex);
+    if (g_openxr != nullptr) {
+        g_openxr->SetStereoSubmissionEnabled(false);
+    }
+    if (g_cameraGetFrustumTarget != nullptr) {
+        MH_DisableHook(g_cameraGetFrustumTarget);
+        MH_RemoveHook(g_cameraGetFrustumTarget);
+    }
+    g_cameraGetFrustumTarget = nullptr;
+    g_executableBase = 0;
+    g_originalCameraGetFrustum = nullptr;
+    g_setupPerspectiveFrustum = nullptr;
+    g_openxr = nullptr;
+    g_state = BridgeState{};
+    g_projectionCentered.store(false, std::memory_order_relaxed);
+    g_projectionCenterF5Down.store(false, std::memory_order_relaxed);
+    g_roomscaleEnabled.store(true, std::memory_order_relaxed);
+    g_roomscaleF4Down.store(false, std::memory_order_relaxed);
+    Logger::Instance().Write(LogLevel::Info, "hpl_camera_bridge removed");
+}
+
+} // namespace somavr

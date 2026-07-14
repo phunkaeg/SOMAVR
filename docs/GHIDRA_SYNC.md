@@ -1,5 +1,16 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Flashlight Gameplay-Ray Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1400cd7d0` | `SOMA_GetClosestBody` | Renamed and typed as the five-argument registered global wrapper. Plate comment records the `0.27.0` camera-origin/length gate and randomized-cone preservation contract. |
+| `0x140143a10` | `SOMA_PhysicsRay_GetClosestBody` | Renamed and typed as the underlying closest-body ray query that forms its endpoint and returns body/distance/normal. |
+
+Both functions were tagged `SOMAVR`, `Confirmed`, `Flashlight`, and
+`PhysicsRay`. The explicitly selected `Soma_NoSteam.exe` database was saved
+after synchronization.
+
 ## 2026-07-15 Volume/Spectator/Telemetry Reuse Audit
 
 `0.26.0` adds no executable address. GPU timestamps use OpenGL entry points at

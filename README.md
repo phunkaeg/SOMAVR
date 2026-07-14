@@ -78,13 +78,18 @@ With `ControllerFlashlightAim=1`, the exact scripted `Flashlight` spotlight
 follows the dominant controller aim pose. Independent local offset and rotation
 calibration align different controller profiles; stale/lost tracking and
 authored cameras automatically retain SOMA's camera-mounted transform.
+`ControllerFlashlightGameplayRay=1` also redirects only the recovered
+low-frequency flashlight agent/gobo ray pattern to that exact visual origin and
+basis while preserving SOMA's randomized cone, length, hit outputs, and all
+unrelated physics-ray callers.
 With `HPLRoomscaleSafety=1`, physical HMD translation is checked against SOMA's
-static world before it is applied. Blocked movement is shortened by a bounded
+world before it is applied. `HPLRoomscaleSafetyDynamic=1` includes moving bodies;
+set it to `0` for the prior static-only policy. Blocked movement is shortened by a bounded
 search plus `HPLRoomscaleSafetyClearanceMeters`; both eyes, controller poses,
 hands, interaction, and flashlight reuse the same result. A configurable
 horizontal ring plus top/bottom probes approximate head volume; invalid probes
 are skipped so a tight authored starting position cannot trap the view. Moving
-geometry and native player-capsule reconciliation remain separate work.
+Native player-capsule reconciliation remains separate work.
 `DesktopMirrorEye=left` or `right` replaces the alternating desktop image with a
 stable cached eye after headset submission. `DesktopMirrorAspect` accepts `fit`,
 `fill`, or `stretch`; `native` eye mode restores SOMA's untouched backbuffer.
@@ -149,6 +154,7 @@ HPLRoomscaleControl=1
 HPLRoomscaleEnabledDefault=1
 HPLRoomscaleVertical=1
 HPLRoomscaleSafety=1
+HPLRoomscaleSafetyDynamic=1
 HPLRoomscaleSafetyClearanceMeters=0.02
 HPLRoomscaleSafetyIterations=6
 HPLRoomscaleSafetyRadiusMeters=0.09
@@ -266,6 +272,7 @@ HandRootPitchDegrees=0.0
 HandRootYawDegrees=0.0
 HandRootRollDegrees=0.0
 ControllerFlashlightAim=1
+ControllerFlashlightGameplayRay=1
 FlashlightOffsetX=0.0
 FlashlightOffsetY=0.0
 FlashlightOffsetZ=0.03

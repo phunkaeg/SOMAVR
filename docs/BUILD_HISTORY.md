@@ -2,6 +2,29 @@
 
 ## 2026-07-15
 
+### 0.27.0-gameplay-coherence
+
+- Extended controller flashlight ownership from the rendered spotlight to the
+  three low-frequency agent-gobo gameplay rays in shipped
+  `Player.hps::UpdateFlashLightLOS`. The exact registered `GetClosestBody`
+  wrapper at `0x1400cd7d0` is signature guarded; only camera-origin rays in the
+  flashlight's recovered length range are redirected.
+- The redirected query starts at the exact cached visual flashlight matrix and
+  rotates SOMA's randomized cone from the native camera basis into the tracked
+  controller basis. Native ray length, distance/normal outputs, physics body,
+  hit policy, scheduling, and all non-flashlight callers remain unchanged.
+- Added an opt-in dynamic-inclusive mode to the existing sampled room-scale head
+  volume. It reuses `SOMA_CheckLineOfSight` with `staticOnly=false`, retaining
+  the same clearance, authored-start rejection, binary search, shared pose, and
+  native capsule ownership. Generated configs default both additions off; the
+  active profile enables them for live acceptance.
+- Added deterministic off-axis cone-preservation tests and fail-closed rollback
+  for partial native-hook installation. Both build flavors pass. OpenXR
+  SHA-256:
+  `14E69FD1BB8F0FD93AFE1AC0B6C625D00A51E006B55C38AB906B73EF890AFAF3`.
+  Package SHA-256:
+  `E3AA9FA33047BB82A48624A43C38701A4526C3213DB895D1F21BA7153A6B28C0`.
+
 ### 0.26.0-gpu-depth-probe
 
 - Added nonblocking per-eye GPU telemetry to the six existing guarded HPL

@@ -1,5 +1,28 @@
 # Future Systems Reverse Engineering
 
+## 0.27.0 Flashlight Gameplay And Dynamic Safety Result
+
+Shipped `Player.hps::UpdateFlashLightLOS` performs three randomized agent-gobo
+rays roughly every `0.25..0.35` seconds. Ghidra confirms the registered global
+wrapper at `0x1400cd7d0` has ABI
+`body(start, direction, length, outDistance, outNormal)` and forwards to the
+physics query at `0x140143a10`. Shipped global callers separate cleanly by ray
+length: flashlight about `8`, tool interaction `3`, and camera-animation
+grounding `100`.
+
+`0.27.0` signature-guards that wrapper and redirects only a finite `5..20` ray
+whose native start is near the active authored camera. It uses the exact cached
+controller-light matrix from the visual override and rotates the original
+off-axis randomized direction from native camera forward/up into controller
+forward/up. Length, outputs, body selection, update cadence, and every failed
+gate remain native. This closes the visual-versus-gameplay flashlight mismatch
+without broad camera getter hooks or script replacement.
+
+The existing head-volume line queries can now include dynamic bodies by passing
+`staticOnly=false` at the already confirmed wrapper. This is an opt-in policy,
+not a shape cast: moving-door jitter, authored-start rejection, and capsule
+reconciliation still require live acceptance.
+
 ## 0.26.0 GPU Budget And Depth Capability Result
 
 The six guarded render stages now carry nested-safe OpenGL timestamp pairs in
@@ -66,11 +89,11 @@ component replaces only the raw physical-head component in eye/controller poses,
 so IPD, eye-height calibration, authored camera movement, and relative hand aim
 remain coherent.
 
-The initial query intentionally ignores dynamic objects. `0.25.0` adds sampled
-head volume, so next stages are: validate clearance/radii across maps, identify a
-dynamic-inclusive policy that does not jitter against moving doors, and recover
-a confirmed shape cast or native player-capsule reconciliation path. Native
-player capsule movement remains entirely owned by SOMA.
+`0.25.0` adds sampled head volume and `0.27.0` optionally includes dynamic
+objects through the wrapper's existing filter. Next stages are live validation
+against moving doors, clearance/radius tuning across maps, and recovery of a
+confirmed shape cast or native player-capsule reconciliation path. Native player
+capsule movement remains entirely owned by SOMA.
 
 ## 0.23.0 Controller Flashlight Result
 
@@ -91,12 +114,10 @@ always forwards the native matrix. The light object itself is untouched, so
 fade/color/visibility, radius/FOV/near clip, environment-particle registration,
 frustum collision, light sensors, and callbacks retain native ownership.
 
-One semantic mismatch remains explicit. `UpdateFlashLightLOS()` uses the moved
-light's frustum and world position for general sensor tests, but its randomized
-agent-gobo sample still constructs rays from `cCamera::GetPitch/GetYaw` and the
-camera position. A future callsite-specific bridge or script override should
-align those three low-frequency rays to controller aim after live visual
-acceptance; broad camera getter hooks are not justified.
+`0.27.0` closes the remaining semantic mismatch at the exact global
+`GetClosestBody` wrapper. The three low-frequency randomized rays now use the
+cached visual light origin and a controller-relative version of SOMA's original
+cone direction; all other light sensors and callbacks retain native ownership.
 
 ## 0.22.0 Physical Manipulation And ImGui Identity Result
 

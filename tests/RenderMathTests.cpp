@@ -303,6 +303,29 @@ int main()
             flashlightMatrix),
         "controller flashlight rejects collinear tracking basis");
 
+    camera_math::Vector3 redirectedCone{};
+    failures += Check(
+        flashlight_math::RedirectConeDirection(
+            {0.2f, 0.1f, -0.9746794f},
+            {0.0f, 0.0f, -1.0f},
+            {0.0f, 1.0f, 0.0f},
+            {1.0f, 0.0f, 0.0f},
+            {0.0f, 1.0f, 0.0f},
+            redirectedCone)
+            && Near(redirectedCone.x, 0.9746794f)
+            && Near(redirectedCone.y, 0.1f)
+            && Near(redirectedCone.z, 0.2f),
+        "flashlight gameplay ray preserves randomized cone in controller basis");
+    failures += Check(
+        !flashlight_math::RedirectConeDirection(
+            {0.0f, 0.0f, -1.0f},
+            {0.0f, 1.0f, 0.0f},
+            {0.0f, 1.0f, 0.0f},
+            {0.0f, 0.0f, -1.0f},
+            {0.0f, 1.0f, 0.0f},
+            redirectedCone),
+        "flashlight gameplay ray rejects malformed source basis");
+
     using grab_math::ResolveAngularTargetVelocity;
     const camera_math::Vector3 noGrabRotation = ResolveAngularTargetVelocity({}, {}, 100.0f, 1.0f, 6.0f);
     failures += Check(

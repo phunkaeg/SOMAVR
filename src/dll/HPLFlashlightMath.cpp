@@ -128,4 +128,47 @@ bool BuildControllerFlashlightMatrix(
     return true;
 }
 
+bool RedirectConeDirection(
+    const camera_math::Vector3& nativeDirection,
+    const camera_math::Vector3& nativeForward,
+    const camera_math::Vector3& nativeUp,
+    const camera_math::Vector3& targetForward,
+    const camera_math::Vector3& targetUp,
+    camera_math::Vector3& redirectedDirection)
+{
+    redirectedDirection = {};
+    if (!IsFinite(nativeDirection) || !IsFinite(nativeForward) || !IsFinite(nativeUp)
+        || !IsFinite(targetForward) || !IsFinite(targetUp)) {
+        return false;
+    }
+    camera_math::Vector3 direction = nativeDirection;
+    camera_math::Vector3 sourceForward = nativeForward;
+    camera_math::Vector3 sourceUpHint = nativeUp;
+    camera_math::Vector3 destinationForward = targetForward;
+    camera_math::Vector3 destinationUpHint = targetUp;
+    if (!Normalize(direction) || !Normalize(sourceForward) || !Normalize(sourceUpHint)
+        || !Normalize(destinationForward) || !Normalize(destinationUpHint)) {
+        return false;
+    }
+    camera_math::Vector3 sourceRight = Cross(sourceForward, sourceUpHint);
+    camera_math::Vector3 destinationRight = Cross(destinationForward, destinationUpHint);
+    if (!Normalize(sourceRight) || !Normalize(destinationRight)) return false;
+    camera_math::Vector3 sourceUp = Cross(sourceRight, sourceForward);
+    camera_math::Vector3 destinationUp = Cross(destinationRight, destinationForward);
+    if (!Normalize(sourceUp) || !Normalize(destinationUp)) return false;
+
+    const float localRight = direction.x * sourceRight.x
+        + direction.y * sourceRight.y + direction.z * sourceRight.z;
+    const float localUp = direction.x * sourceUp.x
+        + direction.y * sourceUp.y + direction.z * sourceUp.z;
+    const float localForward = direction.x * sourceForward.x
+        + direction.y * sourceForward.y + direction.z * sourceForward.z;
+    redirectedDirection = {
+        destinationRight.x * localRight + destinationUp.x * localUp + destinationForward.x * localForward,
+        destinationRight.y * localRight + destinationUp.y * localUp + destinationForward.y * localForward,
+        destinationRight.z * localRight + destinationUp.z * localUp + destinationForward.z * localForward,
+    };
+    return Normalize(redirectedDirection);
+}
+
 } // namespace somavr::flashlight_math

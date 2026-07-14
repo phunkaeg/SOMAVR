@@ -134,6 +134,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLRoomscaleEnabledDefault=1\n"
         << "HPLRoomscaleVertical=1\n"
         << "HPLRoomscaleSafety=0\n"
+        << "HPLRoomscaleSafetyDynamic=0\n"
         << "HPLRoomscaleSafetyClearanceMeters=0.02\n"
         << "HPLRoomscaleSafetyIterations=6\n"
         << "HPLRoomscaleSafetyRadiusMeters=0.09\n"
@@ -274,6 +275,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "HandRootYawDegrees=0.0\n"
         << "HandRootRollDegrees=0.0\n"
         << "ControllerFlashlightAim=0\n"
+        << "ControllerFlashlightGameplayRay=0\n"
         << "FlashlightOffsetX=0.0\n"
         << "FlashlightOffsetY=0.0\n"
         << "FlashlightOffsetZ=0.03\n"
@@ -355,6 +357,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplroomscaleenableddefault") config_.hplRoomscaleEnabledDefault = ParseBool(value, config_.hplRoomscaleEnabledDefault);
             else if (key == "hplroomscalevertical") config_.hplRoomscaleVertical = ParseBool(value, config_.hplRoomscaleVertical);
             else if (key == "hplroomscalesafety") config_.hplRoomscaleSafety = ParseBool(value, config_.hplRoomscaleSafety);
+            else if (key == "hplroomscalesafetydynamic") config_.hplRoomscaleSafetyDynamic = ParseBool(value, config_.hplRoomscaleSafetyDynamic);
             else if (key == "hplroomscalesafetyclearancemeters") config_.hplRoomscaleSafetyClearanceMeters = ParseFloat(value, config_.hplRoomscaleSafetyClearanceMeters, 0.0f, 1.0f);
             else if (key == "hplroomscalesafetyiterations") config_.hplRoomscaleSafetyIterations = ParseInt(value, config_.hplRoomscaleSafetyIterations, 1, 12);
             else if (key == "hplroomscalesafetyradiusmeters") config_.hplRoomscaleSafetyRadiusMeters = ParseFloat(value, config_.hplRoomscaleSafetyRadiusMeters, 0.0f, 0.5f);
@@ -554,6 +557,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "handrootyawdegrees") config_.hplHandRootYawDegrees = ParseFloat(value, config_.hplHandRootYawDegrees, -180.0f, 180.0f);
             else if (key == "handrootrolldegrees") config_.hplHandRootRollDegrees = ParseFloat(value, config_.hplHandRootRollDegrees, -180.0f, 180.0f);
             else if (key == "controllerflashlightaim") config_.hplControllerFlashlightAim = ParseBool(value, config_.hplControllerFlashlightAim);
+            else if (key == "controllerflashlightgameplayray") config_.hplControllerFlashlightGameplayRay = ParseBool(value, config_.hplControllerFlashlightGameplayRay);
             else if (key == "flashlightoffsetx") config_.hplFlashlightOffsetX = ParseFloat(value, config_.hplFlashlightOffsetX, -5.0f, 5.0f);
             else if (key == "flashlightoffsety") config_.hplFlashlightOffsetY = ParseFloat(value, config_.hplFlashlightOffsetY, -5.0f, 5.0f);
             else if (key == "flashlightoffsetz") config_.hplFlashlightOffsetZ = ParseFloat(value, config_.hplFlashlightOffsetZ, -5.0f, 5.0f);

@@ -1,5 +1,16 @@
 # VR Compatibility Reverse-Engineering Map
 
+## 0.27.0 Gameplay Coherence Evidence
+
+The controller flashlight's rendered matrix and low-frequency AI/gobo physics
+rays now share one cached tracked basis. The bridge preserves each native random
+cone sample and ray length, so controller yaw/pitch/roll changes gameplay aim
+without collapsing SOMA's spread or altering tool and grounding ray callers.
+
+Room-scale head-volume queries may now include dynamic bodies through the
+existing native filter. This improves moving-door coherence but remains a
+sampled volume whose jitter and authored-camera behavior need live validation.
+
 ## 0.26.0 GPU And Depth Evidence
 
 `HPLCompatibilityProbe` now issues nested-safe start/end `GL_TIMESTAMP` queries

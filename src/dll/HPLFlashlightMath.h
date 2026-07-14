@@ -18,4 +18,12 @@ bool BuildControllerFlashlightMatrix(
     const FlashlightCalibration& calibration,
     std::array<float, 16>& matrix);
 
+bool RedirectConeDirection(
+    const camera_math::Vector3& nativeDirection,
+    const camera_math::Vector3& nativeForward,
+    const camera_math::Vector3& nativeUp,
+    const camera_math::Vector3& targetForward,
+    const camera_math::Vector3& targetUp,
+    camera_math::Vector3& redirectedDirection);
+
 } // namespace somavr::flashlight_math

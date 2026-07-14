@@ -1,5 +1,31 @@
 # Test Checklists
 
+## 0.27.0 Gameplay Coherence
+
+1. Confirm `version=0.27.0-gameplay-coherence`,
+   `flashlightGameplayRay=1`, and room-scale install telemetry reports
+   `roomscaleSafetyDynamic=1` / `staticOnly=0`.
+2. Press F10 in a loaded save. Aim the flashlight away from gaze at an agent or
+   scripted light-sensitive target. Confirm visual illumination and gameplay
+   response follow controller yaw/pitch/roll, with bounded
+   `hpl_flashlight_gameplay_ray ... policy=preserve_random_cone` rows.
+3. Move the controller through the native cone while holding the head still.
+   Rays should retain subtle spread, start at the rendered light, and never snap
+   to gaze. Lose tracking and enter an authored camera; both visual and gameplay
+   paths must fall back together.
+4. Exercise normal tool interaction and a camera-animation/grounding sequence.
+   The summary should classify only flashlight-length camera-origin candidates;
+   interaction at length `3` and grounding at `100` must remain native.
+5. Lean near static walls, a moving door, and a movable prop. Dynamic-inclusive
+   head-volume probes should clamp before clipping without pinning, chatter,
+   eye/hand separation, or changing SOMA's player capsule.
+6. Verify shadows, reflections, eye height, locomotion, HUD, stereo, tracking
+   recovery, save/load, and normal shutdown retain the proven baseline.
+
+Rollback either addition independently with `ControllerFlashlightGameplayRay=0`
+or `HPLRoomscaleSafetyDynamic=0`. Stop for false ray classification, agent aim
+still following gaze, dynamic-contact jitter, or any partial hook installation.
+
 ## 0.26.0 GPU And Depth Capability
 
 1. Confirm `version=0.26.0-gpu-depth-probe`, `perEyeGpu=1`,

@@ -28,9 +28,16 @@ struct HPLCameraBridgeStatus {
     float headWorldRotationW = 1.0f;
     bool headWorldPositionValid = false;
     bool cameraWorldPositionValid = false;
+    bool nativeCameraBasisValid = false;
     float cameraWorldPositionX = 0.0f;
     float cameraWorldPositionY = 0.0f;
     float cameraWorldPositionZ = 0.0f;
+    float nativeCameraForwardX = 0.0f;
+    float nativeCameraForwardY = 0.0f;
+    float nativeCameraForwardZ = -1.0f;
+    float nativeCameraUpX = 0.0f;
+    float nativeCameraUpY = 1.0f;
+    float nativeCameraUpZ = 0.0f;
     float headWorldPositionX = 0.0f;
     float headWorldPositionY = 0.0f;
     float headWorldPositionZ = 0.0f;

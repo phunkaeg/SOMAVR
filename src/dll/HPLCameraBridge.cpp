@@ -234,14 +234,15 @@ RoomscaleProbeResult QueryRoomscaleProbe(
     };
     g_roomscaleSafetyProbes.fetch_add(1, std::memory_order_relaxed);
     g_roomscaleSafetyQueries.fetch_add(1, std::memory_order_relaxed);
-    if (g_checkLineOfSight(start.data(), end.data(), false, true)) {
+    const bool staticOnly = !g_config.hplRoomscaleSafetyDynamic;
+    if (g_checkLineOfSight(start.data(), end.data(), false, staticOnly)) {
         result.valid = true;
         return result;
     }
 
     result.blocked = true;
     g_roomscaleSafetyQueries.fetch_add(1, std::memory_order_relaxed);
-    if (!g_checkLineOfSight(start.data(), start.data(), false, true)) {
+    if (!g_checkLineOfSight(start.data(), start.data(), false, staticOnly)) {
         g_roomscaleSafetySkippedProbes.fetch_add(1, std::memory_order_relaxed);
         return result;
     }
@@ -257,7 +258,7 @@ RoomscaleProbeResult QueryRoomscaleProbe(
             start[2] + worldTranslation.z * candidateFraction,
         };
         g_roomscaleSafetyQueries.fetch_add(1, std::memory_order_relaxed);
-        if (g_checkLineOfSight(start.data(), candidate.data(), false, true)) {
+        if (g_checkLineOfSight(start.data(), candidate.data(), false, staticOnly)) {
             clearFraction = candidateFraction;
         } else {
             blockedFraction = candidateFraction;
@@ -361,7 +362,7 @@ RoomscaleSafetyResult ClampRoomscaleHeadTranslation(
     if (transition || sample <= 4 || sample % interval == 0) {
         Logger::Instance().Write(
             result.clamped ? LogLevel::Warn : LogLevel::Info,
-            "hpl_roomscale_safety sample=%llu poseFrame=%llu queried=%d clamped=%d transition=%d factor=%.5f probes=%u validProbes=%u blockedProbes=%u raw=%.5f,%.5f,%.5f safe=%.5f,%.5f,%.5f distance=%.5f clearanceMeters=%.3f radiusMeters=%.3f verticalRadiusMeters=%.3f radialSamples=%d iterations=%d staticOnly=1",
+            "hpl_roomscale_safety sample=%llu poseFrame=%llu queried=%d clamped=%d transition=%d factor=%.5f probes=%u validProbes=%u blockedProbes=%u raw=%.5f,%.5f,%.5f safe=%.5f,%.5f,%.5f distance=%.5f clearanceMeters=%.3f radiusMeters=%.3f verticalRadiusMeters=%.3f radialSamples=%d iterations=%d staticOnly=%d dynamic=%d",
             static_cast<unsigned long long>(sample),
             static_cast<unsigned long long>(poseFrame),
             result.queried ? 1 : 0,
@@ -378,7 +379,9 @@ RoomscaleSafetyResult ClampRoomscaleHeadTranslation(
             g_config.hplRoomscaleSafetyRadiusMeters,
             g_config.hplRoomscaleSafetyVerticalRadiusMeters,
             g_config.hplRoomscaleSafetyRadialSamples,
-            g_config.hplRoomscaleSafetyIterations);
+            g_config.hplRoomscaleSafetyIterations,
+            g_config.hplRoomscaleSafetyDynamic ? 0 : 1,
+            g_config.hplRoomscaleSafetyDynamic ? 1 : 0);
     }
 
     g_state.roomscaleSafetyCacheValid = true;
@@ -1414,7 +1417,7 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         LogLevel::Warn,
-        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx lineOfSightRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 recenterKey=F2 projectionKey=F5 roomscaleKey=F4 recenterControl=%d stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d verticalRoomscale=%d roomscaleSafety=%d roomscaleClearanceMeters=%.3f roomscaleRadiusMeters=%.3f roomscaleVerticalRadiusMeters=%.3f roomscaleRadialSamples=%d roomscaleIterations=%d roomscaleStaticOnly=1 eyeHeightOffsetMeters=%.4f nativeRollSuppression=%d nativeRollOffsets=0x%zx,0x%zx worldScale=%.4f activationStableFrames=%u activationMaxPositionStep=%.3f activationMaxOrientationStepDeg=%.1f logInterval=%d",
+        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx lineOfSightRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 recenterKey=F2 projectionKey=F5 roomscaleKey=F4 recenterControl=%d stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d verticalRoomscale=%d roomscaleSafety=%d roomscaleSafetyDynamic=%d roomscaleClearanceMeters=%.3f roomscaleRadiusMeters=%.3f roomscaleVerticalRadiusMeters=%.3f roomscaleRadialSamples=%d roomscaleIterations=%d roomscaleStaticOnly=%d eyeHeightOffsetMeters=%.4f nativeRollSuppression=%d nativeRollOffsets=0x%zx,0x%zx worldScale=%.4f activationStableFrames=%u activationMaxPositionStep=%.3f activationMaxOrientationStepDeg=%.1f logInterval=%d",
         ModulePath(executable).c_str(),
         executable,
         static_cast<unsigned long long>(kCameraGetFrustumRva),
@@ -1427,11 +1430,13 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
         g_roomscaleEnabled.load(std::memory_order_relaxed) ? 1 : 0,
         g_config.hplRoomscaleVertical ? 1 : 0,
         g_config.hplRoomscaleSafety ? 1 : 0,
+        g_config.hplRoomscaleSafetyDynamic ? 1 : 0,
         g_config.hplRoomscaleSafetyClearanceMeters,
         g_config.hplRoomscaleSafetyRadiusMeters,
         g_config.hplRoomscaleSafetyVerticalRadiusMeters,
         g_config.hplRoomscaleSafetyRadialSamples,
         g_config.hplRoomscaleSafetyIterations,
+        g_config.hplRoomscaleSafetyDynamic ? 0 : 1,
         g_config.hplEyeHeightOffsetMeters,
         g_config.hplNativeCameraRollSuppression ? 1 : 0,
         kCameraBaseRollOffset,
@@ -1508,6 +1513,19 @@ HPLCameraBridgeStatus GetHPLCameraBridgeStatus()
         status.cameraWorldPositionX = g_state.parameters.origin[0];
         status.cameraWorldPositionY = g_state.parameters.origin[1];
         status.cameraWorldPositionZ = g_state.parameters.origin[2];
+        const Vector3 nativeForward = TransformLocalDirectionToWorld(
+            {0.0f, 0.0f, -1.0f}, g_state.baseView);
+        const Vector3 nativeUp = TransformLocalDirectionToWorld(
+            {0.0f, 1.0f, 0.0f}, g_state.baseView);
+        if (IsFinite(nativeForward) && IsFinite(nativeUp)) {
+            status.nativeCameraBasisValid = true;
+            status.nativeCameraForwardX = nativeForward.x;
+            status.nativeCameraForwardY = nativeForward.y;
+            status.nativeCameraForwardZ = nativeForward.z;
+            status.nativeCameraUpX = nativeUp.x;
+            status.nativeCameraUpY = nativeUp.y;
+            status.nativeCameraUpZ = nativeUp.z;
+        }
     }
     if (g_state.trackingEnabled) {
         Quaternion currentOrientation;

@@ -122,6 +122,7 @@ struct Config {
     float hplHandRootYawDegrees = 0.0f;
     float hplHandRootRollDegrees = 0.0f;
     bool hplControllerFlashlightAim = false;
+    bool hplControllerFlashlightGameplayRay = false;
     float hplFlashlightOffsetX = 0.0f;
     float hplFlashlightOffsetY = 0.0f;
     float hplFlashlightOffsetZ = 0.03f;
@@ -156,6 +157,7 @@ struct Config {
     bool hplRoomscaleEnabledDefault = true;
     bool hplRoomscaleVertical = true;
     bool hplRoomscaleSafety = false;
+    bool hplRoomscaleSafetyDynamic = false;
     float hplRoomscaleSafetyClearanceMeters = 0.02f;
     int hplRoomscaleSafetyIterations = 6;
     float hplRoomscaleSafetyRadiusMeters = 0.09f;

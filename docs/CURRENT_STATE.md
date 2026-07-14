@@ -21,17 +21,18 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.26.0-gpu-depth-probe`, layered on the
+The active build candidate is `0.27.0-gameplay-coherence`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
 
-- Physical room-scale head translation now uses SOMA's confirmed static-world
+- Physical room-scale head translation now uses SOMA's confirmed world
   line-of-sight query to sweep a configurable center/radial/top/bottom head
   volume. One cached earliest-safe result is decomposed back into every
   eye/controller pose, preserving IPD, eye height, authored camera motion, and
-  hand/flashlight coherence. Dynamic geometry and native capsule movement remain
-  separate.
+  hand/flashlight coherence. The active profile includes moving geometry in the
+  same sampled sweep; a static-only rollback remains configurable. Native
+  capsule movement remains separate.
 - The desktop mirror can now show a stable cached left or right eye with fit,
   fill, or stretch layout after XR submission. Native mode leaves the original
   backbuffer untouched. Existing render-stage hooks also accumulate left/right/
@@ -48,6 +49,9 @@ compatibility probes:
   light lifetime, fade/color, visibility, radius/FOV, particles, sensors, and
   callbacks; authored cameras, stale/lost tracking, and invalid state restore
   the original camera-mounted transform.
+  Its three randomized agent-gobo gameplay rays now preserve their native cone
+  while using the same cached light origin and controller-relative basis. Tool
+  interaction and camera-animation grounding rays remain native.
 
 - Wheel, Slide, SwingDoor, Lever, and Tear states now accept dominant-hand
   physical movement through SOMA's existing analog-look path. The adapter uses

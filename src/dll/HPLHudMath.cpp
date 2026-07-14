@@ -1,5 +1,6 @@
 #include "HPLHudMath.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace somavr::hud_math {
@@ -35,6 +36,32 @@ bool BuildHeadLockedQuadPose(
     pose.widthMeters = widthMeters;
     pose.heightMeters = widthMeters / textureAspect;
     return std::isfinite(pose.heightMeters) && pose.heightMeters > 0.0f;
+}
+
+bool ComputeAngularQuadSize(
+    float distanceMeters,
+    float angularSizeDegrees,
+    float minSizeMeters,
+    float maxSizeMeters,
+    float& sizeMeters)
+{
+    constexpr float kPi = 3.14159265358979323846f;
+    if (!std::isfinite(distanceMeters)
+        || !std::isfinite(angularSizeDegrees)
+        || !std::isfinite(minSizeMeters)
+        || !std::isfinite(maxSizeMeters)
+        || distanceMeters <= 0.0f
+        || angularSizeDegrees <= 0.0f
+        || minSizeMeters <= 0.0f
+        || maxSizeMeters < minSizeMeters) {
+        return false;
+    }
+    const float angularRadians = angularSizeDegrees * kPi / 180.0f;
+    sizeMeters = std::clamp(
+        2.0f * std::tan(angularRadians * 0.5f) * distanceMeters,
+        minSizeMeters,
+        maxSizeMeters);
+    return std::isfinite(sizeMeters) && sizeMeters > 0.0f;
 }
 
 } // namespace somavr::hud_math

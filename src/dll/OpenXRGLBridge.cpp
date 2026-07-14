@@ -77,7 +77,9 @@ bool OpenXRGLBridge::Initialize(
     int hudWidth,
     int hudHeight,
     bool suppressCenterCrosshair,
-    int crosshairClearRadiusPixels)
+    int crosshairClearRadiusPixels,
+    bool interactionReticleEnabled,
+    int interactionReticleSizePixels)
 {
     Shutdown();
 
@@ -129,10 +131,17 @@ bool OpenXRGLBridge::Initialize(
             hudWidth,
             hudHeight);
     }
+    if (interactionReticleEnabled
+        && !CreateInteractionReticleSwapchain(session, interactionReticleSizePixels)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_interaction_reticle disabled reason=swapchain_creation_failed requestedSize=%d",
+            interactionReticleSizePixels);
+    }
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "openxr_gl_bridge ready eyes=%zu format=0x%llx(%s) resolutionScalePercent=%d hudReady=%d hudSize=%dx%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d",
+        "openxr_gl_bridge ready eyes=%zu format=0x%llx(%s) resolutionScalePercent=%d hudReady=%d hudSize=%dx%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d interactionReticleReady=%d reticleSize=%dx%d",
         eyes_.size(),
         static_cast<unsigned long long>(colorFormat_),
         GlFormatName(colorFormat_),
@@ -141,7 +150,10 @@ bool OpenXRGLBridge::Initialize(
         hud_.width,
         hud_.height,
         suppressCenterCrosshair_ ? 1 : 0,
-        crosshairClearRadiusPixels_);
+        crosshairClearRadiusPixels_,
+        InteractionReticleReady() ? 1 : 0,
+        interactionReticle_.width,
+        interactionReticle_.height);
     return true;
 }
 
@@ -186,6 +198,15 @@ void OpenXRGLBridge::Shutdown()
         xrDestroySwapchain(hud_.handle);
     }
     hud_ = {};
+    if (canDeleteFramebuffers && !interactionReticle_.framebuffers.empty()) {
+        glDeleteFramebuffers_(
+            static_cast<int32_t>(interactionReticle_.framebuffers.size()),
+            interactionReticle_.framebuffers.data());
+    }
+    if (interactionReticle_.handle != XR_NULL_HANDLE) {
+        xrDestroySwapchain(interactionReticle_.handle);
+    }
+    interactionReticle_ = {};
     hudCaptureState_ = {};
     session_ = XR_NULL_HANDLE;
     colorFormat_ = 0;
@@ -518,6 +539,62 @@ const OpenXRGLBridge::HudSwapchain& OpenXRGLBridge::Hud() const
     return hud_;
 }
 
+bool OpenXRGLBridge::DrawInteractionReticleToSwapchain()
+{
+    if (!InteractionReticleReady()) {
+        return false;
+    }
+
+    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+    uint32_t imageIndex = 0;
+    XrResult result = xrAcquireSwapchainImage(interactionReticle_.handle, &acquireInfo, &imageIndex);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_interaction_reticle acquire_failed result=%d",
+            static_cast<int>(result));
+        return false;
+    }
+    XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+    waitInfo.timeout = XR_INFINITE_DURATION;
+    result = xrWaitSwapchainImage(interactionReticle_.handle, &waitInfo);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_interaction_reticle wait_failed image=%u result=%d",
+            imageIndex,
+            static_cast<int>(result));
+        return false;
+    }
+
+    const bool drawn = DrawInteractionReticleToImage(imageIndex);
+    glFlush();
+    XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+    result = xrReleaseSwapchainImage(interactionReticle_.handle, &releaseInfo);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_interaction_reticle release_failed image=%u result=%d",
+            imageIndex,
+            static_cast<int>(result));
+        return false;
+    }
+    return drawn;
+}
+
+bool OpenXRGLBridge::InteractionReticleReady() const
+{
+    return session_ != XR_NULL_HANDLE
+        && interactionReticle_.handle != XR_NULL_HANDLE
+        && !interactionReticle_.images.empty()
+        && !interactionReticle_.framebuffers.empty();
+}
+
+const OpenXRGLBridge::ReticleSwapchain& OpenXRGLBridge::InteractionReticle() const
+{
+    return interactionReticle_;
+}
+
 void OpenXRGLBridge::InvalidateStereoCaches()
 {
     for (EyeSwapchain& eye : eyes_) {
@@ -813,6 +890,178 @@ bool OpenXRGLBridge::CreateHudSwapchain(XrSession session, int width, int height
         GlFormatName(hud_.format),
         hud_.captureTexture,
         hud_.captureFramebuffer);
+    return true;
+}
+
+bool OpenXRGLBridge::CreateInteractionReticleSwapchain(XrSession session, int sizePixels)
+{
+    interactionReticle_ = {};
+    interactionReticle_.width = std::clamp(sizePixels, 32, 512);
+    interactionReticle_.height = interactionReticle_.width;
+    interactionReticle_.format = colorFormat_;
+
+    XrSwapchainCreateInfo createInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+    createInfo.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+    createInfo.format = colorFormat_;
+    createInfo.sampleCount = 1;
+    createInfo.width = interactionReticle_.width;
+    createInfo.height = interactionReticle_.height;
+    createInfo.faceCount = 1;
+    createInfo.arraySize = 1;
+    createInfo.mipCount = 1;
+    XrResult result = xrCreateSwapchain(session, &createInfo, &interactionReticle_.handle);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_interaction_reticle create_failed size=%d result=%d",
+            interactionReticle_.width,
+            static_cast<int>(result));
+        interactionReticle_ = {};
+        return false;
+    }
+
+    uint32_t imageCount = 0;
+    result = xrEnumerateSwapchainImages(interactionReticle_.handle, 0, &imageCount, nullptr);
+    if (XR_FAILED(result) || imageCount == 0) {
+        xrDestroySwapchain(interactionReticle_.handle);
+        interactionReticle_ = {};
+        return false;
+    }
+    interactionReticle_.images.resize(imageCount);
+    for (XrSwapchainImageOpenGLKHR& image : interactionReticle_.images) {
+        image.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR;
+        image.next = nullptr;
+    }
+    result = xrEnumerateSwapchainImages(
+        interactionReticle_.handle,
+        imageCount,
+        &imageCount,
+        reinterpret_cast<XrSwapchainImageBaseHeader*>(interactionReticle_.images.data()));
+    if (XR_FAILED(result)) {
+        xrDestroySwapchain(interactionReticle_.handle);
+        interactionReticle_ = {};
+        return false;
+    }
+    interactionReticle_.images.resize(imageCount);
+
+    int32_t savedReadFramebuffer = 0;
+    int32_t savedDrawFramebuffer = 0;
+    int32_t savedReadBuffer = 0;
+    int32_t savedDrawBuffer = 0;
+    glGetIntegerv(kGlReadFramebufferBinding, &savedReadFramebuffer);
+    glGetIntegerv(kGlDrawFramebufferBinding, &savedDrawFramebuffer);
+    glGetIntegerv(kGlReadBuffer, &savedReadBuffer);
+    glGetIntegerv(kGlDrawBuffer, &savedDrawBuffer);
+    interactionReticle_.framebuffers.resize(imageCount);
+    glGenFramebuffers_(
+        static_cast<int32_t>(imageCount),
+        interactionReticle_.framebuffers.data());
+    bool complete = true;
+    for (uint32_t imageIndex = 0; imageIndex < imageCount; ++imageIndex) {
+        glBindFramebuffer_(kGlFramebuffer, interactionReticle_.framebuffers[imageIndex]);
+        glFramebufferTexture2D_(
+            kGlFramebuffer,
+            kGlColorAttachment0,
+            kGlTexture2D,
+            interactionReticle_.images[imageIndex].image,
+            0);
+        glDrawBuffer(kGlColorAttachment0);
+        if (glCheckFramebufferStatus_(kGlFramebuffer) != kGlFramebufferComplete) {
+            complete = false;
+            break;
+        }
+    }
+    glBindFramebuffer_(kGlReadFramebuffer, static_cast<uint32_t>(savedReadFramebuffer));
+    glReadBuffer(static_cast<uint32_t>(savedReadBuffer));
+    glBindFramebuffer_(kGlDrawFramebuffer, static_cast<uint32_t>(savedDrawFramebuffer));
+    glDrawBuffer(static_cast<uint32_t>(savedDrawBuffer));
+    if (!complete) {
+        glDeleteFramebuffers_(
+            static_cast<int32_t>(interactionReticle_.framebuffers.size()),
+            interactionReticle_.framebuffers.data());
+        xrDestroySwapchain(interactionReticle_.handle);
+        interactionReticle_ = {};
+        return false;
+    }
+
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "openxr_interaction_reticle swapchain_created size=%dx%d images=%u format=0x%llx(%s)",
+        interactionReticle_.width,
+        interactionReticle_.height,
+        imageCount,
+        static_cast<unsigned long long>(interactionReticle_.format),
+        GlFormatName(interactionReticle_.format));
+    return true;
+}
+
+bool OpenXRGLBridge::DrawInteractionReticleToImage(uint32_t imageIndex)
+{
+    if (!InteractionReticleReady() || imageIndex >= interactionReticle_.framebuffers.size()) {
+        return false;
+    }
+
+    int32_t savedReadFramebuffer = 0;
+    int32_t savedDrawFramebuffer = 0;
+    int32_t savedReadBuffer = 0;
+    int32_t savedDrawBuffer = 0;
+    int32_t savedViewport[4] = {};
+    int32_t savedScissorBox[4] = {};
+    float savedClearColor[4] = {};
+    GLboolean savedColorMask[4] = {};
+    const GLboolean savedScissorEnabled = glIsEnabled(kGlScissorTest);
+    glGetIntegerv(kGlReadFramebufferBinding, &savedReadFramebuffer);
+    glGetIntegerv(kGlDrawFramebufferBinding, &savedDrawFramebuffer);
+    glGetIntegerv(kGlReadBuffer, &savedReadBuffer);
+    glGetIntegerv(kGlDrawBuffer, &savedDrawBuffer);
+    glGetIntegerv(kGlViewport, savedViewport);
+    glGetIntegerv(kGlScissorBox, savedScissorBox);
+    glGetFloatv(kGlColorClearValue, savedClearColor);
+    glGetBooleanv(kGlColorWriteMask, savedColorMask);
+
+    glBindFramebuffer_(kGlFramebuffer, interactionReticle_.framebuffers[imageIndex]);
+    glDrawBuffer(kGlColorAttachment0);
+    glViewport(0, 0, interactionReticle_.width, interactionReticle_.height);
+    glDisable(kGlScissorTest);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(kGlColorBufferBit);
+    glEnable(kGlScissorTest);
+
+    const int size = interactionReticle_.width;
+    const int center = size / 2;
+    const int arm = std::max(size / 3, 6);
+    const int gap = std::max(size / 9, 2);
+    const int shadowThickness = std::max(size / 10, 3);
+    const int lineThickness = std::max(size / 24, 2);
+    auto drawSegments = [&](int thickness, float red, float green, float blue, float alpha) {
+        const int halfThickness = thickness / 2;
+        glClearColor(red, green, blue, alpha);
+        glScissor(center - arm, center - halfThickness, arm - gap, thickness);
+        glClear(kGlColorBufferBit);
+        glScissor(center + gap, center - halfThickness, arm - gap, thickness);
+        glClear(kGlColorBufferBit);
+        glScissor(center - halfThickness, center - arm, thickness, arm - gap);
+        glClear(kGlColorBufferBit);
+        glScissor(center - halfThickness, center + gap, thickness, arm - gap);
+        glClear(kGlColorBufferBit);
+    };
+    drawSegments(shadowThickness, 0.0f, 0.0f, 0.0f, 0.75f);
+    drawSegments(lineThickness, 0.30f, 0.95f, 1.0f, 0.95f);
+
+    glBindFramebuffer_(kGlReadFramebuffer, static_cast<uint32_t>(savedReadFramebuffer));
+    glReadBuffer(static_cast<uint32_t>(savedReadBuffer));
+    glBindFramebuffer_(kGlDrawFramebuffer, static_cast<uint32_t>(savedDrawFramebuffer));
+    glDrawBuffer(static_cast<uint32_t>(savedDrawBuffer));
+    glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
+    glScissor(savedScissorBox[0], savedScissorBox[1], savedScissorBox[2], savedScissorBox[3]);
+    glClearColor(savedClearColor[0], savedClearColor[1], savedClearColor[2], savedClearColor[3]);
+    glColorMask(savedColorMask[0], savedColorMask[1], savedColorMask[2], savedColorMask[3]);
+    if (savedScissorEnabled == GL_TRUE) {
+        glEnable(kGlScissorTest);
+    } else {
+        glDisable(kGlScissorTest);
+    }
     return true;
 }
 

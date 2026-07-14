@@ -20,4 +20,11 @@ bool BuildHeadLockedQuadPose(
     float textureAspect,
     HudQuadPose& pose);
 
+bool ComputeAngularQuadSize(
+    float distanceMeters,
+    float angularSizeDegrees,
+    float minSizeMeters,
+    float maxSizeMeters,
+    float& sizeMeters);
+
 } // namespace somavr::hud_math

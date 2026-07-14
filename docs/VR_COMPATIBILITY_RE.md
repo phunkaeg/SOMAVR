@@ -117,9 +117,10 @@ before the feature is considered proven.
 `0.19.0` also decodes the finalized native result rather than inventing a second
 focus test. The wrapper writes entity `+0x18`, body `+0x20`, and distance `+0x28`;
 the bridge validates distance against native ray length and publishes the HPL
-world hit point with frame and hand identity. This is the correct source for a
-depth reticle once SOMA's crosshair icon/state owner and a world-overlay boundary
-are confirmed. No-hit and invalid results clear snapshot validity.
+world hit point with frame and hand identity. `0.20.0` submits that exact aim and
+distance as a generic application-space OpenXR reticle, with age/tracking/range
+guards and optional focus-change haptics. No-hit and invalid results clear both
+snapshot and layer validity. Crosshair icon semantics and world occlusion remain.
 
 ### Semantic camera comfort
 

@@ -43,6 +43,14 @@ struct Config {
     int openxrHudMaxAgeFrames = 2;
     bool openxrHudSuppressCenterCrosshair = false;
     int openxrHudCrosshairClearRadiusPixels = 48;
+    bool openxrInteractionReticle = false;
+    int openxrInteractionReticleSizePixels = 64;
+    float openxrInteractionReticleAngularSizeDegrees = 0.75f;
+    float openxrInteractionReticleMinSizeMeters = 0.008f;
+    float openxrInteractionReticleMaxSizeMeters = 0.08f;
+    float openxrInteractionReticleMinDistanceMeters = 0.15f;
+    float openxrInteractionReticleMaxDistanceMeters = 8.0f;
+    int openxrInteractionReticleMaxAgeFrames = 2;
     bool hplControllerInput = false;
     float hplControllerMoveDeadzone = 0.35f;
     float hplControllerMoveReleaseDeadzone = 0.25f;
@@ -72,6 +80,10 @@ struct Config {
     bool hplControllerHaptics = true;
     float hplControllerHapticAmplitude = 0.35f;
     int hplControllerHapticDurationMs = 30;
+    bool hplControllerFocusHaptics = false;
+    float hplControllerFocusHapticAmplitude = 0.12f;
+    int hplControllerFocusHapticDurationMs = 15;
+    int hplControllerFocusHapticCooldownFrames = 15;
     std::string hplControllerDominantHand = "right";
     bool hplControllerSwapSticks = false;
     bool hplControllerOneHandFallback = true;

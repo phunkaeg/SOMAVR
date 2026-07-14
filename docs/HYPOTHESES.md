@@ -1,5 +1,33 @@
 # Hypotheses
 
+## S22 - Native picker distance can drive a stable binocular controller reticle
+
+Status: GUARDED BUILD READY (`0.20.0-depth-reticle`)
+
+Hypothesis: an application-space OpenXR quad placed on the exact controller aim
+pose at SOMA's finalized closest-entity distance provides stable binocular depth
+without a second ray query or OpenGL depth reconstruction.
+
+Evidence:
+
+- `SOMA_GetClosestEntity` finalizes entity `+0x18`, body `+0x20`, and distance
+  `+0x28` after applying native length, LOS, range, and `CanInteract` policy.
+- `HPLInteractionBridge` already publishes that result with the exact app-space
+  controller aim pose used to build the HPL query.
+- The gameplay HUD proves source-alpha OpenXR quad swapchain creation and frame
+  composition on SOMA's current OpenGL context.
+- `0.20.0` adds a dedicated reticle swapchain, angular-size math, stale-hit and
+  tracking guards, compositor submission counters, and focus-change haptics.
+
+Confirms if the marker converges at target depth, stays rigid while head and
+controller move, maintains comfortable apparent size, and clears immediately on
+no hit, fallback, tracking loss, or F10 disable without shader regressions.
+
+Redirects if convergence is correct but lack of world occlusion is distracting;
+retain the native result contract and move drawing to a depth-tested engine pass.
+If marker visibility disagrees with SOMA's icon/interaction state, map the native
+crosshair semantic owner before changing picker policy.
+
 ## S21 - Semantic camera-add filtering removes VR motion without breaking authored states
 
 Status: GUARDED BUILD READY (`0.19.0-comfort-focus`)

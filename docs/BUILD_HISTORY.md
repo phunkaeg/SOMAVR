@@ -2,6 +2,24 @@
 
 ## 2026-07-15
 
+### 0.20.0-depth-reticle
+
+- Added an opt-in controller interaction reticle as a source-alpha OpenXR quad
+  in application space. It consumes the exact dominant-hand aim pose and native
+  closest-entity distance already published by `HPLInteractionBridge`, so each
+  eye receives compositor-correct depth and convergence without another pick.
+- Added angular-size, physical-size, distance, and frame-age bounds. Missing or
+  stale native hits clear the layer; invalid tracking, missing stereo projection,
+  comfort blackouts, and swapchain failures fail closed without a gaze fallback.
+- Added a dedicated transparent OpenGL/OpenXR reticle swapchain with complete GL
+  state restoration and bounded suspension after repeated transfer failures.
+- Added optional low-amplitude focus-change haptics keyed to SOMA's native
+  entity/body identity, with a configurable frame cooldown. The generic reticle
+  and pulse deliberately do not claim unconfirmed crosshair icon semantics.
+- Added deterministic angular-quad sizing tests and built/tested default and
+  OpenXR x64 Release flavors. OpenXR SHA-256:
+  `7E366518B111CBEEBFC792323CCFEB623221EC78005098271285A640556A0E71`.
+
 ### 0.19.0-comfort-focus
 
 - Added a signature-guarded hook at the registered `cLuxPlayer::SetCameraPosAdd`

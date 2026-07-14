@@ -185,6 +185,14 @@ void ConfigManager::WriteDefaultConfig() const
         << "HudMaxAgeFrames=2\n"
         << "HudSuppressCenterCrosshair=0\n"
         << "HudCrosshairClearRadiusPixels=48\n\n"
+        << "InteractionReticle=0\n"
+        << "InteractionReticleSizePixels=64\n"
+        << "InteractionReticleAngularSizeDegrees=0.75\n"
+        << "InteractionReticleMinSizeMeters=0.008\n"
+        << "InteractionReticleMaxSizeMeters=0.08\n"
+        << "InteractionReticleMinDistanceMeters=0.15\n"
+        << "InteractionReticleMaxDistanceMeters=8.0\n"
+        << "InteractionReticleMaxAgeFrames=2\n\n"
         << "[Controller]\n"
         << "Enabled=0\n"
         << "MoveDeadzone=0.35\n"
@@ -215,6 +223,10 @@ void ConfigManager::WriteDefaultConfig() const
         << "Haptics=1\n"
         << "HapticAmplitude=0.35\n"
         << "HapticDurationMs=30\n"
+        << "FocusHaptics=0\n"
+        << "FocusHapticAmplitude=0.12\n"
+        << "FocusHapticDurationMs=15\n"
+        << "FocusHapticCooldownFrames=15\n"
         << "DominantHand=right\n"
         << "SwapSticks=0\n"
         << "OneHandFallback=1\n"
@@ -397,6 +409,22 @@ void ConfigManager::LoadFromFile()
                 config_.openxrHudSuppressCenterCrosshair = ParseBool(value, config_.openxrHudSuppressCenterCrosshair);
             } else if (key == "hudcrosshairclearradiuspixels") {
                 config_.openxrHudCrosshairClearRadiusPixels = ParseInt(value, config_.openxrHudCrosshairClearRadiusPixels, 4, 256);
+            } else if (key == "interactionreticle") {
+                config_.openxrInteractionReticle = ParseBool(value, config_.openxrInteractionReticle);
+            } else if (key == "interactionreticlesizepixels") {
+                config_.openxrInteractionReticleSizePixels = ParseInt(value, config_.openxrInteractionReticleSizePixels, 32, 512);
+            } else if (key == "interactionreticleangularsizedegrees") {
+                config_.openxrInteractionReticleAngularSizeDegrees = ParseFloat(value, config_.openxrInteractionReticleAngularSizeDegrees, 0.1f, 5.0f);
+            } else if (key == "interactionreticleminsizemeters") {
+                config_.openxrInteractionReticleMinSizeMeters = ParseFloat(value, config_.openxrInteractionReticleMinSizeMeters, 0.001f, 0.5f);
+            } else if (key == "interactionreticlemaxsizemeters") {
+                config_.openxrInteractionReticleMaxSizeMeters = ParseFloat(value, config_.openxrInteractionReticleMaxSizeMeters, 0.001f, 1.0f);
+            } else if (key == "interactionreticlemindistancemeters") {
+                config_.openxrInteractionReticleMinDistanceMeters = ParseFloat(value, config_.openxrInteractionReticleMinDistanceMeters, 0.01f, 10.0f);
+            } else if (key == "interactionreticlemaxdistancemeters") {
+                config_.openxrInteractionReticleMaxDistanceMeters = ParseFloat(value, config_.openxrInteractionReticleMaxDistanceMeters, 0.1f, 100.0f);
+            } else if (key == "interactionreticlemaxageframes") {
+                config_.openxrInteractionReticleMaxAgeFrames = ParseInt(value, config_.openxrInteractionReticleMaxAgeFrames, 0, 30);
             }
             continue;
         }
@@ -434,6 +462,10 @@ void ConfigManager::LoadFromFile()
             else if (key == "haptics") config_.hplControllerHaptics = ParseBool(value, config_.hplControllerHaptics);
             else if (key == "hapticamplitude") config_.hplControllerHapticAmplitude = ParseFloat(value, config_.hplControllerHapticAmplitude, 0.0f, 1.0f);
             else if (key == "hapticdurationms") config_.hplControllerHapticDurationMs = ParseInt(value, config_.hplControllerHapticDurationMs, 1, 1000);
+            else if (key == "focushaptics") config_.hplControllerFocusHaptics = ParseBool(value, config_.hplControllerFocusHaptics);
+            else if (key == "focushapticamplitude") config_.hplControllerFocusHapticAmplitude = ParseFloat(value, config_.hplControllerFocusHapticAmplitude, 0.0f, 1.0f);
+            else if (key == "focushapticdurationms") config_.hplControllerFocusHapticDurationMs = ParseInt(value, config_.hplControllerFocusHapticDurationMs, 1, 1000);
+            else if (key == "focushapticcooldownframes") config_.hplControllerFocusHapticCooldownFrames = ParseInt(value, config_.hplControllerFocusHapticCooldownFrames, 0, 600);
             else if (key == "dominanthand") {
                 const std::string dominantHand = Lower(Trim(value));
                 if (dominantHand == "left" || dominantHand == "right") config_.hplControllerDominantHand = dominantHand;

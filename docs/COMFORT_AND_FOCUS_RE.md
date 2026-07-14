@@ -1,7 +1,7 @@
 # Native Comfort And Interaction Focus RE
 
 Date: 2026-07-15
-Build: `0.19.0-comfort-focus`
+Build: `0.20.0-depth-reticle`
 
 ## Semantic Camera Add Boundary
 
@@ -57,10 +57,28 @@ These offsets agree with the registered property strings at
 normalizes the controller direction, and publishes an immutable snapshot with
 frame, hand, distance, world hit point, entity, and body.
 
-This snapshot is the engine-truth input for a future world-depth reticle. The
-build deliberately does not draw that reticle yet: icon/state ownership and the
-least invasive world-render boundary still need confirmation. Invalid/no-hit
-queries clear validity so a future consumer cannot present stale focus.
+This snapshot is the engine-truth input for the `0.20.0` world-depth reticle.
+The build copies the exact app-space controller aim pose used by the native query
+and converts `mfDistance` through the configured HPL world scale. It does not
+reconstruct depth from OpenGL or issue a second ray test. Invalid/no-hit queries
+clear both snapshot and reticle validity so stale focus cannot be presented.
+
+## OpenXR Depth Reticle Policy
+
+`OpenXRRuntime` submits a small source-alpha `XrCompositionLayerQuad` in the
+application reference space. Its center lies on controller aim at native hit
+distance, its orientation follows the aim pose, and its physical width is
+derived from a configurable angular size with explicit minimum/maximum clamps.
+Submission requires a current native hit, fully tracked aim pose, an existing
+stereo projection layer, and a healthy dedicated swapchain. Comfort blackouts
+remove it with the other layers. Four consecutive draw failures suspend only the
+reticle path.
+
+This is deliberately a generic closest-entity marker. SOMA still owns query
+length, LOS, range, `CanInteract`, focus callbacks, and actual interaction. The
+remaining semantic work is to map its crosshair icon/availability owner and
+either vary or suppress the marker accordingly. Native entity/body transitions
+also drive an optional low-amplitude, cooldown-limited dominant-hand haptic.
 
 ## Acceptance Evidence
 
@@ -70,6 +88,10 @@ queries clear validity so a future consumer cannot present stale focus.
   calls.
 - `hpl_interaction_ray ... hitSnapshot=1` reports distance, world point, entity,
   and body from the same native result used by SOMA.
+- `openxr_frame ... reticle=1` and `reticleSubmitted` prove compositor delivery;
+  summary counters expose updates, clears, expiry, submission, and failures.
+- `hpl_interaction_bridge_summary` separates reticle updates and focus-haptic
+  requests/applied pulses.
 - A useful live run should exercise walking, sprinting, impacts, scripted camera
   motion, interaction targets at several distances, tracking loss, and F10 off/on.
 
@@ -77,7 +99,7 @@ queries clear validity so a future consumer cannot present stale focus.
 
 1. Live acceptance that Bob/Shake/Sway suppression removes discomfort without
    harming ladders, crawl, death, terminals, scripted cameras, or conversations.
-2. Crosshair semantic-state ownership so a depth reticle can preserve SOMA's icon
+2. Crosshair semantic-state ownership so the depth reticle can preserve SOMA's icon
    and availability policy instead of displaying a generic unconditional dot.
-3. A proven per-frame world overlay insertion point or an OpenXR world-space quad
-   policy with depth/occlusion behavior.
+3. Decide whether compositor-only binocular depth is sufficient or whether
+   world geometry occlusion requires a later engine/depth-tested overlay path.

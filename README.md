@@ -76,8 +76,10 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
   suppress the fixed gaze crosshair with `HudSuppressCenterCrosshair=1`.
   `HPLComfortCameraAddControl=1` now removes semantic Bob, Shake, and optional
   Sway only while F10 tracking is active, and the interaction bridge publishes
-  native hit depth/world position for the future controller reticle. These 0.19 prototypes
-  remain live-acceptance features rather than generated-config defaults.
+  native hit depth/world position. `InteractionReticle=1` presents that exact
+  controller hit as an application-space OpenXR quad, while `FocusHaptics=1`
+  adds a bounded pulse when native entity/body focus changes. These 0.20
+  prototypes remain live-acceptance features rather than generated-config defaults.
 
 ## Current Goal
 
@@ -161,6 +163,14 @@ HudDistanceMeters=1.5
 HudWidthMeters=1.6
 HudVerticalOffsetMeters=0.0
 HudMaxAgeFrames=2
+InteractionReticle=1
+InteractionReticleSizePixels=64
+InteractionReticleAngularSizeDegrees=0.75
+InteractionReticleMinSizeMeters=0.008
+InteractionReticleMaxSizeMeters=0.08
+InteractionReticleMinDistanceMeters=0.15
+InteractionReticleMaxDistanceMeters=8.0
+InteractionReticleMaxAgeFrames=2
 
 [Controller]
 Enabled=1
@@ -182,6 +192,10 @@ MenuPointerSmoothing=0.35
 Haptics=1
 HapticAmplitude=0.35
 HapticDurationMs=30
+FocusHaptics=1
+FocusHapticAmplitude=0.12
+FocusHapticDurationMs=15
+FocusHapticCooldownFrames=15
 DominantHand=right
 SwapSticks=0
 OneHandFallback=1

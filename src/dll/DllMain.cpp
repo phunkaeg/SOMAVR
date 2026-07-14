@@ -219,6 +219,21 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrHudCrosshairClearRadiusPixels);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
+        "interaction_reticle_config enabled=%d pixels=%d angularSizeDegrees=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d focusHaptics=%d focusHapticAmplitude=%.3f focusHapticDurationMs=%d focusHapticCooldownFrames=%d",
+        g_config->Get().openxrInteractionReticle ? 1 : 0,
+        g_config->Get().openxrInteractionReticleSizePixels,
+        g_config->Get().openxrInteractionReticleAngularSizeDegrees,
+        g_config->Get().openxrInteractionReticleMinSizeMeters,
+        g_config->Get().openxrInteractionReticleMaxSizeMeters,
+        g_config->Get().openxrInteractionReticleMinDistanceMeters,
+        g_config->Get().openxrInteractionReticleMaxDistanceMeters,
+        g_config->Get().openxrInteractionReticleMaxAgeFrames,
+        g_config->Get().hplControllerFocusHaptics ? 1 : 0,
+        g_config->Get().hplControllerFocusHapticAmplitude,
+        g_config->Get().hplControllerFocusHapticDurationMs,
+        g_config->Get().hplControllerFocusHapticCooldownFrames);
+    somavr::Logger::Instance().Write(
+        somavr::LogLevel::Info,
         "comfort_config cameraAddControl=%d suppressHeadBob=%d suppressCameraShake=%d suppressSway=%d logInterval=%d",
         g_config->Get().hplComfortCameraAddControl ? 1 : 0,
         g_config->Get().hplComfortSuppressHeadBob ? 1 : 0,
@@ -252,7 +267,15 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrHudVerticalOffsetMeters,
         g_config->Get().openxrHudMaxAgeFrames,
         g_config->Get().openxrHudSuppressCenterCrosshair,
-        g_config->Get().openxrHudCrosshairClearRadiusPixels);
+        g_config->Get().openxrHudCrosshairClearRadiusPixels,
+        g_config->Get().openxrInteractionReticle,
+        g_config->Get().openxrInteractionReticleSizePixels,
+        g_config->Get().openxrInteractionReticleAngularSizeDegrees,
+        g_config->Get().openxrInteractionReticleMinSizeMeters,
+        g_config->Get().openxrInteractionReticleMaxSizeMeters,
+        g_config->Get().openxrInteractionReticleMinDistanceMeters,
+        g_config->Get().openxrInteractionReticleMaxDistanceMeters,
+        g_config->Get().openxrInteractionReticleMaxAgeFrames);
 
     if (!somavr::InstallOpenGLHooks(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "opengl_hooks install_failed");

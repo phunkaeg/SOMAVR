@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.19.0-comfort-focus`, layered on the
+The active build candidate is `0.20.0-depth-reticle`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
@@ -30,10 +30,16 @@ compatibility probes:
   setter. During active VR it zeros only Bob, Shake, and optional Sway while all
   authored movement/state channels remain native. The active profile enables all
   three comfort channels; generated configs keep the control disabled.
-- Controller closest-entity results now publish validated entity/body pointers,
-  native hit distance, and an HPL world hit point. This is the engine-truth data
-  contract for a future world-depth interaction reticle; no new reticle is drawn
-  in this build.
+- Controller closest-entity results publish validated entity/body pointers,
+  native hit distance, and an HPL world hit point. The same exact aim pose and
+  distance now drive an opt-in application-space OpenXR reticle quad, giving
+  compositor-correct binocular depth without reconstructing depth from GL.
+- The reticle is age, tracking, distance, size, stereo, and resource guarded. It
+  clears on no-hit/fallback and is omitted during comfort blackouts. It remains a
+  generic hit marker until SOMA's crosshair icon/availability owner is confirmed.
+- Optional focus-change haptics use native entity/body identity with a low
+  amplitude and cooldown, extending the existing OpenXR output action without
+  replacing SOMA's interaction policy.
 
 - Optional head-relative movement now rotates the movement stick by calibrated
   HMD yaw while rejecting pitch and roll. Optional physical crouch calibrates
@@ -398,12 +404,14 @@ The OpenXR build now asks for:
 & "D:\Dev Debug\SOMAVR\build-openxr-controller\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.19.0-comfort-focus`, six compatibility render-stage hooks,
+2. Confirm `version=0.20.0-depth-reticle`, six compatibility render-stage hooks,
    `hpl_hud_bridge installed ... layer=1`,
    `hpl_interaction_bridge install_ok`, `hpl_hands_bridge install_ok`, and
    `hpl_grab_bridge install_ok ... rotation=1 throwRedirect=1`, plus
    `hpl_comfort_bridge install_ok ... bob=1 shake=1 sway=1`,
    `referenceSpace=local`, `recovery=1`, and controller haptics enabled.
+   Confirm `openxr_interaction_reticle swapchain_created` and the reticle/focus
+   haptic configuration row before judging visual behavior.
 3. Load a save game, face forward, and press F10 once.
 4. Confirm `hpl_vr_mode requested`, API-attributed `openxr_manual_start triggered`,
    one or more `calibration_wait` rows, then `hpl_vr_mode activated` with

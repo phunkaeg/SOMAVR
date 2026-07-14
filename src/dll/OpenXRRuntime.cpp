@@ -125,7 +125,15 @@ struct OpenXRRuntime::Impl {
         float hudVerticalOffsetMeters,
         int hudMaxAgeFrames,
         bool hudSuppressCenterCrosshair,
-        int hudCrosshairClearRadiusPixels)
+        int hudCrosshairClearRadiusPixels,
+        bool interactionReticleEnabled,
+        int interactionReticleSizePixels,
+        float interactionReticleAngularSizeDegrees,
+        float interactionReticleMinSizeMeters,
+        float interactionReticleMaxSizeMeters,
+        float interactionReticleMinDistanceMeters,
+        float interactionReticleMaxDistanceMeters,
+        int interactionReticleMaxAgeFrames)
     {
         std::lock_guard lock(mutex_);
         enabled_ = enabled;
@@ -153,6 +161,23 @@ struct OpenXRRuntime::Impl {
         hudMaxAgeFrames_ = std::clamp(hudMaxAgeFrames, 0, 30);
         hudSuppressCenterCrosshair_ = hudSuppressCenterCrosshair;
         hudCrosshairClearRadiusPixels_ = std::clamp(hudCrosshairClearRadiusPixels, 4, 256);
+        interactionReticleEnabled_ = interactionReticleEnabled;
+        interactionReticleSizePixels_ = std::clamp(interactionReticleSizePixels, 32, 512);
+        interactionReticleAngularSizeDegrees_ = std::clamp(interactionReticleAngularSizeDegrees, 0.1f, 5.0f);
+        interactionReticleMinSizeMeters_ = std::clamp(interactionReticleMinSizeMeters, 0.001f, 0.5f);
+        interactionReticleMaxSizeMeters_ = std::clamp(
+            interactionReticleMaxSizeMeters,
+            interactionReticleMinSizeMeters_,
+            1.0f);
+        interactionReticleMinDistanceMeters_ = std::clamp(interactionReticleMinDistanceMeters, 0.01f, 10.0f);
+        interactionReticleMaxDistanceMeters_ = std::clamp(
+            interactionReticleMaxDistanceMeters,
+            interactionReticleMinDistanceMeters_,
+            100.0f);
+        interactionReticleMaxAgeFrames_ = std::clamp(interactionReticleMaxAgeFrames, 0, 30);
+        interactionReticleSubmissionSuspended_ = false;
+        interactionReticleConsecutiveFailures_ = 0;
+        interactionReticleState_ = {};
         hudSubmissionSuspended_ = false;
         hudConsecutiveFailures_ = 0;
         manualStartArmed_ = false;
@@ -162,7 +187,7 @@ struct OpenXRRuntime::Impl {
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d}",
+            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -187,7 +212,15 @@ struct OpenXRRuntime::Impl {
             hudVerticalOffsetMeters_,
             hudMaxAgeFrames_,
             hudSuppressCenterCrosshair_ ? 1 : 0,
-            hudCrosshairClearRadiusPixels_);
+            hudCrosshairClearRadiusPixels_,
+            interactionReticleEnabled_ ? 1 : 0,
+            interactionReticleSizePixels_,
+            interactionReticleAngularSizeDegrees_,
+            interactionReticleMinSizeMeters_,
+            interactionReticleMaxSizeMeters_,
+            interactionReticleMinDistanceMeters_,
+            interactionReticleMaxDistanceMeters_,
+            interactionReticleMaxAgeFrames_);
 
         if (frameSubmitEnabled_ && !sessionProbeEnabled_) {
             Logger::Instance().Write(
@@ -309,6 +342,9 @@ struct OpenXRRuntime::Impl {
         trackingLost_ = false;
         hudSubmissionSuspended_ = false;
         hudConsecutiveFailures_ = 0;
+        interactionReticleState_ = {};
+        interactionReticleSubmissionSuspended_ = false;
+        interactionReticleConsecutiveFailures_ = 0;
         releaseFrame_ = 0;
     }
 
@@ -363,6 +399,15 @@ struct OpenXRRuntime::Impl {
             << " openxrHudCaptureCompletions=" << static_cast<unsigned long long>(hudCaptureCompletions_)
             << " openxrHudSubmittedFrames=" << static_cast<unsigned long long>(hudSubmittedFrames_)
             << " openxrHudSubmissionFailures=" << static_cast<unsigned long long>(hudSubmissionFailures_)
+            << " openxrInteractionReticle=" << (interactionReticleEnabled_ ? 1 : 0)
+            << " openxrInteractionReticleReady=" << (glBridge_.InteractionReticleReady() ? 1 : 0)
+            << " openxrInteractionReticleValid=" << (interactionReticleState_.valid ? 1 : 0)
+            << " openxrInteractionReticleSuspended=" << (interactionReticleSubmissionSuspended_ ? 1 : 0)
+            << " openxrInteractionReticleUpdates=" << static_cast<unsigned long long>(interactionReticleUpdates_)
+            << " openxrInteractionReticleClears=" << static_cast<unsigned long long>(interactionReticleClears_)
+            << " openxrInteractionReticleExpired=" << static_cast<unsigned long long>(interactionReticleExpired_)
+            << " openxrInteractionReticleSubmittedFrames=" << static_cast<unsigned long long>(interactionReticleSubmittedFrames_)
+            << " openxrInteractionReticleSubmissionFailures=" << static_cast<unsigned long long>(interactionReticleSubmissionFailures_)
             << " openxrSubmittedFrames=" << static_cast<unsigned long long>(submittedFrameCount_)
             << " openxrLastSubmittedGameFrame=" << static_cast<unsigned long long>(lastSubmittedGameFrame_)
             << " openxrSessionAttempted=" << (sessionAttempted_ ? 1 : 0)
@@ -467,6 +512,37 @@ struct OpenXRRuntime::Impl {
         std::lock_guard lock(mutex_);
         input = input_.Snapshot();
         return input.available;
+    }
+
+    void SetInteractionReticle(const OpenXRInteractionReticleState& state)
+    {
+        std::lock_guard lock(mutex_);
+        if (!interactionReticleEnabled_
+            || !state.valid
+            || state.handIndex >= 2
+            || !state.aimPose.valid
+            || !state.aimPose.orientationTracked
+            || !state.aimPose.positionTracked
+            || !std::isfinite(state.distanceMeters)
+            || state.distanceMeters < interactionReticleMinDistanceMeters_
+            || state.distanceMeters > interactionReticleMaxDistanceMeters_) {
+            if (interactionReticleState_.valid) {
+                interactionReticleState_ = {};
+                ++interactionReticleClears_;
+            }
+            return;
+        }
+        interactionReticleState_ = state;
+        ++interactionReticleUpdates_;
+    }
+
+    void ClearInteractionReticle()
+    {
+        std::lock_guard lock(mutex_);
+        if (interactionReticleState_.valid) {
+            interactionReticleState_ = {};
+            ++interactionReticleClears_;
+        }
     }
 
     bool RequestHapticPulse(uint32_t hand, float amplitude, int durationMs, const char* reason)
@@ -1310,7 +1386,9 @@ private:
                 hudWidthPixels_,
                 hudHeightPixels_,
                 hudSuppressCenterCrosshair_,
-                hudCrosshairClearRadiusPixels_)) {
+                hudCrosshairClearRadiusPixels_,
+                interactionReticleEnabled_,
+                interactionReticleSizePixels_)) {
             xrDestroySpace(appSpace_);
             appSpace_ = XR_NULL_HANDLE;
             if (viewSpace_ != XR_NULL_HANDLE) {
@@ -1357,6 +1435,9 @@ private:
         renderedStereoViewValid_[0] = false;
         renderedStereoViewValid_[1] = false;
         stereoWarmupLogged_ = false;
+        interactionReticleState_ = {};
+        interactionReticleSubmissionSuspended_ = false;
+        interactionReticleConsecutiveFailures_ = 0;
         frameResourcesReady_ = false;
     }
 
@@ -1548,12 +1629,14 @@ private:
         std::array<XrCompositionLayerProjectionView, 2> projectionViews{};
         XrCompositionLayerProjection projectionLayer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
         XrCompositionLayerQuad hudLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
-        const XrCompositionLayerBaseHeader* layers[2] = {};
+        XrCompositionLayerQuad interactionReticleLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
+        const XrCompositionLayerBaseHeader* layers[3] = {};
         uint32_t layerCount = 0;
         uint32_t locatedViewCount = 0;
         XrViewState viewState{XR_TYPE_VIEW_STATE};
         bool submittedStereo = false;
         bool submittedHud = false;
+        bool submittedInteractionReticle = false;
         bool viewsLocatedValid = false;
         for (XrView& view : pendingLocatedViews_) {
             view = {XR_TYPE_VIEW};
@@ -1718,6 +1801,84 @@ private:
             }
         }
 
+        const bool interactionReticleFresh = interactionReticleState_.valid
+            && frameIndex >= interactionReticleState_.gameFrame
+            && frameIndex - interactionReticleState_.gameFrame
+                <= static_cast<uint64_t>(interactionReticleMaxAgeFrames_);
+        if (interactionReticleState_.valid
+            && frameIndex >= interactionReticleState_.gameFrame
+            && !interactionReticleFresh) {
+            interactionReticleState_ = {};
+            ++interactionReticleExpired_;
+        }
+        if (frameState.shouldRender == XR_TRUE
+            && layerCount > 0
+            && interactionReticleEnabled_
+            && !interactionReticleSubmissionSuspended_
+            && stereoSubmissionEnabled_
+            && appSpace_ != XR_NULL_HANDLE
+            && interactionReticleFresh
+            && glBridge_.InteractionReticleReady()) {
+            const float distanceMeters = interactionReticleState_.distanceMeters;
+            float reticleSizeMeters = 0.0f;
+            const bool sizeValid = hud_math::ComputeAngularQuadSize(
+                distanceMeters,
+                interactionReticleAngularSizeDegrees_,
+                interactionReticleMinSizeMeters_,
+                interactionReticleMaxSizeMeters_,
+                reticleSizeMeters);
+            const OpenXRControllerPose& aim = interactionReticleState_.aimPose;
+            hud_math::HudQuadPose reticlePose;
+            const bool poseValid = sizeValid && hud_math::BuildHeadLockedQuadPose(
+                {aim.positionX, aim.positionY, aim.positionZ},
+                {aim.orientationX, aim.orientationY, aim.orientationZ, aim.orientationW},
+                distanceMeters,
+                0.0f,
+                reticleSizeMeters,
+                1.0f,
+                reticlePose);
+            if (poseValid && glBridge_.DrawInteractionReticleToSwapchain()) {
+                interactionReticleLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                interactionReticleLayer.space = appSpace_;
+                interactionReticleLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                interactionReticleLayer.pose.orientation = {
+                    reticlePose.orientation.x,
+                    reticlePose.orientation.y,
+                    reticlePose.orientation.z,
+                    reticlePose.orientation.w,
+                };
+                interactionReticleLayer.pose.position = {
+                    reticlePose.position.x,
+                    reticlePose.position.y,
+                    reticlePose.position.z,
+                };
+                interactionReticleLayer.size = {reticlePose.widthMeters, reticlePose.heightMeters};
+                interactionReticleLayer.subImage.swapchain = glBridge_.InteractionReticle().handle;
+                interactionReticleLayer.subImage.imageRect.offset = {0, 0};
+                interactionReticleLayer.subImage.imageRect.extent = {
+                    glBridge_.InteractionReticle().width,
+                    glBridge_.InteractionReticle().height,
+                };
+                interactionReticleLayer.subImage.imageArrayIndex = 0;
+                layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
+                    &interactionReticleLayer);
+                submittedInteractionReticle = true;
+                interactionReticleConsecutiveFailures_ = 0;
+                ++interactionReticleSubmittedFrames_;
+            } else {
+                ++interactionReticleSubmissionFailures_;
+                ++interactionReticleConsecutiveFailures_;
+                if (interactionReticleConsecutiveFailures_ >= 4) {
+                    interactionReticleSubmissionSuspended_ = true;
+                    Logger::Instance().Write(
+                        LogLevel::Error,
+                        "openxr_interaction_reticle suspended reason=submission_failures consecutive=%u total=%llu",
+                        interactionReticleConsecutiveFailures_,
+                        static_cast<unsigned long long>(interactionReticleSubmissionFailures_));
+                }
+            }
+        }
+
         const bool comfortBlackout = comfortBlackoutUntilFrame_ != 0
             && frameIndex <= comfortBlackoutUntilFrame_;
         if (comfortBlackout) {
@@ -1756,7 +1917,7 @@ private:
         if (completedXrFrameCount_ == 1 || (completedXrFrameCount_ % 300) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d hud=%d stereoCaptured=%llu stereoSubmitted=%llu hudSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
+                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d hud=%d reticle=%d stereoCaptured=%llu stereoSubmitted=%llu hudSubmitted=%llu reticleSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
                 static_cast<unsigned long long>(frameIndex),
                 static_cast<unsigned long long>(completedXrFrameCount_),
                 frameState.shouldRender == XR_TRUE ? 1 : 0,
@@ -1764,9 +1925,11 @@ private:
                 locatedViewCount,
                 submittedStereo ? 1 : 0,
                 submittedHud ? 1 : 0,
+                submittedInteractionReticle ? 1 : 0,
                 static_cast<unsigned long long>(stereoCapturedEyeCount_),
                 static_cast<unsigned long long>(stereoSubmittedFrameCount_),
                 static_cast<unsigned long long>(hudSubmittedFrames_),
+                static_cast<unsigned long long>(interactionReticleSubmittedFrames_),
                 static_cast<long long>(frameState.predictedDisplayTime),
                 locatedViewCount > 0 ? locatedViews_[0].pose.position.x : 0.0f,
                 locatedViewCount > 0 ? locatedViews_[0].pose.position.y : 0.0f,
@@ -1914,6 +2077,15 @@ private:
     int hudMaxAgeFrames_ = 2;
     bool hudSuppressCenterCrosshair_ = false;
     int hudCrosshairClearRadiusPixels_ = 48;
+    bool interactionReticleEnabled_ = false;
+    bool interactionReticleSubmissionSuspended_ = false;
+    int interactionReticleSizePixels_ = 64;
+    float interactionReticleAngularSizeDegrees_ = 0.75f;
+    float interactionReticleMinSizeMeters_ = 0.008f;
+    float interactionReticleMaxSizeMeters_ = 0.08f;
+    float interactionReticleMinDistanceMeters_ = 0.15f;
+    float interactionReticleMaxDistanceMeters_ = 8.0f;
+    int interactionReticleMaxAgeFrames_ = 2;
     bool trackingDegraded_ = false;
     bool trackingLost_ = false;
     uint64_t retryFrame_ = 0;
@@ -1936,6 +2108,12 @@ private:
     uint64_t hudCaptureCompletions_ = 0;
     uint64_t hudSubmittedFrames_ = 0;
     uint64_t hudSubmissionFailures_ = 0;
+    uint32_t interactionReticleConsecutiveFailures_ = 0;
+    uint64_t interactionReticleUpdates_ = 0;
+    uint64_t interactionReticleClears_ = 0;
+    uint64_t interactionReticleExpired_ = 0;
+    uint64_t interactionReticleSubmittedFrames_ = 0;
+    uint64_t interactionReticleSubmissionFailures_ = 0;
     uint64_t runtimeRecoveries_ = 0;
     uint64_t trackingInvalidFrames_ = 0;
     uint64_t trackingLossEvents_ = 0;
@@ -1947,6 +2125,7 @@ private:
     uint64_t comfortBlackoutFrames_ = 0;
     OpenXREyeView pendingRenderedView_{};
     OpenXREyeView renderedStereoViews_[2] = {};
+    OpenXRInteractionReticleState interactionReticleState_{};
     bool latestPoseValid_ = false;
     uint64_t latestPoseGameFrame_ = 0;
     XrViewStateFlags latestViewStateFlags_ = 0;
@@ -2004,7 +2183,15 @@ struct OpenXRRuntime::Impl {
         float hudVerticalOffsetMeters,
         int hudMaxAgeFrames,
         bool hudSuppressCenterCrosshair,
-        int hudCrosshairClearRadiusPixels)
+        int hudCrosshairClearRadiusPixels,
+        bool interactionReticleEnabled,
+        int interactionReticleSizePixels,
+        float interactionReticleAngularSizeDegrees,
+        float interactionReticleMinSizeMeters,
+        float interactionReticleMaxSizeMeters,
+        float interactionReticleMinDistanceMeters,
+        float interactionReticleMaxDistanceMeters,
+        int interactionReticleMaxAgeFrames)
     {
         std::lock_guard lock(mutex_);
         enabled_ = enabled;
@@ -2028,7 +2215,7 @@ struct OpenXRRuntime::Impl {
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d}",
+            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -2053,7 +2240,15 @@ struct OpenXRRuntime::Impl {
             hudVerticalOffsetMeters,
             hudMaxAgeFrames,
             hudSuppressCenterCrosshair ? 1 : 0,
-            hudCrosshairClearRadiusPixels);
+            hudCrosshairClearRadiusPixels,
+            interactionReticleEnabled ? 1 : 0,
+            interactionReticleSizePixels,
+            interactionReticleAngularSizeDegrees,
+            interactionReticleMinSizeMeters,
+            interactionReticleMaxSizeMeters,
+            interactionReticleMinDistanceMeters,
+            interactionReticleMaxDistanceMeters,
+            interactionReticleMaxAgeFrames);
     }
 
     void OnOpenGLContext(HDC deviceContext, HGLRC glContext)
@@ -2145,6 +2340,8 @@ struct OpenXRRuntime::Impl {
     }
 
     bool RequestHapticPulse(uint32_t, float, int, const char*) { return false; }
+    void SetInteractionReticle(const OpenXRInteractionReticleState&) {}
+    void ClearInteractionReticle() {}
 
     void SetStereoSubmissionEnabled(bool) {}
     bool MarkRenderedStereoEye(uint32_t, const OpenXREyeView&) { return false; }
@@ -2219,7 +2416,15 @@ void OpenXRRuntime::Configure(
     float hudVerticalOffsetMeters,
     int hudMaxAgeFrames,
     bool hudSuppressCenterCrosshair,
-    int hudCrosshairClearRadiusPixels)
+    int hudCrosshairClearRadiusPixels,
+    bool interactionReticleEnabled,
+    int interactionReticleSizePixels,
+    float interactionReticleAngularSizeDegrees,
+    float interactionReticleMinSizeMeters,
+    float interactionReticleMaxSizeMeters,
+    float interactionReticleMinDistanceMeters,
+    float interactionReticleMaxDistanceMeters,
+    int interactionReticleMaxAgeFrames)
 {
     impl_->Configure(
         enabled,
@@ -2246,7 +2451,15 @@ void OpenXRRuntime::Configure(
         hudVerticalOffsetMeters,
         hudMaxAgeFrames,
         hudSuppressCenterCrosshair,
-        hudCrosshairClearRadiusPixels);
+        hudCrosshairClearRadiusPixels,
+        interactionReticleEnabled,
+        interactionReticleSizePixels,
+        interactionReticleAngularSizeDegrees,
+        interactionReticleMinSizeMeters,
+        interactionReticleMaxSizeMeters,
+        interactionReticleMinDistanceMeters,
+        interactionReticleMaxDistanceMeters,
+        interactionReticleMaxAgeFrames);
 }
 
 void OpenXRRuntime::OnOpenGLContext(HDC deviceContext, HGLRC glContext)
@@ -2292,6 +2505,16 @@ bool OpenXRRuntime::GetLatestStereoViews(OpenXRStereoViewSnapshot& views) const
 bool OpenXRRuntime::GetLatestInput(OpenXRInputSnapshot& input) const
 {
     return impl_->GetLatestInput(input);
+}
+
+void OpenXRRuntime::SetInteractionReticle(const OpenXRInteractionReticleState& state)
+{
+    impl_->SetInteractionReticle(state);
+}
+
+void OpenXRRuntime::ClearInteractionReticle()
+{
+    impl_->ClearInteractionReticle();
 }
 
 bool OpenXRRuntime::RequestHapticPulse(uint32_t hand, float amplitude, int durationMs, const char* reason)

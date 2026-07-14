@@ -1,5 +1,28 @@
 # Test Checklists
 
+## 0.20.0 Controller Depth Reticle And Focus Haptics
+
+1. Launch the OpenXR Release DLL, load a save, and press F10. Confirm
+   `version=0.20.0-depth-reticle`, `openxr_interaction_reticle swapchain_created`,
+   and no reticle, interaction-bridge, or OpenXR signature/resource failure.
+2. Aim at native pick targets from roughly 0.2 to 8 meters. The cyan reticle
+   should sit at the target depth with comfortable stereo convergence and nearly
+   constant apparent size; it must follow controller aim rather than head gaze.
+3. Move between targets and empty space. The reticle must clear within the
+   configured age bound on no hit, tracking loss, authored-camera fallback, F10
+   off, or a target outside the configured distance range. It must never freeze.
+4. With `FocusHaptics=1`, entering a new native entity/body should produce one
+   subtle pulse on the dominant hand. Holding focus must not buzz continuously;
+   rapidly crossing edges must remain bounded by `FocusHapticCooldownFrames`.
+5. Verify the fixed gaze crosshair remains suppressed but descriptions and other
+   gameplay HUD survive. The generic reticle is allowed on any closest-entity
+   result in this build; record cases where SOMA displays a different icon or
+   rejects interaction so the semantic owner can be mapped next.
+6. Regress shadows/reflections, world rigidity, HUD alpha, hands, grab/throw,
+   menu pointer, comfort blackouts, authored cameras, save/load, tracking loss,
+   and clean shutdown. Preserve `openxr_frame`, `openxr_summary`, and
+   `hpl_interaction_bridge_summary` rows.
+
 ## 0.19.0 Native Comfort And Focus Snapshot
 
 1. Launch the OpenXR Release DLL, load a save, and press F10. Confirm

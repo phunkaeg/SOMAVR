@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `0x140159360` | `HPL3_Script_cLuxPlayer_SetCameraPosAdd` | Registered setter with type in EDX and vector in R8. `0.19.0` zeros only semantic Bob/Shake/optional Sway while VR is active. |
 | `0x140156f00` | `HPL3_Script_cLuxPlayer_SetCameraRoll` | Confirmed roll-current/goal array setter; documented as a future policy anchor and deliberately unhooked. |
-| `0x1400cd750` | `SOMA_GetClosestEntity` | Plate comment now records finalized output payload entity `+0x18`, body `+0x20`, distance `+0x28`, and the `0.19.0` world-hit snapshot. |
+| `0x1400cd750` | `SOMA_GetClosestEntity` | Plate comment records finalized output payload entity `+0x18`, body `+0x20`, distance `+0x28`, the world-hit snapshot, and its `0.20.0` OpenXR depth-reticle/focus-haptic consumers. |
 
 The two player wrappers were renamed and tagged `SOMAVR`, `VR-comfort`, and
 `AngelScript-wrapper`; the existing picker received interaction/result tags and

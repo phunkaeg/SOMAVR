@@ -1,5 +1,18 @@
 # Future Systems Reverse Engineering
 
+## 0.20.0 Depth Reticle And Focus Feedback Result
+
+The native closest-entity aim pose and finalized distance now feed a dedicated
+application-space OpenXR alpha quad. Angular-size and physical-size clamps keep
+its apparent size stable, while frame-age, tracking, distance, stereo-layer, and
+resource guards clear or omit it on every unsafe path. Native entity/body
+identity transitions can also request a low-amplitude cooldown-limited haptic.
+
+This closes the generic world-depth presentation boundary. Remaining reticle
+work is narrower: locate SOMA's crosshair icon/availability owner, decide how
+semantic states vary or suppress the marker, and determine whether world-geometry
+occlusion warrants an engine-rendered alternative to the compositor quad.
+
 ## 0.19.0 Semantic Comfort And Focus Result
 
 The shipped player enum and registered `SetCameraPosAdd` wrapper now provide a
@@ -11,7 +24,8 @@ acceptance task. See `COMFORT_AND_FOCUS_RE.md` for the ABI and enum ledger.
 The native closest-entity output is also decoded after SOMA finalizes it. Entity
 `+0x18`, body `+0x20`, and distance `+0x28` feed an immutable frame/hand/world-hit
 snapshot. A world-depth reticle no longer needs to reconstruct depth from GL;
-remaining work is semantic icon ownership and a proven render/layer boundary.
+`0.20.0` proves the compositor-layer boundary, leaving semantic icon ownership
+and optional world occlusion as the remaining policy.
 
 ## 0.18.0 Grab Rotation, Throw, And Reticle Policy
 
@@ -30,10 +44,10 @@ the native Grab right-click may redirect the impulse; all other calls dispatch
 straight to the concrete body virtual method. The native impulse magnitude,
 including SOMA's object-mass multiplier, remains the baseline.
 
-The fixed center crosshair is now optionally removed after exact GameHudSet
-capture by clearing a small center rectangle to transparent. This is a bounded
-interim policy, not the final reticle: actual world-depth feedback still needs
-safe decoding of `cLuxClosestEntityData.mfDistance` from the native pick result.
+The fixed center crosshair is optionally removed after exact GameHudSet capture
+by clearing a small center rectangle to transparent. `0.20.0` replaces its depth
+role with a controller-aimed OpenXR quad driven by decoded native pick distance;
+crosshair semantic icons still need ownership mapping.
 
 ## 0.17.0 Physics Input And Native Grab Findings
 
@@ -444,7 +458,7 @@ SOMA does not have one monolithic HUD.
 | Gameplay HUD | crosshair, descriptions, infection border, white flashes | `cLux_GetGameHudSet()` queued in `OnDraw` | Extract to a transparent texture; submit as a configurable OpenXR quad/curved layer. |
 | ImGui HUD | hints, inventory, menus, wake/game-over, credits | `cLux_GetGameHudImGui()` / module `OnGui` | Same HUD texture/layer initially; separate menu layer later if useful. |
 | Diegetic GUI | terminals, handheld terminals, screens | world `cGuiSetEntity`/terminal callbacks | Keep in the stereo world and drive with a controller ray. |
-| Interaction reticle | crosshair state enum and image set | fixed virtual-screen center | Replace with a world-space hit marker or depth-aware reticle driven by the interaction ray. |
+| Interaction reticle | native picker result now; crosshair state enum still pending | application-space OpenXR quad at hit depth | Keep generic marker bounded; map icon/availability semantics and assess world occlusion. |
 | Subtitle/dialog text | engine/game GUI path | flat screen-space text | Head-locked quad with adjustable distance, height, scale, and safe width. |
 
 The crosshair is centered using `cLux_GetHudVirtualCenterSize()` and can be shifted by the eye-tracking extended-view offset. That eye-tracking concept is useful precedent: reticle position is already treated separately from camera orientation.

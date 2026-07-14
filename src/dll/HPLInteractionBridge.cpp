@@ -51,6 +51,11 @@ std::atomic<uint64_t> g_fallbackInput = 0;
 std::atomic<uint64_t> g_fallbackTracking = 0;
 std::atomic<uint64_t> g_fallbackOrigin = 0;
 std::atomic<uint64_t> g_hitSnapshots = 0;
+std::atomic<uint64_t> g_reticleUpdates = 0;
+std::atomic<uint64_t> g_focusHapticRequests = 0;
+std::atomic<uint64_t> g_focusHapticApplied = 0;
+std::atomic<uintptr_t> g_lastFocusTarget = 0;
+std::atomic<uint64_t> g_lastFocusHapticFrame = 0;
 std::mutex g_hitMutex;
 HPLInteractionHitSnapshot g_latestHit;
 
@@ -76,14 +81,21 @@ bool IsFiniteVector(const float* value)
 
 void ClearHitSnapshot()
 {
-    std::lock_guard lock(g_hitMutex);
-    g_latestHit.valid = false;
+    {
+        std::lock_guard lock(g_hitMutex);
+        g_latestHit.valid = false;
+    }
+    g_lastFocusTarget.store(0, std::memory_order_relaxed);
+    if (g_openxr != nullptr) {
+        g_openxr->ClearInteractionReticle();
+    }
 }
 
 bool PublishHitSnapshot(
     void* output,
     uint64_t gameFrame,
     uint32_t handIndex,
+    const OpenXRControllerPose& aimPose,
     const float* start,
     const float* direction,
     float rayLength)
@@ -127,8 +139,43 @@ bool PublishHitSnapshot(
     snapshot.worldZ = start[2] + direction[2] * inverseDirectionLength * distance;
     snapshot.entity = entity;
     snapshot.body = body;
-    std::lock_guard lock(g_hitMutex);
-    g_latestHit = snapshot;
+    {
+        std::lock_guard lock(g_hitMutex);
+        g_latestHit = snapshot;
+    }
+
+    if (g_openxr != nullptr) {
+        OpenXRInteractionReticleState reticle;
+        reticle.valid = true;
+        reticle.gameFrame = gameFrame;
+        reticle.handIndex = handIndex;
+        reticle.distanceMeters = distance / std::max(g_config.hplWorldScale, 0.001f);
+        reticle.aimPose = aimPose;
+        g_openxr->SetInteractionReticle(reticle);
+        g_reticleUpdates.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    void* focusTarget = entity != nullptr ? entity : body;
+    const uintptr_t targetValue = reinterpret_cast<uintptr_t>(focusTarget);
+    const uintptr_t previousTarget = g_lastFocusTarget.exchange(targetValue, std::memory_order_relaxed);
+    const uint64_t lastHapticFrame = g_lastFocusHapticFrame.load(std::memory_order_relaxed);
+    const uint64_t cooldown = static_cast<uint64_t>(g_config.hplControllerFocusHapticCooldownFrames);
+    if (g_config.hplControllerHaptics
+        && g_config.hplControllerFocusHaptics
+        && g_openxr != nullptr
+        && targetValue != 0
+        && targetValue != previousTarget
+        && (lastHapticFrame == 0 || gameFrame >= lastHapticFrame + cooldown)) {
+        g_focusHapticRequests.fetch_add(1, std::memory_order_relaxed);
+        g_lastFocusHapticFrame.store(gameFrame, std::memory_order_relaxed);
+        if (g_openxr->RequestHapticPulse(
+                handIndex,
+                g_config.hplControllerFocusHapticAmplitude,
+                g_config.hplControllerFocusHapticDurationMs,
+                "interaction_focus_changed")) {
+            g_focusHapticApplied.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
     return true;
 }
 
@@ -247,7 +294,14 @@ bool HookGetClosestEntity(
     const uint64_t substitution = g_substitutions.fetch_add(1, std::memory_order_relaxed) + 1;
     if (hit) g_substitutionHits.fetch_add(1, std::memory_order_relaxed);
     const bool hitSnapshot = hit
-        ? PublishHitSnapshot(output, input.gameFrame, handIndex, controllerStart, controllerDirection, rayLength)
+        ? PublishHitSnapshot(
+            output,
+            input.gameFrame,
+            handIndex,
+            hand->aimPose,
+            controllerStart,
+            controllerDirection,
+            rayLength)
         : (ClearHitSnapshot(), false);
 
     HPLInteractionHitSnapshot snapshot;
@@ -348,8 +402,8 @@ void RemoveHPLInteractionBridge()
     }
     g_getClosestEntityTarget = nullptr;
     g_originalGetClosestEntity = nullptr;
-    g_openxr = nullptr;
     ClearHitSnapshot();
+    g_openxr = nullptr;
     Logger::Instance().Write(LogLevel::Info, "hpl_interaction_bridge removed");
 }
 
@@ -357,12 +411,15 @@ void LogHPLInteractionBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_interaction_bridge_summary installed=%d calls=%llu substitutions=%llu hits=%llu hitSnapshots=%llu fallbackDisabled=%llu fallbackQueryType=%llu fallbackAuthoredCamera=%llu fallbackCamera=%llu fallbackInput=%llu fallbackTracking=%llu fallbackOrigin=%llu",
+        "hpl_interaction_bridge_summary installed=%d calls=%llu substitutions=%llu hits=%llu hitSnapshots=%llu reticleUpdates=%llu focusHapticRequests=%llu focusHapticApplied=%llu fallbackDisabled=%llu fallbackQueryType=%llu fallbackAuthoredCamera=%llu fallbackCamera=%llu fallbackInput=%llu fallbackTracking=%llu fallbackOrigin=%llu",
         g_getClosestEntityTarget != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_calls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_substitutions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_substitutionHits.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hitSnapshots.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_reticleUpdates.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_focusHapticRequests.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_focusHapticApplied.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_fallbackDisabled.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_fallbackQueryType.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_fallbackAuthoredCamera.load(std::memory_order_relaxed)),

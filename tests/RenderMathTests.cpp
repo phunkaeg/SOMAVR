@@ -123,6 +123,19 @@ int main()
     failures += Check(
         !hud_math::BuildHeadLockedQuadPose({}, {}, 0.0f, 0.0f, 1.0f, 1.0f, hudPose),
         "head-locked HUD rejects invalid distance");
+    float reticleSizeMeters = 0.0f;
+    failures += Check(
+        hud_math::ComputeAngularQuadSize(2.0f, 1.0f, 0.005f, 0.1f, reticleSizeMeters)
+            && Near(reticleSizeMeters, 0.034907f, 0.00001f),
+        "interaction reticle angular size");
+    failures += Check(
+        hud_math::ComputeAngularQuadSize(0.1f, 0.1f, 0.008f, 0.08f, reticleSizeMeters)
+            && Near(reticleSizeMeters, 0.008f),
+        "interaction reticle minimum size clamp");
+    failures += Check(
+        hud_math::ComputeAngularQuadSize(100.0f, 5.0f, 0.008f, 0.08f, reticleSizeMeters)
+            && Near(reticleSizeMeters, 0.08f),
+        "interaction reticle maximum size clamp");
 
     std::array<float, 16> handMatrix{};
     const hands_math::HandRootCalibration handCalibration{

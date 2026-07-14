@@ -40,6 +40,15 @@ public:
         uint64_t captureFrame = 0;
     };
 
+    struct ReticleSwapchain {
+        XrSwapchain handle = XR_NULL_HANDLE;
+        int32_t width = 0;
+        int32_t height = 0;
+        int64_t format = 0;
+        std::vector<XrSwapchainImageOpenGLKHR> images;
+        std::vector<uint32_t> framebuffers;
+    };
+
     bool Initialize(
         XrSession session,
         const std::vector<XrViewConfigurationView>& views,
@@ -49,7 +58,9 @@ public:
         int hudWidth,
         int hudHeight,
         bool suppressCenterCrosshair,
-        int crosshairClearRadiusPixels);
+        int crosshairClearRadiusPixels,
+        bool interactionReticleEnabled,
+        int interactionReticleSizePixels);
     void Shutdown();
 
     bool CopyBackbufferToEye(uint32_t eyeIndex);
@@ -68,6 +79,9 @@ public:
     bool HudReady() const;
     bool HudCaptureFresh(uint64_t frameIndex, uint64_t maxAgeFrames) const;
     const HudSwapchain& Hud() const;
+    bool DrawInteractionReticleToSwapchain();
+    bool InteractionReticleReady() const;
+    const ReticleSwapchain& InteractionReticle() const;
 
 private:
     bool ResolveFunctions();
@@ -82,12 +96,15 @@ private:
     bool CreateHudSwapchain(XrSession session, int width, int height);
     bool CreateHudCaptureTarget();
     bool CopyHudCaptureToImage(uint32_t imageIndex);
+    bool CreateInteractionReticleSwapchain(XrSession session, int sizePixels);
+    bool DrawInteractionReticleToImage(uint32_t imageIndex);
     void RestoreHudCaptureState();
 
     XrSession session_ = XR_NULL_HANDLE;
     int64_t colorFormat_ = 0;
     std::vector<EyeSwapchain> eyes_;
     HudSwapchain hud_;
+    ReticleSwapchain interactionReticle_;
 
     struct HudCaptureState {
         bool active = false;

@@ -143,4 +143,69 @@ bool BuildControllerHandMatrix(
     return true;
 }
 
+bool BuildControllerHudObjectMatrix(
+    const camera_math::Vector3& gripPosition,
+    const camera_math::Vector3& gripForward,
+    const camera_math::Vector3& gripUp,
+    float scale,
+    const HudObjectCalibration& calibration,
+    std::array<float, 16>& matrix)
+{
+    matrix = {};
+    if (!IsFinite(gripPosition)
+        || !IsFinite(gripForward)
+        || !IsFinite(gripUp)
+        || !IsFinite(calibration.positionOffset)
+        || !IsFinite(calibration.rotationDegrees)
+        || !std::isfinite(scale)
+        || scale <= 0.0f) {
+        return false;
+    }
+
+    camera_math::Vector3 forward = gripForward;
+    camera_math::Vector3 upHint = gripUp;
+    if (!Normalize(forward) || !Normalize(upHint)) return false;
+
+    camera_math::Vector3 right = Cross(forward, upHint);
+    if (!Normalize(right)) return false;
+    camera_math::Vector3 up = Cross(right, forward);
+    if (!Normalize(up)) return false;
+    const camera_math::Vector3 backward{-forward.x, -forward.y, -forward.z};
+
+    const std::array<float, 16> root = {
+        right.x, up.x, backward.x, 0.0f,
+        right.y, up.y, backward.y, 0.0f,
+        right.z, up.z, backward.z, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f,
+    };
+    const float radians = kPi / 180.0f;
+    const std::array<float, 16> correction = camera_math::MatrixMultiply(
+        RotationZ(calibration.rotationDegrees.z * radians),
+        camera_math::MatrixMultiply(
+            RotationY(calibration.rotationDegrees.y * radians),
+            RotationX(calibration.rotationDegrees.x * radians)));
+    const std::array<float, 16> scaleMatrix = {
+        scale, 0.0f, 0.0f, 0.0f,
+        0.0f, scale, 0.0f, 0.0f,
+        0.0f, 0.0f, scale, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f,
+    };
+    matrix = camera_math::MatrixMultiply(
+        root,
+        camera_math::MatrixMultiply(correction, scaleMatrix));
+    matrix[3] = gripPosition.x
+        + right.x * calibration.positionOffset.x
+        + up.x * calibration.positionOffset.y
+        + forward.x * calibration.positionOffset.z;
+    matrix[7] = gripPosition.y
+        + right.y * calibration.positionOffset.x
+        + up.y * calibration.positionOffset.y
+        + forward.y * calibration.positionOffset.z;
+    matrix[11] = gripPosition.z
+        + right.z * calibration.positionOffset.x
+        + up.z * calibration.positionOffset.y
+        + forward.z * calibration.positionOffset.z;
+    return true;
+}
+
 } // namespace somavr::hands_math

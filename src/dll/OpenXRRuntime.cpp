@@ -745,10 +745,10 @@ struct OpenXRRuntime::Impl {
         return started;
     }
 
-    bool EndHudCapture(uint64_t frameIndex)
+    bool EndHudCapture(uint64_t frameIndex, bool suppressCenterCrosshair)
     {
         std::lock_guard lock(mutex_);
-        const bool completed = glBridge_.EndHudCapture(frameIndex);
+        const bool completed = glBridge_.EndHudCapture(frameIndex, suppressCenterCrosshair);
         if (completed) {
             ++hudCaptureCompletions_;
         }
@@ -2558,7 +2558,7 @@ struct OpenXRRuntime::Impl {
     void RequestComfortBlackout(uint32_t, const char*) {}
     void SetPresentationBlackout(bool, const char*) {}
     bool BeginHudCapture(uint64_t) { return false; }
-    bool EndHudCapture(uint64_t) { return false; }
+    bool EndHudCapture(uint64_t, bool) { return false; }
 
 private:
     void LogUnavailableLocked()
@@ -2780,9 +2780,9 @@ bool OpenXRRuntime::BeginHudCapture(uint64_t frameIndex)
     return impl_->BeginHudCapture(frameIndex);
 }
 
-bool OpenXRRuntime::EndHudCapture(uint64_t frameIndex)
+bool OpenXRRuntime::EndHudCapture(uint64_t frameIndex, bool suppressCenterCrosshair)
 {
-    return impl_->EndHudCapture(frameIndex);
+    return impl_->EndHudCapture(frameIndex, suppressCenterCrosshair);
 }
 
 } // namespace somavr

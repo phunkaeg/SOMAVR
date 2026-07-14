@@ -51,6 +51,7 @@ std::atomic<uint64_t> g_renderCalls = 0;
 std::atomic<uint64_t> g_gameHudMatches = 0;
 std::atomic<uint64_t> g_currentImGuiSetMatches = 0;
 std::atomic<uint64_t> g_gameHudImGuiSetMatches = 0;
+std::atomic<uint64_t> g_gameHudImGuiCaptureCompletions = 0;
 std::atomic<uint64_t> g_captureAttempts = 0;
 std::atomic<uint64_t> g_captureStarts = 0;
 std::atomic<uint64_t> g_captureCompletions = 0;
@@ -233,7 +234,8 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     const OpenGLTelemetrySnapshot telemetryBefore = GetOpenGLTelemetrySnapshot();
 
     bool captureStarted = false;
-    if (isGameHud && g_config.openxrHudLayer && g_openxr != nullptr) {
+    const bool isCapturedHudSet = isGameHud || isGameHudImGuiSet;
+    if (isCapturedHudSet && g_config.openxrHudLayer && g_openxr != nullptr) {
         g_captureAttempts.fetch_add(1, std::memory_order_relaxed);
         captureStarted = g_openxr->BeginHudCapture(frame);
         if (captureStarted) {
@@ -246,9 +248,12 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     g_originalGuiSetRender(guiSet, renderTarget);
     bool captureCompleted = false;
     if (captureStarted) {
-        captureCompleted = g_openxr->EndHudCapture(frame);
+        captureCompleted = g_openxr->EndHudCapture(frame, isGameHud);
         if (captureCompleted) {
             g_captureCompletions.fetch_add(1, std::memory_order_relaxed);
+            if (isGameHudImGuiSet) {
+                g_gameHudImGuiCaptureCompletions.fetch_add(1, std::memory_order_relaxed);
+            }
         } else {
             g_captureFallbacks.fetch_add(1, std::memory_order_relaxed);
         }
@@ -276,7 +281,7 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     }
     const uint64_t interval = static_cast<uint64_t>(std::max(g_config.hplCompatibilityLogInterval, 1));
     if (newlySeen || imGuiIdentityChanged || call <= 16 || call % interval == 0
-        || (isGameHud && captureStarted != captureCompleted)) {
+        || (isCapturedHudSet && captureStarted != captureCompleted)) {
         uint8_t is3d = 0;
         uint8_t depthLayer = 0;
         float virtualWidth = 0.0f;
@@ -442,11 +447,12 @@ void LogHPLHudBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_hud_summary calls=%llu gameHudMatches=%llu currentImGuiSetMatches=%llu gameHudImGuiSetMatches=%llu captureAttempts=%llu captureStarts=%llu captureCompletions=%llu captureFallbacks=%llu installed=%d",
+        "hpl_hud_summary calls=%llu gameHudMatches=%llu currentImGuiSetMatches=%llu gameHudImGuiSetMatches=%llu gameHudImGuiCaptures=%llu captureAttempts=%llu captureStarts=%llu captureCompletions=%llu captureFallbacks=%llu installed=%d",
         static_cast<unsigned long long>(g_renderCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_gameHudMatches.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_currentImGuiSetMatches.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_gameHudImGuiSetMatches.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_gameHudImGuiCaptureCompletions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_captureAttempts.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_captureStarts.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_captureCompletions.load(std::memory_order_relaxed)),

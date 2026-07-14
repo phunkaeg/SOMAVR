@@ -21,10 +21,28 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.30.0-screen-effects`, layered on the
+The active build candidate is `0.31.0-tools-hud`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Exact script identity now separates three viewmodel owners at the shared
+  Lux-entity matrix boundary. `PlayerHands_*` retains its existing controller
+  root, exact `HudObject` can follow the dominant grip with its native scale,
+  and `*_HudObject` inventory tools remain socket-owned so they are not
+  transformed twice. Every tracking, state, authored-camera, scale, and math
+  failure forwards SOMA's original matrix. The exact native DestroyEntity path
+  evicts cached identities before queueing, preventing pointer reuse from
+  applying an old tool policy to a newly created entity.
+- The HUD capture now accumulates both exact GameHudSet and exact
+  `SOMA_GetGameHudImGui()->GetSet()` draws into one transparent target per game
+  frame. This includes the dedicated gameplay ImGui owner without capturing
+  current pause/menu or diegetic GUI sets. The first exact draw clears; later
+  exact draws append; native GL state is restored after each set.
+- Periodic `hpl_render_transaction` rows summarize the complete six-stage
+  viewport transaction and identify a possible world-only replay scope without
+  claiming callback safety. Same-frame stereo remains gated on a controlled
+  replay proving that omitted callbacks have no required per-eye effects.
 
 - Script-created screen materials are now identified only by SOMA's exact
   `Screen Particle<decimal>` billboard name. While F10 VR is active, their

@@ -620,31 +620,37 @@ The preferred long-term path is full-scale geometry at a physically plausible co
 3. **Controller pose:** built in `0.16.0`; only exact normal quarter-scale
    `PostUpdate` roots are replaced, retaining animation/socket/tool updates and
    falling back immediately for authored/full-scale/tracking-loss states.
-4. **Interaction ray:** source focus/pick checks from the dominant controller while leaving native interaction callbacks intact.
-5. **Two-hand and physics interaction:** add support for doors, wheels, levers, grabbed bodies, Omnitool insertion, ladders, and carried objects.
+4. **Independent interaction tool:** built in `0.31.0`; exact `HudObject` camera
+   roots can follow dominant grip while preserving native uniform scale. Exact
+   `*_HudObject` inventory tools are identified but left to `R_Hand` socket
+   ownership, preventing a double transform. The exact
+   `cLuxMap::DestroyEntity` wrapper at `0x140127a70` evicts its pointer from the
+   identity cache before SOMA queues native destruction, making script
+   destroy/recreate and allocator reuse fail closed.
+5. **Interaction ray:** source focus/pick checks from the dominant controller while leaving native interaction callbacks intact.
+6. **Two-hand and physics interaction:** add support for doors, wheels, levers, grabbed bodies, Omnitool insertion, ladders, and carried objects.
 
 ## HUD And GUI
 
-### 0.15.0 Gameplay HUD Layer Findings
+### Gameplay HUD Layer Findings
 
 Ghidra confirms `HPL3_GuiSet_Render` at `0x140213970` ignores its native
 render-target argument for 2D sets and draws into the current OpenGL framebuffer.
 This is the narrow capture boundary now owned by `HPLHudBridge`:
 
 ```text
-exact GameHudSet -> transparent GL capture FBO -> HUD OpenXR swapchain
-                 -> alpha XrCompositionLayerQuad in VIEW space
+first exact GameHudSet/GameHudImGui set -> clear transparent capture FBO
+later exact set in same frame           -> append without clearing
+combined texture -> HUD OpenXR swapchain -> VIEW-space alpha quad
 ```
 
-The bridge clears to transparent, renders only the exact set, restores the
-incoming framebuffer/viewport/buffer state, and keeps all nonmatching sets on
-the original path. Capture begins only while the OpenXR session is VISIBLE or
-FOCUSED and all resources are valid. Resource/signature failures never suppress
-the native HUD; repeated copy failures suspend extraction and restore it.
-
-This is deliberately gameplay-HUD-only. ImGui inventory/hints, pause/load/death
-menus, subtitles not owned by GameHudSet, and diegetic GUI still need live
-classification before they can share or receive separate layers.
+The bridge restores incoming framebuffer/viewport/buffer state after each exact
+set and keeps every nonmatching set on the original path. `0.31.0` promotes the
+signature-guarded `SOMA_GetGameHudImGui()->GetSet()` identity from telemetry to
+the same capture transaction. Pause/load/death menus reached through another
+current ImGui owner and all 3D/diegetic GUI remain native. Live testing must now
+classify which hints, inventory views, and subtitles are actually owned by the
+dedicated gameplay ImGui set.
 
 ### Surface Classes
 

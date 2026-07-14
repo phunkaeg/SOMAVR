@@ -489,8 +489,11 @@ bool OpenXRGLBridge::BeginHudCapture(uint64_t frameIndex)
     glViewport(0, 0, hud_.width, hud_.height);
     glDisable(kGlScissorTest);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    glClear(kGlColorBufferBit);
+    const bool appendToCurrentFrame = hud_.captureValid && hud_.captureFrame == frameIndex;
+    if (!appendToCurrentFrame) {
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        glClear(kGlColorBufferBit);
+    }
     glClearColor(
         hudCaptureState_.clearColor[0],
         hudCaptureState_.clearColor[1],
@@ -506,12 +509,12 @@ bool OpenXRGLBridge::BeginHudCapture(uint64_t frameIndex)
     return true;
 }
 
-bool OpenXRGLBridge::EndHudCapture(uint64_t frameIndex)
+bool OpenXRGLBridge::EndHudCapture(uint64_t frameIndex, bool suppressCenterCrosshair)
 {
     if (!hudCaptureState_.active) {
         return false;
     }
-    if (suppressCenterCrosshair_) {
+    if (suppressCenterCrosshair_ && suppressCenterCrosshair) {
         const int radius = std::min(
             crosshairClearRadiusPixels_,
             std::max(4, std::min(hud_.width, hud_.height) / 4));

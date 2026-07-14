@@ -121,6 +121,13 @@ struct Config {
     float hplHandRootPitchDegrees = 0.0f;
     float hplHandRootYawDegrees = 0.0f;
     float hplHandRootRollDegrees = 0.0f;
+    bool hplControllerHudObject = false;
+    float hplHudObjectOffsetX = 0.0f;
+    float hplHudObjectOffsetY = 0.0f;
+    float hplHudObjectOffsetZ = 0.0f;
+    float hplHudObjectPitchDegrees = 0.0f;
+    float hplHudObjectYawDegrees = 0.0f;
+    float hplHudObjectRollDegrees = 0.0f;
     bool hplControllerFlashlightAim = false;
     bool hplControllerFlashlightGameplayRay = false;
     float hplFlashlightOffsetX = 0.0f;

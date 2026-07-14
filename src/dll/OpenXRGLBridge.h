@@ -78,7 +78,7 @@ public:
     const EyeSwapchain& Eye(uint32_t eyeIndex) const;
     int64_t ColorFormat() const;
     bool BeginHudCapture(uint64_t frameIndex);
-    bool EndHudCapture(uint64_t frameIndex);
+    bool EndHudCapture(uint64_t frameIndex, bool suppressCenterCrosshair);
     bool CopyHudCaptureToSwapchain();
     void InvalidateHudCapture();
     bool HudReady() const;

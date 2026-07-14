@@ -170,7 +170,7 @@ public:
     void RequestComfortBlackout(uint32_t frames, const char* reason);
     void SetPresentationBlackout(bool active, const char* reason);
     bool BeginHudCapture(uint64_t frameIndex);
-    bool EndHudCapture(uint64_t frameIndex);
+    bool EndHudCapture(uint64_t frameIndex, bool suppressCenterCrosshair);
     void SetInteractionReticle(const OpenXRInteractionReticleState& state);
     void SetInteractionReticleSemantic(int crosshairState);
     void ClearInteractionReticle();

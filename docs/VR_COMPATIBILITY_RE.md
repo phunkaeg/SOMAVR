@@ -368,6 +368,14 @@ It records call order, viewport identity, mask bits, source/destination FBOs,
 dimensions, and stage duration. This determines which
 callbacks are render-only and which must remain once-per-game-frame.
 
+`0.31.0` also emits one bounded `hpl_render_transaction` row for the complete
+sampled frame. It collapses nested entries into ordered stage multiplicities and
+per-stage draw, clear, and CPU totals. A canonical frame with draw-free callback
+and post-post stages is reported only as `repeatCandidate=world_stage_only`; the
+row deliberately retains `proof=callback_side_effects_still_require_controlled_replay`.
+The next dual-render step is therefore a reversible one-frame replay experiment,
+not unconditional second-eye rendering.
+
 Temporal resources such as image trail, previous view/projection matrices,
 exposure, and velocity history must either be isolated per eye or disabled. Sharing
 one history between alternating eye transforms produces cross-eye contamination.

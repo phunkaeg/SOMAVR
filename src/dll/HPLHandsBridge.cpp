@@ -37,6 +37,15 @@ constexpr uint8_t kLuxEntityGetNameSignature[] = {
     0x48, 0x8d, 0x81, 0x20, 0x01, 0x00, 0x00,
     0xc3,
 };
+constexpr uintptr_t kLuxMapDestroyEntityRva = 0x127a70;
+constexpr uint8_t kLuxMapDestroyEntitySignature[] = {
+    0x48, 0x85, 0xd2,
+    0x0f, 0x84, 0xbe, 0x00, 0x00, 0x00,
+    0x48, 0x89, 0x5c, 0x24, 0x08,
+    0x48, 0x89, 0x54, 0x24, 0x10,
+    0x57,
+    0x48, 0x83, 0xec, 0x20,
+};
 constexpr uintptr_t kGetClosestBodyRva = 0x0cd7d0;
 constexpr uint8_t kGetClosestBodySignature[] = {
     0x48, 0x83, 0xec, 0x38,
@@ -56,6 +65,7 @@ constexpr float kUniformScaleTolerance = 0.04f;
 
 using LuxEntitySetMatrixFn = void (*)(void* entity, const float* matrix);
 using LuxEntityGetNameFn = const void* (*)(void* entity);
+using LuxMapDestroyEntityFn = void (*)(void* map, void* entity);
 using GetClosestBodyFn = void* (*)(
     const float* start,
     const float* direction,
@@ -71,6 +81,8 @@ struct NativeStringLayout {
 
 struct EntityIdentity {
     bool playerHands = false;
+    bool hudObject = false;
+    bool socketedHudObject = false;
     bool flashlight = false;
     std::string name;
 };
@@ -85,8 +97,10 @@ Config g_config;
 OpenXRRuntime* g_openxr = nullptr;
 LuxEntitySetMatrixFn g_originalSetMatrix = nullptr;
 LuxEntityGetNameFn g_getEntityName = nullptr;
+LuxMapDestroyEntityFn g_originalDestroyEntity = nullptr;
 GetClosestBodyFn g_originalGetClosestBody = nullptr;
 void* g_setMatrixTarget = nullptr;
+void* g_destroyEntityTarget = nullptr;
 void* g_getClosestBodyTarget = nullptr;
 std::mutex g_installMutex;
 std::mutex g_identityMutex;
@@ -95,8 +109,21 @@ std::atomic<uint64_t> g_calls = 0;
 std::atomic<uint64_t> g_identityReads = 0;
 std::atomic<uint64_t> g_identityReadFailures = 0;
 std::atomic<uint64_t> g_identityLogs = 0;
+std::atomic<uint64_t> g_destroyEntityCalls = 0;
+std::atomic<uint64_t> g_identityInvalidations = 0;
 std::atomic<uint64_t> g_playerHandsIdentities = 0;
 std::atomic<uint64_t> g_playerHandsCalls = 0;
+std::atomic<uint64_t> g_hudObjectIdentities = 0;
+std::atomic<uint64_t> g_socketedHudObjectIdentities = 0;
+std::atomic<uint64_t> g_hudObjectCalls = 0;
+std::atomic<uint64_t> g_hudObjectOverrideAttempts = 0;
+std::atomic<uint64_t> g_hudObjectOverrides = 0;
+std::atomic<uint64_t> g_hudObjectScaleFallbacks = 0;
+std::atomic<uint64_t> g_hudObjectStateFallbacks = 0;
+std::atomic<uint64_t> g_hudObjectAuthoredFallbacks = 0;
+std::atomic<uint64_t> g_hudObjectPoseFallbacks = 0;
+std::atomic<uint64_t> g_hudObjectStaleFallbacks = 0;
+std::atomic<uint64_t> g_hudObjectMathFallbacks = 0;
 std::atomic<uint64_t> g_flashlightIdentities = 0;
 std::atomic<uint64_t> g_flashlightCalls = 0;
 std::atomic<uint64_t> g_flashlightOverrideAttempts = 0;
@@ -186,6 +213,16 @@ bool StartsWithPlayerHands(const std::string& name)
         && std::memcmp(name.data(), prefix, sizeof(prefix) - 1) == 0;
 }
 
+bool EndsWithHudObject(const std::string& name)
+{
+    constexpr char suffix[] = "_HudObject";
+    return name.size() >= sizeof(suffix) - 1
+        && std::memcmp(
+            name.data() + name.size() - (sizeof(suffix) - 1),
+            suffix,
+            sizeof(suffix) - 1) == 0;
+}
+
 EntityIdentity ResolveIdentity(void* entity)
 {
     {
@@ -201,6 +238,8 @@ EntityIdentity ResolveIdentity(void* entity)
         g_identityReadFailures.fetch_add(1, std::memory_order_relaxed);
     } else {
         identity.playerHands = StartsWithPlayerHands(identity.name);
+        identity.hudObject = identity.name == "HudObject";
+        identity.socketedHudObject = EndsWithHudObject(identity.name);
         identity.flashlight = identity.name == "Flashlight";
         if (identity.playerHands) {
             g_playerHandsIdentities.fetch_add(1, std::memory_order_relaxed);
@@ -208,21 +247,32 @@ EntityIdentity ResolveIdentity(void* entity)
         if (identity.flashlight) {
             g_flashlightIdentities.fetch_add(1, std::memory_order_relaxed);
         }
+        if (identity.hudObject) {
+            g_hudObjectIdentities.fetch_add(1, std::memory_order_relaxed);
+        }
+        if (identity.socketedHudObject) {
+            g_socketedHudObjectIdentities.fetch_add(1, std::memory_order_relaxed);
+        }
         const uint64_t logIndex = g_identityLogs.fetch_add(1, std::memory_order_relaxed);
-        if (logIndex < kMaxIdentityLogs || identity.playerHands || identity.flashlight) {
+        const bool relevant = identity.playerHands || identity.hudObject
+            || identity.socketedHudObject || identity.flashlight;
+        if (logIndex < kMaxIdentityLogs || relevant) {
             Logger::Instance().Write(
-                identity.playerHands || identity.flashlight ? LogLevel::Warn : LogLevel::Info,
-                "hpl_entity_identity entity=%p name=%s playerHands=%d flashlight=%d nameObject=%p",
+                relevant ? LogLevel::Warn : LogLevel::Info,
+                "hpl_entity_identity entity=%p name=%s playerHands=%d hudObject=%d socketedHudObject=%d flashlight=%d nameObject=%p",
                 entity,
                 identity.name.c_str(),
                 identity.playerHands ? 1 : 0,
+                identity.hudObject ? 1 : 0,
+                identity.socketedHudObject ? 1 : 0,
                 identity.flashlight ? 1 : 0,
                 nativeName);
         }
     }
 
     std::lock_guard lock(g_identityMutex);
-    if (g_identityCache.size() < kMaxIdentityCache || identity.playerHands || identity.flashlight) {
+    if (g_identityCache.size() < kMaxIdentityCache || identity.playerHands
+        || identity.hudObject || identity.socketedHudObject || identity.flashlight) {
         g_identityCache[entity] = identity;
     }
     return identity;
@@ -525,6 +575,111 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                     player.moveStateId);
             }
         }
+    } else if (identity.hudObject) {
+        const uint64_t hudObjectCall = g_hudObjectCalls.fetch_add(1, std::memory_order_relaxed) + 1;
+        std::array<float, 16> matrix{};
+        const bool matrixValid = ReadMemory(matrixPointer, matrix.data(), sizeof(matrix));
+        if (!matrixValid) {
+            g_matrixReadFailures.fetch_add(1, std::memory_order_relaxed);
+        }
+        const float scaleX = matrixValid ? ColumnLength(matrix, 0) : 0.0f;
+        const float scaleY = matrixValid ? ColumnLength(matrix, 1) : 0.0f;
+        const float scaleZ = matrixValid ? ColumnLength(matrix, 2) : 0.0f;
+        const float averageScale = (scaleX + scaleY + scaleZ) / 3.0f;
+        const bool uniformScale = matrixValid
+            && std::fabs(scaleX - averageScale) <= kUniformScaleTolerance
+            && std::fabs(scaleY - averageScale) <= kUniformScaleTolerance
+            && std::fabs(scaleZ - averageScale) <= kUniformScaleTolerance;
+
+        HPLPlayerStateSnapshot player{};
+        const bool playerSnapshotValid = GetHPLPlayerStateSnapshot(player);
+        const HPLCameraBridgeStatus camera = GetHPLCameraBridgeStatus();
+        OpenXRInputSnapshot input{};
+        HPLTrackedPoseWorld worldGrip{};
+        uint32_t handIndex = 1;
+        bool gripValid = false;
+        uint64_t inputAge = UINT64_MAX;
+        if (g_openxr != nullptr && g_openxr->GetLatestInput(input) && input.active) {
+            const OpenXRHandInput* hand = SelectDominantHand(input, handIndex);
+            gripValid = hand != nullptr
+                && hand->gripPose.valid
+                && ResolveHPLTrackedPoseWorld(hand->gripPose, input.gameFrame, worldGrip)
+                && worldGrip.orientationTracked
+                && worldGrip.positionTracked;
+            if (player.frame != 0 && input.gameFrame != 0) {
+                inputAge = player.frame >= input.gameFrame ? player.frame - input.gameFrame : 0;
+            }
+        }
+
+        bool hudObjectOverridden = false;
+        if (g_config.hplControllerHudObject) {
+            g_hudObjectOverrideAttempts.fetch_add(1, std::memory_order_relaxed);
+            if (!uniformScale || averageScale <= 0.0f) {
+                g_hudObjectScaleFallbacks.fetch_add(1, std::memory_order_relaxed);
+            } else if (!playerSnapshotValid || !player.playerValid) {
+                g_hudObjectStateFallbacks.fetch_add(1, std::memory_order_relaxed);
+            } else if (player.authoredCameraActive
+                && g_config.hplControllerSuppressDuringAuthoredCamera) {
+                g_hudObjectAuthoredFallbacks.fetch_add(1, std::memory_order_relaxed);
+            } else if (!gripValid || !camera.trackingEnabled) {
+                g_hudObjectPoseFallbacks.fetch_add(1, std::memory_order_relaxed);
+            } else if (inputAge > static_cast<uint64_t>(g_config.hplControllerMaxInputAgeFrames)) {
+                g_hudObjectStaleFallbacks.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                const hands_math::HudObjectCalibration calibration{
+                    {
+                        g_config.hplHudObjectOffsetX,
+                        g_config.hplHudObjectOffsetY,
+                        g_config.hplHudObjectOffsetZ,
+                    },
+                    {
+                        g_config.hplHudObjectPitchDegrees,
+                        g_config.hplHudObjectYawDegrees,
+                        g_config.hplHudObjectRollDegrees,
+                    },
+                };
+                hudObjectOverridden = hands_math::BuildControllerHudObjectMatrix(
+                    {worldGrip.positionX, worldGrip.positionY, worldGrip.positionZ},
+                    {worldGrip.forwardX, worldGrip.forwardY, worldGrip.forwardZ},
+                    {worldGrip.upX, worldGrip.upY, worldGrip.upZ},
+                    averageScale,
+                    calibration,
+                    controllerMatrix);
+                if (hudObjectOverridden) {
+                    submittedMatrix = controllerMatrix.data();
+                    g_hudObjectOverrides.fetch_add(1, std::memory_order_relaxed);
+                } else {
+                    g_hudObjectMathFallbacks.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        }
+
+        const uint64_t interval = static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1));
+        if (hudObjectCall <= 12 || hudObjectCall % interval == 0) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_hud_object_pose call=%llu entity=%p matrixValid=%d nativePos=%.4f,%.4f,%.4f scale=%.4f,%.4f,%.4f gripValid=%d gripHand=%s gripPos=%.4f,%.4f,%.4f inputAge=%llu requested=%d overridden=%d finalPos=%.4f,%.4f,%.4f tracking=%d authoredCamera=%d playerState=%d moveState=%d",
+                static_cast<unsigned long long>(hudObjectCall),
+                entity,
+                matrixValid ? 1 : 0,
+                matrixValid ? matrix[3] : 0.0f,
+                matrixValid ? matrix[7] : 0.0f,
+                matrixValid ? matrix[11] : 0.0f,
+                scaleX, scaleY, scaleZ,
+                gripValid ? 1 : 0,
+                handIndex == 0 ? "left" : "right",
+                worldGrip.positionX, worldGrip.positionY, worldGrip.positionZ,
+                static_cast<unsigned long long>(inputAge),
+                g_config.hplControllerHudObject ? 1 : 0,
+                hudObjectOverridden ? 1 : 0,
+                hudObjectOverridden ? controllerMatrix[3] : (matrixValid ? matrix[3] : 0.0f),
+                hudObjectOverridden ? controllerMatrix[7] : (matrixValid ? matrix[7] : 0.0f),
+                hudObjectOverridden ? controllerMatrix[11] : (matrixValid ? matrix[11] : 0.0f),
+                camera.trackingEnabled ? 1 : 0,
+                player.authoredCameraActive ? 1 : 0,
+                player.playerStateId,
+                player.moveStateId);
+        }
     } else if (identity.flashlight) {
         const uint64_t flashlightCall = g_flashlightCalls.fetch_add(1, std::memory_order_relaxed) + 1;
         HPLPlayerStateSnapshot player{};
@@ -630,6 +785,41 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
     g_originalSetMatrix(entity, submittedMatrix);
 }
 
+void HookLuxMapDestroyEntity(void* map, void* entity)
+{
+    const uint64_t call = g_destroyEntityCalls.fetch_add(1, std::memory_order_relaxed) + 1;
+    EntityIdentity invalidatedIdentity;
+    bool invalidated = false;
+    {
+        std::lock_guard lock(g_identityMutex);
+        const auto found = g_identityCache.find(entity);
+        if (found != g_identityCache.end()) {
+            invalidatedIdentity = found->second;
+            g_identityCache.erase(found);
+            invalidated = true;
+        }
+    }
+    if (invalidated) {
+        g_identityInvalidations.fetch_add(1, std::memory_order_relaxed);
+    }
+    const bool relevant = invalidatedIdentity.playerHands
+        || invalidatedIdentity.hudObject
+        || invalidatedIdentity.socketedHudObject
+        || invalidatedIdentity.flashlight;
+    if (call <= 12 || relevant) {
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_hands_entity_destroy call=%llu map=%p entity=%p cacheInvalidated=%d relevant=%d name=%s policy=evict_before_native_destroy_queue",
+            static_cast<unsigned long long>(call),
+            map,
+            entity,
+            invalidated ? 1 : 0,
+            relevant ? 1 : 0,
+            invalidatedIdentity.name.empty() ? "<uncached>" : invalidatedIdentity.name.c_str());
+    }
+    g_originalDestroyEntity(map, entity);
+}
+
 } // namespace
 
 bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
@@ -639,6 +829,7 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
     g_openxr = openxr;
     if (!config.hplHandTrackingProbe
         && !config.hplHandControllerRoot
+        && !config.hplControllerHudObject
         && !config.hplControllerFlashlightAim
         && !config.hplControllerFlashlightGameplayRay) {
         Logger::Instance().Write(LogLevel::Info, "hpl_hands_bridge disabled config=0");
@@ -649,6 +840,7 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
     HMODULE executable = GetModuleHandleW(nullptr);
     if (!IsInsideImage(executable, kLuxEntitySetMatrixRva, sizeof(kLuxEntitySetMatrixSignature))
         || !IsInsideImage(executable, kLuxEntityGetNameRva, sizeof(kLuxEntityGetNameSignature))
+        || !IsInsideImage(executable, kLuxMapDestroyEntityRva, sizeof(kLuxMapDestroyEntitySignature))
         || (config.hplControllerFlashlightGameplayRay
             && !IsInsideImage(executable, kGetClosestBodyRva, sizeof(kGetClosestBodySignature)))) {
         Logger::Instance().Write(LogLevel::Error, "hpl_hands_bridge install_failed reason=invalid_image_range");
@@ -657,17 +849,21 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
 
     auto* setMatrixTarget = reinterpret_cast<std::byte*>(executable) + kLuxEntitySetMatrixRva;
     auto* getNameTarget = reinterpret_cast<std::byte*>(executable) + kLuxEntityGetNameRva;
+    auto* destroyEntityTarget = reinterpret_cast<std::byte*>(executable) + kLuxMapDestroyEntityRva;
     auto* getClosestBodyTarget = reinterpret_cast<std::byte*>(executable) + kGetClosestBodyRva;
     if (std::memcmp(setMatrixTarget, kLuxEntitySetMatrixSignature, sizeof(kLuxEntitySetMatrixSignature)) != 0
         || std::memcmp(getNameTarget, kLuxEntityGetNameSignature, sizeof(kLuxEntityGetNameSignature)) != 0
+        || std::memcmp(destroyEntityTarget, kLuxMapDestroyEntitySignature,
+            sizeof(kLuxMapDestroyEntitySignature)) != 0
         || (config.hplControllerFlashlightGameplayRay
             && std::memcmp(getClosestBodyTarget, kGetClosestBodySignature,
                 sizeof(kGetClosestBodySignature)) != 0)) {
         Logger::Instance().Write(
             LogLevel::Error,
-            "hpl_hands_bridge install_failed reason=signature_mismatch setMatrixRva=0x%llx getNameRva=0x%llx getClosestBodyRva=0x%llx gameplayRay=%d",
+            "hpl_hands_bridge install_failed reason=signature_mismatch setMatrixRva=0x%llx getNameRva=0x%llx destroyEntityRva=0x%llx getClosestBodyRva=0x%llx gameplayRay=%d",
             static_cast<unsigned long long>(kLuxEntitySetMatrixRva),
             static_cast<unsigned long long>(kLuxEntityGetNameRva),
+            static_cast<unsigned long long>(kLuxMapDestroyEntityRva),
             static_cast<unsigned long long>(kGetClosestBodyRva),
             config.hplControllerFlashlightGameplayRay ? 1 : 0);
         return false;
@@ -687,6 +883,9 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
     }
     status = MH_EnableHook(setMatrixTarget);
     if (status != MH_OK && status != MH_ERROR_ENABLED) {
+        MH_RemoveHook(setMatrixTarget);
+        g_originalSetMatrix = nullptr;
+        g_getEntityName = nullptr;
         Logger::Instance().Write(
             LogLevel::Error,
             "hpl_hands_bridge install_failed reason=enable_hook status=%s",
@@ -695,14 +894,50 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
     }
 
     g_setMatrixTarget = setMatrixTarget;
+    status = MH_CreateHook(
+        destroyEntityTarget,
+        reinterpret_cast<void*>(&HookLuxMapDestroyEntity),
+        reinterpret_cast<void**>(&g_originalDestroyEntity));
+    if (status != MH_OK && status != MH_ERROR_ALREADY_CREATED) {
+        MH_DisableHook(setMatrixTarget);
+        MH_RemoveHook(setMatrixTarget);
+        g_setMatrixTarget = nullptr;
+        g_originalSetMatrix = nullptr;
+        g_getEntityName = nullptr;
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_hands_bridge install_failed reason=create_destroy_entity_hook status=%s",
+            MH_StatusToString(status));
+        return false;
+    }
+    status = MH_EnableHook(destroyEntityTarget);
+    if (status != MH_OK && status != MH_ERROR_ENABLED) {
+        MH_RemoveHook(destroyEntityTarget);
+        g_originalDestroyEntity = nullptr;
+        MH_DisableHook(setMatrixTarget);
+        MH_RemoveHook(setMatrixTarget);
+        g_setMatrixTarget = nullptr;
+        g_originalSetMatrix = nullptr;
+        g_getEntityName = nullptr;
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_hands_bridge install_failed reason=enable_destroy_entity_hook status=%s",
+            MH_StatusToString(status));
+        return false;
+    }
+    g_destroyEntityTarget = destroyEntityTarget;
     if (config.hplControllerFlashlightGameplayRay) {
         status = MH_CreateHook(
             getClosestBodyTarget,
             reinterpret_cast<void*>(&HookGetClosestBody),
             reinterpret_cast<void**>(&g_originalGetClosestBody));
         if (status != MH_OK && status != MH_ERROR_ALREADY_CREATED) {
+            MH_DisableHook(destroyEntityTarget);
+            MH_RemoveHook(destroyEntityTarget);
             MH_DisableHook(setMatrixTarget);
             MH_RemoveHook(setMatrixTarget);
+            g_destroyEntityTarget = nullptr;
+            g_originalDestroyEntity = nullptr;
             g_setMatrixTarget = nullptr;
             g_originalSetMatrix = nullptr;
             g_getEntityName = nullptr;
@@ -716,8 +951,12 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
         if (status != MH_OK && status != MH_ERROR_ENABLED) {
             MH_RemoveHook(getClosestBodyTarget);
             g_originalGetClosestBody = nullptr;
+            MH_DisableHook(destroyEntityTarget);
+            MH_RemoveHook(destroyEntityTarget);
             MH_DisableHook(setMatrixTarget);
             MH_RemoveHook(setMatrixTarget);
+            g_destroyEntityTarget = nullptr;
+            g_originalDestroyEntity = nullptr;
             g_setMatrixTarget = nullptr;
             g_originalSetMatrix = nullptr;
             g_getEntityName = nullptr;
@@ -731,12 +970,14 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
     }
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_hands_bridge install_ok setMatrixRva=0x%llx getNameRva=0x%llx getClosestBodyRva=0x%llx probe=%d controllerRoot=%d flashlightAim=%d flashlightGameplayRay=%d handOffset=%.4f,%.4f,%.4f handRotationDegrees=%.2f,%.2f,%.2f flashlightOffset=%.4f,%.4f,%.4f flashlightRotationDegrees=%.2f,%.2f,%.2f policy=exact_identity_guarded_tracked_pose gameplayRayPolicy=ray_length_camera_origin_preserve_cone cacheLimit=%llu identityLogLimit=%llu",
+        "hpl_hands_bridge install_ok setMatrixRva=0x%llx getNameRva=0x%llx destroyEntityRva=0x%llx getClosestBodyRva=0x%llx probe=%d controllerRoot=%d controllerHudObject=%d flashlightAim=%d flashlightGameplayRay=%d handOffset=%.4f,%.4f,%.4f handRotationDegrees=%.2f,%.2f,%.2f hudObjectOffset=%.4f,%.4f,%.4f hudObjectRotationDegrees=%.2f,%.2f,%.2f flashlightOffset=%.4f,%.4f,%.4f flashlightRotationDegrees=%.2f,%.2f,%.2f policy=exact_identity_guarded_tracked_pose lifecyclePolicy=evict_on_native_destroy gameplayRayPolicy=ray_length_camera_origin_preserve_cone cacheLimit=%llu identityLogLimit=%llu",
         static_cast<unsigned long long>(kLuxEntitySetMatrixRva),
         static_cast<unsigned long long>(kLuxEntityGetNameRva),
+        static_cast<unsigned long long>(kLuxMapDestroyEntityRva),
         static_cast<unsigned long long>(kGetClosestBodyRva),
         config.hplHandTrackingProbe ? 1 : 0,
         config.hplHandControllerRoot ? 1 : 0,
+        config.hplControllerHudObject ? 1 : 0,
         config.hplControllerFlashlightAim ? 1 : 0,
         config.hplControllerFlashlightGameplayRay ? 1 : 0,
         config.hplHandRootOffsetX,
@@ -745,6 +986,12 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplHandRootPitchDegrees,
         config.hplHandRootYawDegrees,
         config.hplHandRootRollDegrees,
+        config.hplHudObjectOffsetX,
+        config.hplHudObjectOffsetY,
+        config.hplHudObjectOffsetZ,
+        config.hplHudObjectPitchDegrees,
+        config.hplHudObjectYawDegrees,
+        config.hplHudObjectRollDegrees,
         config.hplFlashlightOffsetX,
         config.hplFlashlightOffsetY,
         config.hplFlashlightOffsetZ,
@@ -763,13 +1010,19 @@ void RemoveHPLHandsBridge()
         MH_DisableHook(g_getClosestBodyTarget);
         MH_RemoveHook(g_getClosestBodyTarget);
     }
+    if (g_destroyEntityTarget != nullptr) {
+        MH_DisableHook(g_destroyEntityTarget);
+        MH_RemoveHook(g_destroyEntityTarget);
+    }
     if (g_setMatrixTarget != nullptr) {
         MH_DisableHook(g_setMatrixTarget);
         MH_RemoveHook(g_setMatrixTarget);
     }
     g_setMatrixTarget = nullptr;
+    g_destroyEntityTarget = nullptr;
     g_getClosestBodyTarget = nullptr;
     g_originalSetMatrix = nullptr;
+    g_originalDestroyEntity = nullptr;
     g_originalGetClosestBody = nullptr;
     g_getEntityName = nullptr;
     g_openxr = nullptr;
@@ -790,15 +1043,29 @@ void LogHPLHandsBridgeSummary()
     }
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_hands_bridge_summary installed=%d gameplayRayInstalled=%d calls=%llu cachedIdentities=%llu identityReads=%llu identityReadFailures=%llu playerHandsIdentities=%llu playerHandsCalls=%llu flashlightIdentities=%llu flashlightCalls=%llu matrixReadFailures=%llu quarterScaleSamples=%llu fullScaleSamples=%llu otherScaleSamples=%llu trackedGripSamples=%llu authoredCameraSamples=%llu rootOverrideAttempts=%llu rootOverrides=%llu rootScaleFallbacks=%llu rootStateFallbacks=%llu rootAuthoredFallbacks=%llu rootPoseFallbacks=%llu rootStaleFallbacks=%llu rootMathFallbacks=%llu flashlightOverrideAttempts=%llu flashlightOverrides=%llu flashlightStateFallbacks=%llu flashlightAuthoredFallbacks=%llu flashlightPoseFallbacks=%llu flashlightStaleFallbacks=%llu flashlightMathFallbacks=%llu gameplayRayCalls=%llu gameplayRayCandidates=%llu gameplayRayRedirects=%llu gameplayRayHits=%llu gameplayRayOriginFallbacks=%llu gameplayRayPoseFallbacks=%llu gameplayRayStaleFallbacks=%llu gameplayRayMathFallbacks=%llu",
+        "hpl_hands_bridge_summary installed=%d destroyLifecycleInstalled=%d gameplayRayInstalled=%d calls=%llu destroyEntityCalls=%llu identityInvalidations=%llu cachedIdentities=%llu identityReads=%llu identityReadFailures=%llu playerHandsIdentities=%llu playerHandsCalls=%llu hudObjectIdentities=%llu socketedHudObjectIdentities=%llu hudObjectCalls=%llu hudObjectOverrideAttempts=%llu hudObjectOverrides=%llu hudObjectScaleFallbacks=%llu hudObjectStateFallbacks=%llu hudObjectAuthoredFallbacks=%llu hudObjectPoseFallbacks=%llu hudObjectStaleFallbacks=%llu hudObjectMathFallbacks=%llu flashlightIdentities=%llu flashlightCalls=%llu matrixReadFailures=%llu quarterScaleSamples=%llu fullScaleSamples=%llu otherScaleSamples=%llu trackedGripSamples=%llu authoredCameraSamples=%llu rootOverrideAttempts=%llu rootOverrides=%llu rootScaleFallbacks=%llu rootStateFallbacks=%llu rootAuthoredFallbacks=%llu rootPoseFallbacks=%llu rootStaleFallbacks=%llu rootMathFallbacks=%llu flashlightOverrideAttempts=%llu flashlightOverrides=%llu flashlightStateFallbacks=%llu flashlightAuthoredFallbacks=%llu flashlightPoseFallbacks=%llu flashlightStaleFallbacks=%llu flashlightMathFallbacks=%llu gameplayRayCalls=%llu gameplayRayCandidates=%llu gameplayRayRedirects=%llu gameplayRayHits=%llu gameplayRayOriginFallbacks=%llu gameplayRayPoseFallbacks=%llu gameplayRayStaleFallbacks=%llu gameplayRayMathFallbacks=%llu",
         g_setMatrixTarget != nullptr ? 1 : 0,
+        g_destroyEntityTarget != nullptr ? 1 : 0,
         g_getClosestBodyTarget != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_calls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_destroyEntityCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_identityInvalidations.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(cachedIdentities),
         static_cast<unsigned long long>(g_identityReads.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_identityReadFailures.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_playerHandsIdentities.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_playerHandsCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hudObjectIdentities.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_socketedHudObjectIdentities.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hudObjectCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hudObjectOverrideAttempts.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hudObjectOverrides.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hudObjectScaleFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hudObjectStateFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hudObjectAuthoredFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hudObjectPoseFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hudObjectStaleFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hudObjectMathFallbacks.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_flashlightIdentities.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_flashlightCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_matrixReadFailures.load(std::memory_order_relaxed)),

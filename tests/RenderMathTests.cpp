@@ -293,6 +293,41 @@ int main()
             handMatrix),
         "controller hand root rejects collinear tracking basis");
 
+    std::array<float, 16> hudObjectMatrix{};
+    const hands_math::HudObjectCalibration hudObjectCalibration{
+        {0.1f, -0.05f, 0.2f},
+        {},
+    };
+    failures += Check(
+        hands_math::BuildControllerHudObjectMatrix(
+            {1.0f, 2.0f, 3.0f},
+            {0.0f, 0.0f, -1.0f},
+            {0.0f, 1.0f, 0.0f},
+            2.0f,
+            hudObjectCalibration,
+            hudObjectMatrix),
+        "controller HudObject root builds from tracked basis");
+    failures += Check(
+        Near(hudObjectMatrix[0], 2.0f)
+            && Near(hudObjectMatrix[5], 2.0f)
+            && Near(hudObjectMatrix[10], 2.0f)
+            && Near(hudObjectMatrix[15], 1.0f),
+        "controller HudObject preserves camera-style basis and native scale");
+    failures += Check(
+        Near(hudObjectMatrix[3], 1.1f)
+            && Near(hudObjectMatrix[7], 1.95f)
+            && Near(hudObjectMatrix[11], 2.8f),
+        "controller HudObject applies grip-local position calibration");
+    failures += Check(
+        !hands_math::BuildControllerHudObjectMatrix(
+            {},
+            {0.0f, 1.0f, 0.0f},
+            {0.0f, 1.0f, 0.0f},
+            1.0f,
+            {},
+            hudObjectMatrix),
+        "controller HudObject rejects collinear tracking basis");
+
     std::array<float, 16> flashlightMatrix{};
     const flashlight_math::FlashlightCalibration flashlightCalibration{
         {0.1f, -0.05f, 0.2f},

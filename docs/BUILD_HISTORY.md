@@ -2,6 +2,37 @@
 
 ## 2026-07-15
 
+### 0.31.0-tools-hud
+
+- Extended the proven Lux entity identity hook to exact `HudObject` and
+  `*_HudObject` script contracts. The independent camera-follow interaction
+  object can now use a dominant-grip world transform with its native uniform
+  scale; socketed inventory tools remain owned by the already controller-driven
+  hand attachment and are classified without a second transform.
+- Added strict native fallback for malformed/nonuniform matrices, missing player
+  ownership, authored cameras, inactive F10 tracking, stale input, lost position
+  or orientation, and failed transform math. Dedicated position/rotation
+  calibration and bounded identity/pose/summary rows are enabled in the active
+  development profile.
+- Added an exact, signature-guarded `cLuxMap::DestroyEntity` lifecycle hook.
+  It evicts destroyed entity pointers from the hands/tool identity cache before
+  native queueing, so recreated script tools cannot inherit stale ownership if
+  the allocator reuses an address. Hook installation remains transactional.
+- Promoted exact `SOMA_GetGameHudImGui()->GetSet()` identity from passive
+  telemetry into the existing HUD layer. The transparent target clears once per
+  game frame, then accumulates exact GameHudSet and GameHudImGui draws into one
+  VIEW-space OpenXR quad. Pause/menu and diegetic GUI sets remain native.
+- Added one bounded `hpl_render_transaction` report per sample interval. It
+  records the complete nested viewport/world/callback/post/GUI order, per-stage
+  multiplicity, draws, clears, and CPU cost, and names only a world-stage replay
+  candidate while explicitly retaining the callback-side-effect proof gate.
+- Updated and saved the Ghidra names/comments for exact SetMatrix, DestroyEntity,
+  GuiSet Render, and GameHudImGui functions. Pure tool-root tests, both Release flavors, and
+  both test suites pass. OpenXR SHA-256:
+  `D75E2F901C6BC2F9BCA55B98B02C36513233FF2CB635AF8DA44517A85C991F6D`.
+  Package SHA-256:
+  `CCC5FE427230E5F715863291F9E5E20D8FD61BCE7D798C0F1C586BE7B5089E4B`.
+
 ### 0.30.0-screen-effects
 
 - Promoted SOMA's shipped `Effect_Screen.hps` screen-material path into a

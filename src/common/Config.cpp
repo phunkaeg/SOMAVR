@@ -290,6 +290,13 @@ void ConfigManager::WriteDefaultConfig() const
         << "HandRootPitchDegrees=0.0\n"
         << "HandRootYawDegrees=0.0\n"
         << "HandRootRollDegrees=0.0\n"
+        << "ControllerHudObject=0\n"
+        << "HudObjectOffsetX=0.0\n"
+        << "HudObjectOffsetY=0.0\n"
+        << "HudObjectOffsetZ=0.0\n"
+        << "HudObjectPitchDegrees=0.0\n"
+        << "HudObjectYawDegrees=0.0\n"
+        << "HudObjectRollDegrees=0.0\n"
         << "ControllerFlashlightAim=0\n"
         << "ControllerFlashlightGameplayRay=0\n"
         << "FlashlightOffsetX=0.0\n"
@@ -589,6 +596,13 @@ void ConfigManager::LoadFromFile()
             else if (key == "handrootpitchdegrees") config_.hplHandRootPitchDegrees = ParseFloat(value, config_.hplHandRootPitchDegrees, -180.0f, 180.0f);
             else if (key == "handrootyawdegrees") config_.hplHandRootYawDegrees = ParseFloat(value, config_.hplHandRootYawDegrees, -180.0f, 180.0f);
             else if (key == "handrootrolldegrees") config_.hplHandRootRollDegrees = ParseFloat(value, config_.hplHandRootRollDegrees, -180.0f, 180.0f);
+            else if (key == "controllerhudobject") config_.hplControllerHudObject = ParseBool(value, config_.hplControllerHudObject);
+            else if (key == "hudobjectoffsetx") config_.hplHudObjectOffsetX = ParseFloat(value, config_.hplHudObjectOffsetX, -5.0f, 5.0f);
+            else if (key == "hudobjectoffsety") config_.hplHudObjectOffsetY = ParseFloat(value, config_.hplHudObjectOffsetY, -5.0f, 5.0f);
+            else if (key == "hudobjectoffsetz") config_.hplHudObjectOffsetZ = ParseFloat(value, config_.hplHudObjectOffsetZ, -5.0f, 5.0f);
+            else if (key == "hudobjectpitchdegrees") config_.hplHudObjectPitchDegrees = ParseFloat(value, config_.hplHudObjectPitchDegrees, -180.0f, 180.0f);
+            else if (key == "hudobjectyawdegrees") config_.hplHudObjectYawDegrees = ParseFloat(value, config_.hplHudObjectYawDegrees, -180.0f, 180.0f);
+            else if (key == "hudobjectrolldegrees") config_.hplHudObjectRollDegrees = ParseFloat(value, config_.hplHudObjectRollDegrees, -180.0f, 180.0f);
             else if (key == "controllerflashlightaim") config_.hplControllerFlashlightAim = ParseBool(value, config_.hplControllerFlashlightAim);
             else if (key == "controllerflashlightgameplayray") config_.hplControllerFlashlightGameplayRay = ParseBool(value, config_.hplControllerFlashlightGameplayRay);
             else if (key == "flashlightoffsetx") config_.hplFlashlightOffsetX = ParseFloat(value, config_.hplFlashlightOffsetX, -5.0f, 5.0f);

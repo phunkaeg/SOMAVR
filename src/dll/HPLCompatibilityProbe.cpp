@@ -138,6 +138,20 @@ struct FrameSampleBudget {
     uint32_t count = 0;
 };
 
+struct RenderTransactionFrame {
+    bool active = false;
+    bool sampled = false;
+    uint64_t frame = 0;
+    void* viewport = nullptr;
+    uint64_t renderMask = 0;
+    std::array<uint32_t, kStageCount> counts{};
+    std::array<uint64_t, kStageCount> drawCalls{};
+    std::array<uint64_t, kStageCount> clears{};
+    std::array<uint64_t, kStageCount> durationNanoseconds{};
+    std::array<HPLRenderStage, 32> order{};
+    size_t orderCount = 0;
+};
+
 Config g_config;
 OpenXRRuntime* g_openxr = nullptr;
 uintptr_t g_executableBase = 0;
@@ -165,6 +179,8 @@ std::atomic<uint64_t> g_gpuTimingDropped = 0;
 std::atomic<uint64_t> g_gpuTimingInvalid = 0;
 std::atomic<uint64_t> g_lastPerformanceLogFrame = 0;
 std::atomic<uint64_t> g_lastGpuPerformanceLogFrame = 0;
+std::atomic<uint64_t> g_renderTransactionFrames = 0;
+std::atomic<uint64_t> g_canonicalRenderTransactions = 0;
 int64_t g_performanceFrequency = 0;
 std::atomic<uint64_t> g_audioCalls = 0;
 std::atomic<uint64_t> g_audioPoseSamples = 0;
@@ -195,6 +211,7 @@ thread_local uint64_t g_traceSequence = 0;
 thread_local void* g_activeViewport = nullptr;
 thread_local uint64_t g_activeRenderMask = 0;
 thread_local HPLRenderStage g_activeStage = HPLRenderStage::None;
+thread_local RenderTransactionFrame g_renderTransaction;
 
 size_t StageIndex(HPLRenderStage stage)
 {
@@ -938,6 +955,89 @@ bool ConsumeSampleBudget(HPLRenderStage stage, uint64_t frame, uint64_t call)
     return true;
 }
 
+void FinalizeRenderTransaction()
+{
+    if (!g_renderTransaction.active) return;
+    g_renderTransactionFrames.fetch_add(1, std::memory_order_relaxed);
+    const bool canonical = g_renderTransaction.counts[StageIndex(HPLRenderStage::Viewport)] == 1
+        && g_renderTransaction.counts[StageIndex(HPLRenderStage::World)] == 1
+        && g_renderTransaction.counts[StageIndex(HPLRenderStage::WorldCallbacks)] == 1
+        && g_renderTransaction.counts[StageIndex(HPLRenderStage::PostEffects)] == 1
+        && g_renderTransaction.counts[StageIndex(HPLRenderStage::PostPostEffect)] == 1
+        && g_renderTransaction.counts[StageIndex(HPLRenderStage::ScreenGui)] == 1;
+    if (canonical) {
+        g_canonicalRenderTransactions.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    const uint64_t interval = static_cast<uint64_t>(
+        std::max(g_config.hplCompatibilityLogInterval, 1));
+    if (g_renderTransaction.frame <= 2 || g_renderTransaction.frame % interval == 0) {
+        std::ostringstream order;
+        for (size_t index = 0; index < g_renderTransaction.orderCount; ++index) {
+            if (index != 0) order << '>';
+            order << GetHPLRenderStageName(g_renderTransaction.order[index]);
+        }
+        const size_t world = StageIndex(HPLRenderStage::World);
+        const size_t callbacks = StageIndex(HPLRenderStage::WorldCallbacks);
+        const size_t post = StageIndex(HPLRenderStage::PostEffects);
+        const size_t postPost = StageIndex(HPLRenderStage::PostPostEffect);
+        const size_t gui = StageIndex(HPLRenderStage::ScreenGui);
+        const bool renderOnlyCandidate = canonical
+            && g_renderTransaction.sampled
+            && g_renderTransaction.drawCalls[callbacks] == 0
+            && g_renderTransaction.drawCalls[postPost] == 0;
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_render_transaction frame=%llu viewport=%p mask=0x%llx canonical=%d sampled=%d order=%s counts={viewport=%u world=%u callbacks=%u post=%u postPost=%u gui=%u} draws={world=%llu callbacks=%llu post=%llu postPost=%llu gui=%llu} clears={world=%llu callbacks=%llu post=%llu postPost=%llu gui=%llu} durationUs={world=%.2f callbacks=%.2f post=%.2f postPost=%.2f gui=%.2f} repeatCandidate=%s proof=callback_side_effects_still_require_controlled_replay",
+            static_cast<unsigned long long>(g_renderTransaction.frame),
+            g_renderTransaction.viewport,
+            static_cast<unsigned long long>(g_renderTransaction.renderMask),
+            canonical ? 1 : 0,
+            g_renderTransaction.sampled ? 1 : 0,
+            order.str().c_str(),
+            g_renderTransaction.counts[StageIndex(HPLRenderStage::Viewport)],
+            g_renderTransaction.counts[world],
+            g_renderTransaction.counts[callbacks],
+            g_renderTransaction.counts[post],
+            g_renderTransaction.counts[postPost],
+            g_renderTransaction.counts[gui],
+            static_cast<unsigned long long>(g_renderTransaction.drawCalls[world]),
+            static_cast<unsigned long long>(g_renderTransaction.drawCalls[callbacks]),
+            static_cast<unsigned long long>(g_renderTransaction.drawCalls[post]),
+            static_cast<unsigned long long>(g_renderTransaction.drawCalls[postPost]),
+            static_cast<unsigned long long>(g_renderTransaction.drawCalls[gui]),
+            static_cast<unsigned long long>(g_renderTransaction.clears[world]),
+            static_cast<unsigned long long>(g_renderTransaction.clears[callbacks]),
+            static_cast<unsigned long long>(g_renderTransaction.clears[post]),
+            static_cast<unsigned long long>(g_renderTransaction.clears[postPost]),
+            static_cast<unsigned long long>(g_renderTransaction.clears[gui]),
+            static_cast<double>(g_renderTransaction.durationNanoseconds[world]) / 1000.0,
+            static_cast<double>(g_renderTransaction.durationNanoseconds[callbacks]) / 1000.0,
+            static_cast<double>(g_renderTransaction.durationNanoseconds[post]) / 1000.0,
+            static_cast<double>(g_renderTransaction.durationNanoseconds[postPost]) / 1000.0,
+            static_cast<double>(g_renderTransaction.durationNanoseconds[gui]) / 1000.0,
+            renderOnlyCandidate ? "world_stage_only" : "none");
+    }
+    g_renderTransaction = {};
+}
+
+void RecordRenderTransactionStage(const StageSample& sample)
+{
+    if (!g_renderTransaction.active || g_renderTransaction.frame != sample.frame) {
+        FinalizeRenderTransaction();
+        g_renderTransaction = {};
+        g_renderTransaction.active = true;
+        g_renderTransaction.frame = sample.frame;
+        g_renderTransaction.viewport = sample.viewport;
+        g_renderTransaction.renderMask = sample.renderMask;
+    }
+    const size_t stageIndex = StageIndex(sample.stage);
+    ++g_renderTransaction.counts[stageIndex];
+    if (g_renderTransaction.orderCount < g_renderTransaction.order.size()) {
+        g_renderTransaction.order[g_renderTransaction.orderCount++] = sample.stage;
+    }
+}
+
 StageSample BeginStage(HPLRenderStage stage, void* viewport = nullptr, uint64_t renderMask = 0)
 {
     StageSample sample;
@@ -953,6 +1053,7 @@ StageSample BeginStage(HPLRenderStage stage, void* viewport = nullptr, uint64_t 
     sample.call = g_stageCalls[StageIndex(stage)].fetch_add(1, std::memory_order_relaxed) + 1;
     sample.viewport = viewport != nullptr ? viewport : g_activeViewport;
     sample.renderMask = renderMask != 0 ? renderMask : g_activeRenderMask;
+    RecordRenderTransactionStage(sample);
     sample.enabled = g_config.hplRenderStageProbe
         && ConsumeSampleBudget(stage, sample.frame, sample.call);
     sample.timingEnabled = g_config.hplPerEyePerformanceTelemetry;
@@ -1015,6 +1116,20 @@ void EndStage(const StageSample& sample)
     }
     const GLState after = ReadGLState();
     const OpenGLTelemetrySnapshot telemetryAfter = GetOpenGLTelemetrySnapshot();
+    if (g_renderTransaction.active && g_renderTransaction.frame == sample.frame) {
+        const size_t stageIndex = StageIndex(sample.stage);
+        g_renderTransaction.sampled = true;
+        g_renderTransaction.drawCalls[stageIndex] +=
+            telemetryAfter.drawElements - sample.telemetryBefore.drawElements
+            + telemetryAfter.drawArrays - sample.telemetryBefore.drawArrays;
+        g_renderTransaction.clears[stageIndex] +=
+            telemetryAfter.clears - sample.telemetryBefore.clears;
+        if (g_performanceFrequency > 0 && elapsedTicks >= 0) {
+            g_renderTransaction.durationNanoseconds[stageIndex] += static_cast<uint64_t>(
+                static_cast<long double>(elapsedTicks) * 1000000000.0L
+                / static_cast<long double>(g_performanceFrequency));
+        }
+    }
 
     Logger::Instance().Write(
         LogLevel::Info,
@@ -1493,13 +1608,15 @@ void LogHPLCompatibilityProbeSummary()
     LogPerEyeGpuPerformance(GetOpenGLRenderFrameHint(), true);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu audioUpdates=%llu audioSamples=%llu audioCorrections=%llu audioTranslations=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
+        "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu renderTransactions=%llu canonicalRenderTransactions=%llu audioUpdates=%llu audioSamples=%llu audioCorrections=%llu audioTranslations=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::Viewport)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::World)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::WorldCallbacks)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::PostEffects)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::PostPostEffect)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::ScreenGui)].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_renderTransactionFrames.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_canonicalRenderTransactions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioPoseSamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioCorrections.load(std::memory_order_relaxed)),

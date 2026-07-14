@@ -1,5 +1,39 @@
 # Test Checklists
 
+## 0.31.0 Tools, Gameplay ImGui, And Render Transaction
+
+1. Confirm `version=0.31.0-tools-hud`, `controllerHudObject=1`, and
+   `hpl_hands_bridge install_ok ... controllerHudObject=1` after launch.
+2. Load a save, press F10 once, and use a prop/tool interaction that creates the
+   exact script name `HudObject`. Expect `hpl_entity_identity ... hudObject=1`
+   followed by `hpl_hud_object_pose ... requested=1 overridden=1`.
+3. Move and rotate the dominant controller. The interaction object should follow
+   the grip at stable world depth and scale. It must not remain camera locked,
+   jump between eyes, or lose native interaction callbacks.
+4. End that interaction and start it again. Expect
+   `hpl_hands_entity_destroy ... cacheInvalidated=1 relevant=1 name=HudObject`,
+   then a fresh identity row if SOMA reuses the pointer. The new object must not
+   inherit any previous entity's policy.
+5. Equip an inventory/Omnitool entity ending in `_HudObject`. Expect
+   `socketedHudObject=1`; it should remain attached to the controller-driven hand
+   animation, with no `hpl_hud_object_pose` override for that entity.
+6. Trigger an authored camera or temporarily remove dominant-hand tracking. The
+   independent object must immediately use its native matrix and later recover;
+   summary fallback counters should explain the transition.
+7. Exercise crosshair/descriptions, hints, inventory, subtitles, pause UI, and a
+   terminal. Exact GameHudSet and `gameHudMatch=1` rows may capture into one HUD
+   quad; pause/current ImGui and diegetic sets must remain native. Confirm
+   `gameHudImGuiCaptures` becomes nonzero when dedicated gameplay ImGui draws.
+8. Confirm the combined HUD retains transparency and that the center-crosshair
+   clear does not erase unrelated central ImGui content. F10 off and XR focus
+   loss must preserve native UI visibility.
+9. Find periodic `hpl_render_transaction` rows. Record `order`, all six counts,
+   per-stage draws/clears/durations, and `repeatCandidate`; no second render is
+   attempted in this build.
+10. Regression-test rigid world geometry, eye height, shadows/reflections, room
+   scale, flashlight, interaction ray, menu pointer, loading, save transition,
+   and clean shutdown. Attach the log.
+
 ## 0.30.0 Screen Materials
 
 1. Confirm `version=0.30.0-screen-effects` and

@@ -79,10 +79,15 @@ foreach ($doc in @("CURRENT_STATE.md", "TEST_CHECKLISTS.md", "SMOKE_TEST_MATRIX.
     Copy-Item -LiteralPath (Join-Path $repositoryRoot "docs\$doc") -Destination $packageDocs
 }
 
+$stagePrefix = $stagePath.TrimEnd([System.IO.Path]::DirectorySeparatorChar) +
+    [System.IO.Path]::DirectorySeparatorChar
 $hashLines = Get-ChildItem -LiteralPath $stagePath -File -Recurse |
     Sort-Object FullName |
     ForEach-Object {
-        $relativePath = [System.IO.Path]::GetRelativePath($stagePath, $_.FullName).Replace('\', '/')
+        if (-not $_.FullName.StartsWith($stagePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Packaged file escaped staging root: $($_.FullName)"
+        }
+        $relativePath = $_.FullName.Substring($stagePrefix.Length).Replace('\', '/')
         $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $relativePath"
     }

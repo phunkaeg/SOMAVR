@@ -8,6 +8,7 @@
 #include "HPLMenuMath.h"
 #include "HPLPhysicalCrouchMath.h"
 #include "HPLScreenEffectMath.h"
+#include "HPLSubtitleMath.h"
 #include "OpenGLMatrixAnalysis.h"
 #include "OpenXRSpectatorMath.h"
 #include "OpenXRDepthMath.h"
@@ -40,6 +41,23 @@ int main()
     using namespace somavr;
 
     int failures = 0;
+    subtitle_math::SubtitleLayout subtitleLayout;
+    failures += Check(
+        subtitle_math::BuildSubtitleLayout(
+            {860.0f, 700.0f, 26.0f, 1.0f},
+            {0.9f, 1.15f, 0.0f},
+            subtitleLayout)
+            && Near(subtitleLayout.maxTextWidth, 774.0f)
+            && Near(subtitleLayout.textY, 700.0f)
+            && Near(subtitleLayout.fontSize, 29.9f)
+            && Near(subtitleLayout.shadowOffset, 1.15f),
+        "subtitle layout scales native width, font, and shadow coherently");
+    failures += Check(
+        !subtitle_math::BuildSubtitleLayout(
+            {0.0f, 700.0f, 26.0f, 1.0f}, {0.9f, 1.15f, 0.0f}, subtitleLayout)
+            && !subtitle_math::BuildSubtitleLayout(
+                {860.0f, 700.0f, 26.0f, 1.0f}, {0.1f, 1.15f, 0.0f}, subtitleLayout),
+        "subtitle layout rejects malformed native and configuration values");
     failures += Check(camera_math::ValidateStereoProjectionMath(), "projection self-test");
     spectator_math::BlitLayout spectatorLayout;
     failures += Check(

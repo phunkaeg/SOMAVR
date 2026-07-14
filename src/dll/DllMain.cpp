@@ -14,6 +14,7 @@
 #include "HPLPlayerState.h"
 #include "HPLPresentationBridge.h"
 #include "HPLScreenEffectBridge.h"
+#include "HPLSubtitleBridge.h"
 #include "Logger.h"
 #include "OpenGLHooks.h"
 #include "OpenXRRuntime.h"
@@ -344,6 +345,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     if (!somavr::InstallHPLScreenEffectBridge(g_config->Get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_screen_effect_bridge install_failed");
     }
+    if (!somavr::InstallHPLSubtitleBridge(g_config->Get())) {
+        somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_subtitle_bridge install_failed");
+    }
     if (!somavr::InstallHPLNativeLocomotion(g_config->Get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_native_locomotion install_failed");
     }
@@ -411,6 +415,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::RemoveHPLPresentationBridge();
     somavr::LogHPLScreenEffectBridgeSummary();
     somavr::RemoveHPLScreenEffectBridge();
+    somavr::LogHPLSubtitleBridgeSummary();
+    somavr::RemoveHPLSubtitleBridge();
     somavr::LogHPLComfortBridgeSummary();
     somavr::RemoveHPLComfortBridge();
     somavr::LogHPLCameraBridgeSummary();

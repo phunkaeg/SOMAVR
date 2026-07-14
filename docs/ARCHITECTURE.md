@@ -126,8 +126,10 @@ lifecycle.
 | `HPLHandsBridge` | Shared Lux-entity SetMatrix detour, exact `PlayerHands_*`/`Flashlight` identity routing, guarded grip-root/aim-light substitution, and narrow flashlight gameplay-ray redirection | Skeletal/tool animation, sockets, broad light mutation, general physics-ray policy, full-scale/custom/authored transforms, or untracked pose ownership |
 | `HPLHandsMath` | Pure HPL basis reconstruction, scale preservation, and configurable root calibration | Native pointers, entity identity, tracking policy, or logging |
 | `HPLFlashlightMath` | Pure OpenXR aim to HPL negative-Z spotlight basis, local calibration, and source-to-target cone-direction preservation | Native pointers, light identity/lifetime, tracking policy, ray classification, or logging |
-| `HPLHudBridge` | Signature-guarded exact GameHudSet identity, per-set telemetry, and reversible begin/render/end capture routing | OpenXR swapchain/session ownership, ImGui/menu capture, or diegetic GUI policy |
+| `HPLHudBridge` | Signature-guarded GameHudSet/GameHudImGui capture plus pause-gated exact-current-ImGui routing and per-set telemetry | OpenXR swapchain/session ownership, non-paused broad ImGui capture, or diegetic GUI policy |
 | `HPLHudMath` | Pure quad pose, angular size, and aspect validation | GL state, OpenXR handles, native pointers, or logging |
+| `HPLSubtitleBridge` | Signature-guarded scoped override/restore of native voice subtitle layout during active stereo | Subtitle content, localization, timing, enable state, font resources, or HUD swapchains |
+| `HPLSubtitleMath` | Pure validated subtitle width/font/Y/shadow scaling | Native pointers, hooks, camera state, or logging |
 | `HPLCompatibilityProbe` | Bounded render/audio/post-effect telemetry, left/right/mono CPU stage totals, and temporary probes; shared pose math comes from `HPLCameraMath` | Permanent GUI/HUD feature policy, GPU timing ownership, or unrelated gameplay systems |
 | `HPLLifecycle` | Pre-graphics OpenXR teardown boundary | General shutdown orchestration |
 
@@ -168,6 +170,8 @@ The maintenance passes now include ten focused extractions:
   `HPLHandsBridge` owns exact identity and native-state policy.
 - `HPLMenuMath` owns head-relative aim projection and `HPLMenuBridge` owns only
   the paused native-window cursor lifecycle.
+- `HPLSubtitleMath` owns validated native-layout scaling while
+  `HPLSubtitleBridge` owns the one exact draw hook and immediate restoration.
 
 `somavr_render_math_tests` now protects symmetric tangent-span preservation,
 zero projection offsets, projection construction, pose/matrix basics, HUD quad

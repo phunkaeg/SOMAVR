@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.33.0-depth-resources`, layered on the
+The active build candidate is `0.34.0-subtitles-menus`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
@@ -37,6 +37,18 @@ compatibility probes:
   SOMA HDC/HGLRC triggers full delayed runtime recovery; changed recommended
   view dimensions or sample limits trigger a frame-resource rebuild. Stable
   view checks occur every 300 game frames without reallocating resources.
+
+- Native subtitle presentation now has a narrow VR adapter. The exact voice
+  subtitle draw worker at `0x1401c8dd0` reads layout from its
+  `cLuxVoiceHandler` owner. During active stereo, `HPLSubtitleBridge` applies
+  configured width/font/Y/shadow scaling only for that native call and restores
+  the original values before returning. Localization, speaker names, timing,
+  gradual reveal, font selection, and native enable settings remain untouched.
+- The HUD layer now admits SOMA's exact current ImGui set while the confirmed
+  pause getter reports `paused=1`. This gives the existing controller pointer a
+  stable head-locked pause surface without broad ImGui interception. Main-menu,
+  loading, game-over, terminal, and other non-paused owners still need explicit
+  classification.
 
 - F10/F11 and the diagnostic camera controls are now owned by the exact player
   camera whenever `HPLPlayerState` can identify it. Secondary viewport cameras
@@ -58,11 +70,12 @@ compatibility probes:
   failure forwards SOMA's original matrix. The exact native DestroyEntity path
   evicts cached identities before queueing, preventing pointer reuse from
   applying an old tool policy to a newly created entity.
-- The HUD capture now accumulates both exact GameHudSet and exact
-  `SOMA_GetGameHudImGui()->GetSet()` draws into one transparent target per game
-  frame. This includes the dedicated gameplay ImGui owner without capturing
-  current pause/menu or diegetic GUI sets. The first exact draw clears; later
-  exact draws append; native GL state is restored after each set.
+- The HUD capture now accumulates exact GameHudSet, exact
+  `SOMA_GetGameHudImGui()->GetSet()`, and paused exact-current-ImGui draws into
+  one transparent target per game frame. The pause getter is the hard ownership
+  gate; diegetic and non-paused current ImGui sets stay native. The first exact
+  draw clears, later exact draws append, and native GL state is restored after
+  each set.
 - Periodic `hpl_render_transaction` rows summarize the complete six-stage
   viewport transaction and identify a possible world-only replay scope without
   claiming callback safety. Same-frame stereo remains gated on a controlled
@@ -122,10 +135,10 @@ compatibility probes:
   controller position relative to HMD position, projects onto head-right/up,
   bounds the relative mouse delta, and leaves all native constraints and scripts
   authoritative. The active profile enables it; generated configs default off.
-- `HPLHudBridge` now passively correlates every rendered `cGuiSet` with current
-  and gameplay-HUD `cImGui` ownership through three fully signature-guarded
-  wrappers. The probe does not capture new surfaces yet; its next live log will
-  classify screen-space inventory, hint, menu, loading, and related owners.
+- `HPLHudBridge` still correlates every rendered `cGuiSet` with current and
+  gameplay-HUD `cImGui` ownership. It now promotes only the confirmed paused
+  current owner into capture; telemetry remains the classifier for loading,
+  wake, game-over, credits, inventory, and diegetic surfaces.
 
 - A guarded native comfort bridge now intercepts SOMA's semantic camera-add
   setter. During active VR it zeros only Bob, Shake, and optional Sway while all
@@ -177,9 +190,10 @@ compatibility probes:
   `0x1400cc9b0`. With `HudLayer=1`, only that 2D set is redirected into a
   transparent GL target and submitted as an alpha-blended VIEW-space OpenXR
   quad. Existing virtual/center-screen metrics remain in bounded telemetry.
-- Menus, ImGui, subtitles not owned by the gameplay set, terminals, and every
-  3D/diegetic GUI remain native. Missing signatures/resources, non-visible XR
-  state, or repeated transfer failures restore normal backbuffer rendering.
+- Paused current ImGui and native voice subtitles are now covered by narrow
+  adapters. Main/loading/game-over menus, terminals, and every 3D/diegetic GUI
+  remain native. Missing signatures/resources, non-visible XR state, or failed
+  validation restore normal native rendering.
 - The dominant controller's fully tracked world aim can replace only the
   start/direction passed to SOMA's native closest-entity wrapper at
   `0x1400cd750`. Strict query-type, native-origin, tracking, input, and
@@ -515,78 +529,34 @@ The OpenXR build now asks for:
 & "D:\Dev Debug\SOMAVR\build-openxr\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.26.0-gpu-depth-probe`, six compatibility render-stage hooks,
-   `hpl_hud_bridge installed ... layer=1`,
-   `hpl_interaction_bridge install_ok`, `hpl_hands_bridge install_ok`, and
-   `hpl_grab_bridge install_ok ... rotation=1 throwRedirect=1`, plus
-   `hpl_comfort_bridge install_ok ... bob=1 shake=1 sway=1`,
-   `referenceSpace=local`, `recovery=1`, and controller haptics enabled.
-   Confirm `hpl_crosshair_bridge install_ok`,
-   `openxr_interaction_reticle native_assets_loaded count=34`, and the
-   semantic/native-icon/focus-haptic configuration row before judging behavior.
-   Also confirm `perEyeGpu=1`, `gpuQueryPairs=128`, and depth probing enabled.
-3. Load a save game, face forward, and press F10 once.
-4. Confirm `hpl_vr_mode requested`, API-attributed `openxr_manual_start triggered`,
-   one or more `calibration_wait` rows, then `hpl_vr_mode activated` with
-   `fullyTracked=1 stablePoseFrames=8` and tracking/stereo/centering enabled.
-5. Confirm two `openxr_swapchain created` rows, `openxr_frame_resources ready`, and `openxr_session_begin ok`.
-6. Confirm `openxr_hud swapchain_created size=1600x900`, then
-   `openxr_frame ok ... layers=2 views=2 ... hud=1` repeats while the gameplay
-   HUD is visible. Frames without gameplay HUD content may remain `layers=1`.
-7. Confirm later summaries show `openxrFrameResourcesReady=1`, `openxrSessionRunning=1`, increasing `openxrSubmittedFrames`, and `openxrFrameSubmitFailed=0`.
-8. Make small yaw and pitch movements first. The world must rotate rigidly with no
-   shear, diagonal stretch, or scale change; press F10 immediately if it does not.
-9. Confirm the first `hpl_stereo` eye offset is near IPD scale rather than metres,
-   and that the native player eye height is retained.
-10. Confirm alternating `hpl_stereo ... eye=0/1`, ready eye caches, and `openxr_frame ... stereo=1` without pressing F11.
-11. Without pressing F5, test shadow motion using deliberate pitch and roll, then
-    inspect the ceiling angle and window/oven boundary while moving normally.
-12. Confirm `hpl_stereo` rows report `projectionOffset=0.000000,0.000000`.
-    Slowly lean toward a static wall from several angles. Expect bounded
-    `hpl_roomscale_safety ... clamped=1 probes=9` rows and a stopped view before
-    geometry, including at corners and low ceiling edges, with rigid stereo and
-    coherent hands/flashlight. Moving doors are not yet a supported source.
-    Confirm the desktop remains a stable left eye with black fit bars as needed,
-    while the headset remains unchanged.
-13. Press F2 while facing a new comfortable forward direction. Expect
-    `hpl_recenter requested`, then either bounded `calibration_wait` rows or
-    `hpl_recenter applied ... stablePoseFrames=8`. Confirm tracking/stereo stay
-    active and view height remains correct.
-14. Load another save or cross a map transition. Expect `camera_replaced`,
-    `openxr_stereo_cache invalidated`, calibration rows, and automatic stereo
-    resumption without another F10 press or stale-eye flash.
-15. Snap-turn and recenter. Confirm bounded `openxr_comfort_blackout` rows and
-    no OpenXR frame failure or session restart.
-16. Exercise visible damage/motion effects. Inventory rows should use effect
-    names/priorities; the image trail, chromatic aberration, and radial blur
-    counters may increase while tone mapping/fades remain visible.
-17. Point the dominant controller away from screen center at several usable
-    objects. Confirm focus follows controller aim and bounded
-    `hpl_interaction_ray` rows report `applied=1`; then test authored-camera and
-    tracking-loss fallbacks.
-18. Capture gameplay, menu, subtitle, and terminal moments. Gameplay rows should
-    report `gameHud=1 hudCapture={enabled=1 started=1 completed=1}` and appear as
-    one comfortable head-locked quad rather than two eye-local copies. Menu,
-    terminal, and diegetic rows must stay `gameHud=0`; note where subtitles land.
-19. Confirm haptic pulses for discrete actions, then briefly remove runtime
-    focus while holding movement and verify immediate release plus one loss and
-    restoration transition in the log.
-20. Exercise visible normal and authored hand/tool states. Normal quarter-scale
-    rows should report `rootOverridden=1` and follow the dominant grip. Full-scale,
-    authored, non-normal, and tracking-loss rows must keep the native matrix and
-    increase the matching fallback counter.
-21. Open the pause menu while holding movement and trigger. Confirm
-    `paused=1 gameplaySuppressed=1`, no queued movement on resume, and
-    `hpl_menu_pointer applied` while dominant aim moves the native cursor. Close
-    the menu with trigger held and verify no world click until release.
-22. Toggle the flashlight and aim the dominant controller separately from the
-    HMD. Confirm exact `Flashlight` identity plus `hpl_flashlight_pose ...
-    overridden=1`; tracking loss and authored cameras must restore native aim.
-23. Confirm periodic `hpl_per_eye_gpu` rows have left/right samples with
-    `invalid=0` and no sustained drops. Confirm one `openxr_depth_capability`
-    row captures extension, framebuffer depth, and finite HPL near/far evidence.
-24. Confirm `somavr_build_manifest.txt` reports version
-    `0.26.0-gpu-depth-probe`, flavor `openxr`, and a DLL SHA-256.
-25. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
-    `complete`, then check that `Soma_NoSteam.exe` disappears. If it remains,
-    capture it with the dumper before manually terminating it.
+2. Confirm `version=0.34.0-subtitles-menus`,
+   `hpl_subtitle_bridge install_ok ... policy=active_stereo_native_draw_scoped_restore`,
+   and `hpl_hud_bridge installed ... layer=1 pausedMenu=1` with no signature
+   failure.
+3. Load a save, face forward, and press F10 once. Confirm tracking, stereo, full
+   projection centering, depth submission, and normal eye height activate from
+   that single key.
+4. Trigger several voiced lines with subtitles enabled. Text should be larger
+   and wrap slightly narrower on the stable HUD quad, with unchanged language,
+   speaker names, reveal timing, and audio timing. Expect
+   `hpl_subtitle_layout ... restored=1` and nonzero summary overrides.
+5. Disable `HPLSubtitleControl` and relaunch as the direct subtitle rollback.
+   Native size/layout must return without changing HUD capture. Restore it for
+   the remaining checks.
+6. Pause during gameplay. The menu must appear once on the head-locked HUD quad,
+   controller aim/click must still drive SOMA's cursor, and movement must remain
+   suppressed. Expect `pause={valid=1 paused=1 capturedCurrent=1}` and increasing
+   `pausedMenuCaptures`.
+7. Resume, open inventory, use a terminal, and exercise any non-paused ImGui.
+   Those surfaces must not be admitted merely because they are current. Set
+   `HudCapturePausedMenu=0` for the immediate menu-layer rollback.
+8. Recheck rigid world geometry, eye height, shadows/reflections, room-scale
+   collision, hands/tools, flashlight, interaction, audio, and spectator output.
+9. Load another save and exercise HMD sleep/wake. XR resources must recover and
+   subtitle/menu behavior must return without another F10.
+10. Confirm final subtitle summary has zero invalid renderer/layout fallbacks,
+    and HUD summary has zero pause-query fallbacks and capture fallbacks.
+11. Confirm `somavr_build_manifest.txt` reports version
+    `0.34.0-subtitles-menus`, flavor `openxr`, and a DLL SHA-256.
+12. Exit normally. Confirm pre-graphics shutdown completes and
+    `Soma_NoSteam.exe` disappears.

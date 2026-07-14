@@ -1,5 +1,16 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Subtitle Presentation Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1401c8dd0` | `SOMA_VoiceSubtitle_Render` | Renamed from the default symbol. The worker draws localized speaker and subtitle rows through the game GUI and repeatedly reads `cLuxVoiceHandler +0x174/+0x178/+0x17c/+0x180`; plate comment records the `0.34.0` scoped override/restore contract. |
+| `0x1401d3ba0` | `SOMA_cLuxVoiceHandler_Constructor` | Renamed from the default symbol. Constructor string anchors and config loads establish gradual reveal, normal/large width/font/Y caches, shadow offset, and font resource ownership. |
+
+The explicitly selected `Soma_NoSteam.exe` database was saved after both
+renames and plate comments. No subtitle content, localization, timing, or font
+resource function was renamed because the feature does not claim those owners.
+
 ## 2026-07-15 Frustum Depth-Convention Sync
 
 | Address | Ghidra name | Evidence/use |

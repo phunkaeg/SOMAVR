@@ -2,6 +2,33 @@
 
 ## 2026-07-15
 
+### 0.34.0-subtitles-menus
+
+- Added a dedicated, signature-guarded native subtitle bridge at
+  `0x1401c8dd0`. During active F10 stereo it temporarily scales SOMA's cached
+  subtitle wrap width, active Y, font size, and shadow offset, invokes the
+  original localized draw worker, and restores all four values immediately.
+  Speaker names, timing, gradual reveal, language data, font ownership, and
+  subtitle enable state remain native.
+- Added exact paused-menu capture to the existing HUD transaction. Only the
+  current ImGui set returned by `SOMA_GetCurrentImGui()->GetSet()` is admitted,
+  and only while confirmed `SOMA_GetGamePaused()` reports pause ownership. The
+  existing controller cursor/click route and all non-paused/diegetic ImGui sets
+  remain unchanged.
+- Added pure subtitle-layout tests, malformed-layout fallback counters, paused
+  menu identity/capture counters, generated-config rollback switches, and an
+  active development profile for live acceptance. Both Release flavors and all
+  three test suites pass.
+- Made release packaging compatible with Windows PowerShell 5.1 by replacing
+  the unavailable `.NET Path.GetRelativePath` call with a validated staging-root
+  prefix calculation; archive members still receive normalized relative hashes.
+- Renamed and documented `SOMA_VoiceSubtitle_Render` at `0x1401c8dd0` and
+  `SOMA_cLuxVoiceHandler_Constructor` at `0x1401d3ba0` in the shared Ghidra
+  database. OpenXR DLL SHA-256:
+  `9D5053CA3FA1F405221FCB37933D34D9D33DE5219012C582A21D1704444D928B`.
+  Package SHA-256:
+  `3ED658003BE5451A3FBDA14DAC837AF0B3F6D70F6CD066DE36F1889CF722BA5F`.
+
 ### 0.33.0-depth-resources
 
 - Promoted the capture-only depth experiment into optional compositor depth.

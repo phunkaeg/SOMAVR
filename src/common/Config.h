@@ -47,6 +47,7 @@ struct Config {
     int openxrHudMaxAgeFrames = 2;
     bool openxrHudSuppressCenterCrosshair = false;
     int openxrHudCrosshairClearRadiusPixels = 48;
+    bool openxrHudCapturePausedMenu = false;
     bool openxrInteractionReticle = false;
     bool openxrInteractionReticleSemantic = false;
     bool openxrInteractionReticleNativeIcons = false;
@@ -195,6 +196,10 @@ struct Config {
     bool hplVideoLifecycleProbe = false;
     bool hplScreenEffectControl = false;
     float hplScreenEffectDistanceMeters = 1.5f;
+    bool hplSubtitleControl = false;
+    float hplSubtitleWidthScale = 0.9f;
+    float hplSubtitleFontScale = 1.15f;
+    float hplSubtitleVerticalOffset = 0.0f;
     int hplComfortLogInterval = 120;
     int hplCameraLogInterval = 120;
     bool hplStereoAfr = false;

@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.33.0-depth-resources")
+set(SOMAVR_BUILD_VERSION "0.34.0-subtitles-menus")
 
 include(FetchContent)
 
@@ -71,6 +71,7 @@ add_library(somavr_render_math STATIC
     src/dll/HPLInputMath.cpp
     src/dll/HPLMenuMath.cpp
     src/dll/HPLScreenEffectMath.cpp
+    src/dll/HPLSubtitleMath.cpp
     src/dll/OpenGLMatrixAnalysis.cpp
     src/dll/OpenXRSpectatorMath.cpp
     src/dll/OpenXRDepthMath.cpp
@@ -89,6 +90,7 @@ add_library(somavr SHARED
     src/dll/HPLMenuBridge.cpp
     src/dll/HPLPresentationBridge.cpp
     src/dll/HPLScreenEffectBridge.cpp
+    src/dll/HPLSubtitleBridge.cpp
     src/dll/HPLNativeLocomotion.cpp
     src/dll/HPLInteractionBridge.cpp
     src/dll/HPLCrosshairBridge.cpp

@@ -25,6 +25,7 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.CONTROLLER_HAPTICS` | BUILT | `OpenXRInput`, `OpenXRRuntime`, `HPLInputBridge`, `HPLInteractionBridge`, `HPLHudMath` | vibration output action, per-hand output paths, focused-session guard, native focus identity plus semantic intent profiles | `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Confirm discrete and semantic focus pulses across active controller profiles without edge chatter or default-cursor buzz |
 | `FEATURE.CONTROLLER_ACCESSIBILITY` | BUILT | `OpenXRInput`, `HPLInputBridge`, config | per-hand primary/secondary actions, dominant-hand roles, stick swap, one-hand fallback, support-hand flashlight/inventory | `BUILD_HISTORY.md`, `FUTURE_SYSTEMS_RE.md`, `TEST_CHECKLISTS.md` | Live-test role-aware jump/crouch/flashlight/inventory, swapped-stick, and each one-controller path on Touch/Index; define missing Simple/Motion bindings |
 | `FEATURE.MENU_POINTER` | BUILT | `HPLMenuBridge`, `HPLMenuMath`, `HPLInputBridge`, `HPLNativeLocomotion` | `0x1400ccc90`, HMD/aim orientations, native SOMA client cursor and left-click path | `BUILD_HISTORY.md`, `FUTURE_SYSTEMS_RE.md`, `TEST_CHECKLISTS.md` | Live-test window modes, native cursor mapping, click-release latch, and non-pause ImGui surfaces; then couple pointer coordinates to future menu-layer presentation |
+| `FEATURE.PAUSED_MENU_LAYER` | BUILT | `HPLHudBridge`, `HPLNativeLocomotion`, `OpenXRGLBridge`, `OpenXRRuntime` | `0x1400cca70`, `0x140071f20`, `0x1400ccc90`, exact current ImGui set plus confirmed pause ownership | `BUILD_HISTORY.md`, `FUTURE_SYSTEMS_RE.md`, `TEST_CHECKLISTS.md` | Live-test pause alpha/order, cursor alignment, resume behavior, window modes, and strict exclusion of non-paused/diegetic current ImGui |
 | `FEATURE.HEAD_TRACKING` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | `0x140271b80`, `0x140270230` | `CURRENT_STATE.md`, `VR_COMPATIBILITY_RE.md` | Remain correct through every authored camera state |
 | `FEATURE.AFR_STEREO` | PROVEN | `HPLCameraBridge`, `OpenXRRuntime`, `OpenXRGLBridge` | F11, per-eye cache and submitted render pose | `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.1.md` | Preserve stability while shader/temporal compatibility is classified |
 | `FEATURE.DUAL_RENDER` | RE_REQUIRED | `HPLCompatibilityProbe`, future native render bridge | `0x140298850`, `0x140298630`, `0x1401f9790`, bounded full-frame transaction summaries | `VR_COMPATIBILITY_RE.md` | Controlled replay proves whether world-only duplication preserves required callback/post/GUI effects and render state |
@@ -41,6 +42,7 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.VIEWMODEL` | BUILT | `HPLHandsBridge`, `HPLHandsMath`, `HPLCameraBridge`, `HPLInputBridge` | world grip pose, `PlayerHandsHandler`, `0x14000fb60`, `0x1400bcd90`, `0x140127a70`, exact `HudObject`, socketed `*_HudObject`, destroy-time cache eviction | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test hands plus independent interaction objects, destroy/recreate identity, socketed-tool non-duplication, calibration, and native fallback; then add evidence-driven per-tool profiles |
 | `FEATURE.FLASHLIGHT_ALIGNMENT` | BUILT | `HPLHandsBridge`, `HPLFlashlightMath`, `HPLCameraBridge` | exact `Flashlight` identity, `Player.hps::UpdateFlashLightLOS`, `0x14000fb60`, `0x1400bcd90`, `0x1400cd7d0`, `0x140143a10`, dominant aim pose | `FUTURE_SYSTEMS_RE.md`, `ADDRESS_REGISTRY.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test visual beam calibration, agent response/gobo aim, cone preservation, tracking fallback, and verify tool/grounding rays remain native |
 | `FEATURE.HUD_LAYER` | BUILT | `HPLHudBridge`, `HPLHudMath`, `OpenXRGLBridge`, `OpenXRRuntime` | `0x1400cc9b0`, `0x1400cca90`, `0x140071f20`, `0x140213970`, same-frame additive transparent capture, VIEW-space quad | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test GameHudSet plus GameHudImGui alpha/order, hints/inventory/subtitle ownership, center-clear coverage, and native fallback |
+| `FEATURE.SUBTITLE_PRESENTATION` | BUILT | `HPLSubtitleBridge`, `HPLSubtitleMath`, `HPLHudBridge` | `0x1401c8dd0`, `0x1401d3ba0`, `cLuxVoiceHandler +0x174/+0x178/+0x17c/+0x180`, native game HUD draw | `ADDRESS_REGISTRY.md`, `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test language, speaker names, gradual reveal, multiline wrapping, large-font mode, scale/Y calibration, immediate restoration, and HUD-layer placement |
 | `FEATURE.DESKTOP_SPECTATOR` | BUILT | `OpenXRRuntime`, `OpenXRGLBridge`, `OpenXRSpectatorMath` | AFR eye caches, pre-SwapBuffers frame boundary, GL backbuffer blit | `BUILD_HISTORY.md`, `ARCHITECTURE.md`, `TEST_CHECKLISTS.md` | Live-test left/right eye identity, fit/fill/stretch, window modes, HUD expectations, and native rollback |
 | `FEATURE.POST_EFFECT_POLICY` | BUILT | `HPLCompatibilityProbe`, `OpenGLHooks` | `0x14033b8f0`, `0x14033bd80`, priority tree `+0x328`, named vtables, active byte `+0x31`, exact VideoDistortion type | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.2.md` | Live-test suppression of ImageTrail, VideoDistortion, ChromaticAberration, and RadialBlur while fades/tone mapping remain intact |
 | `FEATURE.SCREEN_MATERIAL_CONVERGENCE` | BUILT | `HPLScreenEffectBridge`, `HPLScreenEffectMath`, `HPLCameraBridge` | `0x14024a2f0`, `0x140252700`, `0x1402936c0`, `0x140291700`, exact `Screen Particle<decimal>` identity | `FUTURE_SYSTEMS_RE.md`, `ADDRESS_REGISTRY.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test shipped screen effects at 1.5 m, F10 rollback, native timing/opacity, destruction pairing, and zero unrelated billboard changes |
@@ -92,6 +94,9 @@ FEATURE.CONTROLLER_HAPTICS requires FEATURE.XR_INPUT
 FEATURE.CONTROLLER_ACCESSIBILITY requires FEATURE.XR_INPUT
 FEATURE.CONTROLLER_ACCESSIBILITY constrains FEATURE.LOCOMOTION
 FEATURE.MENU_POINTER requires FEATURE.XR_INPUT
+FEATURE.PAUSED_MENU_LAYER requires FEATURE.HUD_LAYER
+FEATURE.PAUSED_MENU_LAYER requires FEATURE.MENU_POINTER
+FEATURE.PAUSED_MENU_LAYER constrains FEATURE.TELEMETRY
 FEATURE.LOCOMOTION requires FEATURE.XR_INPUT
 FEATURE.HEAD_TRACKING requires FEATURE.XR_BOOTSTRAP
 FEATURE.AFR_STEREO requires FEATURE.HEAD_TRACKING
@@ -105,6 +110,8 @@ FEATURE.DUAL_RENDER requires FEATURE.SHADOW_STABILITY
 FEATURE.DUAL_RENDER requires FEATURE.REFLECTION_STABILITY
 FEATURE.HUD_LAYER requires FEATURE.XR_GL_SUBMISSION
 FEATURE.HUD_LAYER constrains FEATURE.AFR_STEREO
+FEATURE.SUBTITLE_PRESENTATION requires FEATURE.HUD_LAYER
+FEATURE.SUBTITLE_PRESENTATION requires FEATURE.HEAD_TRACKING
 FEATURE.AUTHORED_CAMERA requires FEATURE.HEAD_TRACKING
 FEATURE.LOCOMOTION requires FEATURE.AUTHORED_CAMERA
 FEATURE.INTERACTION_RAY requires FEATURE.AUTHORED_CAMERA

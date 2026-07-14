@@ -163,6 +163,10 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLVideoLifecycleProbe=0\n"
         << "HPLScreenEffectControl=0\n"
         << "HPLScreenEffectDistanceMeters=1.5\n"
+        << "HPLSubtitleControl=0\n"
+        << "HPLSubtitleWidthScale=0.9\n"
+        << "HPLSubtitleFontScale=1.15\n"
+        << "HPLSubtitleVerticalOffset=0.0\n"
         << "HPLComfortLogInterval=120\n"
         << "HPLCameraLogInterval=120\n"
         << "HPLStereoAFR=0\n"
@@ -214,7 +218,8 @@ void ConfigManager::WriteDefaultConfig() const
         << "HudVerticalOffsetMeters=0.0\n"
         << "HudMaxAgeFrames=2\n"
         << "HudSuppressCenterCrosshair=0\n"
-        << "HudCrosshairClearRadiusPixels=48\n\n"
+        << "HudCrosshairClearRadiusPixels=48\n"
+        << "HudCapturePausedMenu=0\n\n"
         << "InteractionReticle=0\n"
         << "InteractionReticleSemantic=0\n"
         << "InteractionReticleNativeIcons=0\n"
@@ -411,6 +416,10 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplvideolifecycleprobe") config_.hplVideoLifecycleProbe = ParseBool(value, config_.hplVideoLifecycleProbe);
             else if (key == "hplscreeneffectcontrol") config_.hplScreenEffectControl = ParseBool(value, config_.hplScreenEffectControl);
             else if (key == "hplscreeneffectdistancemeters") config_.hplScreenEffectDistanceMeters = ParseFloat(value, config_.hplScreenEffectDistanceMeters, 0.25f, 5.0f);
+            else if (key == "hplsubtitlecontrol") config_.hplSubtitleControl = ParseBool(value, config_.hplSubtitleControl);
+            else if (key == "hplsubtitlewidthscale") config_.hplSubtitleWidthScale = ParseFloat(value, config_.hplSubtitleWidthScale, 0.5f, 2.0f);
+            else if (key == "hplsubtitlefontscale") config_.hplSubtitleFontScale = ParseFloat(value, config_.hplSubtitleFontScale, 0.5f, 2.0f);
+            else if (key == "hplsubtitleverticaloffset") config_.hplSubtitleVerticalOffset = ParseFloat(value, config_.hplSubtitleVerticalOffset, -2048.0f, 2048.0f);
             else if (key == "hplcomfortloginterval") config_.hplComfortLogInterval = ParseInt(value, config_.hplComfortLogInterval, 1, 100000);
             else if (key == "hplcameraloginterval") config_.hplCameraLogInterval = ParseInt(value, config_.hplCameraLogInterval, 1, 100000);
             else if (key == "hplstereoafr") config_.hplStereoAfr = ParseBool(value, config_.hplStereoAfr);
@@ -503,6 +512,8 @@ void ConfigManager::LoadFromFile()
                 config_.openxrHudSuppressCenterCrosshair = ParseBool(value, config_.openxrHudSuppressCenterCrosshair);
             } else if (key == "hudcrosshairclearradiuspixels") {
                 config_.openxrHudCrosshairClearRadiusPixels = ParseInt(value, config_.openxrHudCrosshairClearRadiusPixels, 4, 256);
+            } else if (key == "hudcapturepausedmenu") {
+                config_.openxrHudCapturePausedMenu = ParseBool(value, config_.openxrHudCapturePausedMenu);
             } else if (key == "interactionreticle") {
                 config_.openxrInteractionReticle = ParseBool(value, config_.openxrInteractionReticle);
             } else if (key == "interactionreticlesemantic") {

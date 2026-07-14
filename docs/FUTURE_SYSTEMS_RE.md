@@ -652,18 +652,18 @@ render-target argument for 2D sets and draws into the current OpenGL framebuffer
 This is the narrow capture boundary now owned by `HPLHudBridge`:
 
 ```text
-first exact GameHudSet/GameHudImGui set -> clear transparent capture FBO
-later exact set in same frame           -> append without clearing
-combined texture -> HUD OpenXR swapchain -> VIEW-space alpha quad
+first exact gameplay or paused-menu set -> clear transparent capture FBO
+later exact set in same frame            -> append without clearing
+combined texture -> HUD OpenXR swapchain  -> VIEW-space alpha quad
 ```
 
 The bridge restores incoming framebuffer/viewport/buffer state after each exact
 set and keeps every nonmatching set on the original path. `0.31.0` promotes the
 signature-guarded `SOMA_GetGameHudImGui()->GetSet()` identity from telemetry to
-the same capture transaction. Pause/load/death menus reached through another
-current ImGui owner and all 3D/diegetic GUI remain native. Live testing must now
-classify which hints, inventory views, and subtitles are actually owned by the
-dedicated gameplay ImGui set.
+the same capture transaction. `0.34.0` additionally captures the exact current
+ImGui set only while `SOMA_GetGamePaused()` confirms pause ownership. Load,
+wake, death/game-over, main-menu, and all 3D/diegetic GUI remain native pending
+their own state authorities.
 
 ### Surface Classes
 
@@ -672,10 +672,30 @@ SOMA does not have one monolithic HUD.
 | Surface | Examples | Current path | VR destination |
 | --- | --- | --- | --- |
 | Gameplay HUD | crosshair, descriptions, infection border, white flashes | `cLux_GetGameHudSet()` queued in `OnDraw` | Extract to a transparent texture; submit as a configurable OpenXR quad/curved layer. |
-| ImGui HUD | hints, inventory, menus, wake/game-over, credits | `cLux_GetGameHudImGui()` / module `OnGui` | Same HUD texture/layer initially; separate menu layer later if useful. |
+| ImGui HUD | hints, inventory, menus, wake/game-over, credits | `cLux_GetGameHudImGui()` / module `OnGui`; exact current owner is pause-gated in `0.34.0` | Gameplay owner and paused current owner share the HUD texture; classify other states before admitting them. |
 | Diegetic GUI | terminals, handheld terminals, screens | world `cGuiSetEntity`/terminal callbacks | Keep in the stereo world and drive with a controller ray. |
 | Interaction reticle | native picker result now; crosshair state enum still pending | application-space OpenXR quad at hit depth | Keep generic marker bounded; map icon/availability semantics and assess world occlusion. |
-| Subtitle/dialog text | engine/game GUI path | flat screen-space text | Head-locked quad with adjustable distance, height, scale, and safe width. |
+| Subtitle/dialog text | `SOMA_VoiceSubtitle_Render` queues localized text through the native game GUI | Native draw receives scoped width/font/Y/shadow scaling and then lands in the HUD layer. |
+
+### Subtitle Ownership Findings
+
+The exact worker at `0x1401c8dd0` receives a subtitle-render object whose
+`+0x10` field is its `cLuxVoiceHandler` owner. The worker preserves SOMA's
+localized speaker-name lookup, gradual reveal, line buffers, timing, colors, and
+font object while reading four cached layout floats:
+
+| Owner offset | Meaning | Shipped normal value |
+| --- | --- | --- |
+| `+0x174` | maximum text width | `860` |
+| `+0x178` | active subtitle Y | `700` (`690` large mode) |
+| `+0x17c` | active font size | `26` (`32` large mode) |
+| `+0x180` | font shadow offset | `1.0` |
+
+`SOMA_cLuxVoiceHandler_Constructor` at `0x1401d3ba0` loads those settings from
+`config/game.cfg`; normal/large source values remain cached separately at
+`+0x188/+0x18c/+0x190/+0x194`. `HPLSubtitleBridge` therefore changes only the
+active four-float view for the duration of one native draw. Validation failure,
+inactive stereo, or a signature mismatch forwards the untouched native path.
 
 The crosshair is centered using `cLux_GetHudVirtualCenterSize()` and can be shifted by the eye-tracking extended-view offset. That eye-tracking concept is useful precedent: reticle position is already treated separately from camera orientation.
 
@@ -710,11 +730,13 @@ Use that state to select feedback at the controller ray hit:
 
 1. **GUI target probe:** built in `0.7.2` and moved into `HPLHudBridge` in `0.15.0`; exact matches preserve virtual metrics, GL state, and draw deltas.
 2. **HUD-only framebuffer:** built in `0.15.0`; exact GameHudSet draws into a transparent target while the per-eye scene and nonmatching sets remain untouched.
-3. **OpenXR quad layer:** gameplay HUD submission in VIEW space is built in `0.15.0`; ImGui/menu/subtitle classification remains.
+3. **OpenXR quad layer:** gameplay HUD submission in VIEW space is built in `0.15.0`; exact gameplay ImGui joined in `0.31.0` and pause-gated current ImGui joined in `0.34.0`.
 4. **Controller pointer:** paused native-window pointer and click routing are
    built in `0.16.0`; direct virtual-GUI coordinates and non-pausing ImGui
    surfaces still need identity/presentation classification.
-5. **Reticle split:** suppress the native centered crosshair and render interaction feedback at world depth.
+5. **Subtitle presentation:** built in `0.34.0`; exact native layout fields are
+   scoped to the draw call while text/content/timing stay native.
+6. **Reticle split:** suppress the native centered crosshair and render interaction feedback at world depth.
 
 ## Full-Screen Effects
 

@@ -1,5 +1,31 @@
 # Test Checklists
 
+## 0.34.0 Subtitle Presentation And Paused Menu Layer
+
+1. Confirm `version=0.34.0-subtitles-menus`,
+   `hpl_subtitle_bridge install_ok`, and
+   `hpl_hud_bridge installed ... layer=1 pausedMenu=1` with all signatures valid.
+2. Load a save and press F10 once. Trigger short, long, multiline, named-speaker,
+   and gradual-display subtitles if available. Text should be approximately 15%
+   larger and wrap 10% narrower without changing content, reveal/audio timing,
+   language, speaker identity, or native enable settings.
+3. Confirm bounded `hpl_subtitle_layout` rows report the shipped baseline near
+   `width=860 y=700 font=26 shadow=1`, scaled VR values, and `restored=1`.
+   Large-font mode must produce its own valid native baseline rather than being
+   forced back to normal-font values.
+4. Pause gameplay. The exact current ImGui set should report
+   `pause={enabled=1 valid=1 paused=1 capturedCurrent=1}` and render once on the
+   stable HUD quad. Controller pointer/click alignment and gameplay suppression
+   must remain correct through resume.
+5. Open inventory, a terminal, and any non-paused ImGui surface. These must not
+   be captured merely because they are current; diegetic UI remains world owned.
+6. Roll back each feature independently: `HPLSubtitleControl=0` restores native
+   subtitle layout, and `HudCapturePausedMenu=0` restores native pause rendering.
+7. Regression-test HUD transparency/order, center-crosshair clearing, depth,
+   shadows/reflections, eye height, room scale, loading/reload, tracking recovery,
+   and clean shutdown. Final summaries should have zero invalid layout/renderer,
+   pause-query, and capture fallbacks.
+
 ## 0.33.0 Depth Submission And XR Resource Recovery
 
 1. Confirm `version=0.33.0-depth-resources`, `DepthCompositionSubmit=1`, and one

@@ -37,6 +37,7 @@ constexpr uintptr_t kRenderPostEffectsRva = 0x33bd80;
 constexpr uintptr_t kRenderPostPostEffectRva = 0x1f1480;
 constexpr uintptr_t kRenderScreenGuiRva = 0x2981e0;
 constexpr uintptr_t kGuiSetRenderRva = 0x213970;
+constexpr uintptr_t kGetGameHudSetRva = 0x0cc9b0;
 constexpr uintptr_t kPostEffectHasActiveEffectsRva = 0x33b8f0;
 constexpr uintptr_t kAudioListenerUpdateRva = 0x289340;
 
@@ -82,6 +83,7 @@ using RenderScreenGuiFn = void (*)(void*, void*, float);
 using GuiSetRenderFn = void (*)(void*, void*);
 using PostEffectHasActiveEffectsFn = bool (*)(void*);
 using AudioListenerUpdateFn = void (*)(void*);
+using GetGameHudSetFn = void* (*)();
 
 constexpr size_t kStageCount = 6;
 
@@ -134,6 +136,7 @@ std::array<std::atomic<uint64_t>, kStageCount> g_stageCalls = {};
 std::atomic<uint64_t> g_audioCalls = 0;
 std::atomic<uint64_t> g_audioPoseSamples = 0;
 std::atomic<uint64_t> g_audioCorrections = 0;
+std::atomic<uint64_t> g_audioTranslations = 0;
 std::atomic<uint64_t> g_postEffectQueries = 0;
 std::atomic<uint64_t> g_postEffectBypasses = 0;
 std::atomic<bool> g_postEffectBypassEnabled = false;
@@ -144,6 +147,7 @@ std::atomic<uint64_t> g_postEffectIsolationApplications = 0;
 std::atomic<uint64_t> g_postEffectComfortApplications = 0;
 std::atomic<uint64_t> g_postEffectComfortSuppressed = 0;
 std::atomic<uint64_t> g_guiSetRenderCalls = 0;
+std::atomic<uint64_t> g_gameHudSetMatches = 0;
 uint64_t g_lastPostEffectInventorySignature = 0;
 std::vector<void*> g_seenGuiSets;
 
@@ -156,6 +160,8 @@ RenderScreenGuiFn g_originalRenderScreenGui = nullptr;
 GuiSetRenderFn g_originalGuiSetRender = nullptr;
 PostEffectHasActiveEffectsFn g_originalPostEffectHasActiveEffects = nullptr;
 AudioListenerUpdateFn g_originalAudioListenerUpdate = nullptr;
+GetGameHudSetFn g_getGameHudSet = nullptr;
+void** g_gameContextSlot = nullptr;
 
 thread_local uint64_t g_traceFrame = UINT64_MAX;
 thread_local uint64_t g_traceSequence = 0;
@@ -223,6 +229,35 @@ bool IsInsideImage(HMODULE module, uintptr_t rva, size_t bytes)
 bool MatchBytes(const void* address, const uint8_t* expected, size_t size)
 {
     return address != nullptr && std::memcmp(address, expected, size) == 0;
+}
+
+bool ResolveGameHudGetter(HMODULE executable)
+{
+    if (!IsInsideImage(executable, kGetGameHudSetRva, 12)) {
+        return false;
+    }
+    const auto* target = reinterpret_cast<const uint8_t*>(executable) + kGetGameHudSetRva;
+    static constexpr uint8_t kPrefix[] = {0x48, 0x8b, 0x05};
+    static constexpr uint8_t kSuffix[] = {0x48, 0x8b, 0x40, 0x50, 0xc3};
+    if (!MatchBytes(target, kPrefix, sizeof(kPrefix))
+        || !MatchBytes(target + 7, kSuffix, sizeof(kSuffix))) {
+        return false;
+    }
+    g_getGameHudSet = reinterpret_cast<GetGameHudSetFn>(
+        reinterpret_cast<uintptr_t>(executable) + kGetGameHudSetRva);
+    int32_t displacement = 0;
+    std::memcpy(&displacement, target + 3, sizeof(displacement));
+    g_gameContextSlot = reinterpret_cast<void**>(
+        reinterpret_cast<uintptr_t>(target + 7) + displacement);
+    if (!IsInsideImage(
+            executable,
+            reinterpret_cast<uintptr_t>(g_gameContextSlot) - reinterpret_cast<uintptr_t>(executable),
+            sizeof(void*))) {
+        g_getGameHudSet = nullptr;
+        g_gameContextSlot = nullptr;
+        return false;
+    }
+    return true;
 }
 
 bool IsReadable(const void* address, size_t size)
@@ -852,6 +887,17 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     ReadField(guiSet, 0x110, depthMin);
     ReadField(guiSet, 0x114, depthMax);
     ReadField(guiSet, 0x188, priority);
+    void* gameContext = nullptr;
+    void* gameHudSet = nullptr;
+    if (g_gameContextSlot != nullptr
+        && ReadField(g_gameContextSlot, 0, gameContext)
+        && gameContext != nullptr) {
+        ReadField(gameContext, 0x50, gameHudSet);
+    }
+    const bool isGameHud = guiSet != nullptr && guiSet == gameHudSet;
+    if (isGameHud) {
+        g_gameHudSetMatches.fetch_add(1, std::memory_order_relaxed);
+    }
 
     const GLState before = ReadGLState();
     const OpenGLTelemetrySnapshot telemetryBefore = GetOpenGLTelemetrySnapshot();
@@ -872,12 +918,14 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     if (newlySeen || call <= 16 || call % interval == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_gui_set frame=%llu call=%llu stage=%s set=%p target=%p is3d=%d depthLayer=%d virtualSize=%.1f,%.1f offset=%.1f,%.1f depthRange=%.3f,%.3f priority=%d calls={drawElements=%llu drawArrays=%llu framebuffer=%llu program=%llu} gl={fbo=%d->%d program=%d->%d}",
+            "hpl_gui_set frame=%llu call=%llu stage=%s set=%p target=%p gameHud=%d gameHudSet=%p is3d=%d depthLayer=%d virtualSize=%.1f,%.1f offset=%.1f,%.1f depthRange=%.3f,%.3f priority=%d calls={drawElements=%llu drawArrays=%llu framebuffer=%llu program=%llu} gl={fbo=%d->%d program=%d->%d}",
             static_cast<unsigned long long>(frame),
             static_cast<unsigned long long>(call),
             GetHPLRenderStageName(g_activeStage),
             guiSet,
             renderTarget,
+            isGameHud ? 1 : 0,
+            gameHudSet,
             is3d != 0 ? 1 : 0,
             depthLayer != 0 ? 1 : 0,
             virtualWidth,
@@ -947,6 +995,7 @@ void HookAudioListenerUpdate(void* soundSystem)
     const Vector3 velocity = ReadVector(soundSystem, kListenerVelocityOffset);
     const Vector3 forward = ReadVector(soundSystem, kListenerForwardOffset);
     const Vector3 up = ReadVector(soundSystem, kListenerUpOffset);
+    Vector3 committedPosition = position;
     Vector3 committedForward = forward;
     Vector3 committedUp = up;
     OpenXRHeadPose headPose;
@@ -958,6 +1007,7 @@ void HookAudioListenerUpdate(void* soundSystem)
     }
 
     bool correctionApplied = false;
+    bool translationApplied = false;
     if (g_config.hplAudioListenerCorrection
         && cameraStatus.trackingEnabled
         && cameraStatus.headWorldRotationValid) {
@@ -976,6 +1026,20 @@ void HookAudioListenerUpdate(void* soundSystem)
             g_audioCorrections.fetch_add(1, std::memory_order_relaxed);
         }
     }
+    if (g_config.hplAudioListenerTranslation
+        && cameraStatus.trackingEnabled
+        && cameraStatus.headWorldPositionValid) {
+        committedPosition = {
+            position.x + cameraStatus.headWorldOffsetX,
+            position.y + cameraStatus.headWorldOffsetY,
+            position.z + cameraStatus.headWorldOffsetZ,
+        };
+        if (IsFinite(committedPosition)) {
+            WriteVector(soundSystem, kListenerPositionOffset, committedPosition);
+            translationApplied = true;
+            g_audioTranslations.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
 
     g_originalAudioListenerUpdate(soundSystem);
 
@@ -983,21 +1047,31 @@ void HookAudioListenerUpdate(void* soundSystem)
         WriteVector(soundSystem, kListenerForwardOffset, forward);
         WriteVector(soundSystem, kListenerUpOffset, up);
     }
+    if (translationApplied) {
+        WriteVector(soundSystem, kListenerPositionOffset, position);
+    }
 
     if (sample) {
         g_audioPoseSamples.fetch_add(1, std::memory_order_relaxed);
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_audio_listener frame=%llu call=%llu finite=%d tracking=%d stereo=%d correction=%d listenerPos=%.5f,%.5f,%.5f listenerVel=%.5f,%.5f,%.5f listenerForward=%.5f,%.5f,%.5f listenerUp=%.5f,%.5f,%.5f committedForward=%.5f,%.5f,%.5f committedUp=%.5f,%.5f,%.5f headDeltaValid=%d headDeltaFrame=%llu headDeltaQuat=%.6f,%.6f,%.6f,%.6f hmdValid=%d hmdFrame=%llu hmdPos=%.5f,%.5f,%.5f hmdQuat=%.6f,%.6f,%.6f,%.6f",
+            "hpl_audio_listener frame=%llu call=%llu finite=%d tracking=%d stereo=%d correction=%d translation=%d listenerPos=%.5f,%.5f,%.5f committedPos=%.5f,%.5f,%.5f headWorldOffset=%.5f,%.5f,%.5f listenerVel=%.5f,%.5f,%.5f listenerForward=%.5f,%.5f,%.5f listenerUp=%.5f,%.5f,%.5f committedForward=%.5f,%.5f,%.5f committedUp=%.5f,%.5f,%.5f headDeltaValid=%d headDeltaFrame=%llu headDeltaQuat=%.6f,%.6f,%.6f,%.6f hmdValid=%d hmdFrame=%llu hmdPos=%.5f,%.5f,%.5f hmdQuat=%.6f,%.6f,%.6f,%.6f",
             static_cast<unsigned long long>(GetOpenGLRenderFrameHint()),
             static_cast<unsigned long long>(call),
             IsFinite(position) && IsFinite(velocity) && IsFinite(forward) && IsFinite(up) ? 1 : 0,
             cameraStatus.trackingEnabled ? 1 : 0,
             cameraStatus.stereoEnabled ? 1 : 0,
             correctionApplied ? 1 : 0,
+            translationApplied ? 1 : 0,
             position.x,
             position.y,
             position.z,
+            committedPosition.x,
+            committedPosition.y,
+            committedPosition.z,
+            cameraStatus.headWorldOffsetX,
+            cameraStatus.headWorldOffsetY,
+            cameraStatus.headWorldOffsetZ,
             velocity.x,
             velocity.y,
             velocity.z,
@@ -1077,6 +1151,15 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
     g_f12Down.store(false, std::memory_order_relaxed);
     HMODULE executable = GetModuleHandleW(nullptr);
     g_executableBase = reinterpret_cast<uintptr_t>(executable);
+    if (config.hplRenderStageProbe) {
+        const bool gameHudGetterResolved = ResolveGameHudGetter(executable);
+        Logger::Instance().Write(
+            gameHudGetterResolved ? LogLevel::Info : LogLevel::Error,
+            "hpl_game_hud_getter resolved=%d rva=0x%llx target=%p",
+            gameHudGetterResolved ? 1 : 0,
+            static_cast<unsigned long long>(kGetGameHudSetRva),
+            reinterpret_cast<void*>(g_getGameHudSet));
+    }
 
     HMODULE opengl32 = GetModuleHandleW(L"opengl32.dll");
     if (opengl32 != nullptr) {
@@ -1160,11 +1243,13 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         installed > 0 ? LogLevel::Warn : LogLevel::Error,
-        "hpl_compat_probe install_complete renderStages=%d guiSetProbe=%d audioListener=%d audioCorrection=%d postEffectControl=%d postEffectBypass=%d postEffectComfort={imageTrail=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
+        "hpl_compat_probe install_complete renderStages=%d guiSetProbe=%d gameHudIdentity=%d audioListener=%d audioCorrection=%d audioTranslation=%d postEffectControl=%d postEffectBypass=%d postEffectComfort={imageTrail=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
         config.hplRenderStageProbe ? 1 : 0,
         config.hplRenderStageProbe ? 1 : 0,
+        g_getGameHudSet != nullptr ? 1 : 0,
         config.hplAudioListenerProbe ? 1 : 0,
         g_config.hplAudioListenerCorrection ? 1 : 0,
+        g_config.hplAudioListenerTranslation ? 1 : 0,
         config.hplPostEffectControl ? 1 : 0,
         config.hplPostEffectBypassDefault ? 1 : 0,
         config.hplPostEffectDisableImageTrail ? 1 : 0,
@@ -1183,7 +1268,7 @@ void LogHPLCompatibilityProbeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu guiSets=%llu audioUpdates=%llu audioSamples=%llu audioCorrections=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
+        "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu guiSets=%llu gameHudMatches=%llu audioUpdates=%llu audioSamples=%llu audioCorrections=%llu audioTranslations=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::Viewport)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::World)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::WorldCallbacks)].load(std::memory_order_relaxed)),
@@ -1191,9 +1276,11 @@ void LogHPLCompatibilityProbeSummary()
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::PostPostEffect)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::ScreenGui)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_guiSetRenderCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_gameHudSetMatches.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioPoseSamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioCorrections.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_audioTranslations.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_postEffectQueries.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_postEffectBypasses.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_postEffectInventorySamples.load(std::memory_order_relaxed)),
@@ -1222,6 +1309,8 @@ void RemoveHPLCompatibilityProbe()
     g_originalGuiSetRender = nullptr;
     g_originalPostEffectHasActiveEffects = nullptr;
     g_originalAudioListenerUpdate = nullptr;
+    g_getGameHudSet = nullptr;
+    g_gameContextSlot = nullptr;
     g_postEffectBypassEnabled.store(false, std::memory_order_relaxed);
     g_postEffectIsolated.store(nullptr, std::memory_order_relaxed);
     g_f12Down.store(false, std::memory_order_relaxed);

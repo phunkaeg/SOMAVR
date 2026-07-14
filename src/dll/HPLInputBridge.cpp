@@ -61,6 +61,8 @@ std::atomic<uint64_t> g_recenterRequests = 0;
 std::atomic<uint64_t> g_hapticRequests = 0;
 std::atomic<uint64_t> g_hapticApplied = 0;
 std::atomic<uint64_t> g_oneHandFallbackFrames = 0;
+std::atomic<uint64_t> g_worldAimPoseSamples = 0;
+std::atomic<uint64_t> g_worldGripPoseSamples = 0;
 
 uint64_t TickMs()
 {
@@ -375,12 +377,21 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
 
     const uint64_t interval = static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1));
     if (frameIndex % interval == 0) {
+        const OpenXRHandInput& dominant = HandInput(input, roles.dominantHand);
+        HPLTrackedPoseWorld worldAim;
+        HPLTrackedPoseWorld worldGrip;
+        const bool aimValid = ResolveHPLTrackedPoseWorld(dominant.aimPose, input.gameFrame, worldAim);
+        const bool gripValid = ResolveHPLTrackedPoseWorld(dominant.gripPose, input.gameFrame, worldGrip);
+        if (aimValid) g_worldAimPoseSamples.fetch_add(1, std::memory_order_relaxed);
+        if (gripValid) g_worldGripPoseSamples.fetch_add(1, std::memory_order_relaxed);
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_controller frame=%llu inputFrame=%llu age=%llu move=%.3f,%.3f keys=%d%d%d%d run=%d jump=%d crouch=%d turn=%.3f mode=%s interact=%d menu=%d recenterChord=%d playerState=%d moveState=%d authoredCamera=%d gameplaySuppressed=%d",
+            "hpl_controller frame=%llu inputFrame=%llu age=%llu dominant=%s oneHand=%d move=%.3f,%.3f keys=%d%d%d%d run=%d jump=%d crouch=%d turn=%.3f mode=%s interact=%d menu=%d recenterChord=%d playerState=%d moveState=%d authoredCamera=%d gameplaySuppressed=%d worldAim={valid=%d tracked=%d%d pos=%.4f,%.4f,%.4f forward=%.5f,%.5f,%.5f} worldGrip={valid=%d tracked=%d%d pos=%.4f,%.4f,%.4f forward=%.5f,%.5f,%.5f}",
             static_cast<unsigned long long>(frameIndex),
             static_cast<unsigned long long>(input.gameFrame),
             static_cast<unsigned long long>(age),
+            roles.dominantHand == 0 ? "left" : "right",
+            roles.oneHand ? 1 : 0,
             roles.moveX, roles.moveY,
             g_state.forward.down ? 1 : 0, g_state.backward.down ? 1 : 0,
             g_state.left.down ? 1 : 0, g_state.right.down ? 1 : 0,
@@ -390,7 +401,17 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
             g_state.recenterStartMs != 0 ? 1 : 0,
             player.playerStateId, player.moveStateId,
             player.authoredCameraActive ? 1 : 0,
-            suppressGameplay ? 1 : 0);
+            suppressGameplay ? 1 : 0,
+            aimValid ? 1 : 0,
+            worldAim.orientationTracked ? 1 : 0,
+            worldAim.positionTracked ? 1 : 0,
+            worldAim.positionX, worldAim.positionY, worldAim.positionZ,
+            worldAim.forwardX, worldAim.forwardY, worldAim.forwardZ,
+            gripValid ? 1 : 0,
+            worldGrip.orientationTracked ? 1 : 0,
+            worldGrip.positionTracked ? 1 : 0,
+            worldGrip.positionX, worldGrip.positionY, worldGrip.positionZ,
+            worldGrip.forwardX, worldGrip.forwardY, worldGrip.forwardZ);
     }
 }
 
@@ -409,7 +430,7 @@ void LogHPLInputBridgeSummary()
     GetHPLPlayerStateSnapshot(player);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu authoredCameraSuppress=%d player=%p camera=%p body=%p playerState=%d moveState=%d",
+        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu worldAimPoseSamples=%llu worldGripPoseSamples=%llu authoredCameraSuppress=%d player=%p camera=%p body=%p playerState=%d moveState=%d",
         g_openxr != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_updates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_activeUpdates.load(std::memory_order_relaxed)),
@@ -420,6 +441,8 @@ void LogHPLInputBridgeSummary()
         static_cast<unsigned long long>(g_hapticRequests.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hapticApplied.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_oneHandFallbackFrames.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_worldAimPoseSamples.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_worldGripPoseSamples.load(std::memory_order_relaxed)),
         g_state.authoredCameraSuppressed ? 1 : 0,
         player.player, player.camera, player.characterBody,
         player.playerStateId, player.moveStateId);

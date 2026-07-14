@@ -2,6 +2,24 @@
 
 ## 2026-07-15
 
+### 0.11.0-spatial-ownership
+
+- Added one shared HPL world-pose bridge for the HMD and dominant controller.
+  Head, aim, and grip positions use the exact origin and base-view basis already
+  proven by the rigid stereo path.
+- Added configurable positional audio correction. SOMAVR adds the tracked head
+  world offset to the native listener only for the FMOD commit, then restores
+  SOMA's fields immediately; orientation correction remains unchanged.
+- Added bounded dominant-hand aim/grip telemetry with world position, forward,
+  validity, and tracking flags. This is the implementation prerequisite for
+  native interaction-ray and viewmodel ownership, without bypassing SOMA's
+  `CanInteract`, range, focus, or physics policies.
+- Confirmed and promoted seven HUD/ImGui getter wrappers in Ghidra. The GUI-set
+  hook now identifies the exact gameplay HUD set through a signature-guarded
+  game-context lookup and reports `gameHud=1` plus aggregate matches.
+- Built and tested default and OpenXR x64 Release flavors. OpenXR SHA-256:
+  `DD8C177B209B4859FBFE69DD7ACA2C4A0F8A31F101D5DBB679B475295CF947B3`.
+
 ### 0.10.0-tracking-accessibility
 
 - Preserved OpenXR eye views in a last-known-good cache. `xrLocateViews` now

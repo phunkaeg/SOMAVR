@@ -1,5 +1,25 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Spatial Ownership And HUD Getter Sync
+
+Seven compact AngelScript HUD getters that were previously disassembled but not
+defined as functions were created, named, typed as pointer-returning wrappers,
+commented, and tagged `SOMAVR`, `HPL3`, `HUD`, `GUI`, and `Confirmed`:
+
+| Address | Ghidra name | Context path |
+| --- | --- | --- |
+| `0x1400cc9b0` | `SOMA_GetGameHudSet` | `+0x50` |
+| `0x1400cc9c0` | `SOMA_GetHudVirtualCenterSize` | `+0x58` |
+| `0x1400cc9d0` | `SOMA_GetHudVirtualSize` | `+0x60` |
+| `0x1400cc9f0` | `SOMA_GetHudVirtualStartPos` | `+0x70` |
+| `0x1400cca00` | `SOMA_GetHudVirtualCenterScreenSize` | `+0x7c` |
+| `0x1400cca10` | `SOMA_GetHudVirtualCenterScreenStartPos` | `+0x84` |
+| `0x1400cca70` | `SOMA_GetCurrentImGui` | `+0xe8 -> +0x168` |
+
+The names are backed by their registration strings, not inferred only from
+layout. `0x1400cc9e0` remains deliberately unnamed until its adjacent
+registration string is confirmed.
+
 ## 2026-07-15 Camera Rotation And Comfort Sync
 
 The `cCamera` rotation surface registered by `HPL3_Script_Register_cCamera` at

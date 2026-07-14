@@ -1,5 +1,26 @@
 # Test Checklists
 
+## 0.11.0 Spatial Audio, Controller Poses, And HUD Identity
+
+1. Launch the OpenXR Release build, load a save, and press F10 once. Confirm
+   `version=0.11.0-spatial-ownership`, `hpl_game_hud_getter resolved=1`, and the
+   known rigid/centered visual baseline.
+2. Stand near a small directional sound. Rotate and translate your head without
+   moving the player. Direction should follow head rotation and near-field
+   balance should change naturally with head position. Expect periodic
+   `hpl_audio_listener` rows with `correction=1 translation=1` and finite
+   `committedPos`/`headWorldOffset` values.
+3. Point the dominant controller forward, left, right, up, and down while moving
+   it around the HMD. Periodic `hpl_controller` rows should report
+   `worldAim={valid=1 tracked=11 ...}` and a smoothly changing unit `forward`.
+   Grip positions should follow the physical controller without mirroring,
+   scale jumps, or camera-yaw drift.
+4. Show and hide the gameplay crosshair/interaction description, then open the
+   pause menu and a terminal if available. Gameplay rows should report
+   `gameHud=1`; menu/terminal/diegetic sets must remain `gameHud=0`.
+5. Recenter, snap-turn, load a save, and cross a map boundary. Recheck all three
+   systems after automatic camera replacement. Exit normally and attach the log.
+
 ## 0.10.0 Tracking Recovery And Controller Accessibility
 
 1. Launch the OpenXR Release build, load a save, and press F10 once. Confirm

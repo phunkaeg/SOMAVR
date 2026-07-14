@@ -99,6 +99,13 @@ Do not replace `CanInteract`, distance handling, focus state, or map-script
 callbacks with a parallel VR interaction database. A head-gaze fallback can feed
 the same query when motion controllers are unavailable.
 
+`0.11.0` builds the query-pose prerequisite. `HPLCameraBridge` converts the
+dominant OpenXR aim pose with the same neutral pose, world scale, frustum origin,
+and base-view basis as stereo. `HPLInputBridge` logs bounded world position and
+forward samples. It does not yet call the AngelScript `CanInteract` wrapper:
+that wrapper is a dynamic script invocation helper, not a native global picker.
+The missing boundary is the live closest-entity/focus owner.
+
 ### Grab and throw
 
 The grab state already solves object movement using native mass-aware PID force
@@ -184,7 +191,9 @@ Runtime result and implementation:
 2. `0.5.2` composes the physical HMD delta onto authored forward/up only during the signature-guarded engine commit.
 3. SOMA's listener fields are restored immediately after FMOD copies them.
 4. Left/right eye positions are never used for audio.
-5. HMD translation and velocity remain disabled pending world-scale and Doppler validation.
+5. `0.11.0` adds the proven room-scale head world offset to listener position
+   only for the FMOD commit and restores the native field immediately.
+6. Listener velocity remains native pending Doppler validation.
 
 ## Loading, Menus, And Video
 

@@ -99,6 +99,7 @@ HPLWorldScale=1.0
 HPLRenderStageProbe=1
 HPLAudioListenerProbe=1
 HPLAudioListenerCorrection=1
+HPLAudioListenerTranslation=1
 HPLPostEffectControl=1
 HPLPostEffectBypassDefault=0
 HPLPostEffectDisableImageTrail=1

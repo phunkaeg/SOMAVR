@@ -138,6 +138,33 @@ std::atomic<bool> g_projectionCentered = false;
 std::atomic<bool> g_roomscaleF4Down = false;
 std::atomic<bool> g_roomscaleEnabled = true;
 
+Vector3 TransformLocalDirectionToWorld(const Vector3& local, const std::array<float, 16>& baseView)
+{
+    Vector3 world{
+        baseView[0] * local.x + baseView[4] * local.y + baseView[8] * local.z,
+        baseView[1] * local.x + baseView[5] * local.y + baseView[9] * local.z,
+        baseView[2] * local.x + baseView[6] * local.y + baseView[10] * local.z,
+    };
+    const float lengthSquared = world.x * world.x + world.y * world.y + world.z * world.z;
+    if (!std::isfinite(lengthSquared) || lengthSquared < 1.0e-8f) {
+        return {};
+    }
+    const float inverseLength = 1.0f / std::sqrt(lengthSquared);
+    world.x *= inverseLength;
+    world.y *= inverseLength;
+    world.z *= inverseLength;
+    return world;
+}
+
+Vector3 TransformLocalOffsetToWorld(const Vector3& local, const std::array<float, 16>& baseView)
+{
+    return {
+        baseView[0] * local.x + baseView[4] * local.y + baseView[8] * local.z,
+        baseView[1] * local.x + baseView[5] * local.y + baseView[9] * local.z,
+        baseView[2] * local.x + baseView[6] * local.y + baseView[10] * local.z,
+    };
+}
+
 template <typename T>
 T ReadField(const void* object, size_t offset)
 {
@@ -1170,9 +1197,109 @@ HPLCameraBridgeStatus GetHPLCameraBridgeStatus()
             status.headWorldRotationY = headWorldRotation.y;
             status.headWorldRotationZ = headWorldRotation.z;
             status.headWorldRotationW = headWorldRotation.w;
+
+            if (g_state.baseMatricesValid) {
+                const Vector3 localOffset = ResolveTrackedEyeOffset(
+                    currentPosition,
+                    currentPosition,
+                    g_state.neutralPosition,
+                    g_state.neutralOrientation,
+                    g_roomscaleEnabled.load(std::memory_order_relaxed),
+                    g_config.hplRoomscaleVertical,
+                    g_config.hplWorldScale,
+                    g_config.hplEyeHeightOffsetMeters);
+                const Vector3 worldOffset = TransformLocalOffsetToWorld(localOffset, g_state.baseView);
+                if (std::isfinite(worldOffset.x)
+                    && std::isfinite(worldOffset.y)
+                    && std::isfinite(worldOffset.z)) {
+                    status.headWorldPositionValid = true;
+                    status.headWorldOffsetX = worldOffset.x;
+                    status.headWorldOffsetY = worldOffset.y;
+                    status.headWorldOffsetZ = worldOffset.z;
+                    status.headWorldPositionX = g_state.parameters.origin[0] + worldOffset.x;
+                    status.headWorldPositionY = g_state.parameters.origin[1] + worldOffset.y;
+                    status.headWorldPositionZ = g_state.parameters.origin[2] + worldOffset.z;
+                }
+            }
         }
     }
     return status;
+}
+
+bool ResolveHPLTrackedPoseWorld(
+    const OpenXRControllerPose& pose,
+    uint64_t gameFrame,
+    HPLTrackedPoseWorld& worldPose)
+{
+    std::lock_guard lock(g_stateMutex);
+    worldPose = {};
+    if (!g_state.trackingEnabled
+        || !g_state.baseMatricesValid
+        || g_state.activeCamera == nullptr
+        || !pose.valid) {
+        return false;
+    }
+
+    Quaternion headOrientation;
+    Vector3 headPosition;
+    uint64_t headFrame = 0;
+    if (!ReadHeadPose(headOrientation, headPosition, headFrame)) {
+        return false;
+    }
+
+    const Vector3 localOffset = ResolveTrackedEyeOffset(
+        {pose.positionX, pose.positionY, pose.positionZ},
+        headPosition,
+        g_state.neutralPosition,
+        g_state.neutralOrientation,
+        g_roomscaleEnabled.load(std::memory_order_relaxed),
+        g_config.hplRoomscaleVertical,
+        g_config.hplWorldScale,
+        g_config.hplEyeHeightOffsetMeters);
+    const Vector3 worldOffset = TransformLocalOffsetToWorld(localOffset, g_state.baseView);
+
+    const Quaternion controllerOrientation = Normalize({
+        pose.orientationX,
+        pose.orientationY,
+        pose.orientationZ,
+        pose.orientationW,
+    });
+    const Quaternion controllerRelative = Normalize(Multiply(
+        Conjugate(g_state.neutralOrientation),
+        controllerOrientation));
+    const Vector3 worldForward = TransformLocalDirectionToWorld(
+        RotateVector(controllerRelative, {0.0f, 0.0f, -1.0f}),
+        g_state.baseView);
+    const Vector3 worldUp = TransformLocalDirectionToWorld(
+        RotateVector(controllerRelative, {0.0f, 1.0f, 0.0f}),
+        g_state.baseView);
+    const bool finite = std::isfinite(worldOffset.x)
+        && std::isfinite(worldOffset.y)
+        && std::isfinite(worldOffset.z)
+        && std::isfinite(worldForward.x)
+        && std::isfinite(worldForward.y)
+        && std::isfinite(worldForward.z)
+        && std::isfinite(worldUp.x)
+        && std::isfinite(worldUp.y)
+        && std::isfinite(worldUp.z);
+    if (!finite) {
+        return false;
+    }
+
+    worldPose.valid = true;
+    worldPose.orientationTracked = pose.orientationTracked;
+    worldPose.positionTracked = pose.positionTracked;
+    worldPose.gameFrame = gameFrame != 0 ? gameFrame : headFrame;
+    worldPose.positionX = g_state.parameters.origin[0] + worldOffset.x;
+    worldPose.positionY = g_state.parameters.origin[1] + worldOffset.y;
+    worldPose.positionZ = g_state.parameters.origin[2] + worldOffset.z;
+    worldPose.forwardX = worldForward.x;
+    worldPose.forwardY = worldForward.y;
+    worldPose.forwardZ = worldForward.z;
+    worldPose.upX = worldUp.x;
+    worldPose.upY = worldUp.y;
+    worldPose.upZ = worldUp.z;
+    return true;
 }
 
 bool RequestHPLRecenter(const char* source)

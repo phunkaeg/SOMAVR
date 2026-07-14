@@ -1,5 +1,22 @@
 # Future Systems Reverse Engineering
 
+## 0.11.0 Spatial Ownership Findings
+
+The proven stereo origin and base-view basis now form a reusable HPL world-pose
+boundary. The bridge converts the dominant controller's OpenXR aim and grip
+poses into world positions plus normalized forward/up vectors. Runtime telemetry
+is intentionally passive: it validates coordinate handedness, scale, and pose
+stability before the ray is allowed to influence native interaction selection.
+
+This closes two prerequisites. `FEATURE.INTERACTION_RAY` now has a concrete
+world query pose, while `FEATURE.VIEWMODEL` has a concrete controller grip
+anchor. The remaining work is ownership RE: native closest-entity/focus state
+for interaction, and the default camera-follow transform owner for hands/tools.
+
+The exact gameplay HUD set is also identifiable through confirmed
+`SOMA_GetGameHudSet` at `0x1400cc9b0`. Flat HUD capture can therefore target one
+known `cGuiSet` instead of guessing from dimensions or suppressing all GUI.
+
 ## 0.10.0 Tracking And Controller Role Findings
 
 OpenXR view validity is now treated as a temporal contract rather than a single

@@ -143,6 +143,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLRenderStageProbe=0\n"
         << "HPLAudioListenerProbe=0\n"
         << "HPLAudioListenerCorrection=0\n"
+        << "HPLAudioListenerTranslation=0\n"
         << "HPLPostEffectControl=0\n"
         << "HPLPostEffectBypassDefault=0\n"
         << "HPLPostEffectDisableImageTrail=1\n"
@@ -273,6 +274,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplrenderstageprobe") config_.hplRenderStageProbe = ParseBool(value, config_.hplRenderStageProbe);
             else if (key == "hplaudiolistenerprobe") config_.hplAudioListenerProbe = ParseBool(value, config_.hplAudioListenerProbe);
             else if (key == "hplaudiolistenercorrection") config_.hplAudioListenerCorrection = ParseBool(value, config_.hplAudioListenerCorrection);
+            else if (key == "hplaudiolistenertranslation") config_.hplAudioListenerTranslation = ParseBool(value, config_.hplAudioListenerTranslation);
             else if (key == "hplposteffectcontrol") config_.hplPostEffectControl = ParseBool(value, config_.hplPostEffectControl);
             else if (key == "hplposteffectbypassdefault") config_.hplPostEffectBypassDefault = ParseBool(value, config_.hplPostEffectBypassDefault);
             else if (key == "hplposteffectdisableimagetrail") config_.hplPostEffectDisableImageTrail = ParseBool(value, config_.hplPostEffectDisableImageTrail);

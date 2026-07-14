@@ -46,6 +46,11 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x1401297c0` | Confirmed | Invokes a script object's `OnGui(float)` callback when enabled. |
 | `0x14022f8e0` | Confirmed | Creates an iterator over the viewport GUI-set list at viewport `+0x90`. Ghidra: `HPL3_Viewport_CreateGuiSetIterator`. |
 | `0x140213970` | High-confidence | Renders one `cGuiSet`, selecting normal or 3D GUI projection and issuing GUI batches. Ghidra: `HPL3_GuiSet_Render`. |
+| `0x1400cc9b0` | Confirmed | `SOMA_GetGameHudSet`; returns game-context `+0x50`. Runtime signature guard and direct context lookup identify the gameplay HUD `cGuiSet`. |
+| `0x1400cc9c0` / `0x1400cc9d0` | Confirmed | HUD virtual-center size at context `+0x58` and virtual size at `+0x60`. Ghidra: `SOMA_GetHudVirtualCenterSize`, `SOMA_GetHudVirtualSize`. |
+| `0x1400cc9f0` | Confirmed | `SOMA_GetHudVirtualStartPos`; returns context `+0x70`. |
+| `0x1400cca00` / `0x1400cca10` | Confirmed | Center-screen virtual size/start-position getters at context `+0x7c/+0x84`. |
+| `0x1400cca70` | Confirmed | `SOMA_GetCurrentImGui`; follows game-context `+0xe8`, then `+0x168`. |
 | `0x1404a5030` | Confirmed | Registers the AngelScript `iCharacterBody` API, including `Move`, `SetMoveSpeed`, `AddYaw`, and `SetYaw`. |
 | `0x1402375f0` | Confirmed by registration | Native wrapper registered for `iCharacterBody::Move(eCharDir, float)`. Candidate semantic locomotion probe. |
 | `0x14015ca10` | Confirmed | Registers the AngelScript `cLuxPlayer` API. Maps `GetCamera` to `0x140125ef0` and `GetCharacterBody` to `0x140155290`. |
@@ -149,6 +154,10 @@ and effect pointer at node `+0x20`; child links are `+0x0/+0x10` and `_Isnil`
 is node `+0x29`.
 
 ## HPL3 GUI Set Layout
+
+The shared HPL game-context pointer used by the compact HUD wrappers resolves to
+image address `0x1407925e0` for this executable. Runtime code derives this slot
+from the guarded RIP-relative getter instruction instead of hard-coding it.
 
 Fields confirmed in `HPL3_GuiSet_Render` at `0x140213970`:
 

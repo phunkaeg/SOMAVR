@@ -89,6 +89,7 @@ struct Config {
     bool hplRenderStageProbe = false;
     bool hplAudioListenerProbe = false;
     bool hplAudioListenerCorrection = false;
+    bool hplAudioListenerTranslation = false;
     bool hplPostEffectControl = false;
     bool hplPostEffectBypassDefault = false;
     bool hplPostEffectDisableImageTrail = true;

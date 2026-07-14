@@ -21,12 +21,39 @@ struct HPLCameraBridgeStatus {
     float headWorldRotationY = 0.0f;
     float headWorldRotationZ = 0.0f;
     float headWorldRotationW = 1.0f;
+    bool headWorldPositionValid = false;
+    float headWorldPositionX = 0.0f;
+    float headWorldPositionY = 0.0f;
+    float headWorldPositionZ = 0.0f;
+    float headWorldOffsetX = 0.0f;
+    float headWorldOffsetY = 0.0f;
+    float headWorldOffsetZ = 0.0f;
+};
+
+struct HPLTrackedPoseWorld {
+    bool valid = false;
+    bool orientationTracked = false;
+    bool positionTracked = false;
+    uint64_t gameFrame = 0;
+    float positionX = 0.0f;
+    float positionY = 0.0f;
+    float positionZ = 0.0f;
+    float forwardX = 0.0f;
+    float forwardY = 0.0f;
+    float forwardZ = -1.0f;
+    float upX = 0.0f;
+    float upY = 1.0f;
+    float upZ = 0.0f;
 };
 
 bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr);
 void RemoveHPLCameraBridge();
 void LogHPLCameraBridgeSummary();
 HPLCameraBridgeStatus GetHPLCameraBridgeStatus();
+bool ResolveHPLTrackedPoseWorld(
+    const OpenXRControllerPose& pose,
+    uint64_t gameFrame,
+    HPLTrackedPoseWorld& worldPose);
 bool RequestHPLRecenter(const char* source);
 void NotifyHPLPlayerCameraChanged(void* previousCamera, void* currentCamera);
 

@@ -70,8 +70,10 @@ and `docs\VR_COMPATIBILITY_RE.md`. Stable graph nodes and acceptance gates are i
 | `Soma_NoSteam.exe+0x298850` | Static confirmed | Whole-frame viewport render boundary | Main loop calls this between script `OnDraw` and `OnPostRender`. |
 | `Soma_NoSteam.exe+0x33bd80` | Runtime confirmed | Per-eye post-effect composite | F11 gameplay averaged about `125 us`; F12 bypass in `0.5.2` distinguishes post-chain defects from world shaders. |
 | `Soma_NoSteam.exe+0x2981e0` | High confidence | Final GUI-set draw/capture boundary | Best first target for an alpha HUD framebuffer and OpenXR quad layer. |
+| `Soma_NoSteam.exe+0x0cd750` | Control hook built | Dominant-controller native interaction ray | Replace only closest-entity start/direction under strict query/camera/tracking gates; preserve all native policy and callbacks. |
+| `Soma_NoSteam.exe+0x0bcd90` | Static confirmed, probe pending | Shared Lux entity SetMatrix boundary | Identify `PlayerHands_*` at runtime before replacing only the default camera-follow transform. |
 | `Soma_NoSteam.exe+0x1297c0` | Static confirmed | Attribute module `OnGui` activity | Useful for inventory, hint, menu, wake, and game-over classification. |
-| Player hands `PostUpdate` transform | Source confirmed, native owner pending | Replace camera-follow hands with controller pose | Preserve mesh, animations, `R_Hand` attachments, tool callbacks, and camera-attachment compatibility states. |
+| Player hands `PostUpdate` transform | Source and native wrapper confirmed, identity pending | Replace camera-follow hands with controller pose | Preserve mesh, animations, `R_Hand` attachments, tool callbacks, and camera-attachment compatibility states. |
 | OpenXR action set | Design ready | Semantic movement, turn, interaction, and menu input | Snap turn first; body yaw and HMD-local pose remain separate. |
 | `XrCompositionLayerQuad` HUD | Design ready | Head-locked HUD/menu presentation | Capture `GameHudSet` and ImGui after post effects; keep terminals in the stereo world. |
 | Post-effect comfort policy | Source/static confirmed | Disable or attenuate VR-hostile effects | Start with image trail, lens distortion, chromatic aberration, radial blur, DoF, shake, sway, roll, and head bob. |

@@ -1,5 +1,19 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Native Interaction And Hands Transform Sync
+
+Two AngelScript registration targets were promoted, typed, commented, tagged,
+and saved in `Soma_NoSteam.exe`:
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1400cd750` | `SOMA_GetClosestEntity` | Registered global closest-entity query used by `Utility_PickBasics`; `0.12.0` substitutes controller start/direction only. |
+| `0x1400bcd90` | `SOMA_iLuxEntity_SetMatrix` | Shared Lux entity SetMatrix target used by the `PlayerHands_*` script path; bounded identity probe is pending before mutation. |
+
+The interaction prototype records start, direction, ray length, interaction type,
+LOS, and output arguments. The transform prototype records object-first entity and
+matrix pointers. Both functions carry evidence and SOMAVR subsystem tags.
+
 ## 2026-07-15 Spatial Ownership And HUD Getter Sync
 
 Seven compact AngelScript HUD getters that were previously disassembled but not
@@ -207,6 +221,6 @@ multiple candidates.
 1. Classify the exact content inside `HPL3_Scene_RenderWorldOverlays`; the `0.5.1` log confirms it stays on world FBO `11`.
 2. Name viewport render-target and GUI helpers after their live transitions agree.
 3. Locate player-state transition/current-state accessors for authored-camera policy.
-4. Locate native pick-query and grab-target wrappers for controller interaction.
+4. Locate native grab-target/PID ownership and interaction-state wrappers; the closest-entity query is now confirmed and hooked.
 5. Map temporal previous-view/projection and image-history owners per eye.
 6. Apply partial `cViewport`, sound-listener, camera, and frustum structures only after offsets survive runtime validation.

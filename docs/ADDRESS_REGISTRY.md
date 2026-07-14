@@ -51,6 +51,8 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x1400cc9f0` | Confirmed | `SOMA_GetHudVirtualStartPos`; returns context `+0x70`. |
 | `0x1400cca00` / `0x1400cca10` | Confirmed | Center-screen virtual size/start-position getters at context `+0x7c/+0x84`. |
 | `0x1400cca70` | Confirmed | `SOMA_GetCurrentImGui`; follows game-context `+0xe8`, then `+0x168`. |
+| `0x1400cd750` | Confirmed, control hook built | Registered global `GetClosestEntity` wrapper used by `Utility_PickBasics`. `0.12.0` can replace only start/direction with the tracked dominant-controller world ray while preserving native length, interaction type, LOS, output, `CanInteract`, distance, focus, and callbacks. Ghidra: `SOMA_GetClosestEntity`. |
+| `0x1400bcd90` | Confirmed, probe candidate | Shared AngelScript `iLuxEntity.SetMatrix` registration target used by derived Lux entity types. `PlayerHandsHandler.PostUpdate` calls this route for `PlayerHands_*`; entity identity and transform convention must be proven before controller mutation. Ghidra: `SOMA_iLuxEntity_SetMatrix`. |
 | `0x1404a5030` | Confirmed | Registers the AngelScript `iCharacterBody` API, including `Move`, `SetMoveSpeed`, `AddYaw`, and `SetYaw`. |
 | `0x1402375f0` | Confirmed by registration | Native wrapper registered for `iCharacterBody::Move(eCharDir, float)`. Candidate semantic locomotion probe. |
 | `0x14015ca10` | Confirmed | Registers the AngelScript `cLuxPlayer` API. Maps `GetCamera` to `0x140125ef0` and `GetCharacterBody` to `0x140155290`. |

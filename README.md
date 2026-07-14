@@ -134,6 +134,8 @@ DominantHand=right
 SwapSticks=0
 OneHandFallback=1
 SuppressDuringAuthoredCamera=1
+InteractionRay=1
+InteractionRayOriginTolerance=0.75
 ComfortBlackoutFrames=2
 ```
 

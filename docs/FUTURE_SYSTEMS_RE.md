@@ -1,5 +1,27 @@
 # Future Systems Reverse Engineering
 
+## 0.12.0 Native Interaction And Transform Findings
+
+The registered `GetClosestEntity` wrapper at `0x1400cd750` is the exact native
+boundary used by `Utility_PickBasics.UpdatePickCheck`. The new interaction bridge
+substitutes only its start/direction arguments under strict world-pose, query-type,
+camera-origin, and authored-camera gates. SOMA still owns selection distance,
+LOS, `CanInteract`, focus state, player-state entry, and callbacks.
+
+All inspected AngelScript registrations for `iLuxEntity.SetMatrix` and derived
+Lux entity types converge on shared wrapper `0x1400bcd90`. The hands script
+creates `PlayerHands_*` from `character/player/hands/hands_human.ent` and calls
+`pEntity.SetMatrix(mtxHands)` each active `PostUpdate`; tool meshes remain attached
+to `R_Hand`. This identifies the transform mutation boundary but not yet the
+runtime entity identity. The next safe step is a bounded identity probe that
+confirms the entity name/resource, scale (`0.25` or `1.0`), camera proximity, and
+authored/custom-transform flags before any matrix replacement.
+
+The exact gameplay HUD hook now also logs confirmed context metrics at
+`+0x58/+0x60/+0x70/+0x7c/+0x84`. These virtual center, full virtual-space, and
+center-screen values are the calibration inputs for a resolution-independent
+alpha target and future OpenXR quad layer.
+
 ## 0.11.0 Spatial Ownership Findings
 
 The proven stereo origin and base-view basis now form a reusable HPL world-pose

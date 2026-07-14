@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.11.0-spatial-ownership`, layered on the
+The active build candidate is `0.12.0-native-interaction`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
@@ -33,7 +33,14 @@ compatibility probes:
   the native FMOD update and then restored, preserving authored camera state.
 - The final GUI hook can distinguish the exact gameplay HUD `cGuiSet` from
   menus, ImGui, subtitles, and diegetic sets via the confirmed game-context
-  getter at `0x1400cc9b0`.
+  getter at `0x1400cc9b0`. It now reports the confirmed virtual-space and
+  center-screen metrics needed to size a future alpha HUD target.
+- The dominant controller's fully tracked world aim can replace only the
+  start/direction passed to SOMA's native closest-entity wrapper at
+  `0x1400cd750`. Strict query-type, native-origin, tracking, input, and
+  authored-camera gates restore the original gaze query on any mismatch.
+- SOMA still owns interaction ray length, LOS, `CanInteract`, distance policy,
+  focus state, player-state transitions, physics, and map callbacks.
 
 - Invalid `xrLocateViews` output can no longer overwrite the last valid eye
   cache. Tracking samples have a configurable 30-frame usability bound and
@@ -342,8 +349,9 @@ The OpenXR build now asks for:
 & "D:\Dev Debug\SOMAVR\build-openxr-controller\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.9.0-calibration-haptics`, seven render-stage/GUI hooks,
-   `referenceSpace=local`, `recovery=1`, and controller haptics enabled.
+2. Confirm `version=0.12.0-native-interaction`, seven render-stage/GUI hooks,
+   `hpl_interaction_bridge install_ok`, `referenceSpace=local`, `recovery=1`,
+   and controller haptics enabled.
 3. Load a save game, face forward, and press F10 once.
 4. Confirm `hpl_vr_mode requested`, API-attributed `openxr_manual_start triggered`,
    one or more `calibration_wait` rows, then `hpl_vr_mode activated` with
@@ -371,13 +379,18 @@ The OpenXR build now asks for:
 16. Exercise visible damage/motion effects. Inventory rows should use effect
     names/priorities; the image trail, chromatic aberration, and radial blur
     counters may increase while tone mapping/fades remain visible.
-17. Capture gameplay, menu, subtitle, and terminal moments. Attach the bounded
-    `hpl_gui_set` rows so HUD and diegetic GUI sets can be classified.
-18. Confirm haptic pulses for discrete actions, then briefly remove runtime
+17. Point the dominant controller away from screen center at several usable
+    objects. Confirm focus follows controller aim and bounded
+    `hpl_interaction_ray` rows report `applied=1`; then test authored-camera and
+    tracking-loss fallbacks.
+18. Capture gameplay, menu, subtitle, and terminal moments. Attach bounded
+    `hpl_gui_set` rows including `hudMetrics` so HUD virtual-space calibration
+    and diegetic GUI classification can be checked.
+19. Confirm haptic pulses for discrete actions, then briefly remove runtime
     focus while holding movement and verify immediate release plus one loss and
     restoration transition in the log.
-19. Confirm `somavr_build_manifest.txt` reports version
-    `0.9.0-calibration-haptics`, flavor `openxr`, and a DLL SHA-256.
-20. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
+20. Confirm `somavr_build_manifest.txt` reports version
+    `0.12.0-native-interaction`, flavor `openxr`, and a DLL SHA-256.
+21. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
     `complete`, then check that `Soma_NoSteam.exe` disappears. If it remains,
     capture it with the dumper before manually terminating it.

@@ -52,6 +52,8 @@ struct Config {
     bool hplControllerSwapSticks = false;
     bool hplControllerOneHandFallback = true;
     bool hplControllerSuppressDuringAuthoredCamera = true;
+    bool hplControllerInteractionRay = false;
+    float hplControllerInteractionRayOriginTolerance = 0.75f;
     int hplControllerComfortBlackoutFrames = 2;
     int hplControllerRecenterHoldMs = 900;
     int hplControllerMaxInputAgeFrames = 8;

@@ -99,12 +99,20 @@ Do not replace `CanInteract`, distance handling, focus state, or map-script
 callbacks with a parallel VR interaction database. A head-gaze fallback can feed
 the same query when motion controllers are unavailable.
 
-`0.11.0` builds the query-pose prerequisite. `HPLCameraBridge` converts the
-dominant OpenXR aim pose with the same neutral pose, world scale, frustum origin,
-and base-view basis as stereo. `HPLInputBridge` logs bounded world position and
-forward samples. It does not yet call the AngelScript `CanInteract` wrapper:
-that wrapper is a dynamic script invocation helper, not a native global picker.
-The missing boundary is the live closest-entity/focus owner.
+`0.12.0` closes the query boundary at registered global wrapper
+`SOMA_GetClosestEntity` (`0x1400cd750`). `Utility_PickBasics.UpdatePickCheck`
+passes camera position plus offset, camera forward, ray length, interaction type,
+LOS policy, and an output object to this wrapper. `HPLInteractionBridge` replaces
+only the first two arguments with the dominant controller's tracked HPL world
+pose. It requires interaction type `0`, an incoming origin near the current
+native frustum origin, full aim tracking, fresh active input, and no detected
+authored-camera owner. Any failed gate calls the original query unchanged.
+
+This leaves native ray length, LOS, `CanInteract`, entity distance policy,
+focused entity/body IDs, player-state dispatch, and map callbacks authoritative.
+Bounded `hpl_interaction_ray` telemetry reports substitutions, hits, controller
+origin/direction, and each fallback class. Live focus behavior remains the gate
+before the feature is considered proven.
 
 ### Grab and throw
 

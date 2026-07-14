@@ -1182,6 +1182,15 @@ HPLCameraBridgeStatus GetHPLCameraBridgeStatus()
     status.stereoRenderPoseFrame = g_state.currentEyePoseFrame;
     status.activeCamera = g_state.activeCamera;
     status.activeFrustum = g_state.activeFrustum;
+    if (g_state.baseMatricesValid
+        && std::isfinite(g_state.parameters.origin[0])
+        && std::isfinite(g_state.parameters.origin[1])
+        && std::isfinite(g_state.parameters.origin[2])) {
+        status.cameraWorldPositionValid = true;
+        status.cameraWorldPositionX = g_state.parameters.origin[0];
+        status.cameraWorldPositionY = g_state.parameters.origin[1];
+        status.cameraWorldPositionZ = g_state.parameters.origin[2];
+    }
     if (g_state.trackingEnabled) {
         Quaternion currentOrientation;
         Vector3 currentPosition;

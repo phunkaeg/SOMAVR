@@ -25,6 +25,11 @@ HPLInputBridge
   -> HPLPlayerState snapshot
   -> HPLCameraBridge recenter/status
 
+HPLInteractionBridge
+  -> OpenXRInput snapshots through OpenXRRuntime
+  -> HPLPlayerState authored-camera snapshot
+  -> HPLCameraBridge world-pose conversion and camera origin
+
 OpenXRRuntime
   -> OpenXRHelpers
   -> OpenXRInput
@@ -53,6 +58,7 @@ lifecycle.
 | `HPLCameraMath` | Pure pose, matrix, FOV centering, projection construction | HPL pointers, hotkeys, logging, OpenXR handles |
 | `HPLPlayerState` | Signature-guarded player/camera/body discovery, player/move IDs, camera ownership classification, immutable snapshots | Controller injection, camera transforms, OpenXR actions |
 | `HPLInputBridge` | Reversible SOMA input-path controls and authored-camera suppression policy | Native player discovery, OpenXR action ownership, camera math |
+| `HPLInteractionBridge` | Signature-guarded native closest-entity query substitution; changes only the query start/direction under strict controller/camera/state gates | `CanInteract`, distance policy, focus callbacks, object physics, or controller action ownership |
 | `HPLCompatibilityProbe` | Bounded render/audio/post-effect telemetry and temporary probes; shared pose math comes from `HPLCameraMath` | Permanent feature policy unrelated to a probe |
 | `HPLLifecycle` | Pre-graphics OpenXR teardown boundary | General shutdown orchestration |
 

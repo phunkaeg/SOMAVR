@@ -1,5 +1,27 @@
 # Test Checklists
 
+## 0.12.0 Native Controller Interaction And HUD Metrics
+
+1. Launch the OpenXR Release build, load a normal gameplay save, and press F10
+   once. Confirm `version=0.12.0-native-interaction` and
+   `hpl_interaction_bridge install_ok ... policy=replace_start_direction_only`.
+2. Keep your head still and point the dominant controller at a nearby usable
+   object while moving the controller away from screen center. The crosshair or
+   focus description should follow controller aim. Expect
+   `hpl_interaction_ray ... applied=1` with finite controller direction and
+   occasional `hit=1`.
+3. Point your head at one usable object and the controller at another. Controller
+   focus must win while the aim pose is fully tracked. Verify near/far native
+   interaction limits and LOS still reject objects exactly as SOMA normally does.
+4. Open a menu, enter an authored camera/hand animation if available, or remove
+   controller tracking. The bridge must fall back without a crash; interaction
+   summary counters should identify authored-camera, input, or tracking fallbacks.
+5. Show the gameplay HUD, pause menu, subtitles, and a terminal. Attach bounded
+   `hpl_gui_set` rows. `gameHud=1` rows should contain finite, stable
+   `hudMetrics={...}` values across both eyes and display resolution changes.
+6. Recenter, snap-turn, load another save, then repeat controller focus. Confirm
+   no eye-height, rigid-world, shadow, reflection, or clean-shutdown regression.
+
 ## 0.11.0 Spatial Audio, Controller Poses, And HUD Identity
 
 1. Launch the OpenXR Release build, load a save, and press F10 once. Confirm

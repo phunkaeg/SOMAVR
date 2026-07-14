@@ -889,10 +889,34 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     ReadField(guiSet, 0x188, priority);
     void* gameContext = nullptr;
     void* gameHudSet = nullptr;
+    float hudVirtualCenterWidth = 0.0f;
+    float hudVirtualCenterHeight = 0.0f;
+    float hudVirtualWidth = 0.0f;
+    float hudVirtualHeight = 0.0f;
+    float hudVirtualStartX = 0.0f;
+    float hudVirtualStartY = 0.0f;
+    float hudVirtualStartZ = 0.0f;
+    float hudCenterScreenWidth = 0.0f;
+    float hudCenterScreenHeight = 0.0f;
+    float hudCenterScreenStartX = 0.0f;
+    float hudCenterScreenStartY = 0.0f;
+    float hudCenterScreenStartZ = 0.0f;
     if (g_gameContextSlot != nullptr
         && ReadField(g_gameContextSlot, 0, gameContext)
         && gameContext != nullptr) {
         ReadField(gameContext, 0x50, gameHudSet);
+        ReadField(gameContext, 0x58, hudVirtualCenterWidth);
+        ReadField(gameContext, 0x5c, hudVirtualCenterHeight);
+        ReadField(gameContext, 0x60, hudVirtualWidth);
+        ReadField(gameContext, 0x64, hudVirtualHeight);
+        ReadField(gameContext, 0x70, hudVirtualStartX);
+        ReadField(gameContext, 0x74, hudVirtualStartY);
+        ReadField(gameContext, 0x78, hudVirtualStartZ);
+        ReadField(gameContext, 0x7c, hudCenterScreenWidth);
+        ReadField(gameContext, 0x80, hudCenterScreenHeight);
+        ReadField(gameContext, 0x84, hudCenterScreenStartX);
+        ReadField(gameContext, 0x88, hudCenterScreenStartY);
+        ReadField(gameContext, 0x8c, hudCenterScreenStartZ);
     }
     const bool isGameHud = guiSet != nullptr && guiSet == gameHudSet;
     if (isGameHud) {
@@ -918,7 +942,7 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     if (newlySeen || call <= 16 || call % interval == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_gui_set frame=%llu call=%llu stage=%s set=%p target=%p gameHud=%d gameHudSet=%p is3d=%d depthLayer=%d virtualSize=%.1f,%.1f offset=%.1f,%.1f depthRange=%.3f,%.3f priority=%d calls={drawElements=%llu drawArrays=%llu framebuffer=%llu program=%llu} gl={fbo=%d->%d program=%d->%d}",
+            "hpl_gui_set frame=%llu call=%llu stage=%s set=%p target=%p gameHud=%d gameHudSet=%p is3d=%d depthLayer=%d virtualSize=%.1f,%.1f offset=%.1f,%.1f depthRange=%.3f,%.3f priority=%d hudMetrics={virtualCenterSize=%.1f,%.1f virtualSize=%.1f,%.1f virtualStart=%.1f,%.1f,%.1f centerScreenSize=%.1f,%.1f centerScreenStart=%.1f,%.1f,%.1f} calls={drawElements=%llu drawArrays=%llu framebuffer=%llu program=%llu} gl={fbo=%d->%d program=%d->%d}",
             static_cast<unsigned long long>(frame),
             static_cast<unsigned long long>(call),
             GetHPLRenderStageName(g_activeStage),
@@ -935,6 +959,18 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
             depthMin,
             depthMax,
             priority,
+            hudVirtualCenterWidth,
+            hudVirtualCenterHeight,
+            hudVirtualWidth,
+            hudVirtualHeight,
+            hudVirtualStartX,
+            hudVirtualStartY,
+            hudVirtualStartZ,
+            hudCenterScreenWidth,
+            hudCenterScreenHeight,
+            hudCenterScreenStartX,
+            hudCenterScreenStartY,
+            hudCenterScreenStartZ,
             static_cast<unsigned long long>(telemetryAfter.drawElements - telemetryBefore.drawElements),
             static_cast<unsigned long long>(telemetryAfter.drawArrays - telemetryBefore.drawArrays),
             static_cast<unsigned long long>(telemetryAfter.framebufferBinds - telemetryBefore.framebufferBinds),

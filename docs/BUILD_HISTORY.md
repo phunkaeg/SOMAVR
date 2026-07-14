@@ -2,6 +2,23 @@
 
 ## 2026-07-15
 
+### 0.12.0-native-interaction
+
+- Added a signature-guarded `HPLInteractionBridge` at confirmed native wrapper
+  `0x1400cd750`. It routes the dominant controller's tracked world-space aim into
+  SOMA's closest-entity query while preserving native length, type, LOS,
+  `CanInteract`, range, focus, player-state, and callback ownership.
+- Added strict passthrough gates for query type, native camera-origin proximity,
+  full controller tracking, active input, and authored-camera ownership, plus
+  bounded substitution/hit/fallback telemetry.
+- Added confirmed gameplay-HUD virtual center, virtual-size/start, and
+  center-screen metric telemetry for resolution-independent HUD capture design.
+- Confirmed and promoted the shared Lux entity `SetMatrix` wrapper used by the
+  scripted `PlayerHands_*` path. Runtime identity remains the deliberate gate
+  before controller-owned hand/viewmodel transforms.
+- Built and tested default and OpenXR x64 Release flavors. OpenXR SHA-256:
+  `488029E97B313289BBBBD74BE32419635998EC2EF8B9842C86F720955CCACB85`.
+
 ### 0.11.0-spatial-ownership
 
 - Added one shared HPL world-pose bridge for the HMD and dominant controller.

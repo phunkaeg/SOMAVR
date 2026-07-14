@@ -1,5 +1,24 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-14 Player And Input Sync
+
+The active `Soma_NoSteam.exe` database now contains confirmed player-access
+anchors needed by `FEATURE.LOCOMOTION` and `FEATURE.AUTHORED_CAMERA`:
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1400cc860` | `SOMA_GetPlayer` | `GetPlayer()` registration plus a 15-byte getter returning game context `+0x140`; guarded by `HPLInputBridge`. |
+| `0x140125ef0` | `SOMA_cLuxPlayer_GetCamera` | `cLuxPlayer` registration and direct player `+0x168` return. |
+| `0x140155290` | `SOMA_cLuxPlayer_GetCharacterBody` | `cLuxPlayer` registration and direct player `+0x170` return. |
+| `0x140155050` | `SOMA_cLuxPlayer_GetCurrentStateId` | Script registration and direct state-object/ID read. |
+| `0x140155090` | `SOMA_cLuxPlayer_GetCurrentMoveStateId` | Script registration and direct move-state/ID read. |
+| `0x140155c40` | `SOMA_cLuxPlayer_UpdateCameraDirection` | Smooths direction accumulators and applies camera/body orientation. |
+| `0x14015ba20` | `SOMA_cLuxPlayerHelper_Update` | Per-frame helper owner and candidate future native action-injection phase. |
+
+All seven functions received evidence plate comments and the database was saved.
+The next native-input step is to map the state-aware move/turn entry before
+replacing the reversible `0.7.0` SOMA input-path prototype.
+
 ## 2026-07-13 Lifecycle Sync
 
 The SOMA program was open and the exit dump supplied a stable lifecycle lead.

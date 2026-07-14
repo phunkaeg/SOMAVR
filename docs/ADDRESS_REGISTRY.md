@@ -42,6 +42,13 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x1404a5030` | Confirmed | Registers the AngelScript `iCharacterBody` API, including `Move`, `SetMoveSpeed`, `AddYaw`, and `SetYaw`. |
 | `0x1402375f0` | Confirmed by registration | Native wrapper registered for `iCharacterBody::Move(eCharDir, float)`. Candidate semantic locomotion probe. |
 | `0x14015ca10` | Confirmed | Registers the AngelScript `cLuxPlayer` API. Maps `GetCamera` to `0x140125ef0` and `GetCharacterBody` to `0x140155290`. |
+| `0x1400cc860` | Confirmed by registration and decompilation | Global `GetPlayer()` wrapper. Returns the current `cLuxPlayer*` from game context `+0x140`. Signature-guarded probe anchor in `0.7.0`. Ghidra: `SOMA_GetPlayer`. |
+| `0x140125ef0` | Confirmed by registration and decompilation | `cLuxPlayer::GetCamera()`. Returns player `+0x168`. Ghidra: `SOMA_cLuxPlayer_GetCamera`. |
+| `0x140155290` | Confirmed by registration and decompilation | `cLuxPlayer::GetCharacterBody()`. Returns player `+0x170`. Ghidra: `SOMA_cLuxPlayer_GetCharacterBody`. |
+| `0x140155050` | Confirmed by registration and decompilation | `cLuxPlayer::GetCurrentStateId()`. Reads state object at player `+0x1d8`, then ID `+0x160`, or returns `-1`. Runtime probe anchor in `0.7.0`. |
+| `0x140155090` | Confirmed by registration and decompilation | `cLuxPlayer::GetCurrentMoveStateId()`. Reads move state at player `+0x200`, then ID `+0x158`, or returns `-1`. Runtime probe anchor in `0.7.0`. |
+| `0x140155c40` | High-confidence by behavior and HPL2 comparison | Player camera-direction update. Smooths input accumulators at player `+0x368/+0x36c`, applies camera pitch/yaw, and synchronizes body/camera yaw ownership. Ghidra: `SOMA_cLuxPlayer_UpdateCameraDirection`. |
+| `0x14015ba20` | High-confidence by behavior | Per-frame player helper update. Derives `cLuxPlayer` as `self-0x110` and runs collision, motion averaging, head, and camera helpers. Ghidra: `SOMA_cLuxPlayerHelper_Update`. |
 | `0x14033c240` | Confirmed | Adds a post effect to the priority-sorted container and retained effect list. |
 | `0x14033b8f0` | Confirmed, control hook built | Tests whether the composite has any active post effects. `0.5.2` uses an exact-signature F12 detour to return false for reversible post-chain isolation. |
 | `0x14038ae60` | Confirmed | Creates the image-trail history texture and framebuffer (`ImageTrailTexture`, `ImageTrailBuffer`). |
@@ -75,6 +82,18 @@ Offsets confirmed from decompilation and the matching HPL2 source:
 | `cFrustum` | `+0xd8` | Projection matrix. |
 | `cFrustum` | `+0x118` | View-projection matrix. |
 | `cFrustum` | `+0x158` | View matrix. |
+
+## SOMA Player Layout
+
+Offsets confirmed by script registrations and the `0.7.0` state probe anchors:
+
+| Offset | Meaning |
+| --- | --- |
+| `+0x168` | Active `cCamera*`. |
+| `+0x170` | Active `iCharacterBody*`. |
+| `+0x1d8` | Current player-state object; state ID is object `+0x160`. |
+| `+0x200` | Current move-state object; move-state ID is object `+0x158`. |
+| `+0x368/+0x36c` | Smoothed camera direction input accumulators used by `0x140155c40`. |
 
 ## HPL3 Viewport Layout
 

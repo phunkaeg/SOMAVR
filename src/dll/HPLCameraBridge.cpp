@@ -1090,6 +1090,26 @@ HPLCameraBridgeStatus GetHPLCameraBridgeStatus()
     return status;
 }
 
+bool RequestHPLRecenter(const char* source)
+{
+    std::lock_guard lock(g_stateMutex);
+    if (!g_config.hplRecenterControl || !g_state.trackingEnabled) {
+        return false;
+    }
+    g_state.recenterPending = true;
+    g_state.recenterTrackingWaitLogs = 0;
+    g_state.recenterPoseStability = PoseStabilityState{};
+    Logger::Instance().Write(
+        LogLevel::Warn,
+        "hpl_recenter requested source=%s camera=%p frustum=%p stereo=%d roomscale=%d",
+        source != nullptr ? source : "api",
+        g_state.activeCamera,
+        g_state.activeFrustum,
+        g_state.stereoEnabled ? 1 : 0,
+        g_roomscaleEnabled.load(std::memory_order_relaxed) ? 1 : 0);
+    return true;
+}
+
 void RemoveHPLCameraBridge()
 {
     std::lock_guard lock(g_stateMutex);

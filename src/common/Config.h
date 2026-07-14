@@ -29,6 +29,20 @@ struct Config {
     int openxrResolutionScalePercent = 100;
     bool openxrInputEnabled = false;
     int openxrInputLogInterval = 120;
+    bool hplControllerInput = false;
+    float hplControllerMoveDeadzone = 0.35f;
+    float hplControllerMoveReleaseDeadzone = 0.25f;
+    bool hplControllerSnapTurn = true;
+    float hplControllerTurnDeadzone = 0.65f;
+    float hplControllerTurnReleaseDeadzone = 0.35f;
+    int hplControllerSnapTurnPixels = 420;
+    float hplControllerSmoothTurnPixelsPerSecond = 900.0f;
+    bool hplControllerInteraction = true;
+    bool hplControllerMenu = true;
+    bool hplControllerRecenterChord = true;
+    int hplControllerRecenterHoldMs = 900;
+    int hplControllerMaxInputAgeFrames = 8;
+    int hplControllerLogInterval = 120;
     bool forceDisableVsync = false;
 
     int frameSummaryInterval = 120;

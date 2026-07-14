@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.6.0-input-foundation")
+set(SOMAVR_BUILD_VERSION "0.7.0-controller-prototype")
 
 include(FetchContent)
 
@@ -72,6 +72,7 @@ add_library(somavr SHARED
     src/dll/HPLCompatibilityProbe.cpp
     src/dll/HPLCameraBridge.cpp
     src/dll/HPLLifecycle.cpp
+    src/dll/HPLInputBridge.cpp
     src/dll/OpenGLHooks.cpp
     src/dll/OpenXRGLBridge.cpp
     src/dll/OpenXRRuntime.cpp

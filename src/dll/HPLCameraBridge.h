@@ -27,5 +27,6 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr);
 void RemoveHPLCameraBridge();
 void LogHPLCameraBridgeSummary();
 HPLCameraBridgeStatus GetHPLCameraBridgeStatus();
+bool RequestHPLRecenter(const char* source);
 
 } // namespace somavr

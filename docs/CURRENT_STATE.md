@@ -21,9 +21,21 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active runtime test baseline is `0.6.0-input-foundation`, layered on the proven
+The active runtime test baseline is `0.7.0-controller-prototype`, layered on the proven
 OpenXR transport, native HPL camera bridge, AFR stereo, full projection centering,
 one-key F10 activation, and compatibility probes:
+
+- OpenXR left-stick movement now drives SOMA's own W/A/S/D input route with
+  configurable press/release hysteresis.
+- Right-stick turning supports configurable snap or smooth mouse-path input.
+- Right trigger/select maps to native interaction, menu maps to Escape, and a
+  held two-grip chord requests the existing stable F2 recenter pipeline.
+- Every injected held input is released on VR disable, inactive controls, stale
+  OpenXR samples, or DLL teardown.
+- A signature-guarded native player probe logs player/camera/body ownership plus
+  current player and move-state IDs from confirmed SOMA getters.
+- This is a fast testable bridge, not final analog locomotion. The live state log
+  is intended to identify the safe native action boundary for its replacement.
 
 - `somavr_injector.exe`: launch-suspended or attach-by-PID/process-name DLL injector.
 - `somavr.dll`: MinHook-based OpenGL/WGL telemetry DLL.

@@ -1,5 +1,38 @@
 # Test Checklists
 
+## 0.7.0 Controller And Player-State Prototype
+
+1. Close SOMA and launch:
+
+```powershell
+& "D:\Dev Debug\SOMAVR\build-openxr-controller\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
+```
+
+2. Confirm `version=0.7.0-controller-prototype`, `controller_config enabled=1`,
+   and `hpl_input_bridge install_ok`. A signature mismatch means this executable
+   build is unsupported and controller injection will remain inactive.
+3. Load a save and press F10 once. Confirm the known-good rigid stereo image,
+   centered shadows/reflections, room scale, and eye height remain unchanged.
+4. Confirm `hpl_player_probe` reports non-null player, camera, and body pointers;
+   `cameraMatch=1`; and sensible player/move-state IDs.
+5. Test left stick forward/back/strafe and diagonals. Movement should behave like
+   W/A/S/D and stop immediately at stick release. Keyboard input must coexist.
+6. Test one right-stick deflection and release. Default snap turn is
+   pixel-calibrated, so record whether the step is too small/large and whether it
+   is visually clean. Do not hold the stick through several tests without first
+   returning it to center.
+7. Point the normal gaze interaction at a door/object and press right trigger.
+   Confirm it behaves like left click. Test the controller menu action as Escape.
+8. Hold both grips for about one second while still. Expect
+   `hpl_recenter requested source=controller_grip_chord`, then the normal stable
+   calibration and apply rows.
+9. Briefly remove runtime focus or disable VR with F10 while holding movement.
+   The player must stop; later summary should show no `sendFailures`.
+10. Exercise a ladder, crawl/crouch area, scripted interaction, and pause/menu if
+    convenient. Attach the log so state IDs can be mapped to each behavior.
+11. Exit normally and confirm clean shutdown. Verify the DLL against the SHA-256
+    in `somavr_build_manifest.txt` beside the final DLL.
+
 ## 0.6.0 Input, Pose, And Calibration Foundation
 
 1. Close any running SOMA process and launch:

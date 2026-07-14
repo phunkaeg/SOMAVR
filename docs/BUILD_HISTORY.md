@@ -2,6 +2,23 @@
 
 ## 2026-07-14
 
+### 0.7.0-controller-prototype
+
+- Added `HPLInputBridge` as a separate gameplay-input and native-player probe
+  owner; camera and OpenXR runtime modules remain focused on their existing jobs.
+- Added left-stick W/A/S/D locomotion with press/release hysteresis, configurable
+  snap or smooth right-stick turn, right-trigger/select interaction, menu/Escape,
+  and a two-grip hold that requests the proven recenter latch.
+- Added fail-quiet input lifetime: all held keys/buttons release when VR mode is
+  disabled, input is inactive/stale, or the bridge is removed.
+- Resolved and signature-guarded `GetPlayer`, player state ID, and move-state ID
+  getters. Bounded telemetry now correlates player, camera, body, active camera,
+  authored state, move state, and OpenXR controls.
+- Updated the shared Ghidra database with seven player/input names and evidence
+  comments. Updated address, RE, traceability, state, test, and build docs.
+- Built OpenXR x64 Release and passed the render-math suite. Output:
+  `build-openxr-controller\Release`.
+
 ### 0.6.0-input-foundation
 
 - Added `OpenXRInput` as a dedicated action/pose owner rather than expanding

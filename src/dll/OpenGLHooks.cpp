@@ -1,6 +1,7 @@
 #include "OpenGLHooks.h"
 
 #include "HPLCameraBridge.h"
+#include "HPLInputBridge.h"
 #include "Logger.h"
 #include "OpenGLMatrixAnalysis.h"
 
@@ -1527,6 +1528,7 @@ void LogFrameSummary(HDC hdc)
     if (g_openxr != nullptr) {
         g_openxr->OnFrameBoundary(currentHdc != nullptr ? currentHdc : hdc, glContext, frame);
     }
+    UpdateHPLInputBridge(frame);
     UpdateMatrixCaptureHotkey(frame);
     UpdateShadowJitterHotkey(frame);
     UpdateRenderDiagnosticHotkey(frame);

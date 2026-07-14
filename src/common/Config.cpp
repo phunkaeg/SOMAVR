@@ -160,7 +160,22 @@ void ConfigManager::WriteDefaultConfig() const
         << "MirrorBackbuffer=1\n"
         << "ResolutionScalePercent=100\n"
         << "InputEnabled=0\n"
-        << "InputLogInterval=120\n";
+        << "InputLogInterval=120\n\n"
+        << "[Controller]\n"
+        << "Enabled=0\n"
+        << "MoveDeadzone=0.35\n"
+        << "MoveReleaseDeadzone=0.25\n"
+        << "SnapTurn=1\n"
+        << "TurnDeadzone=0.65\n"
+        << "TurnReleaseDeadzone=0.35\n"
+        << "SnapTurnPixels=420\n"
+        << "SmoothTurnPixelsPerSecond=900\n"
+        << "Interaction=1\n"
+        << "Menu=1\n"
+        << "RecenterChord=1\n"
+        << "RecenterHoldMs=900\n"
+        << "MaxInputAgeFrames=8\n"
+        << "LogInterval=120\n";
 }
 
 void ConfigManager::LoadFromFile()
@@ -273,6 +288,24 @@ void ConfigManager::LoadFromFile()
             } else if (key == "inputloginterval") {
                 config_.openxrInputLogInterval = ParseInt(value, config_.openxrInputLogInterval, 1, 100000);
             }
+            continue;
+        }
+
+        if (section == "controller") {
+            if (key == "enabled") config_.hplControllerInput = ParseBool(value, config_.hplControllerInput);
+            else if (key == "movedeadzone") config_.hplControllerMoveDeadzone = ParseFloat(value, config_.hplControllerMoveDeadzone, 0.05f, 0.95f);
+            else if (key == "movereleasedeadzone") config_.hplControllerMoveReleaseDeadzone = ParseFloat(value, config_.hplControllerMoveReleaseDeadzone, 0.0f, 0.9f);
+            else if (key == "snapturn") config_.hplControllerSnapTurn = ParseBool(value, config_.hplControllerSnapTurn);
+            else if (key == "turndeadzone") config_.hplControllerTurnDeadzone = ParseFloat(value, config_.hplControllerTurnDeadzone, 0.05f, 0.95f);
+            else if (key == "turnreleasedeadzone") config_.hplControllerTurnReleaseDeadzone = ParseFloat(value, config_.hplControllerTurnReleaseDeadzone, 0.0f, 0.9f);
+            else if (key == "snapturnpixels") config_.hplControllerSnapTurnPixels = ParseInt(value, config_.hplControllerSnapTurnPixels, 1, 4000);
+            else if (key == "smoothturnpixelspersecond") config_.hplControllerSmoothTurnPixelsPerSecond = ParseFloat(value, config_.hplControllerSmoothTurnPixelsPerSecond, 1.0f, 5000.0f);
+            else if (key == "interaction") config_.hplControllerInteraction = ParseBool(value, config_.hplControllerInteraction);
+            else if (key == "menu") config_.hplControllerMenu = ParseBool(value, config_.hplControllerMenu);
+            else if (key == "recenterchord") config_.hplControllerRecenterChord = ParseBool(value, config_.hplControllerRecenterChord);
+            else if (key == "recenterholdms") config_.hplControllerRecenterHoldMs = ParseInt(value, config_.hplControllerRecenterHoldMs, 250, 5000);
+            else if (key == "maxinputageframes") config_.hplControllerMaxInputAgeFrames = ParseInt(value, config_.hplControllerMaxInputAgeFrames, 1, 300);
+            else if (key == "loginterval") config_.hplControllerLogInterval = ParseInt(value, config_.hplControllerLogInterval, 1, 100000);
         }
     }
 }

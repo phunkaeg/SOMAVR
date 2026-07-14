@@ -75,7 +75,16 @@ SOMA's normal movement state applies speed, acceleration, running, crouching, cr
 
 ### Recommended Input Route
 
-The first controller build should inject at SOMA's semantic action layer or immediately before `iCharacterBody::Move`, not synthesize keyboard or mouse input.
+The final controller path should inject at SOMA's semantic action layer or the
+state-aware `cLuxPlayer` movement/look wrappers. Direct capsule mutation remains
+out of bounds because it bypasses gameplay state.
+
+`0.7.0-controller-prototype` deliberately adds an earlier tactical stage: it
+feeds OpenXR controls through SOMA's existing keyboard/mouse input path. This
+immediately preserves normal menu and player-state routing while a bounded
+native probe records player pointer, camera/body ownership, player state, and
+move state. It is reversible, configuration-gated, and releases all held inputs
+when the OpenXR sample becomes stale. It is not the final analog locomotion path.
 
 For each update:
 
@@ -97,9 +106,9 @@ Body turn should be a separate action:
 
 ### Implementation Stages
 
-1. **Passive probe:** log current player state, move state, character-body pointer, yaw, camera pitch, and directional move values while keyboard/gamepad input is used.
-2. **Action bridge:** map OpenXR stick/buttons to forward/right, run, crouch, jump, interact, cancel, inventory, and menu actions.
-3. **Turn bridge:** add snap turn first, then optional smooth turn. Keep mouse look available as a fallback.
+1. **Passive probe:** built in `0.7.0`; logs current player state, move state, character-body pointer, camera pointer, and active-camera ownership.
+2. **Input-path prototype:** built in `0.7.0`; maps move, turn, interact, menu, and recenter with stale-input release and config gates.
+3. **Native action bridge:** replace digital movement and pixel-calibrated turn with analog state-aware move/turn calls; then add run, crouch, jump, cancel, and inventory.
 4. **State adapters:** normal, ladder, sit, climb ledge, crawl, interaction, conversation, dead, and scripted camera.
 5. **Physical movement:** optional physical crouch and collision-aware room-scale body catch-up.
 

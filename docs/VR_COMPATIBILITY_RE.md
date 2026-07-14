@@ -1,5 +1,15 @@
 # VR Compatibility Reverse-Engineering Map
 
+## 0.29.0 Loading, Video, And Optics Result
+
+Authored script zoom no longer needs to distort the headset projection: exact
+FOV, FOV-multiplier, and aspect-multiplier wrappers can retain native script
+timing while selecting VR-neutral targets. Exact loading visibility now owns a
+zero-layer XR interval with stereo-cache invalidation on both edges and input
+release throughout. Video playback remains untouched while native stream names
+and lifetimes are collected to separate fullscreen presentation from diegetic
+screens.
+
 ## 0.28.0 Authored Comfort Evidence
 
 The shipped player-state and camera-roll enums now have exact native policy

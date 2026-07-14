@@ -12,6 +12,7 @@
 #include "HPLMenuBridge.h"
 #include "HPLNativeLocomotion.h"
 #include "HPLPlayerState.h"
+#include "HPLPresentationBridge.h"
 #include "Logger.h"
 #include "OpenGLHooks.h"
 #include "OpenXRRuntime.h"
@@ -253,7 +254,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplControllerFocusHapticCooldownFrames);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "comfort_config cameraAddControl=%d suppressHeadBob=%d suppressCameraShake=%d suppressSway=%d cameraRollControl=%d suppressRoll={script=%d lean=%d move=%d climb=%d} depthOfFieldControl=%d stateTransitionBlackoutFrames=%d videoDistortion=%d logInterval=%d",
+        "comfort_config cameraAddControl=%d suppressHeadBob=%d suppressCameraShake=%d suppressSway=%d cameraRollControl=%d suppressRoll={script=%d lean=%d move=%d climb=%d} depthOfFieldControl=%d opticsControl=%d suppressOptics={fov=%d fovMultiplier=%d aspectMultiplier=%d} stateTransitionBlackoutFrames=%d videoDistortion=%d loadingScreenControl=%d loadingScreenExitBlackoutFrames=%d videoLifecycleProbe=%d logInterval=%d",
         g_config->Get().hplComfortCameraAddControl ? 1 : 0,
         g_config->Get().hplComfortSuppressHeadBob ? 1 : 0,
         g_config->Get().hplComfortSuppressCameraShake ? 1 : 0,
@@ -264,8 +265,15 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplComfortSuppressMoveRoll ? 1 : 0,
         g_config->Get().hplComfortSuppressClimbRoll ? 1 : 0,
         g_config->Get().hplComfortDepthOfFieldControl ? 1 : 0,
+        g_config->Get().hplComfortOpticsControl ? 1 : 0,
+        g_config->Get().hplComfortSuppressFov ? 1 : 0,
+        g_config->Get().hplComfortSuppressFovMultiplier ? 1 : 0,
+        g_config->Get().hplComfortSuppressAspectMultiplier ? 1 : 0,
         g_config->Get().hplControllerStateTransitionBlackoutFrames,
         g_config->Get().hplPostEffectDisableVideoDistortion ? 1 : 0,
+        g_config->Get().hplLoadingScreenControl ? 1 : 0,
+        g_config->Get().hplLoadingScreenExitBlackoutFrames,
+        g_config->Get().hplVideoLifecycleProbe ? 1 : 0,
         g_config->Get().hplComfortLogInterval);
 
     g_openxr = std::make_unique<somavr::OpenXRRuntime>();
@@ -320,6 +328,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     }
     if (!somavr::InstallHPLComfortBridge(g_config->Get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_comfort_bridge install_failed");
+    }
+    if (!somavr::InstallHPLPresentationBridge(g_config->Get(), g_openxr.get())) {
+        somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_presentation_bridge install_failed");
     }
     if (!somavr::InstallHPLNativeLocomotion(g_config->Get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_native_locomotion install_failed");
@@ -384,6 +395,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::RemoveHPLCrosshairBridge();
     somavr::LogHPLInteractionBridgeSummary();
     somavr::RemoveHPLInteractionBridge();
+    somavr::LogHPLPresentationBridgeSummary();
+    somavr::RemoveHPLPresentationBridge();
     somavr::LogHPLComfortBridgeSummary();
     somavr::RemoveHPLComfortBridge();
     somavr::LogHPLCameraBridgeSummary();

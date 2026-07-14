@@ -22,7 +22,17 @@ constexpr uintptr_t kSetCameraPosAddRva = 0x159360;
 constexpr uintptr_t kFadeCameraRollRva = 0x156d90;
 constexpr uintptr_t kSetCameraRollRva = 0x156f00;
 constexpr uintptr_t kSetDepthOfFieldActiveRva = 0x071f80;
+constexpr uintptr_t kFadeCameraFovMultiplierRva = 0x155210;
+constexpr uintptr_t kFadeCameraAspectMultiplierRva = 0x155230;
+constexpr uintptr_t kFadeCameraFovRva = 0x155250;
 constexpr size_t kDepthOfFieldActiveOffset = 0x264;
+constexpr size_t kPlayerDefaultFovOffset = 0x194;
+constexpr size_t kPlayerFovGoalOffset = 0x19c;
+constexpr size_t kPlayerFovSpeedOffset = 0x1a0;
+constexpr size_t kPlayerFovMultiplierGoalOffset = 0x38c;
+constexpr size_t kPlayerFovMultiplierSpeedOffset = 0x390;
+constexpr size_t kPlayerAspectMultiplierGoalOffset = 0x394;
+constexpr size_t kPlayerAspectMultiplierSpeedOffset = 0x398;
 
 constexpr uint8_t kSetCameraPosAddSignature[] = {
     0x40, 0x53,
@@ -45,6 +55,18 @@ constexpr uint8_t kSetDepthOfFieldActiveSignature[] = {
     0x88, 0x91, 0x64, 0x02, 0x00, 0x00, 0xc3,
     0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc,
 };
+constexpr uint8_t kFadeCameraFovMultiplierSignature[] = {
+    0xf3, 0x0f, 0x11, 0x89, 0x8c, 0x03, 0x00, 0x00,
+    0xf3, 0x0f, 0x11, 0x91, 0x90, 0x03, 0x00, 0x00,
+};
+constexpr uint8_t kFadeCameraAspectMultiplierSignature[] = {
+    0xf3, 0x0f, 0x11, 0x89, 0x94, 0x03, 0x00, 0x00,
+    0xf3, 0x0f, 0x11, 0x91, 0x98, 0x03, 0x00, 0x00,
+};
+constexpr uint8_t kFadeCameraFovSignature[] = {
+    0xf3, 0x0f, 0x11, 0x89, 0x9c, 0x01, 0x00, 0x00,
+    0xf3, 0x0f, 0x11, 0x91, 0xa0, 0x01, 0x00, 0x00,
+};
 
 using SetCameraPosAddFn = void (*)(void* player, int type, const float* vector);
 using SetCameraRollFn = void (*)(void* player, int type, float value);
@@ -59,7 +81,13 @@ void* g_setCameraPosAddTarget = nullptr;
 void* g_setCameraRollTarget = nullptr;
 void* g_fadeCameraRollTarget = nullptr;
 void* g_setDepthOfFieldActiveTarget = nullptr;
+void* g_fadeCameraFovMultiplierTarget = nullptr;
+void* g_fadeCameraAspectMultiplierTarget = nullptr;
+void* g_fadeCameraFovTarget = nullptr;
 std::array<uint8_t, sizeof(kSetDepthOfFieldActiveSignature)> g_depthOfFieldOriginal{};
+std::array<uint8_t, sizeof(kFadeCameraFovMultiplierSignature)> g_fovMultiplierOriginal{};
+std::array<uint8_t, sizeof(kFadeCameraAspectMultiplierSignature)> g_aspectMultiplierOriginal{};
+std::array<uint8_t, sizeof(kFadeCameraFovSignature)> g_fovOriginal{};
 std::mutex g_installMutex;
 std::atomic<uint64_t> g_cameraAddCalls = 0;
 std::atomic<uint64_t> g_cameraAddSuppressed = 0;
@@ -73,6 +101,11 @@ std::atomic<uint64_t> g_rollFadeSuppressed = 0;
 std::atomic<uint64_t> g_dofCalls = 0;
 std::atomic<uint64_t> g_dofEnableRequests = 0;
 std::atomic<uint64_t> g_dofSuppressed = 0;
+std::atomic<uint64_t> g_opticsCalls = 0;
+std::atomic<uint64_t> g_opticsSuppressed = 0;
+std::atomic<uint64_t> g_fovSuppressed = 0;
+std::atomic<uint64_t> g_fovMultiplierSuppressed = 0;
+std::atomic<uint64_t> g_aspectMultiplierSuppressed = 0;
 std::atomic<uint64_t> g_trackingInactive = 0;
 
 bool IsInsideImage(HMODULE module, uintptr_t rva, size_t bytes)
@@ -225,6 +258,98 @@ void HookSetDepthOfFieldActive(void* world, bool active)
     }
 }
 
+const char* OpticsChannelName(comfort_math::OpticsChannel channel)
+{
+    switch (channel) {
+    case comfort_math::OpticsChannel::Fov: return "fov";
+    case comfort_math::OpticsChannel::FovMultiplier: return "fov_multiplier";
+    case comfort_math::OpticsChannel::AspectMultiplier: return "aspect_multiplier";
+    default: return "unknown";
+    }
+}
+
+void ApplyOpticsTarget(
+    void* player,
+    comfort_math::OpticsChannel channel,
+    float requestedTarget,
+    float speed,
+    size_t targetOffset,
+    size_t speedOffset,
+    bool configured,
+    std::atomic<uint64_t>& channelSuppressed)
+{
+    const uint64_t call = g_opticsCalls.fetch_add(1, std::memory_order_relaxed) + 1;
+    const bool suppress = g_config.hplComfortOpticsControl && configured && TrackingActive();
+    float defaultFov = requestedTarget;
+    if (channel == comfort_math::OpticsChannel::Fov && player != nullptr) {
+        defaultFov = *reinterpret_cast<const float*>(
+            reinterpret_cast<const std::byte*>(player) + kPlayerDefaultFovOffset);
+    }
+    const float output = suppress
+        ? comfort_math::ResolveComfortOpticsTarget(channel, requestedTarget, defaultFov)
+        : requestedTarget;
+    if (suppress) {
+        const uint64_t suppressed = g_opticsSuppressed.fetch_add(1, std::memory_order_relaxed) + 1;
+        channelSuppressed.fetch_add(1, std::memory_order_relaxed);
+        if (ShouldLog(suppressed)) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_comfort_optics call=%llu suppressed=%llu channel=%s requested=%.6f output=%.6f defaultFov=%.6f speed=%.6f policy=vr_native_optics",
+                static_cast<unsigned long long>(call),
+                static_cast<unsigned long long>(suppressed),
+                OpticsChannelName(channel),
+                requestedTarget,
+                output,
+                defaultFov,
+                speed);
+        }
+    }
+    if (player != nullptr) {
+        auto* bytes = reinterpret_cast<std::byte*>(player);
+        *reinterpret_cast<float*>(bytes + targetOffset) = output;
+        *reinterpret_cast<float*>(bytes + speedOffset) = speed;
+    }
+}
+
+void HookFadeCameraFovMultiplier(void* player, float target, float speed)
+{
+    ApplyOpticsTarget(
+        player,
+        comfort_math::OpticsChannel::FovMultiplier,
+        target,
+        speed,
+        kPlayerFovMultiplierGoalOffset,
+        kPlayerFovMultiplierSpeedOffset,
+        g_config.hplComfortSuppressFovMultiplier,
+        g_fovMultiplierSuppressed);
+}
+
+void HookFadeCameraAspectMultiplier(void* player, float target, float speed)
+{
+    ApplyOpticsTarget(
+        player,
+        comfort_math::OpticsChannel::AspectMultiplier,
+        target,
+        speed,
+        kPlayerAspectMultiplierGoalOffset,
+        kPlayerAspectMultiplierSpeedOffset,
+        g_config.hplComfortSuppressAspectMultiplier,
+        g_aspectMultiplierSuppressed);
+}
+
+void HookFadeCameraFov(void* player, float target, float speed)
+{
+    ApplyOpticsTarget(
+        player,
+        comfort_math::OpticsChannel::Fov,
+        target,
+        speed,
+        kPlayerFovGoalOffset,
+        kPlayerFovSpeedOffset,
+        g_config.hplComfortSuppressFov,
+        g_fovSuppressed);
+}
+
 bool WriteCodeBytes(void* target, const void* bytes, size_t size)
 {
     DWORD oldProtect = 0;
@@ -275,36 +400,53 @@ void RemoveMinHook(void*& target)
     }
 }
 
-bool InstallDepthOfFieldPatch(void* target)
+bool InstallAbsoluteJumpPatch(
+    void* target,
+    void* hook,
+    uint8_t* original,
+    size_t size,
+    void*& installedTarget)
 {
-    std::memcpy(g_depthOfFieldOriginal.data(), target, g_depthOfFieldOriginal.size());
-    std::array<uint8_t, sizeof(kSetDepthOfFieldActiveSignature)> jump{};
+    if (target == nullptr || hook == nullptr || original == nullptr || size < 12) return false;
+    std::memcpy(original, target, size);
+    std::array<uint8_t, 32> jump{};
+    if (size > jump.size()) return false;
     jump.fill(0x90);
     jump[0] = 0x48;
     jump[1] = 0xb8;
-    const uintptr_t hook = reinterpret_cast<uintptr_t>(&HookSetDepthOfFieldActive);
-    std::memcpy(jump.data() + 2, &hook, sizeof(hook));
+    const uintptr_t hookAddress = reinterpret_cast<uintptr_t>(hook);
+    std::memcpy(jump.data() + 2, &hookAddress, sizeof(hookAddress));
     jump[10] = 0xff;
     jump[11] = 0xe0;
-    if (!WriteCodeBytes(target, jump.data(), jump.size())) return false;
-    g_setDepthOfFieldActiveTarget = target;
+    if (!WriteCodeBytes(target, jump.data(), size)) return false;
+    installedTarget = target;
     return true;
 }
 
-void RemoveDepthOfFieldPatch()
+void RemoveAbsoluteJumpPatch(
+    void*& target, const uint8_t* original, size_t size)
 {
-    if (g_setDepthOfFieldActiveTarget != nullptr) {
-        WriteCodeBytes(
-            g_setDepthOfFieldActiveTarget,
-            g_depthOfFieldOriginal.data(),
-            g_depthOfFieldOriginal.size());
-        g_setDepthOfFieldActiveTarget = nullptr;
-    }
+    if (target == nullptr) return;
+    WriteCodeBytes(target, original, size);
+    target = nullptr;
 }
 
 void RollbackHooks()
 {
-    RemoveDepthOfFieldPatch();
+    RemoveAbsoluteJumpPatch(
+        g_fadeCameraFovTarget, g_fovOriginal.data(), g_fovOriginal.size());
+    RemoveAbsoluteJumpPatch(
+        g_fadeCameraAspectMultiplierTarget,
+        g_aspectMultiplierOriginal.data(),
+        g_aspectMultiplierOriginal.size());
+    RemoveAbsoluteJumpPatch(
+        g_fadeCameraFovMultiplierTarget,
+        g_fovMultiplierOriginal.data(),
+        g_fovMultiplierOriginal.size());
+    RemoveAbsoluteJumpPatch(
+        g_setDepthOfFieldActiveTarget,
+        g_depthOfFieldOriginal.data(),
+        g_depthOfFieldOriginal.size());
     RemoveMinHook(g_setCameraRollTarget);
     RemoveMinHook(g_fadeCameraRollTarget);
     RemoveMinHook(g_setCameraPosAddTarget);
@@ -322,12 +464,16 @@ bool InstallHPLComfortBridge(const Config& config)
     const bool cameraAddEnabled = config.hplComfortCameraAddControl;
     const bool rollEnabled = config.hplComfortCameraRollControl;
     const bool dofEnabled = config.hplComfortDepthOfFieldControl;
-    if (!cameraAddEnabled && !rollEnabled && !dofEnabled) {
+    const bool opticsEnabled = config.hplComfortOpticsControl;
+    if (!cameraAddEnabled && !rollEnabled && !dofEnabled && !opticsEnabled) {
         Logger::Instance().Write(LogLevel::Info, "hpl_comfort_bridge disabled config=0");
         return true;
     }
     if (g_setCameraPosAddTarget != nullptr || g_setCameraRollTarget != nullptr
-        || g_fadeCameraRollTarget != nullptr || g_setDepthOfFieldActiveTarget != nullptr) {
+        || g_fadeCameraRollTarget != nullptr || g_setDepthOfFieldActiveTarget != nullptr
+        || g_fadeCameraFovMultiplierTarget != nullptr
+        || g_fadeCameraAspectMultiplierTarget != nullptr
+        || g_fadeCameraFovTarget != nullptr) {
         return true;
     }
 
@@ -340,7 +486,14 @@ bool InstallHPLComfortBridge(const Config& config)
                 && IsInsideImage(executable, kSetCameraRollRva, sizeof(kSetCameraRollSignature))))
         && (!dofEnabled
             || IsInsideImage(executable, kSetDepthOfFieldActiveRva,
-                sizeof(kSetDepthOfFieldActiveSignature)));
+                sizeof(kSetDepthOfFieldActiveSignature)))
+        && (!opticsEnabled
+            || (IsInsideImage(executable, kFadeCameraFovMultiplierRva,
+                    sizeof(kFadeCameraFovMultiplierSignature))
+                && IsInsideImage(executable, kFadeCameraAspectMultiplierRva,
+                    sizeof(kFadeCameraAspectMultiplierSignature))
+                && IsInsideImage(executable, kFadeCameraFovRva,
+                    sizeof(kFadeCameraFovSignature))));
     if (!rangeValid) {
         Logger::Instance().Write(LogLevel::Error, "hpl_comfort_bridge install_failed reason=invalid_image_range");
         return false;
@@ -356,15 +509,27 @@ bool InstallHPLComfortBridge(const Config& config)
                     sizeof(kSetCameraRollSignature)) == 0))
         && (!dofEnabled
             || std::memcmp(base + kSetDepthOfFieldActiveRva, kSetDepthOfFieldActiveSignature,
-                sizeof(kSetDepthOfFieldActiveSignature)) == 0);
+                sizeof(kSetDepthOfFieldActiveSignature)) == 0)
+        && (!opticsEnabled
+            || (std::memcmp(base + kFadeCameraFovMultiplierRva,
+                    kFadeCameraFovMultiplierSignature,
+                    sizeof(kFadeCameraFovMultiplierSignature)) == 0
+                && std::memcmp(base + kFadeCameraAspectMultiplierRva,
+                    kFadeCameraAspectMultiplierSignature,
+                    sizeof(kFadeCameraAspectMultiplierSignature)) == 0
+                && std::memcmp(base + kFadeCameraFovRva, kFadeCameraFovSignature,
+                    sizeof(kFadeCameraFovSignature)) == 0));
     if (!signaturesValid) {
         Logger::Instance().Write(
             LogLevel::Error,
-            "hpl_comfort_bridge install_failed reason=signature_mismatch cameraAddRva=0x%llx fadeRollRva=0x%llx setRollRva=0x%llx dofRva=0x%llx",
+            "hpl_comfort_bridge install_failed reason=signature_mismatch cameraAddRva=0x%llx fadeRollRva=0x%llx setRollRva=0x%llx dofRva=0x%llx fovMulRva=0x%llx aspectMulRva=0x%llx fovRva=0x%llx",
             static_cast<unsigned long long>(kSetCameraPosAddRva),
             static_cast<unsigned long long>(kFadeCameraRollRva),
             static_cast<unsigned long long>(kSetCameraRollRva),
-            static_cast<unsigned long long>(kSetDepthOfFieldActiveRva));
+            static_cast<unsigned long long>(kSetDepthOfFieldActiveRva),
+            static_cast<unsigned long long>(kFadeCameraFovMultiplierRva),
+            static_cast<unsigned long long>(kFadeCameraAspectMultiplierRva),
+            static_cast<unsigned long long>(kFadeCameraFovRva));
         return false;
     }
 
@@ -395,17 +560,47 @@ bool InstallHPLComfortBridge(const Config& config)
         return false;
     }
     if (dofEnabled
-        && !InstallDepthOfFieldPatch(const_cast<std::byte*>(base + kSetDepthOfFieldActiveRva))) {
+        && !InstallAbsoluteJumpPatch(
+            const_cast<std::byte*>(base + kSetDepthOfFieldActiveRva),
+            reinterpret_cast<void*>(&HookSetDepthOfFieldActive),
+            g_depthOfFieldOriginal.data(),
+            g_depthOfFieldOriginal.size(),
+            g_setDepthOfFieldActiveTarget)) {
         Logger::Instance().Write(
             LogLevel::Error,
             "hpl_comfort_bridge install_failed reason=depth_of_field_patch");
         RollbackHooks();
         return false;
     }
+    if (opticsEnabled
+        && (!InstallAbsoluteJumpPatch(
+                const_cast<std::byte*>(base + kFadeCameraFovMultiplierRva),
+                reinterpret_cast<void*>(&HookFadeCameraFovMultiplier),
+                g_fovMultiplierOriginal.data(),
+                g_fovMultiplierOriginal.size(),
+                g_fadeCameraFovMultiplierTarget)
+            || !InstallAbsoluteJumpPatch(
+                const_cast<std::byte*>(base + kFadeCameraAspectMultiplierRva),
+                reinterpret_cast<void*>(&HookFadeCameraAspectMultiplier),
+                g_aspectMultiplierOriginal.data(),
+                g_aspectMultiplierOriginal.size(),
+                g_fadeCameraAspectMultiplierTarget)
+            || !InstallAbsoluteJumpPatch(
+                const_cast<std::byte*>(base + kFadeCameraFovRva),
+                reinterpret_cast<void*>(&HookFadeCameraFov),
+                g_fovOriginal.data(),
+                g_fovOriginal.size(),
+                g_fadeCameraFovTarget))) {
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_comfort_bridge install_failed reason=optics_patch");
+        RollbackHooks();
+        return false;
+    }
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_comfort_bridge install_ok cameraAdd=%d cameraAddRva=0x%llx cameraRoll=%d fadeRollRva=0x%llx setRollRva=0x%llx depthOfField=%d dofRva=0x%llx addPolicy={bob=%d shake=%d sway=%d} rollPolicy={script=%d lean=%d move=%d climb=%d} policy=vr_active_semantic_zero",
+        "hpl_comfort_bridge install_ok cameraAdd=%d cameraAddRva=0x%llx cameraRoll=%d fadeRollRva=0x%llx setRollRva=0x%llx depthOfField=%d dofRva=0x%llx optics=%d opticsRvas={fovMul=0x%llx aspectMul=0x%llx fov=0x%llx} addPolicy={bob=%d shake=%d sway=%d} rollPolicy={script=%d lean=%d move=%d climb=%d} opticsPolicy={fov=%d fovMul=%d aspectMul=%d} policy=vr_active_semantic_zero",
         cameraAddEnabled ? 1 : 0,
         static_cast<unsigned long long>(kSetCameraPosAddRva),
         rollEnabled ? 1 : 0,
@@ -413,13 +608,20 @@ bool InstallHPLComfortBridge(const Config& config)
         static_cast<unsigned long long>(kSetCameraRollRva),
         dofEnabled ? 1 : 0,
         static_cast<unsigned long long>(kSetDepthOfFieldActiveRva),
+        opticsEnabled ? 1 : 0,
+        static_cast<unsigned long long>(kFadeCameraFovMultiplierRva),
+        static_cast<unsigned long long>(kFadeCameraAspectMultiplierRva),
+        static_cast<unsigned long long>(kFadeCameraFovRva),
         config.hplComfortSuppressHeadBob ? 1 : 0,
         config.hplComfortSuppressCameraShake ? 1 : 0,
         config.hplComfortSuppressSway ? 1 : 0,
         config.hplComfortSuppressScriptRoll ? 1 : 0,
         config.hplComfortSuppressLeanRoll ? 1 : 0,
         config.hplComfortSuppressMoveRoll ? 1 : 0,
-        config.hplComfortSuppressClimbRoll ? 1 : 0);
+        config.hplComfortSuppressClimbRoll ? 1 : 0,
+        config.hplComfortSuppressFov ? 1 : 0,
+        config.hplComfortSuppressFovMultiplier ? 1 : 0,
+        config.hplComfortSuppressAspectMultiplier ? 1 : 0);
     return true;
 }
 
@@ -434,10 +636,14 @@ void LogHPLComfortBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_comfort_bridge_summary cameraAddInstalled=%d rollInstalled=%d dofInstalled=%d cameraAddCalls=%llu cameraAddSuppressed=%llu bob=%llu shake=%llu sway=%llu rollCalls=%llu rollSuppressed=%llu rollSet=%llu rollFade=%llu dofCalls=%llu dofEnableRequests=%llu dofSuppressed=%llu trackingInactive=%llu",
+        "hpl_comfort_bridge_summary cameraAddInstalled=%d rollInstalled=%d dofInstalled=%d opticsInstalled=%d cameraAddCalls=%llu cameraAddSuppressed=%llu bob=%llu shake=%llu sway=%llu rollCalls=%llu rollSuppressed=%llu rollSet=%llu rollFade=%llu dofCalls=%llu dofEnableRequests=%llu dofSuppressed=%llu opticsCalls=%llu opticsSuppressed=%llu fov=%llu fovMultiplier=%llu aspectMultiplier=%llu trackingInactive=%llu",
         g_setCameraPosAddTarget != nullptr ? 1 : 0,
         g_setCameraRollTarget != nullptr && g_fadeCameraRollTarget != nullptr ? 1 : 0,
         g_setDepthOfFieldActiveTarget != nullptr ? 1 : 0,
+        g_fadeCameraFovMultiplierTarget != nullptr
+                && g_fadeCameraAspectMultiplierTarget != nullptr
+                && g_fadeCameraFovTarget != nullptr
+            ? 1 : 0,
         static_cast<unsigned long long>(g_cameraAddCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_cameraAddSuppressed.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_bobSuppressed.load(std::memory_order_relaxed)),
@@ -450,6 +656,11 @@ void LogHPLComfortBridgeSummary()
         static_cast<unsigned long long>(g_dofCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_dofEnableRequests.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_dofSuppressed.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_opticsCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_opticsSuppressed.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_fovSuppressed.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_fovMultiplierSuppressed.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_aspectMultiplierSuppressed.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_trackingInactive.load(std::memory_order_relaxed)));
 }
 

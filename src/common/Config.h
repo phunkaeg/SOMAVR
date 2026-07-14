@@ -178,6 +178,13 @@ struct Config {
     bool hplComfortSuppressMoveRoll = true;
     bool hplComfortSuppressClimbRoll = true;
     bool hplComfortDepthOfFieldControl = false;
+    bool hplComfortOpticsControl = false;
+    bool hplComfortSuppressFov = true;
+    bool hplComfortSuppressFovMultiplier = true;
+    bool hplComfortSuppressAspectMultiplier = true;
+    bool hplLoadingScreenControl = false;
+    int hplLoadingScreenExitBlackoutFrames = 2;
+    bool hplVideoLifecycleProbe = false;
     int hplComfortLogInterval = 120;
     int hplCameraLogInterval = 120;
     bool hplStereoAfr = false;

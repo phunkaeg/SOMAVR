@@ -341,6 +341,20 @@ int main()
             && !comfort_math::ShouldBlackoutPlayerStateTransition(0, 1)
             && !comfort_math::ShouldBlackoutPlayerStateTransition(-1, 11),
         "authored high-motion state transitions request comfort blackout");
+    failures += Check(
+        Near(comfort_math::ResolveComfortOpticsTarget(
+                 comfort_math::OpticsChannel::Fov, 0.8f, 1.2f),
+            1.2f)
+            && Near(comfort_math::ResolveComfortOpticsTarget(
+                        comfort_math::OpticsChannel::FovMultiplier, 0.7f, 1.2f),
+                1.0f)
+            && Near(comfort_math::ResolveComfortOpticsTarget(
+                        comfort_math::OpticsChannel::AspectMultiplier, 1.4f, 1.2f),
+                1.0f)
+            && Near(comfort_math::ResolveComfortOpticsTarget(
+                        comfort_math::OpticsChannel::Fov, 0.8f, -1.0f),
+                0.8f),
+        "comfort optics returns native default FOV and neutral multipliers");
 
     using grab_math::ResolveAngularTargetVelocity;
     const camera_math::Vector3 noGrabRotation = ResolveAngularTargetVelocity({}, {}, 100.0f, 1.0f, 6.0f);

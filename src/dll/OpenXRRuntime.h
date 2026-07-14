@@ -168,6 +168,7 @@ public:
     bool MarkRenderedStereoEye(uint32_t eyeIndex, const OpenXREyeView& view);
     void InvalidateStereoCaches(const char* reason);
     void RequestComfortBlackout(uint32_t frames, const char* reason);
+    void SetPresentationBlackout(bool active, const char* reason);
     bool BeginHudCapture(uint64_t frameIndex);
     bool EndHudCapture(uint64_t frameIndex);
     void SetInteractionReticle(const OpenXRInteractionReticleState& state);

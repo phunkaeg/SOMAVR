@@ -1,5 +1,16 @@
 # Future Systems Reverse Engineering
 
+## 0.29.0 Presentation And Authored-Optics Result
+
+The registered FOV, FOV-multiplier, and aspect-multiplier functions are compact
+leaf setters with exact player offsets. SOMAVR now replaces only their target
+writes during active tracking, preserving native fade speed and restoring every
+byte transactionally. The exact loading visibility wrapper is now a read-only
+frame signal for persistent XR blackout, AFR invalidation, and input release.
+`CreateVideo` and `DestroyVideo` are hooked only for bounded identity/lifetime
+telemetry; live evidence must classify video ownership before presentation is
+changed.
+
 ## 0.28.0 Authored-State Comfort Result
 
 Shipped `Player_Types.hps` fixes roll IDs as Script `0`, Lean `1`, Move `2`,

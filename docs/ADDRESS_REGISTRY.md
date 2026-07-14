@@ -78,6 +78,9 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x140159360` | Confirmed, control hook built | Registered `cLuxPlayer::SetCameraPosAdd(int,const cVector3f&)` wrapper. `0.19.0` signature-guards its first 18 bytes and passes a zero vector only for configured Bob `1`, Shake `2`, and Sway `9` calls while F10 tracking is active. Ghidra: `HPL3_Script_cLuxPlayer_SetCameraPosAdd`. |
 | `0x140156d90` | Confirmed, control hook built | Registered `cLuxPlayer::FadeCameraRollTo(int,float,float,float)`. `0.28.0` may zero only configured Script `0`, Lean `1`, Move `2`, or Climb `3` targets during active VR while preserving speed multiplier and maximum speed. Ghidra: `HPL3_Script_cLuxPlayer_FadeCameraRollTo`. |
 | `0x140156f00` | Confirmed, control hook built | Registered `cLuxPlayer::SetCameraRoll(int,float)`. Expands roll arrays rooted at player `+0x3a0/+0x3c0`; `0.28.0` applies the same independent semantic roll policy as the fade wrapper. Ghidra: `HPL3_Script_cLuxPlayer_SetCameraRoll`. |
+| `0x140155210` | Confirmed, reversible control patch built | Exact registered `cLuxPlayer::FadeCameraFOVMulTo(float,float)` leaf. Writes target/speed to player `+0x38c/+0x390`; `0.29.0` can substitute target `1.0` during active VR. Ghidra: `HPL3_Script_cLuxPlayer_FadeCameraFOVMulTo`. |
+| `0x140155230` | Confirmed, reversible control patch built | Exact registered `cLuxPlayer::FadeCameraAspectMulTo(float,float)` leaf. Writes target/speed to player `+0x394/+0x398`; `0.29.0` can substitute target `1.0` during active VR. Ghidra: `HPL3_Script_cLuxPlayer_FadeCameraAspectMulTo`. |
+| `0x140155250` | Confirmed, reversible control patch built | Exact registered `cLuxPlayer::FadeCameraFOVTo(float,float)` leaf. Writes target/speed to player `+0x19c/+0x1a0`; `0.29.0` substitutes the validated native default at player `+0x194` during active VR. Ghidra: `HPL3_Script_cLuxPlayer_FadeCameraFOVTo`. |
 | `0x1400cc860` | Confirmed by registration and decompilation | Global `GetPlayer()` wrapper. Returns the current `cLuxPlayer*` from game context `+0x140`. Signature-guarded probe anchor in `0.7.0`. Ghidra: `SOMA_GetPlayer`. |
 | `0x140125ef0` | Confirmed by registration and decompilation | `cLuxPlayer::GetCamera()`. Returns player `+0x168`. Ghidra: `SOMA_cLuxPlayer_GetCamera`. |
 | `0x140155290` | Confirmed by registration and decompilation | `cLuxPlayer::GetCharacterBody()`. Returns player `+0x170`. Ghidra: `SOMA_cLuxPlayer_GetCharacterBody`. |
@@ -104,6 +107,9 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x14048b2d4` | Confirmed by registration string | Registers `SetCurrentListener(cViewport@)` for AngelScript. |
 | `0x14048c89f` | Confirmed by registration string | Registers `CreateVideo(const tString&)`, returning `iVideoStream`. |
 | `0x14048c8e4` | Confirmed by registration string | Registers `DestroyVideo(iVideoStream@)`. |
+| `0x140488fa0` | Confirmed, probe hook built | Exact `CreateVideo` script wrapper. `0.29.0` records the native string, returned stream pointer, and bounded active-stream count without changing playback. Ghidra: `HPL3_Script_CreateVideo`. |
+| `0x140488fd0` | Confirmed, probe hook built | Exact `DestroyVideo` script wrapper. `0.29.0` records stream lifetime and calls the original wrapper unchanged. Ghidra: `HPL3_Script_DestroyVideo`. |
+| `0x1400ccdb0` | Confirmed, read-only control built | Exact registered `IsLoadingScreenVisible()` wrapper. Resolves loading owners through game context slot `0x1407925e0`; `0.29.0` uses its result for XR blackout, AFR invalidation, and input release. Ghidra: `SOMA_IsLoadingScreenVisible`. |
 | `0x1400edb2a`-`0x1400edd19` | Confirmed by registration strings | Registers load-screen force-background, small-icon, show-icon, and bar position/size controls. |
 
 ## HPL3 Camera Layout

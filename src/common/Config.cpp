@@ -154,6 +154,13 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLComfortSuppressMoveRoll=1\n"
         << "HPLComfortSuppressClimbRoll=1\n"
         << "HPLComfortDepthOfFieldControl=0\n"
+        << "HPLComfortOpticsControl=0\n"
+        << "HPLComfortSuppressFOV=1\n"
+        << "HPLComfortSuppressFOVMultiplier=1\n"
+        << "HPLComfortSuppressAspectMultiplier=1\n"
+        << "HPLLoadingScreenControl=0\n"
+        << "HPLLoadingScreenExitBlackoutFrames=2\n"
+        << "HPLVideoLifecycleProbe=0\n"
         << "HPLComfortLogInterval=120\n"
         << "HPLCameraLogInterval=120\n"
         << "HPLStereoAFR=0\n"
@@ -385,6 +392,13 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplcomfortsuppressmoveroll") config_.hplComfortSuppressMoveRoll = ParseBool(value, config_.hplComfortSuppressMoveRoll);
             else if (key == "hplcomfortsuppressclimbroll") config_.hplComfortSuppressClimbRoll = ParseBool(value, config_.hplComfortSuppressClimbRoll);
             else if (key == "hplcomfortdepthoffieldcontrol") config_.hplComfortDepthOfFieldControl = ParseBool(value, config_.hplComfortDepthOfFieldControl);
+            else if (key == "hplcomfortopticscontrol") config_.hplComfortOpticsControl = ParseBool(value, config_.hplComfortOpticsControl);
+            else if (key == "hplcomfortsuppressfov") config_.hplComfortSuppressFov = ParseBool(value, config_.hplComfortSuppressFov);
+            else if (key == "hplcomfortsuppressfovmultiplier") config_.hplComfortSuppressFovMultiplier = ParseBool(value, config_.hplComfortSuppressFovMultiplier);
+            else if (key == "hplcomfortsuppressaspectmultiplier") config_.hplComfortSuppressAspectMultiplier = ParseBool(value, config_.hplComfortSuppressAspectMultiplier);
+            else if (key == "hplloadingscreencontrol") config_.hplLoadingScreenControl = ParseBool(value, config_.hplLoadingScreenControl);
+            else if (key == "hplloadingscreenexitblackoutframes") config_.hplLoadingScreenExitBlackoutFrames = ParseInt(value, config_.hplLoadingScreenExitBlackoutFrames, 0, 120);
+            else if (key == "hplvideolifecycleprobe") config_.hplVideoLifecycleProbe = ParseBool(value, config_.hplVideoLifecycleProbe);
             else if (key == "hplcomfortloginterval") config_.hplComfortLogInterval = ParseInt(value, config_.hplComfortLogInterval, 1, 100000);
             else if (key == "hplcameraloginterval") config_.hplCameraLogInterval = ParseInt(value, config_.hplCameraLogInterval, 1, 100000);
             else if (key == "hplstereoafr") config_.hplStereoAfr = ParseBool(value, config_.hplStereoAfr);

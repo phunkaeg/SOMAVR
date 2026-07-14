@@ -1,5 +1,7 @@
 #include "HPLComfortMath.h"
 
+#include <cmath>
+
 namespace somavr::comfort_math {
 
 bool ShouldSuppressCameraAdd(
@@ -83,6 +85,22 @@ bool ShouldBlackoutPlayerStateTransition(int previousState, int currentState)
         && previousState >= 0
         && currentState >= 0
         && (isHighMotionState(previousState) || isHighMotionState(currentState));
+}
+
+float ResolveComfortOpticsTarget(
+    OpticsChannel channel, float requestedTarget, float defaultFov)
+{
+    switch (channel) {
+    case OpticsChannel::Fov:
+        return std::isfinite(defaultFov) && defaultFov > 0.0f
+            ? defaultFov
+            : requestedTarget;
+    case OpticsChannel::FovMultiplier:
+    case OpticsChannel::AspectMultiplier:
+        return 1.0f;
+    default:
+        return requestedTarget;
+    }
 }
 
 } // namespace somavr::comfort_math

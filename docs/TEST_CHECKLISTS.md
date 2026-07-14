@@ -1,5 +1,29 @@
 # Test Checklists
 
+## 0.29.0 Presentation And Optics
+
+1. Confirm `version=0.29.0-presentation-optics`, all three optics channels,
+   loading control, two exit-black frames, and video lifecycle probing are on.
+2. Press F10 and exercise a terminal/handheld terminal, conversation, and any
+   scripted zoom. Headset FOV and aspect must remain stable while bounded
+   `hpl_comfort_optics` rows show requested versus neutral targets. Disable F10
+   and confirm native authored zoom returns.
+3. Load a save and cross a map boundary. Confirm one load entry immediately
+   invalidates stereo and submits zero XR layers, controller input is released,
+   and one load exit invalidates again. Stereo must repopulate automatically
+   after the bounded exit guard without F10/F11.
+4. The desktop should retain SOMA's native loading presentation while the HMD is
+   black. Stop for a stale eye, stuck key/button, black hang, or a loading frame
+   shown as an uncomfortable world-depth projection.
+5. Exercise available intro, terminal, or campaign video content. Record
+   `hpl_video_lifecycle` names and pairing; playback must remain native and each
+   created stream should be destroyed or explained at shutdown.
+6. Recheck shadows, reflections, eye height, HUD, flashlight, locomotion,
+   tracking recovery, and normal shutdown.
+
+Rollback independently with `HPLComfortOpticsControl=0`,
+`HPLLoadingScreenControl=0`, or `HPLVideoLifecycleProbe=0`.
+
 ## 0.28.0 Authored Comfort
 
 1. Confirm `version=0.28.0-authored-comfort`, camera roll and DoF controls are

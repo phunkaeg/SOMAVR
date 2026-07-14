@@ -8,6 +8,7 @@
 #include "HPLNativeLocomotion.h"
 #include "HPLPhysicalCrouchMath.h"
 #include "HPLPlayerState.h"
+#include "HPLPresentationBridge.h"
 #include "Logger.h"
 
 #include <Windows.h>
@@ -84,6 +85,7 @@ std::atomic<uint64_t> g_activeUpdates = 0;
 std::atomic<uint64_t> g_sentEvents = 0;
 std::atomic<uint64_t> g_sendFailures = 0;
 std::atomic<uint64_t> g_staleInputFrames = 0;
+std::atomic<uint64_t> g_loadingSuppressedFrames = 0;
 std::atomic<uint64_t> g_recenterRequests = 0;
 std::atomic<uint64_t> g_hapticRequests = 0;
 std::atomic<uint64_t> g_hapticApplied = 0;
@@ -825,7 +827,12 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
     GetHPLPlayerStateSnapshot(player);
     const HPLCameraBridgeStatus camera = GetHPLCameraBridgeStatus();
     ApplyStateTransitionComfort(player, camera, frameIndex);
-    const bool available = g_config.hplControllerInput && camera.trackingEnabled
+    const bool loadingScreenActive = IsHPLLoadingScreenActive();
+    if (loadingScreenActive) {
+        g_loadingSuppressedFrames.fetch_add(1, std::memory_order_relaxed);
+    }
+    const bool available = !loadingScreenActive
+        && g_config.hplControllerInput && camera.trackingEnabled
         && g_openxr != nullptr && g_openxr->GetLatestInput(input) && input.active;
     const uint64_t age = available && frameIndex >= input.gameFrame ? frameIndex - input.gameFrame : UINT64_MAX;
     if (!available || age > static_cast<uint64_t>(g_config.hplControllerMaxInputAgeFrames)) {
@@ -980,13 +987,14 @@ void LogHPLInputBridgeSummary()
     GetHPLPlayerStateSnapshot(player);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu worldAimPoseSamples=%llu worldGripPoseSamples=%llu nativeMovementFrames=%llu headRelativeMovementFrames=%llu nativeTurnEvents=%llu semanticMovementFallbackFrames=%llu physicalCrouchEntries=%llu physicalCrouchExits=%llu manipulationRotateFrames=%llu manipulationMotionFrames=%llu manipulationMotionEntries=%llu manipulationMotionEvents=%llu manipulationMotionTrackingLosses=%llu manipulationMotionPixels=%lld,%lld nativeThrowActions=%llu flashlightActions=%llu inventoryActions=%llu pausedFrames=%llu menuPointerFrames=%llu playerStateTransitions=%llu playerStateBlackouts=%llu gameplaySuppressed=%d paused=%d menuPointerActive=%d physicalCrouch=%d rotate=%d manipulationMotionActive=%d manipulationMotionState=%d manipulationMotionLast=%d,%d player=%p camera=%p body=%p playerState=%d moveState=%d",
+        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu loadingSuppressedFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu worldAimPoseSamples=%llu worldGripPoseSamples=%llu nativeMovementFrames=%llu headRelativeMovementFrames=%llu nativeTurnEvents=%llu semanticMovementFallbackFrames=%llu physicalCrouchEntries=%llu physicalCrouchExits=%llu manipulationRotateFrames=%llu manipulationMotionFrames=%llu manipulationMotionEntries=%llu manipulationMotionEvents=%llu manipulationMotionTrackingLosses=%llu manipulationMotionPixels=%lld,%lld nativeThrowActions=%llu flashlightActions=%llu inventoryActions=%llu pausedFrames=%llu menuPointerFrames=%llu playerStateTransitions=%llu playerStateBlackouts=%llu gameplaySuppressed=%d paused=%d menuPointerActive=%d physicalCrouch=%d rotate=%d manipulationMotionActive=%d manipulationMotionState=%d manipulationMotionLast=%d,%d player=%p camera=%p body=%p playerState=%d moveState=%d",
         g_openxr != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_updates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_activeUpdates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_sentEvents.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_sendFailures.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_staleInputFrames.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_loadingSuppressedFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_recenterRequests.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hapticRequests.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hapticApplied.load(std::memory_order_relaxed)),

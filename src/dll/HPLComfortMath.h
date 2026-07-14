@@ -23,6 +23,12 @@ enum class CameraRollType : int {
     Climb = 3,
 };
 
+enum class OpticsChannel : int {
+    Fov,
+    FovMultiplier,
+    AspectMultiplier,
+};
+
 bool ShouldSuppressCameraAdd(
     int type,
     bool suppressHeadBob,
@@ -41,5 +47,8 @@ bool ShouldSuppressCameraRoll(
 const char* CameraRollTypeName(int type);
 
 bool ShouldBlackoutPlayerStateTransition(int previousState, int currentState);
+
+float ResolveComfortOpticsTarget(
+    OpticsChannel channel, float requestedTarget, float defaultFov);
 
 } // namespace somavr::comfort_math

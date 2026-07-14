@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.28.0-authored-comfort")
+set(SOMAVR_BUILD_VERSION "0.29.0-presentation-optics")
 
 include(FetchContent)
 
@@ -85,6 +85,7 @@ add_library(somavr SHARED
     src/dll/HPLLifecycle.cpp
     src/dll/HPLInputBridge.cpp
     src/dll/HPLMenuBridge.cpp
+    src/dll/HPLPresentationBridge.cpp
     src/dll/HPLNativeLocomotion.cpp
     src/dll/HPLInteractionBridge.cpp
     src/dll/HPLCrosshairBridge.cpp

@@ -2,6 +2,25 @@
 
 ## 2026-07-15
 
+### 0.29.0-presentation-optics
+
+- Added reversible active-VR control at the exact registered FOV,
+  FOV-multiplier, and aspect-multiplier leaf wrappers. Script fade speed is
+  preserved while targets resolve to native default FOV and neutral `1.0`
+  multipliers; inactive VR remains native.
+- Added `HPLPresentationBridge`: exact loading visibility now invalidates AFR
+  caches on both edges, submits zero XR layers during loading, releases held
+  controller input, and automatically rearms stereo through a bounded exit
+  guard while leaving SOMA's native desktop loading presentation intact.
+- Added signature-guarded, probe-only `CreateVideo`/`DestroyVideo` lifecycle
+  telemetry. Native stream names, identity, pairing, active count, and peak
+  concurrency are collected without replacing playback.
+- Synchronized six native boundaries into Ghidra, rebuilt Graphify, and updated
+  the project-phase Google Sheet. Both Release flavors and tests pass. OpenXR
+  SHA-256: `D824022BBD3054B62895AA799A4C79D71D3769F7F00DB353B625FAEA6010D0B3`.
+  Package SHA-256:
+  `E8D9AC9483CA32D25E1906EDCE9C2DBAE4D99179C8366E6E6D0A94512C784440`.
+
 ### 0.28.0-authored-comfort
 
 - Added exact semantic camera-roll control at the registered

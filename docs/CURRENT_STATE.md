@@ -21,10 +21,25 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.28.0-authored-comfort`, layered on the
+The active build candidate is `0.29.0-presentation-optics`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Exact registered FOV, FOV-multiplier, and aspect-multiplier leaf wrappers now
+  have a reversible active-VR comfort policy. Scripted zoom/FOV requests resolve
+  to the player's native default FOV and both multipliers resolve to `1.0` while
+  F10 tracking is active; native requests and fade speeds return unchanged when
+  VR is inactive or a channel is disabled.
+- `HPLPresentationBridge` queries SOMA's exact loading-screen visibility once per
+  game frame. Load entry invalidates both AFR caches, submits zero XR layers,
+  and releases controller input; load exit invalidates again and adds a bounded
+  two-frame guard before stereo repopulates. The desktop retains SOMA's native
+  loading backbuffer.
+- Signature-guarded `CreateVideo`/`DestroyVideo` hooks record stream identity,
+  source name, active count, and peak concurrency without changing playback.
+  This is deliberately a classifier for fullscreen versus diegetic video, not
+  a video presentation override.
 
 - Physical room-scale head translation now uses SOMA's confirmed world
   line-of-sight query to sweep a configurable center/radial/top/bottom head

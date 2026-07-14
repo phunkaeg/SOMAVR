@@ -371,6 +371,7 @@ struct OpenXRRuntime::Impl {
         renderedStereoViewValid_[1] = false;
         recoveryRequested_ = false;
         comfortBlackoutUntilFrame_ = 0;
+        presentationBlackoutActive_ = false;
         trackingDegraded_ = false;
         trackingLost_ = false;
         hudSubmissionSuspended_ = false;
@@ -429,6 +430,9 @@ struct OpenXRRuntime::Impl {
             << " openxrComfortBlackoutUntilFrame=" << static_cast<unsigned long long>(comfortBlackoutUntilFrame_)
             << " openxrComfortBlackoutRequests=" << static_cast<unsigned long long>(comfortBlackoutRequests_)
             << " openxrComfortBlackoutFrames=" << static_cast<unsigned long long>(comfortBlackoutFrames_)
+            << " openxrPresentationBlackout=" << (presentationBlackoutActive_ ? 1 : 0)
+            << " openxrPresentationBlackoutTransitions=" << static_cast<unsigned long long>(presentationBlackoutTransitions_)
+            << " openxrPresentationBlackoutFrames=" << static_cast<unsigned long long>(presentationBlackoutFrames_)
             << " openxrSessionRunning=" << (sessionRunning_ ? 1 : 0)
             << " openxrStereoSubmission=" << (stereoSubmissionEnabled_ ? 1 : 0)
             << " openxrStereoCapturedEyes=" << static_cast<unsigned long long>(stereoCapturedEyeCount_)
@@ -702,6 +706,22 @@ struct OpenXRRuntime::Impl {
             static_cast<unsigned long long>(currentGameFrame_),
             static_cast<unsigned long long>(comfortBlackoutUntilFrame_),
             static_cast<unsigned long long>(comfortBlackoutRequests_));
+    }
+
+    void SetPresentationBlackout(bool active, const char* reason)
+    {
+        std::lock_guard lock(mutex_);
+        if (presentationBlackoutActive_ == active) return;
+        presentationBlackoutActive_ = active;
+        ++presentationBlackoutTransitions_;
+        Logger::Instance().Write(
+            active ? LogLevel::Warn : LogLevel::Info,
+            "openxr_presentation_blackout active=%d reason=%s frame=%llu transitions=%llu blackFrames=%llu",
+            active ? 1 : 0,
+            reason != nullptr ? reason : "unspecified",
+            static_cast<unsigned long long>(currentGameFrame_),
+            static_cast<unsigned long long>(presentationBlackoutTransitions_),
+            static_cast<unsigned long long>(presentationBlackoutFrames_));
     }
 
     bool BeginHudCapture(uint64_t frameIndex)
@@ -2001,10 +2021,13 @@ private:
 
         const bool comfortBlackout = comfortBlackoutUntilFrame_ != 0
             && frameIndex <= comfortBlackoutUntilFrame_;
-        if (comfortBlackout) {
+        const bool presentationBlackout = presentationBlackoutActive_;
+        if (comfortBlackout || presentationBlackout) {
             layerCount = 0;
-            ++comfortBlackoutFrames_;
-        } else if (comfortBlackoutUntilFrame_ != 0) {
+            if (comfortBlackout) ++comfortBlackoutFrames_;
+            if (presentationBlackout) ++presentationBlackoutFrames_;
+        }
+        if (!comfortBlackout && comfortBlackoutUntilFrame_ != 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
                 "openxr_comfort_blackout complete frame=%llu totalBlackFrames=%llu",
@@ -2025,6 +2048,7 @@ private:
         }
 
         if (desktopMirrorEyeIndex_ >= 0
+            && !presentationBlackout
             && stereoSubmissionEnabled_
             && glBridge_.StereoCachesReady()) {
             const bool mirrored = glBridge_.CopyCacheToBackbuffer(
@@ -2290,6 +2314,9 @@ private:
     uint64_t comfortBlackoutUntilFrame_ = 0;
     uint64_t comfortBlackoutRequests_ = 0;
     uint64_t comfortBlackoutFrames_ = 0;
+    bool presentationBlackoutActive_ = false;
+    uint64_t presentationBlackoutTransitions_ = 0;
+    uint64_t presentationBlackoutFrames_ = 0;
     OpenXREyeView pendingRenderedView_{};
     OpenXREyeView renderedStereoViews_[2] = {};
     OpenXRInteractionReticleState interactionReticleState_{};
@@ -2479,6 +2506,7 @@ struct OpenXRRuntime::Impl {
             << " openxrRecoveryEnabled=" << (recoveryEnabled_ ? 1 : 0)
             << " openxrRecoveryPending=0 openxrRecoveries=0 openxrStereoCacheInvalidations=0"
             << " openxrComfortBlackoutUntilFrame=0 openxrComfortBlackoutRequests=0 openxrComfortBlackoutFrames=0"
+            << " openxrPresentationBlackout=0 openxrPresentationBlackoutTransitions=0 openxrPresentationBlackoutFrames=0"
             << " openxrFrameResourcesReady=0"
             << " openxrFrameSubmitFailed=" << (enabled_ && frameSubmitEnabled_ ? 1 : 0)
             << " openxrSessionRunning=0"
@@ -2528,6 +2556,7 @@ struct OpenXRRuntime::Impl {
     bool MarkRenderedStereoEye(uint32_t, const OpenXREyeView&) { return false; }
     void InvalidateStereoCaches(const char*) {}
     void RequestComfortBlackout(uint32_t, const char*) {}
+    void SetPresentationBlackout(bool, const char*) {}
     bool BeginHudCapture(uint64_t) { return false; }
     bool EndHudCapture(uint64_t) { return false; }
 
@@ -2739,6 +2768,11 @@ void OpenXRRuntime::InvalidateStereoCaches(const char* reason)
 void OpenXRRuntime::RequestComfortBlackout(uint32_t frames, const char* reason)
 {
     impl_->RequestComfortBlackout(frames, reason);
+}
+
+void OpenXRRuntime::SetPresentationBlackout(bool active, const char* reason)
+{
+    impl_->SetPresentationBlackout(active, reason);
 }
 
 bool OpenXRRuntime::BeginHudCapture(uint64_t frameIndex)

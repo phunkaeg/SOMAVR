@@ -1,5 +1,19 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Presentation And Optics Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x140155210` | `HPL3_Script_cLuxPlayer_FadeCameraFOVMulTo` | Created, named, and typed exact two-float leaf; plate comment records player `+0x38c/+0x390` and reversible `0.29.0` neutral multiplier policy. |
+| `0x140155230` | `HPL3_Script_cLuxPlayer_FadeCameraAspectMulTo` | Created, named, and typed exact two-float leaf; plate comment records player `+0x394/+0x398`. |
+| `0x140155250` | `HPL3_Script_cLuxPlayer_FadeCameraFOVTo` | Created, named, and typed exact two-float leaf; plate comment records target/speed `+0x19c/+0x1a0` and native default FOV `+0x194`. |
+| `0x1400ccdb0` | `SOMA_IsLoadingScreenVisible` | Created, named, and typed exact bool query; comment records game-context ownership and read-only per-frame use. |
+| `0x140488fa0` | `HPL3_Script_CreateVideo` | Renamed and typed resource-video wrapper; comment records probe-only stream/name telemetry. |
+| `0x140488fd0` | `HPL3_Script_DestroyVideo` | Renamed and typed destroy wrapper; comment records unchanged native dispatch after lifecycle accounting. |
+
+All six anchors were tagged with existing SOMAVR subsystem tags and the
+explicitly selected `Soma_NoSteam.exe` database was saved after synchronization.
+
 ## 2026-07-15 Authored Comfort Sync
 
 | Address | Ghidra name | Evidence/use |

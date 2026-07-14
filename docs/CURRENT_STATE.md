@@ -21,10 +21,16 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active runtime test baseline is `0.8.0-resilience-comfort`, layered on the proven
+The active runtime test baseline is `0.9.0-calibration-haptics`, layered on the proven
 OpenXR transport, native HPL camera bridge, AFR stereo, full projection centering,
 one-key F10 activation, and compatibility probes:
 
+- `ReferenceSpace=local|stage` now supports seated/local and floor-aware standing
+  calibration profiles with a logged fallback when STAGE is unavailable.
+- OpenXR controller output haptics cover interaction, snap turn, menu, jump,
+  crouch, and recenter. Focus loss clears the entire input snapshot immediately.
+- Native base and extended roll are now measured from confirmed camera fields;
+  opt-in temporary suppression is available for authored-camera comfort testing.
 - OpenXR session/instance loss now schedules an in-process runtime rebuild after
   `RecoveryDelayFrames` instead of permanently suspending submission.
 - Player/camera replacement invalidates both AFR eye caches and automatically
@@ -316,8 +322,8 @@ The OpenXR build now asks for:
 & "D:\Dev Debug\SOMAVR\build-openxr-controller\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.8.0-resilience-comfort`, seven render-stage/GUI hooks,
-   `recovery=1`, and the three named post-effect comfort toggles.
+2. Confirm `version=0.9.0-calibration-haptics`, seven render-stage/GUI hooks,
+   `referenceSpace=local`, `recovery=1`, and controller haptics enabled.
 3. Load a save game, face forward, and press F10 once.
 4. Confirm `hpl_vr_mode requested`, API-attributed `openxr_manual_start triggered`,
    one or more `calibration_wait` rows, then `hpl_vr_mode activated` with
@@ -347,8 +353,11 @@ The OpenXR build now asks for:
     counters may increase while tone mapping/fades remain visible.
 17. Capture gameplay, menu, subtitle, and terminal moments. Attach the bounded
     `hpl_gui_set` rows so HUD and diegetic GUI sets can be classified.
-18. Confirm `somavr_build_manifest.txt` reports version
-    `0.8.0-resilience-comfort`, flavor `openxr`, and a DLL SHA-256.
-19. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
+18. Confirm haptic pulses for discrete actions, then briefly remove runtime
+    focus while holding movement and verify immediate release plus one loss and
+    restoration transition in the log.
+19. Confirm `somavr_build_manifest.txt` reports version
+    `0.9.0-calibration-haptics`, flavor `openxr`, and a DLL SHA-256.
+20. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
     `complete`, then check that `Soma_NoSteam.exe` disappears. If it remains,
     capture it with the dumper before manually terminating it.

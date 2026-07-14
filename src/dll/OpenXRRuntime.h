@@ -102,6 +102,7 @@ public:
         bool frameSubmit,
         bool mirrorBackbuffer,
         int resolutionScalePercent,
+        const std::string& referenceSpace,
         bool inputEnabled,
         int inputLogInterval,
         bool recoveryEnabled,
@@ -116,6 +117,7 @@ public:
     bool GetLatestHeadPose(OpenXRHeadPose& pose) const;
     bool GetLatestStereoViews(OpenXRStereoViewSnapshot& views) const;
     bool GetLatestInput(OpenXRInputSnapshot& input) const;
+    bool RequestHapticPulse(uint32_t hand, float amplitude, int durationMs, const char* reason);
     void SetStereoSubmissionEnabled(bool enabled);
     bool MarkRenderedStereoEye(uint32_t eyeIndex, const OpenXREyeView& view);
     void InvalidateStereoCaches(const char* reason);

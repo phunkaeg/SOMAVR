@@ -2,6 +2,24 @@
 
 ## 2026-07-15
 
+### 0.9.0-calibration-haptics
+
+- Added configurable OpenXR application spaces. `ReferenceSpace=local`
+  preserves the proven seated/recentered path; `stage` selects the floor-aware
+  standing space when advertised and falls back to `LOCAL` when unavailable.
+- Added an OpenXR vibration-output action and per-hand haptic bindings for
+  Simple, Touch, Index, and Microsoft Motion profiles. Interaction, snap turn,
+  menu, jump, crouch, and successful recenter now provide discrete feedback.
+- Hardened focus transitions. `XR_SESSION_NOT_FOCUSED` clears the complete input
+  snapshot immediately and logs bounded loss/restoration transitions, ensuring
+  synthetic held inputs release deterministically.
+- Confirmed camera base roll at `cCamera+0x4c`, extended/authored roll at `+0x68`,
+  and their dirty flags in Ghidra. The bridge now reports both and includes an
+  opt-in `HPLNativeCameraRollSuppression=1` comfort policy; it remains off in the
+  active config until tested in authored camera sequences.
+- Built and tested default and OpenXR x64 Release flavors. OpenXR SHA-256:
+  `B26C6911E859099A619ED955E49302B315A2A6D3BBCCF4B052842079DBDCA8E0`.
+
 ### 0.8.0-resilience-comfort
 
 - Added automatic OpenXR recovery for session `EXITING`/`LOSS_PENDING` and

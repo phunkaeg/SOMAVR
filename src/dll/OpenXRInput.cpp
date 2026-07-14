@@ -152,7 +152,8 @@ bool OpenXRInput::Initialize(XrInstance instance, bool enabled, int logInterval)
         && CreateAction(actionSet_, XR_ACTION_TYPE_BOOLEAN_INPUT, "jump", "Jump", &handPaths_[1], 1, jumpAction_)
         && CreateAction(actionSet_, XR_ACTION_TYPE_BOOLEAN_INPUT, "crouch", "Crouch", &handPaths_[1], 1, crouchAction_)
         && CreateAction(actionSet_, XR_ACTION_TYPE_POSE_INPUT, "grip_pose", "Grip Pose", handPaths_, 2, gripPoseAction_)
-        && CreateAction(actionSet_, XR_ACTION_TYPE_POSE_INPUT, "aim_pose", "Aim Pose", handPaths_, 2, aimPoseAction_);
+        && CreateAction(actionSet_, XR_ACTION_TYPE_POSE_INPUT, "aim_pose", "Aim Pose", handPaths_, 2, aimPoseAction_)
+        && CreateAction(actionSet_, XR_ACTION_TYPE_VIBRATION_OUTPUT, "haptic", "Haptic", handPaths_, 2, hapticAction_);
     if (!actionsOk) {
         Shutdown();
         return false;
@@ -163,7 +164,7 @@ bool OpenXRInput::Initialize(XrInstance instance, bool enabled, int logInterval)
         StringToPath(instance_, value, resultPath);
         return resultPath;
     };
-    const std::array<XrActionSuggestedBinding, 7> simpleBindings{{
+    const std::array<XrActionSuggestedBinding, 9> simpleBindings{{
         {selectAction_, path("/user/hand/left/input/select/click")},
         {selectAction_, path("/user/hand/right/input/select/click")},
         {menuAction_, path("/user/hand/left/input/menu/click")},
@@ -171,10 +172,12 @@ bool OpenXRInput::Initialize(XrInstance instance, bool enabled, int logInterval)
         {gripPoseAction_, path("/user/hand/right/input/grip/pose")},
         {aimPoseAction_, path("/user/hand/left/input/aim/pose")},
         {aimPoseAction_, path("/user/hand/right/input/aim/pose")},
+        {hapticAction_, path("/user/hand/left/output/haptic")},
+        {hapticAction_, path("/user/hand/right/output/haptic")},
     }};
     SuggestBindings(instance_, "/interaction_profiles/khr/simple_controller", simpleBindings.data(), static_cast<uint32_t>(simpleBindings.size()));
 
-    const std::array<XrActionSuggestedBinding, 15> touchBindings{{
+    const std::array<XrActionSuggestedBinding, 17> touchBindings{{
         {moveAction_, path("/user/hand/left/input/thumbstick")},
         {turnAction_, path("/user/hand/right/input/thumbstick")},
         {selectAction_, path("/user/hand/left/input/trigger/click")},
@@ -190,10 +193,12 @@ bool OpenXRInput::Initialize(XrInstance instance, bool enabled, int logInterval)
         {gripPoseAction_, path("/user/hand/right/input/grip/pose")},
         {aimPoseAction_, path("/user/hand/left/input/aim/pose")},
         {aimPoseAction_, path("/user/hand/right/input/aim/pose")},
+        {hapticAction_, path("/user/hand/left/output/haptic")},
+        {hapticAction_, path("/user/hand/right/output/haptic")},
     }};
     SuggestBindings(instance_, "/interaction_profiles/oculus/touch_controller", touchBindings.data(), static_cast<uint32_t>(touchBindings.size()));
 
-    const std::array<XrActionSuggestedBinding, 14> indexBindings{{
+    const std::array<XrActionSuggestedBinding, 16> indexBindings{{
         {moveAction_, path("/user/hand/left/input/thumbstick")},
         {turnAction_, path("/user/hand/right/input/thumbstick")},
         {selectAction_, path("/user/hand/left/input/trigger/click")},
@@ -208,10 +213,12 @@ bool OpenXRInput::Initialize(XrInstance instance, bool enabled, int logInterval)
         {gripPoseAction_, path("/user/hand/right/input/grip/pose")},
         {aimPoseAction_, path("/user/hand/left/input/aim/pose")},
         {aimPoseAction_, path("/user/hand/right/input/aim/pose")},
+        {hapticAction_, path("/user/hand/left/output/haptic")},
+        {hapticAction_, path("/user/hand/right/output/haptic")},
     }};
     SuggestBindings(instance_, "/interaction_profiles/valve/index_controller", indexBindings.data(), static_cast<uint32_t>(indexBindings.size()));
 
-    const std::array<XrActionSuggestedBinding, 9> motionBindings{{
+    const std::array<XrActionSuggestedBinding, 11> motionBindings{{
         {moveAction_, path("/user/hand/left/input/thumbstick")},
         {turnAction_, path("/user/hand/right/input/thumbstick")},
         {triggerAction_, path("/user/hand/left/input/trigger/value")},
@@ -221,11 +228,13 @@ bool OpenXRInput::Initialize(XrInstance instance, bool enabled, int logInterval)
         {gripPoseAction_, path("/user/hand/right/input/grip/pose")},
         {aimPoseAction_, path("/user/hand/left/input/aim/pose")},
         {aimPoseAction_, path("/user/hand/right/input/aim/pose")},
+        {hapticAction_, path("/user/hand/left/output/haptic")},
+        {hapticAction_, path("/user/hand/right/output/haptic")},
     }};
     SuggestBindings(instance_, "/interaction_profiles/microsoft/motion_controller", motionBindings.data(), static_cast<uint32_t>(motionBindings.size()));
 
     initialized_ = true;
-    Logger::Instance().Write(LogLevel::Info, "openxr_input initialized actions=10 profiles=4 logInterval=%d", logInterval_);
+    Logger::Instance().Write(LogLevel::Info, "openxr_input initialized actions=11 profiles=4 haptics=1 logInterval=%d", logInterval_);
     return true;
 }
 
@@ -307,8 +316,20 @@ void OpenXRInput::Sync(XrSession session, XrSpace baseSpace, XrTime displayTime,
     const XrResult result = xrSyncActions(session, &syncInfo);
     if (XR_FAILED(result)) {
         ++syncFailureCount_;
-        snapshot_.active = false;
-        if (result != XR_SESSION_NOT_FOCUSED && syncFailureCount_ <= 8) {
+        snapshot_ = {};
+        snapshot_.available = true;
+        snapshot_.gameFrame = gameFrame;
+        if (result == XR_SESSION_NOT_FOCUSED) {
+            if (!focusSuppressed_) {
+                focusSuppressed_ = true;
+                ++focusLossCount_;
+                Logger::Instance().Write(
+                    LogLevel::Info,
+                    "openxr_input focus_lost frame=%llu releases=immediate count=%llu",
+                    static_cast<unsigned long long>(gameFrame),
+                    static_cast<unsigned long long>(focusLossCount_));
+            }
+        } else if (syncFailureCount_ <= 8) {
             Logger::Instance().Write(
                 LogLevel::Warn,
                 "openxr_input sync_failed frame=%llu result=%s failures=%llu",
@@ -317,6 +338,16 @@ void OpenXRInput::Sync(XrSession session, XrSpace baseSpace, XrTime displayTime,
                 static_cast<unsigned long long>(syncFailureCount_));
         }
         return;
+    }
+
+    if (focusSuppressed_) {
+        focusSuppressed_ = false;
+        ++focusRestoreCount_;
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "openxr_input focus_restored frame=%llu count=%llu",
+            static_cast<unsigned long long>(gameFrame),
+            static_cast<unsigned long long>(focusRestoreCount_));
     }
 
     OpenXRInputSnapshot next{};
@@ -373,6 +404,39 @@ void OpenXRInput::Sync(XrSession session, XrSpace baseSpace, XrTime displayTime,
     }
 }
 
+bool OpenXRInput::ApplyHaptic(XrSession session, uint32_t hand, float amplitude, int durationMs)
+{
+    if (!attached_ || session == XR_NULL_HANDLE || hand >= 2 || hapticAction_ == XR_NULL_HANDLE) {
+        return false;
+    }
+
+    XrHapticActionInfo actionInfo{XR_TYPE_HAPTIC_ACTION_INFO};
+    actionInfo.action = hapticAction_;
+    actionInfo.subactionPath = handPaths_[hand];
+    XrHapticVibration vibration{XR_TYPE_HAPTIC_VIBRATION};
+    vibration.duration = static_cast<XrDuration>(std::max(durationMs, 1)) * 1000000;
+    vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
+    vibration.amplitude = std::clamp(amplitude, 0.0f, 1.0f);
+    const XrResult result = xrApplyHapticFeedback(
+        session,
+        &actionInfo,
+        reinterpret_cast<const XrHapticBaseHeader*>(&vibration));
+    ++hapticRequestCount_;
+    if (XR_FAILED(result)) {
+        ++hapticFailureCount_;
+        if (hapticFailureCount_ <= 8) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_input haptic_failed hand=%u result=%s failures=%llu",
+                hand,
+                XrResultString(result).c_str(),
+                static_cast<unsigned long long>(hapticFailureCount_));
+        }
+        return false;
+    }
+    return true;
+}
+
 void OpenXRInput::ShutdownSession()
 {
     for (XrSpace& space : gripSpaces_) {
@@ -384,6 +448,7 @@ void OpenXRInput::ShutdownSession()
         space = XR_NULL_HANDLE;
     }
     attached_ = false;
+    focusSuppressed_ = false;
     snapshot_ = {};
 }
 
@@ -411,6 +476,10 @@ std::string OpenXRInput::SummaryString() const
         << " openxrInputAttached=" << (attached_ ? 1 : 0)
         << " openxrInputSyncs=" << syncCount_
         << " openxrInputSyncFailures=" << syncFailureCount_
+        << " openxrInputFocusLosses=" << focusLossCount_
+        << " openxrInputFocusRestores=" << focusRestoreCount_
+        << " openxrHapticRequests=" << hapticRequestCount_
+        << " openxrHapticFailures=" << hapticFailureCount_
         << " openxrInputLastFrame=" << snapshot_.gameFrame
         << " openxrInputActive=" << (snapshot_.active ? 1 : 0);
     return oss.str();

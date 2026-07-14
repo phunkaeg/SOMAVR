@@ -27,6 +27,7 @@ struct Config {
     bool openxrFrameSubmit = false;
     bool openxrMirrorBackbuffer = true;
     int openxrResolutionScalePercent = 100;
+    std::string openxrReferenceSpace = "local";
     bool openxrInputEnabled = false;
     int openxrInputLogInterval = 120;
     bool openxrRecoveryEnabled = true;
@@ -42,6 +43,9 @@ struct Config {
     bool hplControllerInteraction = true;
     bool hplControllerMenu = true;
     bool hplControllerRecenterChord = true;
+    bool hplControllerHaptics = true;
+    float hplControllerHapticAmplitude = 0.35f;
+    int hplControllerHapticDurationMs = 30;
     bool hplControllerSuppressDuringAuthoredCamera = true;
     int hplControllerComfortBlackoutFrames = 2;
     int hplControllerRecenterHoldMs = 900;
@@ -73,6 +77,7 @@ struct Config {
     float hplEyeHeightOffsetMeters = 0.0f;
     bool hplRecenterControl = false;
     bool hplReflectionFadeControl = false;
+    bool hplNativeCameraRollSuppression = false;
     int hplCameraLogInterval = 120;
     bool hplStereoAfr = false;
     float hplWorldScale = 1.0f;

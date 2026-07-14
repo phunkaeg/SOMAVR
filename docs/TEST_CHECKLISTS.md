@@ -1,5 +1,25 @@
 # Test Checklists
 
+## 0.9.0 Reference Space, Focus, Haptics, And Native Roll
+
+1. Launch `build-openxr-controller\Release\somavr_injector.exe`, load a save,
+   and press F10. Confirm `version=0.9.0-calibration-haptics`,
+   `requestedSpace=local selectedSpace=LOCAL`, and the known rigid stereo image.
+2. Walk, interact, snap-turn, open the menu, jump, crouch, and complete a
+   two-grip recenter. Confirm short pulses on the acting hand and increasing
+   `openxrHapticRequests` without `openxrHapticFailures`.
+3. Hold movement or interaction, then remove headset/runtime focus. SOMA must
+   stop receiving the held action immediately. Expect one `focus_lost` row and
+   one `focus_restored` row after focus returns, without restarting OpenXR.
+4. Exit, set `ReferenceSpace=stage`, relaunch, and press F10 while standing.
+   Expect `selectedSpace=STAGE` or an explicit fallback. Check eye height,
+   room-scale translation, F2 recenter, and a save transition.
+5. With `HPLNativeCameraRollSuppression=0`, trigger a sit, impact, sway, or
+   scripted camera sequence and preserve the native roll rows. Repeat with `1`;
+   translation/yaw/pitch must remain while forced roll is removed.
+6. Revert roll suppression to `0` if any sequence loses intended framing. Exit
+   normally and attach `logs\somavr.log`.
+
 ## 0.8.0 Runtime Resilience, Comfort, Effects, And GUI Sets
 
 1. Launch `build-openxr-controller\Release\somavr_injector.exe`, load a save,

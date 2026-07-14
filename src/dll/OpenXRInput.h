@@ -14,6 +14,7 @@ public:
     bool Initialize(XrInstance instance, bool enabled, int logInterval);
     bool AttachSession(XrSession session);
     void Sync(XrSession session, XrSpace baseSpace, XrTime displayTime, uint64_t gameFrame);
+    bool ApplyHaptic(XrSession session, uint32_t hand, float amplitude, int durationMs);
     void ShutdownSession();
     void Shutdown();
 
@@ -30,6 +31,11 @@ private:
     int logInterval_ = 120;
     uint64_t syncCount_ = 0;
     uint64_t syncFailureCount_ = 0;
+    uint64_t focusLossCount_ = 0;
+    uint64_t focusRestoreCount_ = 0;
+    uint64_t hapticRequestCount_ = 0;
+    uint64_t hapticFailureCount_ = 0;
+    bool focusSuppressed_ = false;
     XrInstance instance_ = XR_NULL_HANDLE;
     XrActionSet actionSet_ = XR_NULL_HANDLE;
     XrAction moveAction_ = XR_NULL_HANDLE;
@@ -42,6 +48,7 @@ private:
     XrAction crouchAction_ = XR_NULL_HANDLE;
     XrAction gripPoseAction_ = XR_NULL_HANDLE;
     XrAction aimPoseAction_ = XR_NULL_HANDLE;
+    XrAction hapticAction_ = XR_NULL_HANDLE;
     XrPath handPaths_[2] = {XR_NULL_PATH, XR_NULL_PATH};
     XrSpace gripSpaces_[2] = {XR_NULL_HANDLE, XR_NULL_HANDLE};
     XrSpace aimSpaces_[2] = {XR_NULL_HANDLE, XR_NULL_HANDLE};

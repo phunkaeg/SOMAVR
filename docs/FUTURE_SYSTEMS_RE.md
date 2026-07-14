@@ -1,5 +1,27 @@
 # Future Systems Reverse Engineering
 
+## 0.9.0 Calibration, Haptics, And Authored Roll Findings
+
+OpenXR application-space ownership is now explicit. `LOCAL` remains the default
+because F10 neutral-pose calibration has already been proven there. `STAGE` is a
+configurable floor-aware profile and falls back to LOCAL if the runtime does not
+advertise it. The live acceptance gate is eye height and recenter behavior across
+standing, seated, save/load, and map transitions; no camera-scale change is needed.
+
+Controller haptics now have a proper OpenXR vibration-output action and profile
+bindings. The first policy is intentionally semantic and discrete: confirmation
+for actions already accepted by SOMAVR's native input bridge. Damage, weapon,
+contact, and object-material haptics still need native gameplay event anchors.
+
+Ghidra confirms `cCamera` base roll at `+0x4c` and extended/authored roll at
+`+0x68`. `SetRoll` invalidates `+0x709/+0x70b/+0x70c/+0x70d`; extended roll
+invalidates the secondary frustum at `+0x70d`. `HPLCameraBridge` can therefore
+temporarily zero both roll channels only around native frustum evaluation,
+restore them immediately, and mark the same caches dirty. This is built but
+disabled by default. A live sit/impact/scripted-camera comparison is required
+before making it part of the standard comfort policy. Remaining bob/shake work
+needs attribution of native position/pitch/yaw offsets, not another shader probe.
+
 Created: 2026-07-11. Status: static research and implementation planning. No runtime behavior or build output changed by this pass.
 
 ## Scope

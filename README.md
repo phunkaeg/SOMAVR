@@ -118,11 +118,15 @@ ManualStart=1
 FrameSubmit=1
 MirrorBackbuffer=1
 ResolutionScalePercent=100
+ReferenceSpace=local
 RecoveryEnabled=1
 RecoveryDelayFrames=120
 
 [Controller]
 Enabled=1
+Haptics=1
+HapticAmplitude=0.35
+HapticDurationMs=30
 SuppressDuringAuthoredCamera=1
 ComfortBlackoutFrames=2
 ```

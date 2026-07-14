@@ -136,6 +136,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLEyeHeightOffsetMeters=0.0\n"
         << "HPLRecenterControl=0\n"
         << "HPLReflectionFadeControl=0\n"
+        << "HPLNativeCameraRollSuppression=0\n"
         << "HPLCameraLogInterval=120\n"
         << "HPLStereoAFR=0\n"
         << "HPLWorldScale=1.0\n"
@@ -162,6 +163,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "FrameSubmit=0\n"
         << "MirrorBackbuffer=1\n"
         << "ResolutionScalePercent=100\n"
+        << "ReferenceSpace=local\n"
         << "InputEnabled=0\n"
         << "InputLogInterval=120\n"
         << "RecoveryEnabled=1\n"
@@ -178,6 +180,9 @@ void ConfigManager::WriteDefaultConfig() const
         << "Interaction=1\n"
         << "Menu=1\n"
         << "RecenterChord=1\n"
+        << "Haptics=1\n"
+        << "HapticAmplitude=0.35\n"
+        << "HapticDurationMs=30\n"
         << "SuppressDuringAuthoredCamera=1\n"
         << "ComfortBlackoutFrames=2\n"
         << "RecenterHoldMs=900\n"
@@ -256,6 +261,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "hpleyeheightoffsetmeters") config_.hplEyeHeightOffsetMeters = ParseFloat(value, config_.hplEyeHeightOffsetMeters, -2.0f, 2.0f);
             else if (key == "hplrecentercontrol") config_.hplRecenterControl = ParseBool(value, config_.hplRecenterControl);
             else if (key == "hplreflectionfadecontrol") config_.hplReflectionFadeControl = ParseBool(value, config_.hplReflectionFadeControl);
+            else if (key == "hplnativecamerarollsuppression") config_.hplNativeCameraRollSuppression = ParseBool(value, config_.hplNativeCameraRollSuppression);
             else if (key == "hplcameraloginterval") config_.hplCameraLogInterval = ParseInt(value, config_.hplCameraLogInterval, 1, 100000);
             else if (key == "hplstereoafr") config_.hplStereoAfr = ParseBool(value, config_.hplStereoAfr);
             else if (key == "hplworldscale") config_.hplWorldScale = ParseFloat(value, config_.hplWorldScale, 0.1f, 10.0f);
@@ -293,6 +299,11 @@ void ConfigManager::LoadFromFile()
                 config_.openxrMirrorBackbuffer = ParseBool(value, config_.openxrMirrorBackbuffer);
             } else if (key == "resolutionscalepercent") {
                 config_.openxrResolutionScalePercent = ParseInt(value, config_.openxrResolutionScalePercent, 25, 200);
+            } else if (key == "referencespace") {
+                const std::string referenceSpace = Lower(Trim(value));
+                if (referenceSpace == "local" || referenceSpace == "stage") {
+                    config_.openxrReferenceSpace = referenceSpace;
+                }
             } else if (key == "inputenabled") {
                 config_.openxrInputEnabled = ParseBool(value, config_.openxrInputEnabled);
             } else if (key == "inputloginterval") {
@@ -317,6 +328,9 @@ void ConfigManager::LoadFromFile()
             else if (key == "interaction") config_.hplControllerInteraction = ParseBool(value, config_.hplControllerInteraction);
             else if (key == "menu") config_.hplControllerMenu = ParseBool(value, config_.hplControllerMenu);
             else if (key == "recenterchord") config_.hplControllerRecenterChord = ParseBool(value, config_.hplControllerRecenterChord);
+            else if (key == "haptics") config_.hplControllerHaptics = ParseBool(value, config_.hplControllerHaptics);
+            else if (key == "hapticamplitude") config_.hplControllerHapticAmplitude = ParseFloat(value, config_.hplControllerHapticAmplitude, 0.0f, 1.0f);
+            else if (key == "hapticdurationms") config_.hplControllerHapticDurationMs = ParseInt(value, config_.hplControllerHapticDurationMs, 1, 1000);
             else if (key == "suppressduringauthoredcamera") config_.hplControllerSuppressDuringAuthoredCamera = ParseBool(value, config_.hplControllerSuppressDuringAuthoredCamera);
             else if (key == "comfortblackoutframes") config_.hplControllerComfortBlackoutFrames = ParseInt(value, config_.hplControllerComfortBlackoutFrames, 0, 120);
             else if (key == "recenterholdms") config_.hplControllerRecenterHoldMs = ParseInt(value, config_.hplControllerRecenterHoldMs, 250, 5000);

@@ -1,5 +1,18 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Camera Rotation And Comfort Sync
+
+The `cCamera` rotation surface registered by `HPL3_Script_Register_cCamera` at
+`0x1404e1a80` is now explicit in Ghidra. Base setters/adders were promoted at
+`0x140270ab0`, `0x140270b00`, `0x140270b50`, `0x140270b70`, `0x140270bc0`, and
+`0x140270c10`; extended setters at `0x140270c40`, `0x140270c70`, and
+`0x140270ca0`; and `HPL3_Camera_GetRoll` at `0x14000fda0`.
+
+Decompilation confirms base roll at `cCamera+0x4c`, extended/authored roll at
+`+0x68`, and the cache-dirty family at `+0x709/+0x70b/+0x70c/+0x70d`. These
+anchors back `0.9.0` telemetry and configurable temporary roll suppression. The
+functions received evidence comments and the program was saved.
+
 ## 2026-07-15 Runtime Resilience, GUI, And Effect Identity Sync
 
 Seven virtual type-name getters were promoted and tagged `HPL3`, `PostEffect`,

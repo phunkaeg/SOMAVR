@@ -22,6 +22,11 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x140271b80` | Confirmed by HPL2 match | `cCamera::GetFrustum` variant used by the render viewport. Returns a cached base or secondary-rotation frustum and rebuilds it when dirty. Runtime hook RVA for `0.4.0`. |
 | `0x1402719a0` | Confirmed by HPL2 match | Base `cCamera::GetFrustum` cache path, returning the embedded frustum at `camera+0x3f8`. |
 | `0x140271250` | Confirmed by HPL2 match | `cCamera::GetViewMatrix` cache update. Builds the row-major world-to-camera matrix and its inverse. |
+| `0x140270ab0` / `0x140270b00` / `0x140270b50` | Confirmed | `cCamera::SetPitch`, `SetYaw`, and `SetRoll`. Base angles live at `+0x44/+0x48/+0x4c`; the setters invalidate the native camera cache family. |
+| `0x140270b70` / `0x140270bc0` / `0x140270c10` | Confirmed | `cCamera::AddPitch`, `AddYaw`, and `AddRoll`; update the same base fields and dirty flags. |
+| `0x140270c40` / `0x140270c70` / `0x140270ca0` | Confirmed | Extended pitch/yaw/roll setters for `+0x60/+0x64/+0x68`. These authored offsets select the secondary frustum and invalidate `camera+0x70d`. |
+| `0x14000fda0` | Confirmed | `cCamera::GetRoll`; returns base roll at `camera+0x4c`. Registered to AngelScript as `float GetRoll()`. |
+| `0x1404e1a80` | Confirmed | Registers the `cCamera` pitch/yaw/roll and extended-rotation AngelScript surface. Ghidra: `HPL3_Script_Register_cCamera`. |
 | `0x140270e10` | Confirmed by HPL2 match | `cCamera::GetProjectionMatrix`; caches perspective/orthographic projection at `camera+0xf4`. |
 | `0x140270230` | Confirmed by HPL2 match | `cFrustum::SetupPerspectiveProj`; stores FOV/aspect/oblique state and calls the common setup that updates view-projection, planes, sphere, vertices, and BV. Direct-call RVA for `0.4.0`. |
 | `0x1402702a0` | Confirmed by HPL2 match | `cFrustum::SetupOrthoProj`; orthographic sibling, deliberately not modified by the first bridge. |
@@ -78,9 +83,12 @@ Offsets confirmed from decompilation and the matching HPL2 source:
 | Object | Offset | Meaning |
 | --- | --- | --- |
 | `cCamera` | `+0x10` | Position (`cVector3f`). |
+| `cCamera` | `+0x44/+0x48/+0x4c` | Base pitch, yaw, and roll. `0.9.0` observes roll and can temporarily zero it only while the active VR frustum is evaluated. |
+| `cCamera` | `+0x60/+0x64/+0x68` | Extended/authored pitch, yaw, and roll used by the secondary frustum. |
 | `cCamera` | `+0x6c` | `eCameraRotateMode`: Euler angles `0`, matrix `1`. `HPLPlayerState` uses nonzero as one authored-camera signal. |
 | `cCamera` | `+0x74` | Cached view matrix returned by `0x140271870`. |
 | `cCamera` | `+0x709` | View-matrix dirty flag used by `0x140271870`. |
+| `cCamera` | `+0x70b` | Projection/cache dirty byte set by the base angle setters. |
 | `cCamera` | `+0x70c` | Base-frustum dirty flag. |
 | `cCamera` | `+0x70d` | Secondary-rotation frustum dirty flag. |
 | `cFrustum` | `+0x18/+0x1c` | Far/near planes. |

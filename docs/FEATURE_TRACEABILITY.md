@@ -18,6 +18,8 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.VR_MODE_CONTROL` | EXPERIMENTAL | `HPLCameraBridge`, `OpenXRRuntime` | F10 pending activation, F8/F11 diagnostics | `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | One F10 reaches tracking, stereo, and full centering from a loaded save |
 | `FEATURE.RECENTER` | BUILT | `HPLCameraBridge`, `HPLCameraMath`, `HPLInputBridge` | F2 or two-grip hold, stable neutral-pose latch | `BUILD_HISTORY.md`, `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | Live test confirms keyboard and controller recenter without stereo/session reset or height drift |
 | `FEATURE.XR_INPUT` | BUILT | `OpenXRInput`, `OpenXRRuntime` | OpenXR action set, Simple/Touch/Index/Motion bindings, grip/aim action spaces | `BUILD_HISTORY.md`, `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | Live log confirms active bindings, both tracked controllers, and stable predicted poses |
+| `FEATURE.XR_REFERENCE_SPACE` | BUILT | `OpenXRRuntime`, config | `XR_REFERENCE_SPACE_TYPE_LOCAL`, optional `STAGE`, runtime fallback | `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Compare seated/local and standing/stage calibration, eye height, recenter, and map transitions |
+| `FEATURE.CONTROLLER_HAPTICS` | BUILT | `OpenXRInput`, `OpenXRRuntime`, `HPLInputBridge` | vibration output action, per-hand output paths, focused-session guard | `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Confirm discrete pulses across active controller profiles |
 | `FEATURE.HEAD_TRACKING` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | `0x140271b80`, `0x140270230` | `CURRENT_STATE.md`, `VR_COMPATIBILITY_RE.md` | Remain correct through every authored camera state |
 | `FEATURE.AFR_STEREO` | PROVEN | `HPLCameraBridge`, `OpenXRRuntime`, `OpenXRGLBridge` | F11, per-eye cache and submitted render pose | `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.1.md` | Preserve stability while shader/temporal compatibility is classified |
 | `FEATURE.DUAL_RENDER` | RE_REQUIRED | `HPLCompatibilityProbe`, future native render bridge | `0x140298850`, `0x140298630`, `0x1401f9790` | `VR_COMPATIBILITY_RE.md` | Live stage/FBO telemetry proves a side-effect-safe per-eye boundary |
@@ -32,7 +34,7 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.REFLECTION_STABILITY` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | fully centered projection, program `985` redirect | `VR_COMPATIBILITY_RE.md`, `RUNTIME_ANALYSIS_0.5.6.md` | Regression-test additional reflective materials and levels |
 | `FEATURE.AUDIO_LISTENER` | EXPERIMENTAL | `HPLCompatibilityProbe`, `HPLCameraMath` | `0x140289340`, `0x14061d188`, `0x14048b2d4` | `VR_COMPATIBILITY_RE.md`, `RUNTIME_ANALYSIS_0.5.2.md` | Directional-source test confirms head-relative orientation without world-lock errors |
 | `FEATURE.LOADING_VIDEO` | EXPERIMENTAL | `OpenXRRuntime`, `HPLCameraBridge`, future presentation bridge | camera replacement, AFR cache invalidation, load-screen registrations, video lifecycle | `VR_COMPATIBILITY_RE.md` | Save/load and map transitions automatically re-arm VR; classify dedicated loading/video presentation next |
-| `FEATURE.COMFORT_POLICY` | BUILT | `HPLCameraBridge`, `OpenXRRuntime`, post policy, input | comfort-black frames, effect policy, vertical roomscale, eye-height offset, turn modes | both future RE documents | Live-test blackout duration and named effects, then add authored bob/shake/roll controls |
+| `FEATURE.COMFORT_POLICY` | BUILT | `HPLCameraBridge`, `OpenXRRuntime`, post policy, input | comfort-black frames, effect policy, turn modes, native roll `+0x4c`, extended roll `+0x68` | both future RE documents | Live-test opt-in native roll suppression; map remaining bob/shake ownership |
 | `FEATURE.BUILD_IDENTITY` | BUILT | CMake build manifest | version, flavor, OpenXR bit, DLL SHA-256 | `BUILD_HISTORY.md` | Verify packaged builds reproduce identity and integrity metadata |
 | `FEATURE.TELEMETRY` | PROVEN | `OpenGLHooks`, `OpenGLMatrixAnalysis`, `HPLCompatibilityProbe`, `HPLPlayerState`, `HPLInputBridge`, logger, config | Swap/FBO/matrix/runtime/stage/audio/player-state/post-effect bounded logs | all current docs | Correlate authored-camera transitions, stage-tagged draws, GUI state, and per-effect identities in a live run |
 
@@ -50,6 +52,9 @@ FEATURE.VR_MODE_CONTROL requires FEATURE.AFR_STEREO
 FEATURE.RECENTER requires FEATURE.VR_MODE_CONTROL
 FEATURE.RECENTER requires FEATURE.HEAD_TRACKING
 FEATURE.XR_INPUT requires FEATURE.XR_BOOTSTRAP
+FEATURE.XR_REFERENCE_SPACE requires FEATURE.XR_BOOTSTRAP
+FEATURE.RECENTER requires FEATURE.XR_REFERENCE_SPACE
+FEATURE.CONTROLLER_HAPTICS requires FEATURE.XR_INPUT
 FEATURE.LOCOMOTION requires FEATURE.XR_INPUT
 FEATURE.HEAD_TRACKING requires FEATURE.XR_BOOTSTRAP
 FEATURE.AFR_STEREO requires FEATURE.HEAD_TRACKING

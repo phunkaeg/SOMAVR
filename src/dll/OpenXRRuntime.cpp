@@ -109,6 +109,7 @@ struct OpenXRRuntime::Impl {
         bool frameSubmit,
         bool mirrorBackbuffer,
         int resolutionScalePercent,
+        const std::string& referenceSpace,
         bool inputEnabled,
         int inputLogInterval,
         bool recoveryEnabled,
@@ -124,6 +125,7 @@ struct OpenXRRuntime::Impl {
         frameSubmitEnabled_ = frameSubmit;
         mirrorBackbufferEnabled_ = mirrorBackbuffer;
         resolutionScalePercent_ = std::clamp(resolutionScalePercent, 25, 200);
+        requestedReferenceSpace_ = referenceSpace == "stage" ? "stage" : "local";
         inputEnabled_ = inputEnabled;
         inputLogInterval_ = std::max(inputLogInterval, 1);
         recoveryEnabled_ = recoveryEnabled;
@@ -135,7 +137,7 @@ struct OpenXRRuntime::Impl {
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d",
+            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -145,6 +147,7 @@ struct OpenXRRuntime::Impl {
             frameSubmitEnabled_ ? 1 : 0,
             mirrorBackbufferEnabled_ ? 1 : 0,
             resolutionScalePercent_,
+            requestedReferenceSpace_.c_str(),
             inputEnabled_ ? 1 : 0,
             inputLogInterval_,
             recoveryEnabled_ ? 1 : 0,
@@ -291,6 +294,8 @@ struct OpenXRRuntime::Impl {
             << " openxrFrameSubmit=" << (frameSubmitEnabled_ ? 1 : 0)
             << " openxrMirrorBackbuffer=" << (mirrorBackbufferEnabled_ ? 1 : 0)
             << " openxrResolutionScalePercent=" << resolutionScalePercent_
+            << " openxrReferenceSpaceRequested=" << requestedReferenceSpace_
+            << " openxrReferenceSpaceSelected=" << ReferenceSpaceTypeName(selectedReferenceSpace_)
             << " openxrFrameResourcesReady=" << (frameResourcesReady_ ? 1 : 0)
             << " openxrFrameSubmitFailed=" << (frameSubmitFailed_ ? 1 : 0)
             << " openxrRecoveryEnabled=" << (recoveryEnabled_ ? 1 : 0)
@@ -403,6 +408,26 @@ struct OpenXRRuntime::Impl {
         std::lock_guard lock(mutex_);
         input = input_.Snapshot();
         return input.available;
+    }
+
+    bool RequestHapticPulse(uint32_t hand, float amplitude, int durationMs, const char* reason)
+    {
+        std::lock_guard lock(mutex_);
+        if (!inputEnabled_ || !sessionRunning_ || sessionState_ != XR_SESSION_STATE_FOCUSED) {
+            return false;
+        }
+        const bool applied = input_.ApplyHaptic(session_, hand, amplitude, durationMs);
+        if (applied) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "openxr_haptic applied hand=%u amplitude=%.3f durationMs=%d reason=%s frame=%llu",
+                hand,
+                std::clamp(amplitude, 0.0f, 1.0f),
+                std::max(durationMs, 1),
+                reason != nullptr ? reason : "unspecified",
+                static_cast<unsigned long long>(currentGameFrame_));
+        }
+        return applied;
     }
 
     void SetStereoSubmissionEnabled(bool enabled)
@@ -1081,6 +1106,7 @@ private:
             return;
         }
         spaces.resize(spaceCount);
+        supportedReferenceSpaces_ = spaces;
 
         std::ostringstream text;
         for (size_t i = 0; i < spaces.size(); ++i) {
@@ -1137,14 +1163,29 @@ private:
             return false;
         }
 
+        const bool stageSupported = std::find(
+            supportedReferenceSpaces_.begin(),
+            supportedReferenceSpaces_.end(),
+            XR_REFERENCE_SPACE_TYPE_STAGE) != supportedReferenceSpaces_.end();
+        selectedReferenceSpace_ = requestedReferenceSpace_ == "stage" && stageSupported
+            ? XR_REFERENCE_SPACE_TYPE_STAGE
+            : XR_REFERENCE_SPACE_TYPE_LOCAL;
+        if (requestedReferenceSpace_ == "stage" && !stageSupported) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_reference_space fallback requested=STAGE selected=LOCAL reason=unsupported");
+        }
+
         XrReferenceSpaceCreateInfo spaceInfo{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
-        spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+        spaceInfo.referenceSpaceType = selectedReferenceSpace_;
         spaceInfo.poseInReferenceSpace.orientation.w = 1.0f;
-        XrResult result = xrCreateReferenceSpace(session_, &spaceInfo, &localSpace_);
+        XrResult result = xrCreateReferenceSpace(session_, &spaceInfo, &appSpace_);
         if (XR_FAILED(result)) {
             Logger::Instance().Write(
                 LogLevel::Warn,
-                "openxr_reference_space create_failed type=LOCAL result=%s",
+                "openxr_reference_space create_failed requested=%s selected=%s result=%s",
+                requestedReferenceSpace_.c_str(),
+                ReferenceSpaceTypeName(selectedReferenceSpace_),
                 XrResultString(result).c_str());
             return false;
         }
@@ -1154,8 +1195,8 @@ private:
                 viewConfigurationViews_,
                 swapchainFormats_,
                 resolutionScalePercent_)) {
-            xrDestroySpace(localSpace_);
-            localSpace_ = XR_NULL_HANDLE;
+            xrDestroySpace(appSpace_);
+            appSpace_ = XR_NULL_HANDLE;
             Logger::Instance().Write(LogLevel::Warn, "openxr_frame_resources gl_bridge_failed");
             return false;
         }
@@ -1167,7 +1208,9 @@ private:
 
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_frame_resources ready space=LOCAL eyes=%u mirrorBackbuffer=%d",
+            "openxr_frame_resources ready requestedSpace=%s selectedSpace=%s eyes=%u mirrorBackbuffer=%d",
+            requestedReferenceSpace_.c_str(),
+            ReferenceSpaceTypeName(selectedReferenceSpace_),
             glBridge_.EyeCount(),
             mirrorBackbufferEnabled_ ? 1 : 0);
         return true;
@@ -1176,9 +1219,9 @@ private:
     void DestroyFrameResourcesLocked()
     {
         glBridge_.Shutdown();
-        if (localSpace_ != XR_NULL_HANDLE) {
-            xrDestroySpace(localSpace_);
-            localSpace_ = XR_NULL_HANDLE;
+        if (appSpace_ != XR_NULL_HANDLE) {
+            xrDestroySpace(appSpace_);
+            appSpace_ = XR_NULL_HANDLE;
         }
         locatedViews_.clear();
         pendingRenderedEyeValid_ = false;
@@ -1305,7 +1348,7 @@ private:
             return;
         }
 
-        input_.Sync(session_, localSpace_, frameState.predictedDisplayTime, frameIndex);
+        input_.Sync(session_, appSpace_, frameState.predictedDisplayTime, frameIndex);
 
         std::array<XrCompositionLayerProjectionView, 2> projectionViews{};
         XrCompositionLayerProjection projectionLayer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
@@ -1319,7 +1362,7 @@ private:
             XrViewLocateInfo locateInfo{XR_TYPE_VIEW_LOCATE_INFO};
             locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
             locateInfo.displayTime = frameState.predictedDisplayTime;
-            locateInfo.space = localSpace_;
+            locateInfo.space = appSpace_;
             result = xrLocateViews(
                 session_,
                 &locateInfo,
@@ -1406,7 +1449,7 @@ private:
             }
 
             if (copied) {
-                projectionLayer.space = localSpace_;
+                projectionLayer.space = appSpace_;
                 projectionLayer.viewCount = glBridge_.EyeCount();
                 projectionLayer.views = projectionViews.data();
                 layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projectionLayer);
@@ -1574,6 +1617,7 @@ private:
     int inputLogInterval_ = 120;
     bool mirrorBackbufferEnabled_ = true;
     int resolutionScalePercent_ = 100;
+    std::string requestedReferenceSpace_ = "local";
     bool frameResourcesReady_ = false;
     bool frameSubmitFailed_ = false;
     bool sessionRunning_ = false;
@@ -1629,7 +1673,8 @@ private:
     XrInstance instance_ = XR_NULL_HANDLE;
     XrSystemId systemId_ = XR_NULL_SYSTEM_ID;
     XrSession session_ = XR_NULL_HANDLE;
-    XrSpace localSpace_ = XR_NULL_HANDLE;
+    XrSpace appSpace_ = XR_NULL_HANDLE;
+    XrReferenceSpaceType selectedReferenceSpace_ = XR_REFERENCE_SPACE_TYPE_LOCAL;
     HMODULE loaderModule_ = nullptr;
     XrSessionState sessionState_ = XR_SESSION_STATE_UNKNOWN;
     uint32_t eventLogCount_ = 0;
@@ -1638,6 +1683,7 @@ private:
     std::vector<XrViewConfigurationView> viewConfigurationViews_;
     std::vector<int64_t> swapchainFormats_;
     std::vector<XrView> locatedViews_;
+    std::vector<XrReferenceSpaceType> supportedReferenceSpaces_;
     OpenXRGLBridge glBridge_;
     OpenXRInput input_;
 };
@@ -1655,6 +1701,7 @@ struct OpenXRRuntime::Impl {
         bool frameSubmit,
         bool mirrorBackbuffer,
         int resolutionScalePercent,
+        const std::string& referenceSpace,
         bool inputEnabled,
         int inputLogInterval,
         bool recoveryEnabled,
@@ -1670,6 +1717,7 @@ struct OpenXRRuntime::Impl {
         frameSubmitEnabled_ = frameSubmit;
         mirrorBackbufferEnabled_ = mirrorBackbuffer;
         resolutionScalePercent_ = resolutionScalePercent;
+        referenceSpace_ = referenceSpace;
         inputEnabled_ = inputEnabled;
         inputLogInterval_ = inputLogInterval;
         recoveryEnabled_ = recoveryEnabled;
@@ -1678,7 +1726,7 @@ struct OpenXRRuntime::Impl {
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d",
+            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -1688,6 +1736,7 @@ struct OpenXRRuntime::Impl {
             frameSubmitEnabled_ ? 1 : 0,
             mirrorBackbufferEnabled_ ? 1 : 0,
             resolutionScalePercent_,
+            referenceSpace_.c_str(),
             inputEnabled_ ? 1 : 0,
             inputLogInterval_,
             recoveryEnabled_ ? 1 : 0,
@@ -1782,6 +1831,8 @@ struct OpenXRRuntime::Impl {
         return false;
     }
 
+    bool RequestHapticPulse(uint32_t, float, int, const char*) { return false; }
+
     void SetStereoSubmissionEnabled(bool) {}
     bool MarkRenderedStereoEye(uint32_t, const OpenXREyeView&) { return false; }
     void InvalidateStereoCaches(const char*) {}
@@ -1814,6 +1865,7 @@ private:
     int recoveryDelayFrames_ = 120;
     bool mirrorBackbufferEnabled_ = true;
     int resolutionScalePercent_ = 100;
+    std::string referenceSpace_ = "local";
     bool unavailableLogged_ = false;
     HDC latestHdc_ = nullptr;
     HGLRC latestGlContext_ = nullptr;
@@ -1834,6 +1886,7 @@ void OpenXRRuntime::Configure(
     bool frameSubmit,
     bool mirrorBackbuffer,
     int resolutionScalePercent,
+    const std::string& referenceSpace,
     bool inputEnabled,
     int inputLogInterval,
     bool recoveryEnabled,
@@ -1849,6 +1902,7 @@ void OpenXRRuntime::Configure(
         frameSubmit,
         mirrorBackbuffer,
         resolutionScalePercent,
+        referenceSpace,
         inputEnabled,
         inputLogInterval,
         recoveryEnabled,
@@ -1898,6 +1952,11 @@ bool OpenXRRuntime::GetLatestStereoViews(OpenXRStereoViewSnapshot& views) const
 bool OpenXRRuntime::GetLatestInput(OpenXRInputSnapshot& input) const
 {
     return impl_->GetLatestInput(input);
+}
+
+bool OpenXRRuntime::RequestHapticPulse(uint32_t hand, float amplitude, int durationMs, const char* reason)
+{
+    return impl_->RequestHapticPulse(hand, amplitude, durationMs, reason);
 }
 
 void OpenXRRuntime::SetStereoSubmissionEnabled(bool enabled)

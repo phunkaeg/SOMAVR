@@ -46,6 +46,8 @@ std::atomic<uint64_t> g_sentEvents = 0;
 std::atomic<uint64_t> g_sendFailures = 0;
 std::atomic<uint64_t> g_staleInputFrames = 0;
 std::atomic<uint64_t> g_recenterRequests = 0;
+std::atomic<uint64_t> g_hapticRequests = 0;
+std::atomic<uint64_t> g_hapticApplied = 0;
 
 uint64_t TickMs()
 {
@@ -122,6 +124,21 @@ void ReleaseGameplayInputs()
     g_state.smoothTurnRemainder = 0.0;
 }
 
+void PulseHaptic(uint32_t hand, const char* reason)
+{
+    if (!g_config.hplControllerHaptics || g_openxr == nullptr) {
+        return;
+    }
+    g_hapticRequests.fetch_add(1, std::memory_order_relaxed);
+    if (g_openxr->RequestHapticPulse(
+            hand,
+            g_config.hplControllerHapticAmplitude,
+            g_config.hplControllerHapticDurationMs,
+            reason)) {
+        g_hapticApplied.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
 void ReleaseAll()
 {
     ReleaseGameplayInputs();
@@ -148,6 +165,7 @@ void ApplyTurn(const OpenXRInputSnapshot& input, uint64_t nowMs)
             g_config.hplControllerTurnDeadzone);
         if (!g_state.snapLatched && std::fabs(turn) >= g_config.hplControllerTurnDeadzone) {
             SendMouseMove(turn > 0.0f ? g_config.hplControllerSnapTurnPixels : -g_config.hplControllerSnapTurnPixels);
+            PulseHaptic(1, "snap_turn");
             if (g_openxr != nullptr && g_config.hplControllerComfortBlackoutFrames > 0) {
                 g_openxr->RequestComfortBlackout(
                     static_cast<uint32_t>(g_config.hplControllerComfortBlackoutFrames),
@@ -172,7 +190,10 @@ void ApplyTurn(const OpenXRInputSnapshot& input, uint64_t nowMs)
 
 void ApplySystemActions(const OpenXRInputSnapshot& input, uint64_t nowMs)
 {
-    if (g_config.hplControllerMenu && input.menu && input.menuChanged) TapKey(VK_ESCAPE);
+    if (g_config.hplControllerMenu && input.menu && input.menuChanged) {
+        TapKey(VK_ESCAPE);
+        PulseHaptic(0, "menu");
+    }
 
     const bool recenterChord = g_config.hplControllerRecenterChord
         && input.left.squeeze >= 0.85f && input.right.squeeze >= 0.85f;
@@ -184,6 +205,8 @@ void ApplySystemActions(const OpenXRInputSnapshot& input, uint64_t nowMs)
         if (nowMs - g_state.recenterStartMs >= static_cast<uint64_t>(g_config.hplControllerRecenterHoldMs)) {
             if (RequestHPLRecenter("controller_grip_chord")) {
                 g_recenterRequests.fetch_add(1, std::memory_order_relaxed);
+                PulseHaptic(0, "recenter");
+                PulseHaptic(1, "recenter");
             }
             g_state.recenterLatched = true;
         }
@@ -193,10 +216,19 @@ void ApplySystemActions(const OpenXRInputSnapshot& input, uint64_t nowMs)
 void ApplyGameplayActions(const OpenXRInputSnapshot& input)
 {
     SetKey(g_state.sprint, VK_LSHIFT, input.left.trigger >= 0.75f);
-    if (input.jump && input.jumpChanged) TapKey(VK_SPACE);
-    if (input.crouch && input.crouchChanged) TapKey(VK_LCONTROL);
+    if (input.jump && input.jumpChanged) {
+        TapKey(VK_SPACE);
+        PulseHaptic(1, "jump");
+    }
+    if (input.crouch && input.crouchChanged) {
+        TapKey(VK_LCONTROL);
+        PulseHaptic(1, "crouch");
+    }
     if (g_config.hplControllerInteraction) {
         const bool interact = input.right.select || input.right.trigger >= 0.75f;
+        if (interact && !g_state.interact.down) {
+            PulseHaptic(1, "interaction");
+        }
         SetMouseButton(g_state.interact, interact);
     }
 }
@@ -210,7 +242,7 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
     g_openxr = openxr;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f turnMode=%s turnDeadzone=%.2f interaction=%d menu=%d recenterChord=%d suppressAuthoredCamera=%d comfortBlackoutFrames=%d maxInputAgeFrames=%d",
+        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f turnMode=%s turnDeadzone=%.2f interaction=%d menu=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d suppressAuthoredCamera=%d comfortBlackoutFrames=%d maxInputAgeFrames=%d",
         config.hplControllerInput ? 1 : 0,
         config.hplControllerMoveDeadzone,
         config.hplControllerSnapTurn ? "snap" : "smooth",
@@ -218,6 +250,9 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplControllerInteraction ? 1 : 0,
         config.hplControllerMenu ? 1 : 0,
         config.hplControllerRecenterChord ? 1 : 0,
+        config.hplControllerHaptics ? 1 : 0,
+        config.hplControllerHapticAmplitude,
+        config.hplControllerHapticDurationMs,
         config.hplControllerSuppressDuringAuthoredCamera ? 1 : 0,
         config.hplControllerComfortBlackoutFrames,
         config.hplControllerMaxInputAgeFrames);
@@ -308,7 +343,7 @@ void LogHPLInputBridgeSummary()
     GetHPLPlayerStateSnapshot(player);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu recenterRequests=%llu authoredCameraSuppress=%d player=%p camera=%p body=%p playerState=%d moveState=%d",
+        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu authoredCameraSuppress=%d player=%p camera=%p body=%p playerState=%d moveState=%d",
         g_openxr != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_updates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_activeUpdates.load(std::memory_order_relaxed)),
@@ -316,6 +351,8 @@ void LogHPLInputBridgeSummary()
         static_cast<unsigned long long>(g_sendFailures.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_staleInputFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_recenterRequests.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hapticRequests.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hapticApplied.load(std::memory_order_relaxed)),
         g_state.authoredCameraSuppressed ? 1 : 0,
         player.player, player.camera, player.characterBody,
         player.playerStateId, player.moveStateId);

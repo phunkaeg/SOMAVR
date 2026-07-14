@@ -8,6 +8,8 @@
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 
+#include "OpenXRSpectatorMath.h"
+
 #include <array>
 #include <cstdint>
 #include <vector>
@@ -68,6 +70,7 @@ public:
     bool CopyBackbufferToEye(uint32_t eyeIndex);
     bool CaptureBackbufferToCache(uint32_t eyeIndex);
     bool CopyCacheToEye(uint32_t eyeIndex);
+    bool CopyCacheToBackbuffer(uint32_t eyeIndex, spectator_math::AspectMode aspectMode);
     void InvalidateStereoCaches();
     bool StereoCachesReady() const;
     bool Ready() const;

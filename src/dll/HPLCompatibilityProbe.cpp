@@ -101,6 +101,7 @@ struct GLState {
 
 struct StageSample {
     bool enabled = false;
+    bool timingEnabled = false;
     HPLRenderStage stage = HPLRenderStage::Viewport;
     HPLRenderStage previousStage = HPLRenderStage::None;
     uint64_t frame = 0;
@@ -129,6 +130,10 @@ std::mutex g_installMutex;
 std::mutex g_sampleMutex;
 std::array<FrameSampleBudget, kStageCount> g_sampleBudgets;
 std::array<std::atomic<uint64_t>, kStageCount> g_stageCalls = {};
+std::array<std::array<std::atomic<uint64_t>, 3>, kStageCount> g_stageEyeCalls = {};
+std::array<std::array<std::atomic<uint64_t>, 3>, kStageCount> g_stageEyeCpuNanoseconds = {};
+std::atomic<uint64_t> g_lastPerformanceLogFrame = 0;
+int64_t g_performanceFrequency = 0;
 std::atomic<uint64_t> g_audioCalls = 0;
 std::atomic<uint64_t> g_audioPoseSamples = 0;
 std::atomic<uint64_t> g_audioCorrections = 0;
@@ -169,6 +174,60 @@ size_t StageIndex(HPLRenderStage stage)
     case HPLRenderStage::PostPostEffect: return 4;
     case HPLRenderStage::ScreenGui: return 5;
     default: return 0;
+    }
+}
+
+size_t EyeSlot(int eyeIndex)
+{
+    return eyeIndex == 0 ? 0 : eyeIndex == 1 ? 1 : 2;
+}
+
+double AverageStageCpuMicroseconds(size_t stageIndex, size_t eyeSlot)
+{
+    const uint64_t calls = g_stageEyeCalls[stageIndex][eyeSlot].load(std::memory_order_relaxed);
+    const uint64_t nanoseconds = g_stageEyeCpuNanoseconds[stageIndex][eyeSlot].load(
+        std::memory_order_relaxed);
+    return calls != 0
+        ? static_cast<double>(nanoseconds) / static_cast<double>(calls) / 1000.0
+        : 0.0;
+}
+
+void LogPerEyePerformance(uint64_t frame, bool finalSummary)
+{
+    if (!g_config.hplPerEyePerformanceTelemetry) {
+        return;
+    }
+    if (!finalSummary) {
+        const uint64_t previous = g_lastPerformanceLogFrame.exchange(frame, std::memory_order_relaxed);
+        if (previous == frame) {
+            return;
+        }
+    }
+
+    constexpr HPLRenderStage kStages[kStageCount] = {
+        HPLRenderStage::Viewport,
+        HPLRenderStage::World,
+        HPLRenderStage::WorldCallbacks,
+        HPLRenderStage::PostEffects,
+        HPLRenderStage::PostPostEffect,
+        HPLRenderStage::ScreenGui,
+    };
+    for (size_t stageIndex = 0; stageIndex < kStageCount; ++stageIndex) {
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_per_eye_cpu frame=%llu final=%d stage=%s left={calls=%llu avgUs=%.2f totalMs=%.2f} right={calls=%llu avgUs=%.2f totalMs=%.2f} mono={calls=%llu avgUs=%.2f totalMs=%.2f}",
+            static_cast<unsigned long long>(frame),
+            finalSummary ? 1 : 0,
+            GetHPLRenderStageName(kStages[stageIndex]),
+            static_cast<unsigned long long>(g_stageEyeCalls[stageIndex][0].load(std::memory_order_relaxed)),
+            AverageStageCpuMicroseconds(stageIndex, 0),
+            static_cast<double>(g_stageEyeCpuNanoseconds[stageIndex][0].load(std::memory_order_relaxed)) / 1000000.0,
+            static_cast<unsigned long long>(g_stageEyeCalls[stageIndex][1].load(std::memory_order_relaxed)),
+            AverageStageCpuMicroseconds(stageIndex, 1),
+            static_cast<double>(g_stageEyeCpuNanoseconds[stageIndex][1].load(std::memory_order_relaxed)) / 1000000.0,
+            static_cast<unsigned long long>(g_stageEyeCalls[stageIndex][2].load(std::memory_order_relaxed)),
+            AverageStageCpuMicroseconds(stageIndex, 2),
+            static_cast<double>(g_stageEyeCpuNanoseconds[stageIndex][2].load(std::memory_order_relaxed)) / 1000000.0);
     }
 }
 
@@ -654,10 +713,14 @@ StageSample BeginStage(HPLRenderStage stage, void* viewport = nullptr, uint64_t 
     sample.call = g_stageCalls[StageIndex(stage)].fetch_add(1, std::memory_order_relaxed) + 1;
     sample.viewport = viewport != nullptr ? viewport : g_activeViewport;
     sample.renderMask = renderMask != 0 ? renderMask : g_activeRenderMask;
-    sample.enabled = ConsumeSampleBudget(stage, sample.frame, sample.call);
+    sample.enabled = g_config.hplRenderStageProbe
+        && ConsumeSampleBudget(stage, sample.frame, sample.call);
+    sample.timingEnabled = g_config.hplPerEyePerformanceTelemetry;
     if (sample.enabled) {
         sample.before = ReadGLState();
         sample.telemetryBefore = GetOpenGLTelemetrySnapshot();
+    }
+    if (sample.enabled || sample.timingEnabled) {
         QueryPerformanceCounter(&sample.start);
     }
     return sample;
@@ -665,29 +728,49 @@ StageSample BeginStage(HPLRenderStage stage, void* viewport = nullptr, uint64_t 
 
 void EndStage(const StageSample& sample)
 {
+    LARGE_INTEGER end = {};
+    if (sample.enabled || sample.timingEnabled) {
+        QueryPerformanceCounter(&end);
+    }
+    const int64_t elapsedTicks = end.QuadPart - sample.start.QuadPart;
+    const double durationUs = g_performanceFrequency > 0 && elapsedTicks >= 0
+        ? static_cast<double>(end.QuadPart - sample.start.QuadPart) * 1000000.0
+            / static_cast<double>(g_performanceFrequency)
+        : 0.0;
+    if (sample.timingEnabled && g_performanceFrequency > 0 && elapsedTicks >= 0) {
+        const HPLCameraBridgeStatus cameraStatus = GetHPLCameraBridgeStatus();
+        const size_t stageIndex = StageIndex(sample.stage);
+        const size_t eyeSlot = EyeSlot(cameraStatus.stereoRenderEye);
+        const uint64_t durationNanoseconds = static_cast<uint64_t>(
+            static_cast<long double>(elapsedTicks) * 1000000000.0L
+            / static_cast<long double>(g_performanceFrequency));
+        g_stageEyeCalls[stageIndex][eyeSlot].fetch_add(1, std::memory_order_relaxed);
+        g_stageEyeCpuNanoseconds[stageIndex][eyeSlot].fetch_add(
+            durationNanoseconds,
+            std::memory_order_relaxed);
+        const uint64_t interval = static_cast<uint64_t>(
+            std::max(g_config.hplCompatibilityLogInterval, 1));
+        if (sample.stage == HPLRenderStage::Viewport
+            && sample.frame != 0
+            && sample.frame % interval == 0) {
+            LogPerEyePerformance(sample.frame, false);
+        }
+    }
     if (!sample.enabled) {
         g_activeStage = sample.previousStage;
         return;
     }
-
-    LARGE_INTEGER end = {};
-    LARGE_INTEGER frequency = {};
-    QueryPerformanceCounter(&end);
-    QueryPerformanceFrequency(&frequency);
-    const double durationUs = frequency.QuadPart > 0
-        ? static_cast<double>(end.QuadPart - sample.start.QuadPart) * 1000000.0
-            / static_cast<double>(frequency.QuadPart)
-        : 0.0;
     const GLState after = ReadGLState();
     const OpenGLTelemetrySnapshot telemetryAfter = GetOpenGLTelemetrySnapshot();
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_render_stage frame=%llu sequence=%llu stage=%s call=%llu viewport=%p mask=0x%llx durationUs=%.2f calls={drawElements=%llu drawArrays=%llu viewport=%llu framebuffer=%llu program=%llu clear=%llu} before={valid=%d drawFbo=%d readFbo=%d program=%d viewport=%d,%d,%d,%d scissor=%d,%d,%d,%d blend=%d depth=%d scissorEnabled=%d depthWrite=%d colorWrite=%d,%d,%d,%d blendFunc=%d,%d,%d,%d blendEq=%d,%d} after={valid=%d drawFbo=%d readFbo=%d program=%d viewport=%d,%d,%d,%d scissor=%d,%d,%d,%d blend=%d depth=%d scissorEnabled=%d depthWrite=%d colorWrite=%d,%d,%d,%d blendFunc=%d,%d,%d,%d blendEq=%d,%d}",
+        "hpl_render_stage frame=%llu sequence=%llu stage=%s call=%llu eye=%d viewport=%p mask=0x%llx durationUs=%.2f calls={drawElements=%llu drawArrays=%llu viewport=%llu framebuffer=%llu program=%llu clear=%llu} before={valid=%d drawFbo=%d readFbo=%d program=%d viewport=%d,%d,%d,%d scissor=%d,%d,%d,%d blend=%d depth=%d scissorEnabled=%d depthWrite=%d colorWrite=%d,%d,%d,%d blendFunc=%d,%d,%d,%d blendEq=%d,%d} after={valid=%d drawFbo=%d readFbo=%d program=%d viewport=%d,%d,%d,%d scissor=%d,%d,%d,%d blend=%d depth=%d scissorEnabled=%d depthWrite=%d colorWrite=%d,%d,%d,%d blendFunc=%d,%d,%d,%d blendEq=%d,%d}",
         static_cast<unsigned long long>(sample.frame),
         static_cast<unsigned long long>(sample.sequence),
         GetHPLRenderStageName(sample.stage),
         static_cast<unsigned long long>(sample.call),
+        GetHPLCameraBridgeStatus().stereoRenderEye,
         sample.viewport,
         static_cast<unsigned long long>(sample.renderMask),
         durationUs,
@@ -1009,6 +1092,7 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
 {
     std::lock_guard lock(g_installMutex);
     if (!config.hplRenderStageProbe
+        && !config.hplPerEyePerformanceTelemetry
         && !config.hplAudioListenerProbe
         && !config.hplPostEffectControl) {
         Logger::Instance().Write(LogLevel::Info, "hpl_compat_probe install_skipped enabled=0");
@@ -1029,6 +1113,17 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
     g_postEffectBypassEnabled.store(config.hplPostEffectBypassDefault, std::memory_order_relaxed);
     g_postEffectIsolated.store(nullptr, std::memory_order_relaxed);
     g_f12Down.store(false, std::memory_order_relaxed);
+    g_lastPerformanceLogFrame.store(0, std::memory_order_relaxed);
+    LARGE_INTEGER performanceFrequency = {};
+    QueryPerformanceFrequency(&performanceFrequency);
+    g_performanceFrequency = performanceFrequency.QuadPart;
+    for (size_t stageIndex = 0; stageIndex < kStageCount; ++stageIndex) {
+        g_stageCalls[stageIndex].store(0, std::memory_order_relaxed);
+        for (size_t eyeSlot = 0; eyeSlot < 3; ++eyeSlot) {
+            g_stageEyeCalls[stageIndex][eyeSlot].store(0, std::memory_order_relaxed);
+            g_stageEyeCpuNanoseconds[stageIndex][eyeSlot].store(0, std::memory_order_relaxed);
+        }
+    }
     HMODULE executable = GetModuleHandleW(nullptr);
     g_executableBase = reinterpret_cast<uintptr_t>(executable);
 
@@ -1073,7 +1168,9 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
     };
 
     size_t installed = 0;
-    if (config.hplRenderStageProbe) {
+    const bool stageHooksEnabled = config.hplRenderStageProbe
+        || config.hplPerEyePerformanceTelemetry;
+    if (stageHooksEnabled) {
         installed += InstallHook(executable, kRenderViewportRva, kRenderViewportSignature,
             sizeof(kRenderViewportSignature), "render_viewport", reinterpret_cast<void*>(&HookRenderViewport),
             reinterpret_cast<void**>(&g_originalRenderViewport));
@@ -1107,8 +1204,9 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         installed > 0 ? LogLevel::Warn : LogLevel::Error,
-        "hpl_compat_probe install_complete renderStages=%d audioListener=%d audioCorrection=%d audioTranslation=%d postEffectControl=%d postEffectBypass=%d postEffectComfort={imageTrail=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
+        "hpl_compat_probe install_complete renderStages=%d perEyeCpu=%d audioListener=%d audioCorrection=%d audioTranslation=%d postEffectControl=%d postEffectBypass=%d postEffectComfort={imageTrail=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
         config.hplRenderStageProbe ? 1 : 0,
+        config.hplPerEyePerformanceTelemetry ? 1 : 0,
         config.hplAudioListenerProbe ? 1 : 0,
         g_config.hplAudioListenerCorrection ? 1 : 0,
         g_config.hplAudioListenerTranslation ? 1 : 0,
@@ -1118,7 +1216,7 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
         config.hplPostEffectDisableChromaticAberration ? 1 : 0,
         config.hplPostEffectDisableRadialBlur ? 1 : 0,
         static_cast<unsigned long long>(installed),
-        (config.hplRenderStageProbe ? 6 : 0)
+        (stageHooksEnabled ? 6 : 0)
             + (config.hplAudioListenerProbe ? 1 : 0)
             + (config.hplPostEffectControl ? 1 : 0),
         config.hplCompatibilityLogInterval,
@@ -1128,6 +1226,7 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
 
 void LogHPLCompatibilityProbeSummary()
 {
+    LogPerEyePerformance(GetOpenGLRenderFrameHint(), true);
     Logger::Instance().Write(
         LogLevel::Info,
         "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu audioUpdates=%llu audioSamples=%llu audioCorrections=%llu audioTranslations=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",

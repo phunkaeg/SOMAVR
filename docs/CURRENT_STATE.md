@@ -21,16 +21,21 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.24.0-roomscale-safety`, layered on the
+The active build candidate is `0.25.0-volume-spectator-telemetry`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
 
 - Physical room-scale head translation now uses SOMA's confirmed static-world
-  line-of-sight query to stop at geometry with a configurable clearance. One
-  cached result is decomposed back into every eye/controller pose, preserving
-  IPD, eye height, authored camera motion, and hand/flashlight coherence. Dynamic
-  geometry and head-volume sweeps are not yet covered.
+  line-of-sight query to sweep a configurable center/radial/top/bottom head
+  volume. One cached earliest-safe result is decomposed back into every
+  eye/controller pose, preserving IPD, eye height, authored camera motion, and
+  hand/flashlight coherence. Dynamic geometry and native capsule movement remain
+  separate.
+- The desktop mirror can now show a stable cached left or right eye with fit,
+  fill, or stretch layout after XR submission. Native mode leaves the original
+  backbuffer untouched. Existing render-stage hooks also accumulate left/right/
+  mono CPU timings for dual-render budgeting; GPU timing is not yet claimed.
 
 - The exact scripted `Flashlight` light now follows the dominant controller's
   tracked aim pose through the existing guarded Lux-entity transform boundary.
@@ -430,7 +435,7 @@ The OpenXR build now asks for:
 & "D:\Dev Debug\SOMAVR\build-openxr\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.24.0-roomscale-safety`, six compatibility render-stage hooks,
+2. Confirm `version=0.25.0-volume-spectator-telemetry`, six compatibility render-stage hooks,
    `hpl_hud_bridge installed ... layer=1`,
    `hpl_interaction_bridge install_ok`, `hpl_hands_bridge install_ok`, and
    `hpl_grab_bridge install_ok ... rotation=1 throwRedirect=1`, plus
@@ -457,9 +462,11 @@ The OpenXR build now asks for:
     inspect the ceiling angle and window/oven boundary while moving normally.
 12. Confirm `hpl_stereo` rows report `projectionOffset=0.000000,0.000000`.
     Slowly lean toward a static wall from several angles. Expect bounded
-    `hpl_roomscale_safety ... clamped=1` rows and a stopped view before geometry,
-    with rigid stereo and coherent hands/flashlight. Moving doors are not yet a
-    supported collision source.
+    `hpl_roomscale_safety ... clamped=1 probes=9` rows and a stopped view before
+    geometry, including at corners and low ceiling edges, with rigid stereo and
+    coherent hands/flashlight. Moving doors are not yet a supported source.
+    Confirm the desktop remains a stable left eye with black fit bars as needed,
+    while the headset remains unchanged.
 13. Press F2 while facing a new comfortable forward direction. Expect
     `hpl_recenter requested`, then either bounded `calibration_wait` rows or
     `hpl_recenter applied ... stablePoseFrames=8`. Confirm tracking/stereo stay
@@ -495,7 +502,7 @@ The OpenXR build now asks for:
     HMD. Confirm exact `Flashlight` identity plus `hpl_flashlight_pose ...
     overridden=1`; tracking loss and authored cameras must restore native aim.
 23. Confirm `somavr_build_manifest.txt` reports version
-    `0.24.0-roomscale-safety`, flavor `openxr`, and a DLL SHA-256.
+    `0.25.0-volume-spectator-telemetry`, flavor `openxr`, and a DLL SHA-256.
 24. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
     `complete`, then check that `Soma_NoSteam.exe` disappears. If it remains,
     capture it with the dumper before manually terminating it.

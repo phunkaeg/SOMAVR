@@ -123,6 +123,8 @@ public:
         bool manualStart,
         bool frameSubmit,
         bool mirrorBackbuffer,
+        const std::string& desktopMirrorEye,
+        const std::string& desktopMirrorAspect,
         int resolutionScalePercent,
         const std::string& referenceSpace,
         bool inputEnabled,

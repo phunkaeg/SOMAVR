@@ -104,9 +104,10 @@ lifecycle.
 | `OpenXRRuntime` | Instance/system/session state, delayed loss recovery, frame pacing, view snapshots, projection/quad layer submission and bounded comfort-black frames | HPL camera transforms or gameplay input semantics |
 | `OpenXRInput` | OpenXR action set, suggested bindings, action synchronization, grip/aim spaces, immutable input snapshots | SOMA movement, interaction, hand placement, or camera policy |
 | `OpenXRHelpers` | OpenXR names, format strings, pose/view conversion | Handles, session lifetime, swapchain ownership |
-| `OpenXRGLBridge` | OpenGL projection/HUD/reticle swapchain images, FBOs, invalidatable eye caches, transparent HUD capture, reticle drawing, and image transfer | OpenXR event/session or HPL GUI/interaction identity policy |
+| `OpenXRGLBridge` | OpenGL projection/HUD/reticle swapchain images, FBOs, invalidatable eye caches, transparent HUD capture, reticle drawing, image transfer, and state-preserving spectator backbuffer blit | OpenXR event/session, spectator selection policy, or HPL GUI/interaction identity policy |
+| `OpenXRSpectatorMath` | Pure fit/fill/stretch source and destination rectangle calculation | GL state, eye-cache ownership, runtime policy, logging, or native window handles |
 | `HPLCameraBridge` | Signature-guarded player-camera interception, VR mode state, and cached static-world room-scale query orchestration | Generic quaternion/projection/collision-fraction algorithms |
-| `HPLCameraMath` | Pure pose, matrix, FOV centering, projection construction, room-scale clearance and tracked-component decomposition | HPL pointers, hotkeys, logging, OpenXR handles, or native collision calls |
+| `HPLCameraMath` | Pure pose, matrix, FOV centering, projection construction, room-scale clearance/head-volume sampling, and tracked-component decomposition | HPL pointers, hotkeys, logging, OpenXR handles, or native collision calls |
 | `HPLInputMath` | Pure radial stick deadzone and angle conversion used by native locomotion | Native pointers, action state, logging, or input injection |
 | `HPLPhysicalCrouchMath` | Pure standing-height calibration and crouch hysteresis | Native input injection, OpenXR handles, player state, or logging |
 | `HPLPlayerState` | Signature-guarded player/camera/body discovery, player/move IDs, camera ownership classification, immutable snapshots | Controller injection, camera transforms, OpenXR actions |
@@ -124,7 +125,7 @@ lifecycle.
 | `HPLFlashlightMath` | Pure OpenXR aim to HPL negative-Z spotlight basis plus configurable local calibration | Native pointers, light identity/lifetime, tracking policy, LOS semantics, or logging |
 | `HPLHudBridge` | Signature-guarded exact GameHudSet identity, per-set telemetry, and reversible begin/render/end capture routing | OpenXR swapchain/session ownership, ImGui/menu capture, or diegetic GUI policy |
 | `HPLHudMath` | Pure quad pose, angular size, and aspect validation | GL state, OpenXR handles, native pointers, or logging |
-| `HPLCompatibilityProbe` | Bounded render/audio/post-effect telemetry and temporary probes; shared pose math comes from `HPLCameraMath` | Permanent GUI/HUD feature policy or unrelated gameplay systems |
+| `HPLCompatibilityProbe` | Bounded render/audio/post-effect telemetry, left/right/mono CPU stage totals, and temporary probes; shared pose math comes from `HPLCameraMath` | Permanent GUI/HUD feature policy, GPU timing ownership, or unrelated gameplay systems |
 | `HPLLifecycle` | Pre-graphics OpenXR teardown boundary | General shutdown orchestration |
 
 ## Growth Rules

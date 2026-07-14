@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.24.0-roomscale-safety")
+set(SOMAVR_BUILD_VERSION "0.25.0-volume-spectator-telemetry")
 
 include(FetchContent)
 
@@ -71,6 +71,7 @@ add_library(somavr_render_math STATIC
     src/dll/HPLInputMath.cpp
     src/dll/HPLMenuMath.cpp
     src/dll/OpenGLMatrixAnalysis.cpp
+    src/dll/OpenXRSpectatorMath.cpp
 )
 target_include_directories(somavr_render_math PUBLIC src/dll)
 target_compile_definitions(somavr_render_math PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)

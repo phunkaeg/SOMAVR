@@ -159,6 +159,39 @@ Vector3 ReplaceTrackedHeadTranslation(
     };
 }
 
+size_t BuildRoomscaleSafetySampleOffsets(
+    float horizontalRadius,
+    float verticalRadius,
+    int radialSamples,
+    std::array<Vector3, kMaxRoomscaleSafetySamples>& offsets)
+{
+    offsets = {};
+    size_t count = 1;
+    const float radius = std::isfinite(horizontalRadius)
+        ? std::max(horizontalRadius, 0.0f) : 0.0f;
+    const int samples = std::clamp(radialSamples, 0, 16);
+    if (radius > 0.0f && samples > 0) {
+        constexpr float kTwoPi = 6.2831853071795864769f;
+        for (int index = 0; index < samples; ++index) {
+            const float angle = kTwoPi * static_cast<float>(index)
+                / static_cast<float>(samples);
+            offsets[count++] = {
+                std::cos(angle) * radius,
+                0.0f,
+                std::sin(angle) * radius,
+            };
+        }
+    }
+
+    const float height = std::isfinite(verticalRadius)
+        ? std::max(verticalRadius, 0.0f) : 0.0f;
+    if (height > 0.0f) {
+        offsets[count++] = {0.0f, height, 0.0f};
+        offsets[count++] = {0.0f, -height, 0.0f};
+    }
+    return count;
+}
+
 PoseStabilityUpdate UpdatePoseStability(
     PoseStabilityState& state,
     uint64_t gameFrame,

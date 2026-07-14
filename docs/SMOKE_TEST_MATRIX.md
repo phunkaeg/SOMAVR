@@ -8,7 +8,7 @@ appears to work.
 | ID | Save/checkpoint | Exercise | Required evidence | Stop condition |
 | --- | --- | --- | --- | --- |
 | S01 | Startup and main menu | Launch through packaged injector, wait at menu, then load a save | Correct version/flavor, loader success, hook install rows, no signature failure | Crash, wrong DLL flavor, missing loader, or input behind menu |
-| S02 | Quiet lit room | Press F10, inspect stereo, translate/rotate HMD, lean slowly into static walls/corners, then walk around reflective and shadowed surfaces | VR activation, alternating eyes, zero projection offset, submitted frames, bounded room-scale clamp rows | Skew, scale drift, eye mismatch, wall clipping/stuck clamp, moving shadows/reflections, or wrong eye height |
+| S02 | Quiet lit room | Press F10, inspect stereo and stable desktop eye, translate/rotate HMD, lean into static walls/corners/ceiling edges, then inspect reflective and shadowed surfaces | VR activation, alternating headset eyes, stable selected spectator eye, zero projection offset, nine-probe room-scale rows, submitted frames | Skew, scale drift, eye mismatch, desktop alternation/corruption, wall clipping/stuck clamp, moving shadows/reflections, or wrong eye height |
 | S03 | Same room | Toggle and aim flashlight independently through yaw/pitch/roll; briefly lose hand tracking | Exact `Flashlight` identity, override rows, native fallback then recovery | Beam remains camera-locked, stale, reversed, or moves world/camera |
 | S04 | Mixed interactables | Sweep controller over pickup, button, door/lever, terminal, and unavailable target | Controller ray substitutions, native semantic reticle states, bounded focus haptics | Gaze still owns focus, wrong callback, stuck icon, or repeated haptic chatter |
 | S05 | Door/wheel/slider/lever/tear | Hold interaction and move only the dominant hand, then move HMD and hand together | State `3..7`, bounded manipulation deltas, common-translation cancellation | Initial jump, wrong axis, object motion from shared room-scale translation |
@@ -18,7 +18,7 @@ appears to work.
 | S09 | Map transition/loading/video | Load another save or cross a level boundary and wait for gameplay | Camera replacement, eye-cache invalidation, stable-pose recalibration, stereo resumes | Stale eye, black hang, manual F10/F11 required, or loading shown at bad depth |
 | S10 | Damage/death/wake | Take damage, trigger death/game-over, reload, and complete wake transition | Post-effect identity/policy rows, UI identity, tracking remains live | Nauseating trail/blur/roll, invisible prompt, frozen tracking, or stale effects |
 | S11 | Tracking/runtime interruption | Remove HMD/controller tracking, change runtime focus, then restore | Pose-age hold/expiry, zero-layer path, release of held inputs, recovery blackout | Stale pose, stuck input, visible invalid frame, session restart loop |
-| S12 | Normal exit | Quit from gameplay and from menu on separate runs | Pre-graphics shutdown begin/complete and final summaries | Lingering process, graphics teardown crash, or missing bounded summaries |
+| S12 | Normal exit | Quit from gameplay and from menu on separate runs | Pre-graphics shutdown begin/complete, per-eye CPU rows, spectator counters, and final summaries | Lingering process, graphics teardown crash, missing timing/mirror evidence, or missing bounded summaries |
 
 ## Build Record
 

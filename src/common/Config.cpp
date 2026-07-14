@@ -134,8 +134,11 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLRoomscaleEnabledDefault=1\n"
         << "HPLRoomscaleVertical=1\n"
         << "HPLRoomscaleSafety=0\n"
-        << "HPLRoomscaleSafetyClearanceMeters=0.12\n"
+        << "HPLRoomscaleSafetyClearanceMeters=0.02\n"
         << "HPLRoomscaleSafetyIterations=6\n"
+        << "HPLRoomscaleSafetyRadiusMeters=0.09\n"
+        << "HPLRoomscaleSafetyVerticalRadiusMeters=0.12\n"
+        << "HPLRoomscaleSafetyRadialSamples=6\n"
         << "HPLEyeHeightOffsetMeters=0.0\n"
         << "HPLRecenterControl=0\n"
         << "HPLReflectionFadeControl=0\n"
@@ -149,6 +152,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLStereoAFR=0\n"
         << "HPLWorldScale=1.0\n"
         << "HPLRenderStageProbe=0\n"
+        << "HPLPerEyePerformanceTelemetry=0\n"
         << "HPLAudioListenerProbe=0\n"
         << "HPLAudioListenerCorrection=0\n"
         << "HPLAudioListenerTranslation=0\n"
@@ -171,6 +175,8 @@ void ConfigManager::WriteDefaultConfig() const
         << "ManualStart=0\n"
         << "FrameSubmit=0\n"
         << "MirrorBackbuffer=1\n"
+        << "DesktopMirrorEye=native\n"
+        << "DesktopMirrorAspect=fit\n"
         << "ResolutionScalePercent=100\n"
         << "ReferenceSpace=local\n"
         << "InputEnabled=0\n"
@@ -348,6 +354,9 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplroomscalesafety") config_.hplRoomscaleSafety = ParseBool(value, config_.hplRoomscaleSafety);
             else if (key == "hplroomscalesafetyclearancemeters") config_.hplRoomscaleSafetyClearanceMeters = ParseFloat(value, config_.hplRoomscaleSafetyClearanceMeters, 0.0f, 1.0f);
             else if (key == "hplroomscalesafetyiterations") config_.hplRoomscaleSafetyIterations = ParseInt(value, config_.hplRoomscaleSafetyIterations, 1, 12);
+            else if (key == "hplroomscalesafetyradiusmeters") config_.hplRoomscaleSafetyRadiusMeters = ParseFloat(value, config_.hplRoomscaleSafetyRadiusMeters, 0.0f, 0.5f);
+            else if (key == "hplroomscalesafetyverticalradiusmeters") config_.hplRoomscaleSafetyVerticalRadiusMeters = ParseFloat(value, config_.hplRoomscaleSafetyVerticalRadiusMeters, 0.0f, 0.5f);
+            else if (key == "hplroomscalesafetyradialsamples") config_.hplRoomscaleSafetyRadialSamples = ParseInt(value, config_.hplRoomscaleSafetyRadialSamples, 0, 16);
             else if (key == "hpleyeheightoffsetmeters") config_.hplEyeHeightOffsetMeters = ParseFloat(value, config_.hplEyeHeightOffsetMeters, -2.0f, 2.0f);
             else if (key == "hplrecentercontrol") config_.hplRecenterControl = ParseBool(value, config_.hplRecenterControl);
             else if (key == "hplreflectionfadecontrol") config_.hplReflectionFadeControl = ParseBool(value, config_.hplReflectionFadeControl);
@@ -361,6 +370,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplstereoafr") config_.hplStereoAfr = ParseBool(value, config_.hplStereoAfr);
             else if (key == "hplworldscale") config_.hplWorldScale = ParseFloat(value, config_.hplWorldScale, 0.1f, 10.0f);
             else if (key == "hplrenderstageprobe") config_.hplRenderStageProbe = ParseBool(value, config_.hplRenderStageProbe);
+            else if (key == "hplpereyeperformancetelemetry") config_.hplPerEyePerformanceTelemetry = ParseBool(value, config_.hplPerEyePerformanceTelemetry);
             else if (key == "hplaudiolistenerprobe") config_.hplAudioListenerProbe = ParseBool(value, config_.hplAudioListenerProbe);
             else if (key == "hplaudiolistenercorrection") config_.hplAudioListenerCorrection = ParseBool(value, config_.hplAudioListenerCorrection);
             else if (key == "hplaudiolistenertranslation") config_.hplAudioListenerTranslation = ParseBool(value, config_.hplAudioListenerTranslation);
@@ -393,6 +403,16 @@ void ConfigManager::LoadFromFile()
                 config_.openxrFrameSubmit = ParseBool(value, config_.openxrFrameSubmit);
             } else if (key == "mirrorbackbuffer") {
                 config_.openxrMirrorBackbuffer = ParseBool(value, config_.openxrMirrorBackbuffer);
+            } else if (key == "desktopmirroreye") {
+                const std::string eye = Lower(Trim(value));
+                if (eye == "native" || eye == "left" || eye == "right") {
+                    config_.openxrDesktopMirrorEye = eye;
+                }
+            } else if (key == "desktopmirroraspect") {
+                const std::string aspect = Lower(Trim(value));
+                if (aspect == "fit" || aspect == "fill" || aspect == "stretch") {
+                    config_.openxrDesktopMirrorAspect = aspect;
+                }
             } else if (key == "resolutionscalepercent") {
                 config_.openxrResolutionScalePercent = ParseInt(value, config_.openxrResolutionScalePercent, 25, 200);
             } else if (key == "referencespace") {

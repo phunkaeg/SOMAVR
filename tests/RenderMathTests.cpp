@@ -8,6 +8,7 @@
 #include "HPLMenuMath.h"
 #include "HPLPhysicalCrouchMath.h"
 #include "OpenGLMatrixAnalysis.h"
+#include "OpenXRSpectatorMath.h"
 
 #include <array>
 #include <cmath>
@@ -38,6 +39,34 @@ int main()
 
     int failures = 0;
     failures += Check(camera_math::ValidateStereoProjectionMath(), "projection self-test");
+    spectator_math::BlitLayout spectatorLayout;
+    failures += Check(
+        spectator_math::ComputeBlitLayout(
+            2000, 1000, 1000, 1000, spectator_math::AspectMode::Fit, spectatorLayout)
+            && spectatorLayout.destinationX0 == 0
+            && spectatorLayout.destinationY0 == 250
+            && spectatorLayout.destinationX1 == 1000
+            && spectatorLayout.destinationY1 == 750
+            && spectatorLayout.clearDestination,
+        "spectator fit creates centered letterbox bars");
+    failures += Check(
+        spectator_math::ComputeBlitLayout(
+            2000, 1000, 1000, 1000, spectator_math::AspectMode::Fill, spectatorLayout)
+            && spectatorLayout.sourceX0 == 500
+            && spectatorLayout.sourceX1 == 1500
+            && spectatorLayout.destinationX1 == 1000
+            && !spectatorLayout.clearDestination,
+        "spectator fill crops the source symmetrically");
+    failures += Check(
+        spectator_math::ComputeBlitLayout(
+            2000, 1000, 1000, 1000, spectator_math::AspectMode::Stretch, spectatorLayout)
+            && spectatorLayout.sourceX1 == 2000
+            && spectatorLayout.destinationY1 == 1000,
+        "spectator stretch uses the complete source and destination");
+    failures += Check(
+        !spectator_math::ComputeBlitLayout(
+            0, 1000, 1000, 1000, spectator_math::AspectMode::Fit, spectatorLayout),
+        "spectator layout rejects invalid dimensions");
     failures += Check(
         Near(camera_math::ComputeRoomscaleSafetyFactor(0.75f, 1.0f, 0.10f), 0.65f),
         "room-scale safety retracts collision fraction by clearance");
@@ -57,6 +86,22 @@ int main()
             && Near(safeEyeOffset.y, 0.07f)
             && Near(safeEyeOffset.z, -0.10f),
         "room-scale safety replaces shared head motion while preserving eye-relative offset");
+    std::array<camera_math::Vector3, camera_math::kMaxRoomscaleSafetySamples> safetyOffsets{};
+    const size_t safetyOffsetCount = camera_math::BuildRoomscaleSafetySampleOffsets(
+        0.10f,
+        0.12f,
+        4,
+        safetyOffsets);
+    failures += Check(
+        safetyOffsetCount == 7
+            && Near(safetyOffsets[0].x, 0.0f)
+            && Near(safetyOffsets[1].x, 0.10f)
+            && Near(safetyOffsets[5].y, 0.12f)
+            && Near(safetyOffsets[6].y, -0.12f),
+        "room-scale safety builds center, radial, and vertical head-volume samples");
+    failures += Check(
+        camera_math::BuildRoomscaleSafetySampleOffsets(-1.0f, -1.0f, 99, safetyOffsets) == 1,
+        "room-scale safety invalid radii retain only the center sample");
 
     failures += Check(
         comfort_math::ShouldSuppressCameraAdd(1, true, true, true),

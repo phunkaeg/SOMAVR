@@ -1,5 +1,13 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Volume/Spectator/Telemetry Reuse Audit
+
+`0.25.0` adds no executable address. The head-volume sweep reuses the already
+typed and tagged `SOMA_CheckLineOfSight` wrapper at `0x1400cd710`; spectator
+output and CPU timing use existing GL/frame and six guarded render-stage hooks.
+The selected `Soma_NoSteam.exe` database therefore required no new rename or
+prototype, and the prior room-scale entries remain authoritative.
+
 ## 2026-07-15 Room-Scale Safety Sync
 
 | Address | Ghidra name | Evidence/use |

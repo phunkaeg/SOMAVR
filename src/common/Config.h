@@ -26,6 +26,8 @@ struct Config {
     bool openxrManualStart = false;
     bool openxrFrameSubmit = false;
     bool openxrMirrorBackbuffer = true;
+    std::string openxrDesktopMirrorEye = "native";
+    std::string openxrDesktopMirrorAspect = "fit";
     int openxrResolutionScalePercent = 100;
     std::string openxrReferenceSpace = "local";
     bool openxrInputEnabled = false;
@@ -153,8 +155,11 @@ struct Config {
     bool hplRoomscaleEnabledDefault = true;
     bool hplRoomscaleVertical = true;
     bool hplRoomscaleSafety = false;
-    float hplRoomscaleSafetyClearanceMeters = 0.12f;
+    float hplRoomscaleSafetyClearanceMeters = 0.02f;
     int hplRoomscaleSafetyIterations = 6;
+    float hplRoomscaleSafetyRadiusMeters = 0.09f;
+    float hplRoomscaleSafetyVerticalRadiusMeters = 0.12f;
+    int hplRoomscaleSafetyRadialSamples = 6;
     float hplEyeHeightOffsetMeters = 0.0f;
     bool hplRecenterControl = false;
     bool hplReflectionFadeControl = false;
@@ -168,6 +173,7 @@ struct Config {
     bool hplStereoAfr = false;
     float hplWorldScale = 1.0f;
     bool hplRenderStageProbe = false;
+    bool hplPerEyePerformanceTelemetry = false;
     bool hplAudioListenerProbe = false;
     bool hplAudioListenerCorrection = false;
     bool hplAudioListenerTranslation = false;

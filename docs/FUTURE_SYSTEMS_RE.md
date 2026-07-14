@@ -1,5 +1,29 @@
 # Future Systems Reverse Engineering
 
+## 0.25.0 Head Volume, Spectator, And CPU Budget Result
+
+The `0.24.0` point segment now expands into a bounded static-world sweep without
+another native address: one center ray, a configurable horizontal ring, and
+top/bottom rays all call the same guarded `SOMA_CheckLineOfSight` wrapper. Each
+probe is parallel to physical-head translation. The minimum valid clear fraction
+controls the shared head component; a probe whose zero-length baseline is already
+blocked is ignored, preventing tight authored camera starts from trapping the
+view. This is a sampled head volume, not a physics shape cast or player capsule.
+
+The existing AFR eye caches also make a deterministic spectator path possible.
+After `xrEndFrame` completes, but before the real `SwapBuffers`, the selected
+left or right cache can be blitted to the desktop backbuffer. Fit clears black
+bars, fill crops symmetrically, and stretch uses the complete rectangles. The GL
+bridge restores framebuffer, read/draw buffer, scissor, clear color, and color
+mask state. `DesktopMirrorEye=native` performs no blit and is the rollback.
+
+Finally, the six existing HPL render-stage detours now optionally measure every
+call with QPC and attribute it to the active AFR eye. Periodic and shutdown rows
+report calls, average microseconds, and total milliseconds for viewport, world,
+callbacks, post effects, post-post, and screen GUI. This supplies CPU evidence
+for same-frame dual rendering. A nonblocking OpenGL timestamp-query ring is still
+needed for GPU cost; CPU totals alone do not prove dual-render feasibility.
+
 ## 0.24.0 Room-Scale Safety Result
 
 The shipped global script surface registers:
@@ -26,10 +50,10 @@ component replaces only the raw physical-head component in eye/controller poses,
 so IPD, eye-height calibration, authored camera movement, and relative hand aim
 remain coherent.
 
-The current query models the head as a point and intentionally ignores dynamic
-objects. Next stages are: validate world-unit clearance across maps, identify a
-dynamic-inclusive policy that does not jitter against moving doors, and replace
-the point segment with multiple rays or a confirmed shape/capsule sweep. Native
+The initial query intentionally ignores dynamic objects. `0.25.0` adds sampled
+head volume, so next stages are: validate clearance/radii across maps, identify a
+dynamic-inclusive policy that does not jitter against moving doors, and recover
+a confirmed shape cast or native player-capsule reconciliation path. Native
 player capsule movement remains entirely owned by SOMA.
 
 ## 0.23.0 Controller Flashlight Result

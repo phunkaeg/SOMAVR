@@ -81,8 +81,13 @@ authored cameras automatically retain SOMA's camera-mounted transform.
 With `HPLRoomscaleSafety=1`, physical HMD translation is checked against SOMA's
 static world before it is applied. Blocked movement is shortened by a bounded
 search plus `HPLRoomscaleSafetyClearanceMeters`; both eyes, controller poses,
-hands, interaction, and flashlight reuse the same result. This first pass treats
-the head as a point and does not yet collide with moving geometry.
+hands, interaction, and flashlight reuse the same result. A configurable
+horizontal ring plus top/bottom probes approximate head volume; invalid probes
+are skipped so a tight authored starting position cannot trap the view. Moving
+geometry and native player-capsule reconciliation remain separate work.
+`DesktopMirrorEye=left` or `right` replaces the alternating desktop image with a
+stable cached eye after headset submission. `DesktopMirrorAspect` accepts `fit`,
+`fill`, or `stretch`; `native` eye mode restores SOMA's untouched backbuffer.
 Paused menus suppress all gameplay injection. The dominant controller aim moves
 the native menu cursor and trigger/select clicks when `MenuPointer=1`.
 With the opt-in `MovementReference=head`, movement follows calibrated HMD yaw
@@ -144,8 +149,11 @@ HPLRoomscaleControl=1
 HPLRoomscaleEnabledDefault=1
 HPLRoomscaleVertical=1
 HPLRoomscaleSafety=1
-HPLRoomscaleSafetyClearanceMeters=0.12
+HPLRoomscaleSafetyClearanceMeters=0.02
 HPLRoomscaleSafetyIterations=6
+HPLRoomscaleSafetyRadiusMeters=0.09
+HPLRoomscaleSafetyVerticalRadiusMeters=0.12
+HPLRoomscaleSafetyRadialSamples=6
 HPLReflectionFadeControl=1
 HPLComfortCameraAddControl=1
 HPLComfortSuppressHeadBob=1
@@ -156,6 +164,7 @@ HPLCameraLogInterval=120
 HPLStereoAFR=1
 HPLWorldScale=1.0
 HPLRenderStageProbe=1
+HPLPerEyePerformanceTelemetry=1
 HPLAudioListenerProbe=1
 HPLAudioListenerCorrection=1
 HPLAudioListenerTranslation=1
@@ -177,6 +186,8 @@ HoldFrames=0
 ManualStart=1
 FrameSubmit=1
 MirrorBackbuffer=1
+DesktopMirrorEye=left
+DesktopMirrorAspect=fit
 ResolutionScalePercent=100
 ReferenceSpace=local
 RecoveryEnabled=1

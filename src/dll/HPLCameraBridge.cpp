@@ -21,6 +21,7 @@ namespace somavr {
 namespace {
 
 using camera_math::BuildOpenXRProjection;
+using camera_math::BuildRoomscaleSafetySampleOffsets;
 using camera_math::CenterProjectionFov;
 using camera_math::Conjugate;
 using camera_math::ComputeRoomscaleSafetyFactor;
@@ -99,8 +100,17 @@ struct FrustumParameters {
 struct RoomscaleSafetyResult {
     Vector3 translation{};
     float factor = 1.0f;
+    uint32_t probeCount = 0;
+    uint32_t validProbeCount = 0;
+    uint32_t blockedProbeCount = 0;
     bool queried = false;
     bool clamped = false;
+};
+
+struct RoomscaleProbeResult {
+    float clearFraction = 1.0f;
+    bool valid = false;
+    bool blocked = false;
 };
 
 struct BridgeState {
@@ -158,6 +168,8 @@ std::atomic<uint64_t> g_nativeRollObservedCalls = 0;
 std::atomic<uint64_t> g_nativeRollSuppressedCalls = 0;
 std::atomic<uint64_t> g_roomscaleSafetySamples = 0;
 std::atomic<uint64_t> g_roomscaleSafetyQueries = 0;
+std::atomic<uint64_t> g_roomscaleSafetyProbes = 0;
+std::atomic<uint64_t> g_roomscaleSafetySkippedProbes = 0;
 std::atomic<uint64_t> g_roomscaleSafetyBlocked = 0;
 std::atomic<uint64_t> g_roomscaleSafetyClamped = 0;
 std::atomic<uint64_t> g_roomscaleSafetyFallbacks = 0;
@@ -210,6 +222,51 @@ void InvalidateRoomscaleSafetyCache()
     g_state.roomscaleSafetyResult = RoomscaleSafetyResult{};
 }
 
+RoomscaleProbeResult QueryRoomscaleProbe(
+    const std::array<float, 3>& start,
+    const Vector3& worldTranslation)
+{
+    RoomscaleProbeResult result;
+    const std::array<float, 3> end = {
+        start[0] + worldTranslation.x,
+        start[1] + worldTranslation.y,
+        start[2] + worldTranslation.z,
+    };
+    g_roomscaleSafetyProbes.fetch_add(1, std::memory_order_relaxed);
+    g_roomscaleSafetyQueries.fetch_add(1, std::memory_order_relaxed);
+    if (g_checkLineOfSight(start.data(), end.data(), false, true)) {
+        result.valid = true;
+        return result;
+    }
+
+    result.blocked = true;
+    g_roomscaleSafetyQueries.fetch_add(1, std::memory_order_relaxed);
+    if (!g_checkLineOfSight(start.data(), start.data(), false, true)) {
+        g_roomscaleSafetySkippedProbes.fetch_add(1, std::memory_order_relaxed);
+        return result;
+    }
+
+    result.valid = true;
+    float clearFraction = 0.0f;
+    float blockedFraction = 1.0f;
+    for (int index = 0; index < g_config.hplRoomscaleSafetyIterations; ++index) {
+        const float candidateFraction = (clearFraction + blockedFraction) * 0.5f;
+        const std::array<float, 3> candidate = {
+            start[0] + worldTranslation.x * candidateFraction,
+            start[1] + worldTranslation.y * candidateFraction,
+            start[2] + worldTranslation.z * candidateFraction,
+        };
+        g_roomscaleSafetyQueries.fetch_add(1, std::memory_order_relaxed);
+        if (g_checkLineOfSight(start.data(), candidate.data(), false, true)) {
+            clearFraction = candidateFraction;
+        } else {
+            blockedFraction = candidateFraction;
+        }
+    }
+    result.clearFraction = clearFraction;
+    return result;
+}
+
 RoomscaleSafetyResult ClampRoomscaleHeadTranslation(
     const Vector3& translation,
     uint64_t poseFrame)
@@ -246,56 +303,54 @@ RoomscaleSafetyResult ClampRoomscaleHeadTranslation(
 
     g_roomscaleSafetySamples.fetch_add(1, std::memory_order_relaxed);
     const Vector3 worldTranslation = TransformLocalOffsetToWorld(translation, g_state.baseView);
-    const std::array<float, 3> start = g_state.parameters.origin;
-    const std::array<float, 3> end = {
-        start[0] + worldTranslation.x,
-        start[1] + worldTranslation.y,
-        start[2] + worldTranslation.z,
-    };
+    const std::array<float, 3> origin = g_state.parameters.origin;
     if (!IsFinite(worldTranslation)
-        || !std::isfinite(start[0]) || !std::isfinite(start[1]) || !std::isfinite(start[2])) {
+        || !std::isfinite(origin[0]) || !std::isfinite(origin[1]) || !std::isfinite(origin[2])) {
         g_roomscaleSafetyFallbacks.fetch_add(1, std::memory_order_relaxed);
     } else {
-        result.queried = true;
-        g_roomscaleSafetyQueries.fetch_add(1, std::memory_order_relaxed);
-        const bool fullSegmentClear = g_checkLineOfSight(start.data(), end.data(), false, true);
-        if (!fullSegmentClear) {
-            g_roomscaleSafetyBlocked.fetch_add(1, std::memory_order_relaxed);
-            g_roomscaleSafetyQueries.fetch_add(1, std::memory_order_relaxed);
-            const bool baselineValid = g_checkLineOfSight(start.data(), start.data(), false, true);
-            if (!baselineValid) {
-                g_roomscaleSafetyFallbacks.fetch_add(1, std::memory_order_relaxed);
-                result.queried = false;
-            } else {
-                float clearFraction = 0.0f;
-                float blockedFraction = 1.0f;
-                for (int index = 0; index < g_config.hplRoomscaleSafetyIterations; ++index) {
-                    const float candidateFraction = (clearFraction + blockedFraction) * 0.5f;
-                    const std::array<float, 3> candidate = {
-                        start[0] + worldTranslation.x * candidateFraction,
-                        start[1] + worldTranslation.y * candidateFraction,
-                        start[2] + worldTranslation.z * candidateFraction,
-                    };
-                    g_roomscaleSafetyQueries.fetch_add(1, std::memory_order_relaxed);
-                    if (g_checkLineOfSight(start.data(), candidate.data(), false, true)) {
-                        clearFraction = candidateFraction;
-                    } else {
-                        blockedFraction = candidateFraction;
-                    }
-                }
+        std::array<Vector3, camera_math::kMaxRoomscaleSafetySamples> offsets{};
+        const float worldScale = std::max(g_config.hplWorldScale, 0.001f);
+        const size_t offsetCount = BuildRoomscaleSafetySampleOffsets(
+            g_config.hplRoomscaleSafetyRadiusMeters * worldScale,
+            g_config.hplRoomscaleSafetyVerticalRadiusMeters * worldScale,
+            g_config.hplRoomscaleSafetyRadialSamples,
+            offsets);
+        result.probeCount = static_cast<uint32_t>(offsetCount);
+        float clearFraction = 1.0f;
+        for (size_t index = 0; index < offsetCount; ++index) {
+            const Vector3 worldOffset = TransformLocalOffsetToWorld(offsets[index], g_state.baseView);
+            const std::array<float, 3> start = {
+                origin[0] + worldOffset.x,
+                origin[1] + worldOffset.y,
+                origin[2] + worldOffset.z,
+            };
+            const RoomscaleProbeResult probe = QueryRoomscaleProbe(start, worldTranslation);
+            if (!probe.valid) {
+                continue;
+            }
+            ++result.validProbeCount;
+            if (probe.blocked) {
+                ++result.blockedProbeCount;
+                clearFraction = std::min(clearFraction, probe.clearFraction);
+            }
+        }
 
-                const float clearance = std::max(g_config.hplRoomscaleSafetyClearanceMeters, 0.0f)
-                    * std::max(g_config.hplWorldScale, 0.001f);
-                result.factor = ComputeRoomscaleSafetyFactor(clearFraction, distance, clearance);
-                result.translation = {
-                    translation.x * result.factor,
-                    translation.y * result.factor,
-                    translation.z * result.factor,
-                };
-                result.clamped = result.factor < 0.999f;
-                if (result.clamped) {
-                    g_roomscaleSafetyClamped.fetch_add(1, std::memory_order_relaxed);
-                }
+        result.queried = result.validProbeCount != 0;
+        if (!result.queried) {
+            g_roomscaleSafetyFallbacks.fetch_add(1, std::memory_order_relaxed);
+        } else if (result.blockedProbeCount != 0) {
+            g_roomscaleSafetyBlocked.fetch_add(1, std::memory_order_relaxed);
+            const float clearance = std::max(g_config.hplRoomscaleSafetyClearanceMeters, 0.0f)
+                * worldScale;
+            result.factor = ComputeRoomscaleSafetyFactor(clearFraction, distance, clearance);
+            result.translation = {
+                translation.x * result.factor,
+                translation.y * result.factor,
+                translation.z * result.factor,
+            };
+            result.clamped = result.factor < 0.999f;
+            if (result.clamped) {
+                g_roomscaleSafetyClamped.fetch_add(1, std::memory_order_relaxed);
             }
         }
     }
@@ -306,17 +361,23 @@ RoomscaleSafetyResult ClampRoomscaleHeadTranslation(
     if (transition || sample <= 4 || sample % interval == 0) {
         Logger::Instance().Write(
             result.clamped ? LogLevel::Warn : LogLevel::Info,
-            "hpl_roomscale_safety sample=%llu poseFrame=%llu queried=%d clamped=%d transition=%d factor=%.5f raw=%.5f,%.5f,%.5f safe=%.5f,%.5f,%.5f distance=%.5f clearanceMeters=%.3f iterations=%d staticOnly=1",
+            "hpl_roomscale_safety sample=%llu poseFrame=%llu queried=%d clamped=%d transition=%d factor=%.5f probes=%u validProbes=%u blockedProbes=%u raw=%.5f,%.5f,%.5f safe=%.5f,%.5f,%.5f distance=%.5f clearanceMeters=%.3f radiusMeters=%.3f verticalRadiusMeters=%.3f radialSamples=%d iterations=%d staticOnly=1",
             static_cast<unsigned long long>(sample),
             static_cast<unsigned long long>(poseFrame),
             result.queried ? 1 : 0,
             result.clamped ? 1 : 0,
             transition ? 1 : 0,
             result.factor,
+            result.probeCount,
+            result.validProbeCount,
+            result.blockedProbeCount,
             translation.x, translation.y, translation.z,
             result.translation.x, result.translation.y, result.translation.z,
             distance,
             g_config.hplRoomscaleSafetyClearanceMeters,
+            g_config.hplRoomscaleSafetyRadiusMeters,
+            g_config.hplRoomscaleSafetyVerticalRadiusMeters,
+            g_config.hplRoomscaleSafetyRadialSamples,
             g_config.hplRoomscaleSafetyIterations);
     }
 
@@ -1322,6 +1383,8 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
     g_nativeRollSuppressedCalls.store(0, std::memory_order_relaxed);
     g_roomscaleSafetySamples.store(0, std::memory_order_relaxed);
     g_roomscaleSafetyQueries.store(0, std::memory_order_relaxed);
+    g_roomscaleSafetyProbes.store(0, std::memory_order_relaxed);
+    g_roomscaleSafetySkippedProbes.store(0, std::memory_order_relaxed);
     g_roomscaleSafetyBlocked.store(0, std::memory_order_relaxed);
     g_roomscaleSafetyClamped.store(0, std::memory_order_relaxed);
     g_roomscaleSafetyFallbacks.store(0, std::memory_order_relaxed);
@@ -1351,7 +1414,7 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         LogLevel::Warn,
-        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx lineOfSightRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 recenterKey=F2 projectionKey=F5 roomscaleKey=F4 recenterControl=%d stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d verticalRoomscale=%d roomscaleSafety=%d roomscaleClearanceMeters=%.3f roomscaleIterations=%d roomscaleStaticOnly=1 eyeHeightOffsetMeters=%.4f nativeRollSuppression=%d nativeRollOffsets=0x%zx,0x%zx worldScale=%.4f activationStableFrames=%u activationMaxPositionStep=%.3f activationMaxOrientationStepDeg=%.1f logInterval=%d",
+        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx lineOfSightRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 recenterKey=F2 projectionKey=F5 roomscaleKey=F4 recenterControl=%d stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d verticalRoomscale=%d roomscaleSafety=%d roomscaleClearanceMeters=%.3f roomscaleRadiusMeters=%.3f roomscaleVerticalRadiusMeters=%.3f roomscaleRadialSamples=%d roomscaleIterations=%d roomscaleStaticOnly=1 eyeHeightOffsetMeters=%.4f nativeRollSuppression=%d nativeRollOffsets=0x%zx,0x%zx worldScale=%.4f activationStableFrames=%u activationMaxPositionStep=%.3f activationMaxOrientationStepDeg=%.1f logInterval=%d",
         ModulePath(executable).c_str(),
         executable,
         static_cast<unsigned long long>(kCameraGetFrustumRva),
@@ -1365,6 +1428,9 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
         g_config.hplRoomscaleVertical ? 1 : 0,
         g_config.hplRoomscaleSafety ? 1 : 0,
         g_config.hplRoomscaleSafetyClearanceMeters,
+        g_config.hplRoomscaleSafetyRadiusMeters,
+        g_config.hplRoomscaleSafetyVerticalRadiusMeters,
+        g_config.hplRoomscaleSafetyRadialSamples,
         g_config.hplRoomscaleSafetyIterations,
         g_config.hplEyeHeightOffsetMeters,
         g_config.hplNativeCameraRollSuppression ? 1 : 0,
@@ -1383,7 +1449,7 @@ void LogHPLCameraBridgeSummary()
     std::lock_guard lock(g_stateMutex);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu",
+        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyProbes=%llu roomscaleSafetySkippedProbes=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu",
         static_cast<unsigned long long>(g_getFrustumCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_candidateCalls.load(std::memory_order_relaxed)),
         g_state.activationPending ? 1 : 0,
@@ -1405,6 +1471,8 @@ void LogHPLCameraBridgeSummary()
         static_cast<unsigned long long>(g_nativeRollSuppressedCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_roomscaleSafetySamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_roomscaleSafetyQueries.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_roomscaleSafetyProbes.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_roomscaleSafetySkippedProbes.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_roomscaleSafetyBlocked.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_roomscaleSafetyClamped.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_roomscaleSafetyFallbacks.load(std::memory_order_relaxed)));

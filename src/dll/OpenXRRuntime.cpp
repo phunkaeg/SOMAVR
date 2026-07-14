@@ -109,6 +109,8 @@ struct OpenXRRuntime::Impl {
         bool manualStart,
         bool frameSubmit,
         bool mirrorBackbuffer,
+        const std::string& desktopMirrorEye,
+        const std::string& desktopMirrorAspect,
         int resolutionScalePercent,
         const std::string& referenceSpace,
         bool inputEnabled,
@@ -146,6 +148,17 @@ struct OpenXRRuntime::Impl {
         manualStartEnabled_ = manualStart;
         frameSubmitEnabled_ = frameSubmit;
         mirrorBackbufferEnabled_ = mirrorBackbuffer;
+        desktopMirrorEye_ = desktopMirrorEye == "left" || desktopMirrorEye == "right"
+            ? desktopMirrorEye : "native";
+        desktopMirrorEyeIndex_ = desktopMirrorEye_ == "left" ? 0
+            : desktopMirrorEye_ == "right" ? 1 : -1;
+        desktopMirrorAspect_ = desktopMirrorAspect == "fill" || desktopMirrorAspect == "stretch"
+            ? desktopMirrorAspect : "fit";
+        desktopMirrorAspectMode_ = desktopMirrorAspect_ == "fill"
+            ? spectator_math::AspectMode::Fill
+            : desktopMirrorAspect_ == "stretch"
+                ? spectator_math::AspectMode::Stretch
+                : spectator_math::AspectMode::Fit;
         resolutionScalePercent_ = std::clamp(resolutionScalePercent, 25, 200);
         requestedReferenceSpace_ = referenceSpace == "stage" ? "stage" : "local";
         inputEnabled_ = inputEnabled;
@@ -189,9 +202,11 @@ struct OpenXRRuntime::Impl {
         manualStartKeyDown_ = false;
         manualStartFrame_ = 0;
         unavailableLogged_ = false;
+        desktopMirrorFrames_ = 0;
+        desktopMirrorFailures_ = 0;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
+            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d desktopMirrorEye=%s desktopMirrorAspect=%s resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -200,6 +215,8 @@ struct OpenXRRuntime::Impl {
             manualStartEnabled_ ? 1 : 0,
             frameSubmitEnabled_ ? 1 : 0,
             mirrorBackbufferEnabled_ ? 1 : 0,
+            desktopMirrorEye_.c_str(),
+            desktopMirrorAspect_.c_str(),
             resolutionScalePercent_,
             requestedReferenceSpace_.c_str(),
             inputEnabled_ ? 1 : 0,
@@ -375,6 +392,10 @@ struct OpenXRRuntime::Impl {
             << " openxrManualStartFrame=" << static_cast<unsigned long long>(manualStartFrame_)
             << " openxrFrameSubmit=" << (frameSubmitEnabled_ ? 1 : 0)
             << " openxrMirrorBackbuffer=" << (mirrorBackbufferEnabled_ ? 1 : 0)
+            << " openxrDesktopMirrorEye=" << desktopMirrorEye_
+            << " openxrDesktopMirrorAspect=" << desktopMirrorAspect_
+            << " openxrDesktopMirrorFrames=" << static_cast<unsigned long long>(desktopMirrorFrames_)
+            << " openxrDesktopMirrorFailures=" << static_cast<unsigned long long>(desktopMirrorFailures_)
             << " openxrResolutionScalePercent=" << resolutionScalePercent_
             << " openxrReferenceSpaceRequested=" << requestedReferenceSpace_
             << " openxrReferenceSpaceSelected=" << ReferenceSpaceTypeName(selectedReferenceSpace_)
@@ -1951,6 +1972,38 @@ private:
             return;
         }
 
+        if (desktopMirrorEyeIndex_ >= 0
+            && stereoSubmissionEnabled_
+            && glBridge_.StereoCachesReady()) {
+            const bool mirrored = glBridge_.CopyCacheToBackbuffer(
+                static_cast<uint32_t>(desktopMirrorEyeIndex_),
+                desktopMirrorAspectMode_);
+            if (mirrored) {
+                ++desktopMirrorFrames_;
+                if (desktopMirrorFrames_ == 1 || desktopMirrorFrames_ % 600 == 0) {
+                    Logger::Instance().Write(
+                        LogLevel::Info,
+                        "openxr_desktop_mirror applied frame=%llu eye=%s aspect=%s frames=%llu failures=%llu",
+                        static_cast<unsigned long long>(frameIndex),
+                        desktopMirrorEye_.c_str(),
+                        desktopMirrorAspect_.c_str(),
+                        static_cast<unsigned long long>(desktopMirrorFrames_),
+                        static_cast<unsigned long long>(desktopMirrorFailures_));
+                }
+            } else {
+                ++desktopMirrorFailures_;
+                if (desktopMirrorFailures_ <= 2 || desktopMirrorFailures_ % 120 == 0) {
+                    Logger::Instance().Write(
+                        LogLevel::Warn,
+                        "openxr_desktop_mirror failed frame=%llu eye=%s aspect=%s failures=%llu fallback=native_backbuffer",
+                        static_cast<unsigned long long>(frameIndex),
+                        desktopMirrorEye_.c_str(),
+                        desktopMirrorAspect_.c_str(),
+                        static_cast<unsigned long long>(desktopMirrorFailures_));
+                }
+            }
+        }
+
         consecutiveFrameFailures_ = 0;
         ++completedXrFrameCount_;
         if (layerCount > 0) {
@@ -1964,7 +2017,7 @@ private:
         if (completedXrFrameCount_ == 1 || (completedXrFrameCount_ % 300) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d hud=%d reticle=%d stereoCaptured=%llu stereoSubmitted=%llu hudSubmitted=%llu reticleSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
+                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d hud=%d reticle=%d spectatorFrames=%llu stereoCaptured=%llu stereoSubmitted=%llu hudSubmitted=%llu reticleSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
                 static_cast<unsigned long long>(frameIndex),
                 static_cast<unsigned long long>(completedXrFrameCount_),
                 frameState.shouldRender == XR_TRUE ? 1 : 0,
@@ -1973,6 +2026,7 @@ private:
                 submittedStereo ? 1 : 0,
                 submittedHud ? 1 : 0,
                 submittedInteractionReticle ? 1 : 0,
+                static_cast<unsigned long long>(desktopMirrorFrames_),
                 static_cast<unsigned long long>(stereoCapturedEyeCount_),
                 static_cast<unsigned long long>(stereoSubmittedFrameCount_),
                 static_cast<unsigned long long>(hudSubmittedFrames_),
@@ -2089,6 +2143,12 @@ private:
     bool inputEnabled_ = false;
     int inputLogInterval_ = 120;
     bool mirrorBackbufferEnabled_ = true;
+    std::string desktopMirrorEye_ = "native";
+    std::string desktopMirrorAspect_ = "fit";
+    int desktopMirrorEyeIndex_ = -1;
+    spectator_math::AspectMode desktopMirrorAspectMode_ = spectator_math::AspectMode::Fit;
+    uint64_t desktopMirrorFrames_ = 0;
+    uint64_t desktopMirrorFailures_ = 0;
     int resolutionScalePercent_ = 100;
     std::string requestedReferenceSpace_ = "local";
     bool frameResourcesReady_ = false;
@@ -2218,6 +2278,8 @@ struct OpenXRRuntime::Impl {
         bool manualStart,
         bool frameSubmit,
         bool mirrorBackbuffer,
+        const std::string& desktopMirrorEye,
+        const std::string& desktopMirrorAspect,
         int resolutionScalePercent,
         const std::string& referenceSpace,
         bool inputEnabled,
@@ -2255,6 +2317,8 @@ struct OpenXRRuntime::Impl {
         manualStartEnabled_ = manualStart;
         frameSubmitEnabled_ = frameSubmit;
         mirrorBackbufferEnabled_ = mirrorBackbuffer;
+        desktopMirrorEye_ = desktopMirrorEye;
+        desktopMirrorAspect_ = desktopMirrorAspect;
         resolutionScalePercent_ = resolutionScalePercent;
         referenceSpace_ = referenceSpace;
         inputEnabled_ = inputEnabled;
@@ -2268,7 +2332,7 @@ struct OpenXRRuntime::Impl {
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
+            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d desktopMirrorEye=%s desktopMirrorAspect=%s resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -2277,6 +2341,8 @@ struct OpenXRRuntime::Impl {
             manualStartEnabled_ ? 1 : 0,
             frameSubmitEnabled_ ? 1 : 0,
             mirrorBackbufferEnabled_ ? 1 : 0,
+            desktopMirrorEye_.c_str(),
+            desktopMirrorAspect_.c_str(),
             resolutionScalePercent_,
             referenceSpace_.c_str(),
             inputEnabled_ ? 1 : 0,
@@ -2435,6 +2501,8 @@ private:
     int trackingRecoveryBlackoutFrames_ = 2;
     bool hudLayerEnabled_ = false;
     bool mirrorBackbufferEnabled_ = true;
+    std::string desktopMirrorEye_ = "native";
+    std::string desktopMirrorAspect_ = "fit";
     int resolutionScalePercent_ = 100;
     std::string referenceSpace_ = "local";
     bool unavailableLogged_ = false;
@@ -2456,6 +2524,8 @@ void OpenXRRuntime::Configure(
     bool manualStart,
     bool frameSubmit,
     bool mirrorBackbuffer,
+    const std::string& desktopMirrorEye,
+    const std::string& desktopMirrorAspect,
     int resolutionScalePercent,
     const std::string& referenceSpace,
     bool inputEnabled,
@@ -2493,6 +2563,8 @@ void OpenXRRuntime::Configure(
         manualStart,
         frameSubmit,
         mirrorBackbuffer,
+        desktopMirrorEye,
+        desktopMirrorAspect,
         resolutionScalePercent,
         referenceSpace,
         inputEnabled,

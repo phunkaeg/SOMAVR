@@ -382,6 +382,88 @@ bool OpenXRGLBridge::CopyCacheToEye(uint32_t eyeIndex)
     return copied;
 }
 
+bool OpenXRGLBridge::CopyCacheToBackbuffer(
+    uint32_t eyeIndex,
+    spectator_math::AspectMode aspectMode)
+{
+    if (!Ready() || eyeIndex >= eyes_.size() || !eyes_[eyeIndex].cacheValid) {
+        return false;
+    }
+
+    EyeSwapchain& eye = eyes_[eyeIndex];
+    int32_t viewport[4] = {};
+    int32_t savedReadFramebuffer = 0;
+    int32_t savedDrawFramebuffer = 0;
+    int32_t savedReadBuffer = 0;
+    int32_t savedDrawBuffer = 0;
+    float savedClearColor[4] = {};
+    GLboolean savedColorMask[4] = {};
+    glGetIntegerv(kGlViewport, viewport);
+    glGetIntegerv(kGlReadFramebufferBinding, &savedReadFramebuffer);
+    glGetIntegerv(kGlDrawFramebufferBinding, &savedDrawFramebuffer);
+    glGetIntegerv(kGlReadBuffer, &savedReadBuffer);
+    glGetIntegerv(kGlDrawBuffer, &savedDrawBuffer);
+    glGetFloatv(kGlColorClearValue, savedClearColor);
+    glGetBooleanv(kGlColorWriteMask, savedColorMask);
+
+    spectator_math::BlitLayout layout;
+    if (!spectator_math::ComputeBlitLayout(
+            eye.width,
+            eye.height,
+            viewport[2],
+            viewport[3],
+            aspectMode,
+            layout)) {
+        return false;
+    }
+
+    const GLboolean scissorEnabled = glIsEnabled(kGlScissorTest);
+    if (scissorEnabled == GL_TRUE) {
+        glDisable(kGlScissorTest);
+    }
+
+    glBindFramebuffer_(kGlDrawFramebuffer, 0);
+    glDrawBuffer(kGlBack);
+    if (layout.clearDestination) {
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(kGlColorBufferBit);
+        glClearColor(
+            savedClearColor[0],
+            savedClearColor[1],
+            savedClearColor[2],
+            savedClearColor[3]);
+        glColorMask(
+            savedColorMask[0],
+            savedColorMask[1],
+            savedColorMask[2],
+            savedColorMask[3]);
+    }
+
+    glBindFramebuffer_(kGlReadFramebuffer, eye.cacheFramebuffer);
+    glReadBuffer(kGlColorAttachment0);
+    glBlitFramebuffer_(
+        layout.sourceX0,
+        layout.sourceY0,
+        layout.sourceX1,
+        layout.sourceY1,
+        viewport[0] + layout.destinationX0,
+        viewport[1] + layout.destinationY0,
+        viewport[0] + layout.destinationX1,
+        viewport[1] + layout.destinationY1,
+        kGlColorBufferBit,
+        kGlLinear);
+
+    glBindFramebuffer_(kGlReadFramebuffer, static_cast<uint32_t>(savedReadFramebuffer));
+    glReadBuffer(static_cast<uint32_t>(savedReadBuffer));
+    glBindFramebuffer_(kGlDrawFramebuffer, static_cast<uint32_t>(savedDrawFramebuffer));
+    glDrawBuffer(static_cast<uint32_t>(savedDrawBuffer));
+    if (scissorEnabled == GL_TRUE) {
+        glEnable(kGlScissorTest);
+    }
+    return true;
+}
+
 bool OpenXRGLBridge::BeginHudCapture(uint64_t frameIndex)
 {
     if (!HudReady()

@@ -1,5 +1,15 @@
 # VR Compatibility Reverse-Engineering Map
 
+## 0.25.0 Dual-Render Budget Evidence
+
+The six existing viewport/world/callback/post/post-post/GUI hooks now accumulate
+QPC duration for every call and attribute it to the active AFR eye reported by
+`HPLCameraBridge`. Periodic `hpl_per_eye_cpu` rows expose left/right/mono calls,
+average microseconds, and total milliseconds without adding another executable
+hook. These totals can reject an obviously unaffordable same-frame dual render,
+but they do not include GPU completion time. A future nonblocking OpenGL
+timestamp-query ring must measure GPU stage cost without forcing synchronization.
+
 Created: 2026-07-11. This document covers systems that can silently break when
 the renderer becomes stereoscopic even if the basic HMD camera path is correct.
 It complements `FUTURE_SYSTEMS_RE.md`, which covers locomotion, hands, HUD, and

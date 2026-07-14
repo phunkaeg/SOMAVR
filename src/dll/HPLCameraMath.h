@@ -20,6 +20,8 @@ struct Vector3 {
     float z = 0.0f;
 };
 
+constexpr size_t kMaxRoomscaleSafetySamples = 19;
+
 struct PoseStabilityState {
     bool valid = false;
     uint64_t gameFrame = 0;
@@ -66,6 +68,12 @@ Vector3 ReplaceTrackedHeadTranslation(
     const Vector3& rawTrackedOffset,
     const Vector3& rawHeadTranslation,
     const Vector3& safeHeadTranslation);
+
+size_t BuildRoomscaleSafetySampleOffsets(
+    float horizontalRadius,
+    float verticalRadius,
+    int radialSamples,
+    std::array<Vector3, kMaxRoomscaleSafetySamples>& offsets);
 
 PoseStabilityUpdate UpdatePoseStability(
     PoseStabilityState& state,

@@ -2,6 +2,32 @@
 
 ## 2026-07-15
 
+### 0.25.0-volume-spectator-telemetry
+
+- Replaced the point-only room-scale safety sample with a configurable swept
+  head-volume approximation: center, horizontal radial ring, and top/bottom
+  static-world probes all share the confirmed `SOMA_CheckLineOfSight` boundary.
+  The earliest valid obstruction controls one coherent eye/controller offset;
+  probes whose authored start is already obstructed are skipped rather than
+  trapping the player.
+- Added desktop spectator controls sourced from the existing AFR eye caches.
+  `DesktopMirrorEye=left|right` presents a stable eye only after XR submission;
+  `native` is a no-op rollback. Fit, fill, and stretch policies use tested blit
+  layouts, restore GL framebuffer/buffer/scissor/clear/color-mask state, and
+  fail back to SOMA's native backbuffer.
+- Added opt-in per-eye CPU telemetry to the six existing signature-guarded HPL
+  render-stage hooks. Left, right, and mono call counts, average microseconds,
+  and total milliseconds are emitted periodically and at shutdown without new
+  executable detours. GPU timestamps remain future work.
+- Added deterministic head-volume sample and spectator-layout tests. Generated
+  configs keep all controls off/native; the active profile enables a six-point
+  radial ring, two vertical probes, stable left-eye fit mirror, and per-eye CPU
+  timing. Built and tested both default and OpenXR x64 Release flavors. OpenXR
+  SHA-256:
+  `CC9B34EDED6630653BD653C086735414F104457C6CE691D1A05E45FD6ECB72A9`.
+  Package SHA-256:
+  `D67FCFDFE38D50CF30C2440446116459D34D9CC519DB8ABA081C4716759228BF`.
+
 ### 0.24.0-roomscale-safety
 
 - Added collision-aware room-scale head translation at the confirmed shipped

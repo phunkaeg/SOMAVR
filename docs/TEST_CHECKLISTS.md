@@ -1,5 +1,38 @@
 # Test Checklists
 
+## 0.25.0 Head Volume, Spectator, And CPU Telemetry
+
+1. Confirm `version=0.25.0-volume-spectator-telemetry`,
+   `desktopMirrorEye=left desktopMirrorAspect=fit`,
+   `roomscaleRadiusMeters=0.090 roomscaleVerticalRadiusMeters=0.120`, and
+   `hpl_compat_probe ... perEyeCpu=1` in startup rows.
+2. Load a save and press F10 once. Confirm stereo reaches warm state and one
+   `openxr_desktop_mirror applied ... eye=left aspect=fit` row appears without an
+   XR frame failure.
+3. Inspect the desktop while rotating and translating. It must remain one stable
+   left-eye view rather than alternating eyes; the headset image, IPD, projection,
+   HUD layer, and frame submission must be unchanged. Black bars are expected
+   when the window and eye-cache aspect ratios differ.
+4. Set `DesktopMirrorEye=right` for one run and verify the eye changes. Exercise
+   `fill` and `stretch`, then set `native` and verify SOMA's original alternating
+   backbuffer returns. Any mirror failure must log `fallback=native_backbuffer`.
+5. In open space, confirm room-scale rows report `probes=9 validProbes=9` and no
+   clamp. Slowly approach flat walls, diagonal corners, ceiling edges, and low
+   static geometry; at least one blocked probe should stop the shared head pose
+   before clipping without eye, hand, flashlight, or reticle separation.
+6. Recenter beside tight authored geometry and transition maps. Skipped probes
+   may increase, but the view must not remain pinned after stepping into open
+   space. Dynamic doors remain outside this static-only acceptance gate.
+7. Let gameplay run for at least 240 frames. Confirm periodic
+   `hpl_per_eye_cpu` rows for all six stages with increasing left/right calls and
+   plausible nonzero averages; mono calls may cover startup and non-VR frames.
+8. Exit normally and retain final CPU totals, spectator frame/failure counters,
+   room-scale probe/query/skip counters, and the normal lifecycle summary.
+
+Stop for headset changes caused by spectator mode, desktop corruption, GL-state
+leakage, a persistent clamp in open space, stereo divergence, or stage timing
+that attributes all active VR work to mono.
+
 ## 0.24.0 Room-Scale Safety
 
 1. Launch the OpenXR Release build and confirm

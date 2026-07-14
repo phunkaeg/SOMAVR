@@ -1,5 +1,30 @@
 # Test Checklists
 
+## 0.30.0 Screen Materials
+
+1. Confirm `version=0.30.0-screen-effects` and
+   `hpl_screen_effect_bridge install_ok ... distanceScale=10.000` with no
+   signature or partial-install failure.
+2. Load a save and press F10. Trigger scripted damage, infection, distortion,
+   flash, or other sequences that call `Effect_Screen_Start`. Each live effect
+   should log one exact `Screen Particle<decimal>` creation.
+3. Hold the head still, close either eye in turn, and inspect the material. It
+   should cover the intended view without painful 15 cm convergence, eye-local
+   displacement, changed aspect, or altered opacity/timing.
+4. Rotate and translate the HMD. The material should remain camera-relative and
+   stable while the world remains rigid. It must not affect ordinary particles,
+   billboards, HUD, shadows, reflections, or controller-held models.
+5. Toggle F10 off while an effect is live and confirm native size/placement
+   resumes; toggle on and confirm the comfortable distance returns. Destroyed
+   effects must emit matching destroy rows and never contaminate a later object
+   reusing the same address.
+6. Recheck loading, authored cameras, HUD/menu, stereo recovery, and shutdown.
+   Retain the final bridge summary; `positionFallbacks` should be zero in stable
+   gameplay.
+
+Rollback with `HPLScreenEffectControl=0`; tune only convergence distance with
+`HPLScreenEffectDistanceMeters`.
+
 ## 0.29.0 Presentation And Optics
 
 1. Confirm `version=0.29.0-presentation-optics`, all three optics channels,

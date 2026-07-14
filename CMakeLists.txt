@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.29.0-presentation-optics")
+set(SOMAVR_BUILD_VERSION "0.30.0-screen-effects")
 
 include(FetchContent)
 
@@ -70,6 +70,7 @@ add_library(somavr_render_math STATIC
     src/dll/HPLHudMath.cpp
     src/dll/HPLInputMath.cpp
     src/dll/HPLMenuMath.cpp
+    src/dll/HPLScreenEffectMath.cpp
     src/dll/OpenGLMatrixAnalysis.cpp
     src/dll/OpenXRSpectatorMath.cpp
 )
@@ -86,6 +87,7 @@ add_library(somavr SHARED
     src/dll/HPLInputBridge.cpp
     src/dll/HPLMenuBridge.cpp
     src/dll/HPLPresentationBridge.cpp
+    src/dll/HPLScreenEffectBridge.cpp
     src/dll/HPLNativeLocomotion.cpp
     src/dll/HPLInteractionBridge.cpp
     src/dll/HPLCrosshairBridge.cpp

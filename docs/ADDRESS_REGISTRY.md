@@ -110,6 +110,10 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x140488fa0` | Confirmed, probe hook built | Exact `CreateVideo` script wrapper. `0.29.0` records the native string, returned stream pointer, and bounded active-stream count without changing playback. Ghidra: `HPL3_Script_CreateVideo`. |
 | `0x140488fd0` | Confirmed, probe hook built | Exact `DestroyVideo` script wrapper. `0.29.0` records stream lifetime and calls the original wrapper unchanged. Ghidra: `HPL3_Script_DestroyVideo`. |
 | `0x1400ccdb0` | Confirmed, read-only control built | Exact registered `IsLoadingScreenVisible()` wrapper. Resolves loading owners through game context slot `0x1407925e0`; `0.29.0` uses its result for XR blackout, AFR invalidation, and input release. Ghidra: `SOMA_IsLoadingScreenVisible`. |
+| `0x14024a2f0` | Confirmed, control hook built | Exact `cWorld::CreateBillboard` native wrapper registered for AngelScript. `0.30.0` reads the native name and tracks only `Screen Particle<decimal>` identities. Ghidra: `HPL3_World_CreateBillboard`. |
+| `0x140252700` | Confirmed, lifecycle hook built | Exact `cWorld::DestroyBillboard` wrapper. Removes tracked screen-material identity before native destruction. Ghidra: `HPL3_World_DestroyBillboard`. |
+| `0x1402936c0` | Confirmed, control hook built | Shared `iEntity3D::SetPosition` leaf used by the registered billboard method. `0.30.0` scales only atomically matched screen-material pointers relative to the active camera origin. Ghidra: `HPL3_Entity3D_SetPosition`. |
+| `0x140291700` | Confirmed, control hook built | Exact billboard `SetSize` leaf, writing `cBillboard +0x68/+0x6c`. Screen-material size follows the same distance ratio and returns to native outside F10 VR. Ghidra: `HPL3_Billboard_SetSize`. |
 | `0x1400edb2a`-`0x1400edd19` | Confirmed by registration strings | Registers load-screen force-background, small-icon, show-icon, and bar position/size controls. |
 
 ## HPL3 Camera Layout

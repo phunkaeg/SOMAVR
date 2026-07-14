@@ -2,6 +2,26 @@
 
 ## 2026-07-15
 
+### 0.30.0-screen-effects
+
+- Promoted SOMA's shipped `Effect_Screen.hps` screen-material path into a
+  dedicated native bridge. Exact `Screen Particle<decimal>` billboard identity
+  is captured at creation, retained through size/position updates, and removed
+  at the exact world destruction boundary.
+- During active F10 VR only, the authored `0.15` world-unit camera-relative
+  placement is moved to a configurable `1.5 m` target. Billboard dimensions use
+  the same ratio, preserving angular coverage while removing extreme binocular
+  convergence. Leaving VR restores native position and size behavior.
+- All four native boundaries are byte-signature guarded and installed
+  transactionally. Generic position/size hooks use a fixed atomic identity set
+  before touching the protected metadata map, keeping unrelated entities on a
+  lock-free pass-through path. Pure scaling tests cover translation, angular
+  size, and malformed inputs. Both Release flavors and tests pass.
+- OpenXR SHA-256:
+  `C4F6CCAC0C03103718D97DC6BFF47D7FC2D055FA3FF9CC9EDAAFD91B02B51E94`.
+  Package SHA-256:
+  `55182F897DACD22045D71C13105717462B31C17E8691C68D534EF268428A10A6`.
+
 ### 0.29.0-presentation-optics
 
 - Added reversible active-VR control at the exact registered FOV,

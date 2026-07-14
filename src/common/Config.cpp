@@ -161,6 +161,8 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLLoadingScreenControl=0\n"
         << "HPLLoadingScreenExitBlackoutFrames=2\n"
         << "HPLVideoLifecycleProbe=0\n"
+        << "HPLScreenEffectControl=0\n"
+        << "HPLScreenEffectDistanceMeters=1.5\n"
         << "HPLComfortLogInterval=120\n"
         << "HPLCameraLogInterval=120\n"
         << "HPLStereoAFR=0\n"
@@ -399,6 +401,8 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplloadingscreencontrol") config_.hplLoadingScreenControl = ParseBool(value, config_.hplLoadingScreenControl);
             else if (key == "hplloadingscreenexitblackoutframes") config_.hplLoadingScreenExitBlackoutFrames = ParseInt(value, config_.hplLoadingScreenExitBlackoutFrames, 0, 120);
             else if (key == "hplvideolifecycleprobe") config_.hplVideoLifecycleProbe = ParseBool(value, config_.hplVideoLifecycleProbe);
+            else if (key == "hplscreeneffectcontrol") config_.hplScreenEffectControl = ParseBool(value, config_.hplScreenEffectControl);
+            else if (key == "hplscreeneffectdistancemeters") config_.hplScreenEffectDistanceMeters = ParseFloat(value, config_.hplScreenEffectDistanceMeters, 0.25f, 5.0f);
             else if (key == "hplcomfortloginterval") config_.hplComfortLogInterval = ParseInt(value, config_.hplComfortLogInterval, 1, 100000);
             else if (key == "hplcameraloginterval") config_.hplCameraLogInterval = ParseInt(value, config_.hplCameraLogInterval, 1, 100000);
             else if (key == "hplstereoafr") config_.hplStereoAfr = ParseBool(value, config_.hplStereoAfr);

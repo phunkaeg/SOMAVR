@@ -185,6 +185,8 @@ struct Config {
     bool hplLoadingScreenControl = false;
     int hplLoadingScreenExitBlackoutFrames = 2;
     bool hplVideoLifecycleProbe = false;
+    bool hplScreenEffectControl = false;
+    float hplScreenEffectDistanceMeters = 1.5f;
     int hplComfortLogInterval = 120;
     int hplCameraLogInterval = 120;
     bool hplStereoAfr = false;

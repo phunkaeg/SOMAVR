@@ -7,6 +7,7 @@
 #include "HPLInputMath.h"
 #include "HPLMenuMath.h"
 #include "HPLPhysicalCrouchMath.h"
+#include "HPLScreenEffectMath.h"
 #include "OpenGLMatrixAnalysis.h"
 #include "OpenXRSpectatorMath.h"
 
@@ -221,6 +222,28 @@ int main()
     failures += Check(
         !hud_math::BuildHeadLockedQuadPose({}, {}, 0.0f, 0.0f, 1.0f, 1.0f, hudPose),
         "head-locked HUD rejects invalid distance");
+
+    camera_math::Vector3 screenEffectPosition;
+    failures += Check(
+        screen_effect_math::ScaleCameraRelativePosition(
+            {10.0f, 2.0f, -4.0f},
+            {10.15f, 1.925f, -4.15f},
+            10.0f,
+            screenEffectPosition)
+            && Near(screenEffectPosition.x, 11.5f)
+            && Near(screenEffectPosition.y, 1.25f)
+            && Near(screenEffectPosition.z, -5.5f),
+        "screen material preserves angular placement at a comfortable distance");
+    screen_effect_math::Size2 screenEffectSize;
+    failures += Check(
+        screen_effect_math::ScaleBillboardSize({0.3f, 0.15f}, 10.0f, screenEffectSize)
+            && Near(screenEffectSize.width, 3.0f)
+            && Near(screenEffectSize.height, 1.5f),
+        "screen material preserves angular size when moved outward");
+    failures += Check(
+        !screen_effect_math::ScaleCameraRelativePosition({}, {}, 0.0f, screenEffectPosition)
+            && !screen_effect_math::ScaleBillboardSize({0.0f, 1.0f}, 10.0f, screenEffectSize),
+        "screen material scaling rejects invalid inputs");
     float reticleSizeMeters = 0.0f;
     failures += Check(
         hud_math::ComputeAngularQuadSize(2.0f, 1.0f, 0.005f, 0.1f, reticleSizeMeters)

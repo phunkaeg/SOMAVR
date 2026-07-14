@@ -716,7 +716,7 @@ Use that state to select feedback at the controller ray hit:
 | Color grading/fog | world and map effect state | Keep per eye. These are scene effects rather than screen motion effects. |
 | Flash/energy flash | full-screen `GameHudSet` draw | Move with HUD capture or a dedicated fade/flash quad layer. |
 | Infection border | `GameHudSet` edge graphics | Keep on HUD layer; avoid filling peripheral vision at full intensity. |
-| Screen material effect | point billboard about `0.15` m in front of camera | Replace or push outward. At 15 cm it will have extreme convergence in stereo. |
+| Screen material effect | point billboard about `0.15` m in front of camera | Built in `0.30.0`: exact `Screen Particle<decimal>` billboards move to a configurable comfortable distance and scale equally to preserve angular coverage. |
 | Shake | additive camera position | Reduce or disable by comfort setting; never add it to raw HMD pose. |
 | Sway | camera position plus roll | Disable roll and heavily reduce translation by default. |
 | Head bob/crawl/lean | player camera adds | Comfort controls; preserve gameplay state without forcing the full camera motion. |
@@ -754,6 +754,9 @@ Same-frame dual rendering can later restore more effects, but temporal effects s
 3. **Per-eye post chain:** ensure the scene and post composite execute inside each eye render before caching/submission.
 4. **Per-eye history:** duplicate image-trail/temporal resources only if those effects are intentionally restored.
 5. **Overlay extraction:** move simple flashes, fades, and infection/HUD overlays to alpha-capable OpenXR layers.
+6. **Screen-material convergence:** built in `0.30.0`; four exact native
+   billboard boundaries provide reversible active-VR distance and size control
+   without classifying unrelated world billboards.
 
 ## Probe Order
 

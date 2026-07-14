@@ -41,6 +41,7 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.HUD_LAYER` | BUILT | `HPLHudBridge`, `HPLHudMath`, `OpenXRGLBridge`, `OpenXRRuntime` | `0x1400cc9b0`, `0x140213970`, transparent GL capture FBO, center crosshair clear, VIEW-space quad | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test alpha/scale, center-clear coverage, text placement, and native fallback; then add subtitle policy |
 | `FEATURE.DESKTOP_SPECTATOR` | BUILT | `OpenXRRuntime`, `OpenXRGLBridge`, `OpenXRSpectatorMath` | AFR eye caches, pre-SwapBuffers frame boundary, GL backbuffer blit | `BUILD_HISTORY.md`, `ARCHITECTURE.md`, `TEST_CHECKLISTS.md` | Live-test left/right eye identity, fit/fill/stretch, window modes, HUD expectations, and native rollback |
 | `FEATURE.POST_EFFECT_POLICY` | BUILT | `HPLCompatibilityProbe`, `OpenGLHooks` | `0x14033b8f0`, `0x14033bd80`, priority tree `+0x328`, named vtables, active byte `+0x31`, exact VideoDistortion type | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.2.md` | Live-test suppression of ImageTrail, VideoDistortion, ChromaticAberration, and RadialBlur while fades/tone mapping remain intact |
+| `FEATURE.SCREEN_MATERIAL_CONVERGENCE` | BUILT | `HPLScreenEffectBridge`, `HPLScreenEffectMath`, `HPLCameraBridge` | `0x14024a2f0`, `0x140252700`, `0x1402936c0`, `0x140291700`, exact `Screen Particle<decimal>` identity | `FUTURE_SYSTEMS_RE.md`, `ADDRESS_REGISTRY.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test shipped screen effects at 1.5 m, F10 rollback, native timing/opacity, destruction pairing, and zero unrelated billboard changes |
 | `FEATURE.SHADOW_STABILITY` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | fully centered projection, programs `942/944` | `VR_COMPATIBILITY_RE.md`, `RUNTIME_ANALYSIS_0.5.6.md` | Regression-test additional levels and light types |
 | `FEATURE.REFLECTION_STABILITY` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | fully centered projection, program `985` redirect | `VR_COMPATIBILITY_RE.md`, `RUNTIME_ANALYSIS_0.5.6.md` | Regression-test additional reflective materials and levels |
 | `FEATURE.AUDIO_LISTENER` | BUILT | `HPLCompatibilityProbe`, `HPLCameraBridge`, `HPLCameraMath` | `0x140289340`, world head offset, `0x14061d188`, `0x14048b2d4` | `VR_COMPATIBILITY_RE.md`, `BUILD_HISTORY.md` | Directional-source and near-field tests confirm orientation plus room-scale translation without world-lock or Doppler errors |
@@ -111,6 +112,8 @@ FEATURE.AUDIO_LISTENER requires FEATURE.AUTHORED_CAMERA
 FEATURE.LOADING_VIDEO requires FEATURE.HUD_LAYER
 FEATURE.COMFORT_POLICY constrains FEATURE.AUTHORED_CAMERA
 FEATURE.COMFORT_POLICY constrains FEATURE.POST_EFFECT_POLICY
+FEATURE.SCREEN_MATERIAL_CONVERGENCE requires FEATURE.HEAD_TRACKING
+FEATURE.SCREEN_MATERIAL_CONVERGENCE constrains FEATURE.POST_EFFECT_POLICY
 FEATURE.COMFORT_POLICY constrains FEATURE.LOCOMOTION
 HPLCameraBridge requires HPLCameraMath
 HPLCompatibilityProbe requires HPLCameraMath
@@ -121,6 +124,8 @@ HPLInputBridge requires OpenXRInput
 HPLInputBridge requires HPLCameraBridge
 HPLInputBridge requires HPLPlayerState
 HPLCompatibilityProbe consumes OpenGLHooks telemetry
+HPLScreenEffectBridge requires HPLScreenEffectMath
+HPLScreenEffectBridge requires HPLCameraBridge
 HPLInputBridge requires HPLNativeLocomotion
 HPLInputBridge requires HPLMenuBridge
 HPLNativeLocomotion requires HPLPlayerState

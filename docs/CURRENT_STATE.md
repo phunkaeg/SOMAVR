@@ -21,10 +21,17 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.29.0-presentation-optics`, layered on the
+The active build candidate is `0.30.0-screen-effects`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Script-created screen materials are now identified only by SOMA's exact
+  `Screen Particle<decimal>` billboard name. While F10 VR is active, their
+  shipped `0.15` camera-relative distance and native size are scaled together
+  to a configurable `1.5 m`, preserving apparent coverage without near-field
+  stereo convergence. The dedicated bridge restores native behavior outside VR
+  and removes identities at the exact billboard destruction boundary.
 
 - Exact registered FOV, FOV-multiplier, and aspect-multiplier leaf wrappers now
   have a reversible active-VR comfort policy. Scripted zoom/FOV requests resolve

@@ -261,6 +261,13 @@ void ConfigManager::WriteDefaultConfig() const
         << "HandRootPitchDegrees=0.0\n"
         << "HandRootYawDegrees=0.0\n"
         << "HandRootRollDegrees=0.0\n"
+        << "ControllerFlashlightAim=0\n"
+        << "FlashlightOffsetX=0.0\n"
+        << "FlashlightOffsetY=0.0\n"
+        << "FlashlightOffsetZ=0.03\n"
+        << "FlashlightPitchDegrees=0.0\n"
+        << "FlashlightYawDegrees=0.0\n"
+        << "FlashlightRollDegrees=0.0\n"
         << "ComfortBlackoutFrames=2\n"
         << "RecenterHoldMs=900\n"
         << "MaxInputAgeFrames=8\n"
@@ -513,6 +520,13 @@ void ConfigManager::LoadFromFile()
             else if (key == "handrootpitchdegrees") config_.hplHandRootPitchDegrees = ParseFloat(value, config_.hplHandRootPitchDegrees, -180.0f, 180.0f);
             else if (key == "handrootyawdegrees") config_.hplHandRootYawDegrees = ParseFloat(value, config_.hplHandRootYawDegrees, -180.0f, 180.0f);
             else if (key == "handrootrolldegrees") config_.hplHandRootRollDegrees = ParseFloat(value, config_.hplHandRootRollDegrees, -180.0f, 180.0f);
+            else if (key == "controllerflashlightaim") config_.hplControllerFlashlightAim = ParseBool(value, config_.hplControllerFlashlightAim);
+            else if (key == "flashlightoffsetx") config_.hplFlashlightOffsetX = ParseFloat(value, config_.hplFlashlightOffsetX, -5.0f, 5.0f);
+            else if (key == "flashlightoffsety") config_.hplFlashlightOffsetY = ParseFloat(value, config_.hplFlashlightOffsetY, -5.0f, 5.0f);
+            else if (key == "flashlightoffsetz") config_.hplFlashlightOffsetZ = ParseFloat(value, config_.hplFlashlightOffsetZ, -5.0f, 5.0f);
+            else if (key == "flashlightpitchdegrees") config_.hplFlashlightPitchDegrees = ParseFloat(value, config_.hplFlashlightPitchDegrees, -180.0f, 180.0f);
+            else if (key == "flashlightyawdegrees") config_.hplFlashlightYawDegrees = ParseFloat(value, config_.hplFlashlightYawDegrees, -180.0f, 180.0f);
+            else if (key == "flashlightrolldegrees") config_.hplFlashlightRollDegrees = ParseFloat(value, config_.hplFlashlightRollDegrees, -180.0f, 180.0f);
             else if (key == "comfortblackoutframes") config_.hplControllerComfortBlackoutFrames = ParseInt(value, config_.hplControllerComfortBlackoutFrames, 0, 120);
             else if (key == "recenterholdms") config_.hplControllerRecenterHoldMs = ParseInt(value, config_.hplControllerRecenterHoldMs, 250, 5000);
             else if (key == "maxinputageframes") config_.hplControllerMaxInputAgeFrames = ParseInt(value, config_.hplControllerMaxInputAgeFrames, 1, 300);

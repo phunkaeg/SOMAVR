@@ -1,6 +1,7 @@
 #include "HPLHandsBridge.h"
 
 #include "HPLCameraBridge.h"
+#include "HPLFlashlightMath.h"
 #include "HPLHandsMath.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
@@ -57,6 +58,7 @@ struct NativeStringLayout {
 
 struct EntityIdentity {
     bool playerHands = false;
+    bool flashlight = false;
     std::string name;
 };
 
@@ -74,6 +76,15 @@ std::atomic<uint64_t> g_identityReadFailures = 0;
 std::atomic<uint64_t> g_identityLogs = 0;
 std::atomic<uint64_t> g_playerHandsIdentities = 0;
 std::atomic<uint64_t> g_playerHandsCalls = 0;
+std::atomic<uint64_t> g_flashlightIdentities = 0;
+std::atomic<uint64_t> g_flashlightCalls = 0;
+std::atomic<uint64_t> g_flashlightOverrideAttempts = 0;
+std::atomic<uint64_t> g_flashlightOverrides = 0;
+std::atomic<uint64_t> g_flashlightStateFallbacks = 0;
+std::atomic<uint64_t> g_flashlightAuthoredFallbacks = 0;
+std::atomic<uint64_t> g_flashlightPoseFallbacks = 0;
+std::atomic<uint64_t> g_flashlightStaleFallbacks = 0;
+std::atomic<uint64_t> g_flashlightMathFallbacks = 0;
 std::atomic<uint64_t> g_matrixReadFailures = 0;
 std::atomic<uint64_t> g_quarterScaleSamples = 0;
 std::atomic<uint64_t> g_fullScaleSamples = 0;
@@ -159,23 +170,28 @@ EntityIdentity ResolveIdentity(void* entity)
         g_identityReadFailures.fetch_add(1, std::memory_order_relaxed);
     } else {
         identity.playerHands = StartsWithPlayerHands(identity.name);
+        identity.flashlight = identity.name == "Flashlight";
         if (identity.playerHands) {
             g_playerHandsIdentities.fetch_add(1, std::memory_order_relaxed);
         }
+        if (identity.flashlight) {
+            g_flashlightIdentities.fetch_add(1, std::memory_order_relaxed);
+        }
         const uint64_t logIndex = g_identityLogs.fetch_add(1, std::memory_order_relaxed);
-        if (logIndex < kMaxIdentityLogs || identity.playerHands) {
+        if (logIndex < kMaxIdentityLogs || identity.playerHands || identity.flashlight) {
             Logger::Instance().Write(
-                identity.playerHands ? LogLevel::Warn : LogLevel::Info,
-                "hpl_hands_identity entity=%p name=%s playerHands=%d nameObject=%p",
+                identity.playerHands || identity.flashlight ? LogLevel::Warn : LogLevel::Info,
+                "hpl_entity_identity entity=%p name=%s playerHands=%d flashlight=%d nameObject=%p",
                 entity,
                 identity.name.c_str(),
                 identity.playerHands ? 1 : 0,
+                identity.flashlight ? 1 : 0,
                 nativeName);
         }
     }
 
     std::lock_guard lock(g_identityMutex);
-    if (g_identityCache.size() < kMaxIdentityCache || identity.playerHands) {
+    if (g_identityCache.size() < kMaxIdentityCache || identity.playerHands || identity.flashlight) {
         g_identityCache[entity] = identity;
     }
     return identity;
@@ -356,6 +372,101 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                     player.moveStateId);
             }
         }
+    } else if (identity.flashlight) {
+        const uint64_t flashlightCall = g_flashlightCalls.fetch_add(1, std::memory_order_relaxed) + 1;
+        HPLPlayerStateSnapshot player{};
+        const bool playerSnapshotValid = GetHPLPlayerStateSnapshot(player);
+        const HPLCameraBridgeStatus camera = GetHPLCameraBridgeStatus();
+
+        OpenXRInputSnapshot input;
+        HPLTrackedPoseWorld worldAim;
+        uint32_t handIndex = 1;
+        bool aimValid = false;
+        uint64_t inputAge = UINT64_MAX;
+        if (g_openxr != nullptr
+            && g_openxr->GetLatestInput(input)
+            && input.active) {
+            const OpenXRHandInput* hand = SelectDominantHand(input, handIndex);
+            aimValid = hand != nullptr
+                && hand->aimPose.valid
+                && ResolveHPLTrackedPoseWorld(hand->aimPose, input.gameFrame, worldAim)
+                && worldAim.orientationTracked
+                && worldAim.positionTracked;
+            if (player.frame != 0 && input.gameFrame != 0) {
+                inputAge = player.frame >= input.gameFrame
+                    ? player.frame - input.gameFrame
+                    : 0;
+            }
+        }
+
+        bool flashlightOverridden = false;
+        if (g_config.hplControllerFlashlightAim) {
+            g_flashlightOverrideAttempts.fetch_add(1, std::memory_order_relaxed);
+            if (!playerSnapshotValid || !player.playerValid) {
+                g_flashlightStateFallbacks.fetch_add(1, std::memory_order_relaxed);
+            } else if (player.authoredCameraActive
+                && g_config.hplControllerSuppressDuringAuthoredCamera) {
+                g_flashlightAuthoredFallbacks.fetch_add(1, std::memory_order_relaxed);
+            } else if (!aimValid || !camera.trackingEnabled) {
+                g_flashlightPoseFallbacks.fetch_add(1, std::memory_order_relaxed);
+            } else if (inputAge > static_cast<uint64_t>(g_config.hplControllerMaxInputAgeFrames)) {
+                g_flashlightStaleFallbacks.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                const flashlight_math::FlashlightCalibration calibration{
+                    {
+                        g_config.hplFlashlightOffsetX,
+                        g_config.hplFlashlightOffsetY,
+                        g_config.hplFlashlightOffsetZ,
+                    },
+                    {
+                        g_config.hplFlashlightPitchDegrees,
+                        g_config.hplFlashlightYawDegrees,
+                        g_config.hplFlashlightRollDegrees,
+                    },
+                };
+                flashlightOverridden = flashlight_math::BuildControllerFlashlightMatrix(
+                    {worldAim.positionX, worldAim.positionY, worldAim.positionZ},
+                    {worldAim.forwardX, worldAim.forwardY, worldAim.forwardZ},
+                    {worldAim.upX, worldAim.upY, worldAim.upZ},
+                    calibration,
+                    controllerMatrix);
+                if (flashlightOverridden) {
+                    submittedMatrix = controllerMatrix.data();
+                    g_flashlightOverrides.fetch_add(1, std::memory_order_relaxed);
+                } else {
+                    g_flashlightMathFallbacks.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        }
+
+        const uint64_t interval = static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1));
+        if (flashlightCall <= 12 || flashlightCall % interval == 0) {
+            std::array<float, 16> nativeMatrix{};
+            const bool matrixValid = ReadMemory(matrixPointer, nativeMatrix.data(), sizeof(nativeMatrix));
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_flashlight_pose call=%llu entity=%p matrix=%p nativeMatrixValid=%d nativePos=%.4f,%.4f,%.4f aimValid=%d aimHand=%s aimPos=%.4f,%.4f,%.4f aimForward=%.5f,%.5f,%.5f inputAge=%llu requested=%d overridden=%d finalPos=%.4f,%.4f,%.4f authoredCamera=%d playerState=%d moveState=%d",
+                static_cast<unsigned long long>(flashlightCall),
+                entity,
+                matrixPointer,
+                matrixValid ? 1 : 0,
+                matrixValid ? nativeMatrix[3] : 0.0f,
+                matrixValid ? nativeMatrix[7] : 0.0f,
+                matrixValid ? nativeMatrix[11] : 0.0f,
+                aimValid ? 1 : 0,
+                handIndex == 0 ? "left" : "right",
+                worldAim.positionX, worldAim.positionY, worldAim.positionZ,
+                worldAim.forwardX, worldAim.forwardY, worldAim.forwardZ,
+                static_cast<unsigned long long>(inputAge),
+                g_config.hplControllerFlashlightAim ? 1 : 0,
+                flashlightOverridden ? 1 : 0,
+                flashlightOverridden ? controllerMatrix[3] : (matrixValid ? nativeMatrix[3] : 0.0f),
+                flashlightOverridden ? controllerMatrix[7] : (matrixValid ? nativeMatrix[7] : 0.0f),
+                flashlightOverridden ? controllerMatrix[11] : (matrixValid ? nativeMatrix[11] : 0.0f),
+                player.authoredCameraActive ? 1 : 0,
+                player.playerStateId,
+                player.moveStateId);
+        }
     }
 
     g_originalSetMatrix(entity, submittedMatrix);
@@ -368,7 +479,9 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
     std::lock_guard lock(g_installMutex);
     g_config = config;
     g_openxr = openxr;
-    if (!config.hplHandTrackingProbe && !config.hplHandControllerRoot) {
+    if (!config.hplHandTrackingProbe
+        && !config.hplHandControllerRoot
+        && !config.hplControllerFlashlightAim) {
         Logger::Instance().Write(LogLevel::Info, "hpl_hands_bridge disabled config=0");
         return true;
     }
@@ -417,17 +530,24 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
     g_setMatrixTarget = setMatrixTarget;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_hands_bridge install_ok setMatrixRva=0x%llx getNameRva=0x%llx probe=%d controllerRoot=%d offset=%.4f,%.4f,%.4f rotationDegrees=%.2f,%.2f,%.2f policy=exact_identity_quarter_scale_normal_state_tracked_grip cacheLimit=%llu identityLogLimit=%llu",
+        "hpl_hands_bridge install_ok setMatrixRva=0x%llx getNameRva=0x%llx probe=%d controllerRoot=%d flashlightAim=%d handOffset=%.4f,%.4f,%.4f handRotationDegrees=%.2f,%.2f,%.2f flashlightOffset=%.4f,%.4f,%.4f flashlightRotationDegrees=%.2f,%.2f,%.2f policy=exact_identity_guarded_tracked_pose cacheLimit=%llu identityLogLimit=%llu",
         static_cast<unsigned long long>(kLuxEntitySetMatrixRva),
         static_cast<unsigned long long>(kLuxEntityGetNameRva),
         config.hplHandTrackingProbe ? 1 : 0,
         config.hplHandControllerRoot ? 1 : 0,
+        config.hplControllerFlashlightAim ? 1 : 0,
         config.hplHandRootOffsetX,
         config.hplHandRootOffsetY,
         config.hplHandRootOffsetZ,
         config.hplHandRootPitchDegrees,
         config.hplHandRootYawDegrees,
         config.hplHandRootRollDegrees,
+        config.hplFlashlightOffsetX,
+        config.hplFlashlightOffsetY,
+        config.hplFlashlightOffsetZ,
+        config.hplFlashlightPitchDegrees,
+        config.hplFlashlightYawDegrees,
+        config.hplFlashlightRollDegrees,
         static_cast<unsigned long long>(kMaxIdentityCache),
         static_cast<unsigned long long>(kMaxIdentityLogs));
     return true;
@@ -460,7 +580,7 @@ void LogHPLHandsBridgeSummary()
     }
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_hands_bridge_summary installed=%d calls=%llu cachedIdentities=%llu identityReads=%llu identityReadFailures=%llu playerHandsIdentities=%llu playerHandsCalls=%llu matrixReadFailures=%llu quarterScaleSamples=%llu fullScaleSamples=%llu otherScaleSamples=%llu trackedGripSamples=%llu authoredCameraSamples=%llu rootOverrideAttempts=%llu rootOverrides=%llu rootScaleFallbacks=%llu rootStateFallbacks=%llu rootAuthoredFallbacks=%llu rootPoseFallbacks=%llu rootStaleFallbacks=%llu rootMathFallbacks=%llu",
+        "hpl_hands_bridge_summary installed=%d calls=%llu cachedIdentities=%llu identityReads=%llu identityReadFailures=%llu playerHandsIdentities=%llu playerHandsCalls=%llu flashlightIdentities=%llu flashlightCalls=%llu matrixReadFailures=%llu quarterScaleSamples=%llu fullScaleSamples=%llu otherScaleSamples=%llu trackedGripSamples=%llu authoredCameraSamples=%llu rootOverrideAttempts=%llu rootOverrides=%llu rootScaleFallbacks=%llu rootStateFallbacks=%llu rootAuthoredFallbacks=%llu rootPoseFallbacks=%llu rootStaleFallbacks=%llu rootMathFallbacks=%llu flashlightOverrideAttempts=%llu flashlightOverrides=%llu flashlightStateFallbacks=%llu flashlightAuthoredFallbacks=%llu flashlightPoseFallbacks=%llu flashlightStaleFallbacks=%llu flashlightMathFallbacks=%llu",
         g_setMatrixTarget != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_calls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(cachedIdentities),
@@ -468,6 +588,8 @@ void LogHPLHandsBridgeSummary()
         static_cast<unsigned long long>(g_identityReadFailures.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_playerHandsIdentities.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_playerHandsCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_flashlightIdentities.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_flashlightCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_matrixReadFailures.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_quarterScaleSamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_fullScaleSamples.load(std::memory_order_relaxed)),
@@ -481,7 +603,14 @@ void LogHPLHandsBridgeSummary()
         static_cast<unsigned long long>(g_rootAuthoredFallbacks.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_rootPoseFallbacks.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_rootStaleFallbacks.load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_rootMathFallbacks.load(std::memory_order_relaxed)));
+        static_cast<unsigned long long>(g_rootMathFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_flashlightOverrideAttempts.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_flashlightOverrides.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_flashlightStateFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_flashlightAuthoredFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_flashlightPoseFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_flashlightStaleFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_flashlightMathFallbacks.load(std::memory_order_relaxed)));
 }
 
 } // namespace somavr

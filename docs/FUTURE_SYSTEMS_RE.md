@@ -1,5 +1,31 @@
 # Future Systems Reverse Engineering
 
+## 0.23.0 Controller Flashlight Result
+
+Shipped `script/player/Player.hps` creates one `cLightSpot` named exactly
+`Flashlight`. `UpdateFlashlightRotation()` builds
+`camera rotation * rotateXYZ(5 degrees pitch)`, applies the authored
+`(0.03,-0.03,0)` camera-local offset, and ends at
+`cLux_ID_Light(mFlashlight_Light).SetMatrix(mtxLightRotate)`. This converges on
+the same registered `iLuxEntity.SetMatrix` wrapper at `0x1400bcd90` and inherited
+name accessor at `0x14000fb60` already guarded by `HPLHandsBridge`.
+
+`0.23.0` adds an exact `name == "Flashlight"` branch at that shared boundary and
+rebuilds only the submitted matrix from the dominant OpenXR **aim** pose. The
+spotlight's local negative Z follows tracked aim-forward; position and rotation
+calibration are independent from the grip-driven hand root. Missing player
+state, authored-camera suppression, inactive/stale tracking, or invalid basis
+always forwards the native matrix. The light object itself is untouched, so
+fade/color/visibility, radius/FOV/near clip, environment-particle registration,
+frustum collision, light sensors, and callbacks retain native ownership.
+
+One semantic mismatch remains explicit. `UpdateFlashLightLOS()` uses the moved
+light's frustum and world position for general sensor tests, but its randomized
+agent-gobo sample still constructs rays from `cCamera::GetPitch/GetYaw` and the
+camera position. A future callsite-specific bridge or script override should
+align those three low-frequency rays to controller aim after live visual
+acceptance; broad camera getter hooks are not justified.
+
 ## 0.22.0 Physical Manipulation And ImGui Identity Result
 
 Shipped `Player_Types.hps` fixes the physical state IDs as Wheel `3`, Slide `4`,

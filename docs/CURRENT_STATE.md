@@ -21,10 +21,17 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.22.0-physical-manipulation`, layered on the
+The active build candidate is `0.23.0-controller-flashlight`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- The exact scripted `Flashlight` light now follows the dominant controller's
+  tracked aim pose through the existing guarded Lux-entity transform boundary.
+  Independent local offset/rotation calibration is available. SOMA still owns
+  light lifetime, fade/color, visibility, radius/FOV, particles, sensors, and
+  callbacks; authored cameras, stale/lost tracking, and invalid state restore
+  the original camera-mounted transform.
 
 - Wheel, Slide, SwingDoor, Lever, and Tear states now accept dominant-hand
   physical movement through SOMA's existing analog-look path. The adapter uses
@@ -414,10 +421,10 @@ The OpenXR build now asks for:
 1. Launch the current OpenXR build:
 
 ```powershell
-& "D:\Dev Debug\SOMAVR\build-openxr-controller\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
+& "D:\Dev Debug\SOMAVR\build-openxr\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.22.0-physical-manipulation`, six compatibility render-stage hooks,
+2. Confirm `version=0.23.0-controller-flashlight`, six compatibility render-stage hooks,
    `hpl_hud_bridge installed ... layer=1`,
    `hpl_interaction_bridge install_ok`, `hpl_hands_bridge install_ok`, and
    `hpl_grab_bridge install_ok ... rotation=1 throwRedirect=1`, plus
@@ -474,8 +481,11 @@ The OpenXR build now asks for:
     `paused=1 gameplaySuppressed=1`, no queued movement on resume, and
     `hpl_menu_pointer applied` while dominant aim moves the native cursor. Close
     the menu with trigger held and verify no world click until release.
-22. Confirm `somavr_build_manifest.txt` reports version
-    `0.22.0-physical-manipulation`, flavor `openxr`, and a DLL SHA-256.
-23. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
+22. Toggle the flashlight and aim the dominant controller separately from the
+    HMD. Confirm exact `Flashlight` identity plus `hpl_flashlight_pose ...
+    overridden=1`; tracking loss and authored cameras must restore native aim.
+23. Confirm `somavr_build_manifest.txt` reports version
+    `0.23.0-controller-flashlight`, flavor `openxr`, and a DLL SHA-256.
+24. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
     `complete`, then check that `Soma_NoSteam.exe` disappears. If it remains,
     capture it with the dumper before manually terminating it.

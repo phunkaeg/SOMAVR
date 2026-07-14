@@ -119,8 +119,9 @@ lifecycle.
 | `HPLComfortMath` | Pure camera-add enum classification and independent suppression policy | Native pointers, hook lifecycle, tracking state, or logging |
 | `HPLGrabBridge` | Exact Grab force/torque PID identity, controller-relative target substitution, and one-shot AddImpulse throw redirection | PID tuning, object mass/collision/joints, persistent physics replacement, or script callbacks |
 | `HPLGrabMath` | Pure shortest-arc quaternion delta to bounded angular target velocity | Native pointers, PID identity, hooks, tracking policy, or logging |
-| `HPLHandsBridge` | Exact `PlayerHands_*` identity and guarded normal-state quarter-scale controller-root substitution at the script SetMatrix boundary | Skeletal/tool animation, sockets, full-scale/custom/authored transforms, or untracked pose ownership |
+| `HPLHandsBridge` | Shared Lux-entity SetMatrix detour, exact `PlayerHands_*`/`Flashlight` identity routing, guarded grip-root and aim-light substitution | Skeletal/tool animation, sockets, broad light mutation, full-scale/custom/authored transforms, or untracked pose ownership |
 | `HPLHandsMath` | Pure HPL basis reconstruction, scale preservation, and configurable root calibration | Native pointers, entity identity, tracking policy, or logging |
+| `HPLFlashlightMath` | Pure OpenXR aim to HPL negative-Z spotlight basis plus configurable local calibration | Native pointers, light identity/lifetime, tracking policy, LOS semantics, or logging |
 | `HPLHudBridge` | Signature-guarded exact GameHudSet identity, per-set telemetry, and reversible begin/render/end capture routing | OpenXR swapchain/session ownership, ImGui/menu capture, or diegetic GUI policy |
 | `HPLHudMath` | Pure quad pose, angular size, and aspect validation | GL state, OpenXR handles, native pointers, or logging |
 | `HPLCompatibilityProbe` | Bounded render/audio/post-effect telemetry and temporary probes; shared pose math comes from `HPLCameraMath` | Permanent GUI/HUD feature policy or unrelated gameplay systems |

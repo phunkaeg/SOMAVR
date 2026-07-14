@@ -2,6 +2,31 @@
 
 ## 2026-07-15
 
+### 0.23.0-controller-flashlight
+
+- Promoted the shipped flashlight transform to dominant-controller aim. Exact
+  entity name `Flashlight` is recognized at the already signature-guarded
+  `iLuxEntity.SetMatrix` boundary, so no additional executable detour or broad
+  light-class mutation was introduced.
+- Added `HPLFlashlightMath` to map tracked OpenXR forward/up into HPL's local
+  negative-Z spotlight convention, with independent controller-local position
+  and model-space rotation calibration. The active profile enables the feature;
+  generated configs default off.
+- Preserved SOMA's original light object, color/fade, visibility, radius, FOV,
+  near plane, environment particles, frustum collision, light sensors, and
+  script callbacks. Invalid player/tracking/pose-age/authored-camera/math states
+  forward the original camera-mounted matrix.
+- Added bounded exact-identity/pose/fallback telemetry and deterministic basis,
+  offset, and malformed-pose tests. Built and tested default and OpenXR x64
+  Release flavors. OpenXR SHA-256:
+  `B07142C03DFCE1F0888DB38B6E4661DED334B82847206D5BBA783712A679FA3C`.
+- Added a deterministic OpenXR release packager that validates build flavor,
+  stages runtime/config/core-doc artifacts, writes per-file SHA-256s, and creates
+  a versioned ZIP. Added a 12-scenario smoke-test matrix spanning startup,
+  stereo, flashlight, interaction, manipulation, physics, UI, authored cameras,
+  transitions, tracking loss, death/wake, and shutdown. Package SHA-256:
+  `6FF9DA98FF9C29593B5FDBADB8A8AB7BB70768D1E2D82A3864507EB85D388D32`.
+
 ### 0.22.0-physical-manipulation
 
 - Added dominant-grip physical manipulation for shipped player states Wheel `3`,

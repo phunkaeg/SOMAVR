@@ -1,5 +1,15 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Controller Flashlight Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1400bcd90` | `SOMA_iLuxEntity_SetMatrix` | Plate comment now records shipped `Player.hps::UpdateFlashlightRotation`, exact `Flashlight` identity, dominant aim ownership, local negative-Z beam convention, and original-matrix fallback contract. |
+| `0x14000fb60` | `SOMA_iLuxEntity_GetName` | Plate comment now records shared cLightSpot identity use and exact `Flashlight` matching in addition to `PlayerHands_*`. |
+
+Both functions received `VR-Flashlight` plus pose/identity tags. The explicitly
+selected `Soma_NoSteam.exe` program was saved after synchronization.
+
 ## 2026-07-15 ImGui Identity Sync
 
 | Address | Ghidra name | Evidence/use |

@@ -1,5 +1,30 @@
 # Test Checklists
 
+## 0.23.0 Controller Flashlight
+
+1. Launch `build-openxr\Release`, load a save, and press F10. Confirm
+   `version=0.23.0-controller-flashlight`, `controller_config ... flashlightAim=1`,
+   and `hpl_hands_bridge install_ok ... flashlightAim=1` without a signature or
+   identity failure.
+2. Toggle the flashlight with the support-hand action. Aim the dominant
+   controller independently of the HMD through yaw, pitch, and roll. The beam
+   and illuminated surfaces should follow the controller without moving the
+   world, camera, HUD, or hand root.
+3. Confirm one `hpl_entity_identity ... name=Flashlight flashlight=1` row and
+   recurring `hpl_flashlight_pose ... requested=1 overridden=1` rows. Compare
+   `aimPos`, `aimForward`, and `finalPos`; adjust only the flashlight offset or
+   rotation calibration if the physical controller profile needs alignment.
+4. Briefly lose dominant-hand tracking, pause, enter an authored camera, then
+   recover. The beam must fall back to SOMA's camera-mounted transform without
+   jumping, disappearing permanently, or remaining attached to stale tracking.
+5. Check environment particles and an NPC/light-sensitive interaction where
+   available. General spotlight frustum/sensor behavior should follow the beam;
+   note any discrepancy in randomized agent-gobo detection, whose shipped
+   helper still samples camera pitch/yaw.
+6. Regress world rigidity, shadows/reflections, stereo, native reticle, HUD,
+   physical manipulation, grab/throw, save/load, map change, tracking recovery,
+   and shutdown. Preserve `hpl_hands_bridge_summary` and `openxr_summary`.
+
 ## 0.22.0 Physical Manipulation And ImGui Identity
 
 1. Launch the OpenXR Release DLL, load a save, and press F10. Confirm
@@ -251,7 +276,7 @@
    Confirm `version=0.13.0-hands-identity` and
    `hpl_hands_bridge install_ok ... policy=identity_and_pose_probe_only`.
 2. Trigger any normal hand/tool animation or state that makes SOMA's hands
-   active. Expect one `hpl_hands_identity ... name=PlayerHands_* playerHands=1`
+   active. Expect one `hpl_entity_identity ... name=PlayerHands_* playerHands=1`
    row, followed by bounded `hpl_hands_pose` rows. There must be no crash and no
    visible change to hand placement or animation.
 3. In normal tool idle/draw/holster states, capture rows with

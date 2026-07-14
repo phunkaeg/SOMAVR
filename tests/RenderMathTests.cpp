@@ -1,5 +1,6 @@
 #include "HPLCameraMath.h"
 #include "HPLComfortMath.h"
+#include "HPLFlashlightMath.h"
 #include "HPLHandsMath.h"
 #include "HPLGrabMath.h"
 #include "HPLHudMath.h"
@@ -204,6 +205,39 @@ int main()
             {},
             handMatrix),
         "controller hand root rejects collinear tracking basis");
+
+    std::array<float, 16> flashlightMatrix{};
+    const flashlight_math::FlashlightCalibration flashlightCalibration{
+        {0.1f, -0.05f, 0.2f},
+        {},
+    };
+    failures += Check(
+        flashlight_math::BuildControllerFlashlightMatrix(
+            {1.0f, 2.0f, 3.0f},
+            {0.0f, 0.0f, -1.0f},
+            {0.0f, 1.0f, 0.0f},
+            flashlightCalibration,
+            flashlightMatrix),
+        "controller flashlight builds from tracked aim basis");
+    failures += Check(
+        Near(flashlightMatrix[0], 1.0f)
+            && Near(flashlightMatrix[5], 1.0f)
+            && Near(flashlightMatrix[10], 1.0f)
+            && Near(flashlightMatrix[15], 1.0f),
+        "controller flashlight maps OpenXR forward to HPL local negative Z");
+    failures += Check(
+        Near(flashlightMatrix[3], 1.1f)
+            && Near(flashlightMatrix[7], 1.95f)
+            && Near(flashlightMatrix[11], 2.8f),
+        "controller flashlight applies aim-local position calibration");
+    failures += Check(
+        !flashlight_math::BuildControllerFlashlightMatrix(
+            {},
+            {0.0f, 1.0f, 0.0f},
+            {0.0f, 1.0f, 0.0f},
+            {},
+            flashlightMatrix),
+        "controller flashlight rejects collinear tracking basis");
 
     using grab_math::ResolveAngularTargetVelocity;
     const camera_math::Vector3 noGrabRotation = ResolveAngularTargetVelocity({}, {}, 100.0f, 1.0f, 6.0f);

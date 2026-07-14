@@ -14,16 +14,26 @@ cmake --build build --config Release --parallel
 OpenXR presentation build:
 
 ```powershell
-cmake -S . -B build-openxr-onekey -A x64 -DSOMAVR_ENABLE_OPENXR=ON
-cmake --build build-openxr-onekey --config Release --parallel
+cmake -S . -B build-openxr -A x64 -DSOMAVR_ENABLE_OPENXR=ON
+cmake --build build-openxr --config Release --parallel
 ```
 
 Run deterministic camera/projection and OpenGL matrix tests:
 
 ```powershell
 ctest --test-dir build -C Release --output-on-failure
-ctest --test-dir build-openxr-onekey -C Release --output-on-failure
+ctest --test-dir build-openxr -C Release --output-on-failure
 ```
+
+Create a validated versioned OpenXR bundle and ZIP:
+
+```powershell
+& ".\scripts\Package-Release.ps1" -IncludeDumper
+```
+
+The packager rejects non-OpenXR build metadata, stages the injector, DLL,
+OpenXR loader, active config, diagnostics, and core docs, then writes
+`SHA256SUMS.txt` beside the runtime files. Output is under `out\`.
 
 ## Run
 
@@ -36,7 +46,7 @@ Launch suspended and inject before OpenGL/GLEW initialization:
 OpenXR launch:
 
 ```powershell
-& "D:\Dev Debug\SOMAVR\build-openxr-onekey\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
+& "D:\Dev Debug\SOMAVR\build-openxr\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
 Attach to an already-running process:
@@ -64,6 +74,10 @@ With `HandControllerRoot=1`, F10 also enables a guarded controller-owned root
 for the exact `PlayerHands_*` entity. Only uniform quarter-scale hands in the
 normal player/move state are replaced; full-scale/authored animations, stale or
 lost tracking, and every identity/signature mismatch retain SOMA's matrix.
+With `ControllerFlashlightAim=1`, the exact scripted `Flashlight` spotlight
+follows the dominant controller aim pose. Independent local offset and rotation
+calibration align different controller profiles; stale/lost tracking and
+authored cameras automatically retain SOMA's camera-mounted transform.
 Paused menus suppress all gameplay injection. The dominant controller aim moves
 the native menu cursor and trigger/select clicks when `MenuPointer=1`.
 With the opt-in `MovementReference=head`, movement follows calibrated HMD yaw
@@ -228,6 +242,13 @@ HandRootOffsetZ=0.0
 HandRootPitchDegrees=0.0
 HandRootYawDegrees=0.0
 HandRootRollDegrees=0.0
+ControllerFlashlightAim=1
+FlashlightOffsetX=0.0
+FlashlightOffsetY=0.0
+FlashlightOffsetZ=0.03
+FlashlightPitchDegrees=0.0
+FlashlightYawDegrees=0.0
+FlashlightRollDegrees=0.0
 ComfortBlackoutFrames=2
 ```
 

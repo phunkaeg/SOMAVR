@@ -118,6 +118,13 @@ struct Config {
     float hplHandRootPitchDegrees = 0.0f;
     float hplHandRootYawDegrees = 0.0f;
     float hplHandRootRollDegrees = 0.0f;
+    bool hplControllerFlashlightAim = false;
+    float hplFlashlightOffsetX = 0.0f;
+    float hplFlashlightOffsetY = 0.0f;
+    float hplFlashlightOffsetZ = 0.03f;
+    float hplFlashlightPitchDegrees = 0.0f;
+    float hplFlashlightYawDegrees = 0.0f;
+    float hplFlashlightRollDegrees = 0.0f;
     int hplControllerComfortBlackoutFrames = 2;
     int hplControllerRecenterHoldMs = 900;
     int hplControllerMaxInputAgeFrames = 8;

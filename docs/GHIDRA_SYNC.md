@@ -1,5 +1,18 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Native Grab PID And Camera Getter Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x140238750` | `HPL3_PidControllerVec3_Output` | Exact vector PID output; `0.17.0` signature-guards this control hook and modifies only Grab force tuple `400/0/40`. |
+| `0x140534eb0` | `HPL3_Script_Register_PidControllers` | Script-registration owner confirming vector PID surface and ownership. |
+| `0x1400ab230` | `HPL3_Camera_GetPosition` | Returns camera world position at `+0x10`; grab/camera evidence anchor, not hooked. |
+| `0x140237270` / `0x1402b8200` / `0x14000fda0` | `HPL3_Camera_GetPitch/Yaw/Roll` | Base angles at `+0x44/+0x48/+0x4c`; broad evidence getters, not control hooks. |
+
+All six functions now carry focused SOMAVR/physics-hands/camera evidence tags
+and plate comments describing the mutation or no-hook policy. The explicitly
+selected `Soma_NoSteam.exe` program was saved after synchronization.
+
 ## 2026-07-15 Controller Hands And Menu Policy Sync
 
 `SOMA_iLuxEntity_SetMatrix` at `0x1400bcd90` now records the `0.16.0`

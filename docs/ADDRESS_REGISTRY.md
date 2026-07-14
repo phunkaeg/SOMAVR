@@ -26,6 +26,8 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x140270b70` / `0x140270bc0` / `0x140270c10` | Confirmed | `cCamera::AddPitch`, `AddYaw`, and `AddRoll`; update the same base fields and dirty flags. |
 | `0x140270c40` / `0x140270c70` / `0x140270ca0` | Confirmed | Extended pitch/yaw/roll setters for `+0x60/+0x64/+0x68`. These authored offsets select the secondary frustum and invalidate `camera+0x70d`. |
 | `0x14000fda0` | Confirmed | `cCamera::GetRoll`; returns base roll at `camera+0x4c`. Registered to AngelScript as `float GetRoll()`. |
+| `0x1400ab230` | Confirmed | `HPL3_Camera_GetPosition`; returns camera world position at `camera+0x10`. Confirmed while tracing native grab targets; broad evidence getter, deliberately not hooked. |
+| `0x140237270` / `0x1402b8200` | Confirmed | `HPL3_Camera_GetPitch` and `HPL3_Camera_GetYaw`; return base angles at `camera+0x44/+0x48`. Grab/camera evidence getters, deliberately not hooked. |
 | `0x1404e1a80` | Confirmed | Registers the `cCamera` pitch/yaw/roll and extended-rotation AngelScript surface. Ghidra: `HPL3_Script_Register_cCamera`. |
 | `0x140270e10` | Confirmed by HPL2 match | `cCamera::GetProjectionMatrix`; caches perspective/orthographic projection at `camera+0xf4`. |
 | `0x140270230` | Confirmed by HPL2 match | `cFrustum::SetupPerspectiveProj`; stores FOV/aspect/oblique state and calls the common setup that updates view-projection, planes, sphere, vertices, and BV. Direct-call RVA for `0.4.0`. |
@@ -58,6 +60,8 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x1404a5030` | Confirmed | Registers the AngelScript `iCharacterBody` API, including `Move`, `SetMoveSpeed`, `AddYaw`, and `SetYaw`. |
 | `0x1402375f0` | Confirmed, control built | Native wrapper registered for `iCharacterBody::Move(eCharDir, float)`. `0.14.0` calls Forward `0` and Right `1` only while the unpaused normal player/move state owns the body. Ghidra: `HPL3_Script_iCharacterBody_Move`. |
 | `0x140237460` | Confirmed, control built | Native wrapper registered for `iCharacterBody::AddYaw(float)`. Adds radians to body `+0xd4`; `0.14.0` uses it for exact-degree snap/smooth turning under the same normal-state gate. Ghidra: `HPL3_Script_iCharacterBody_AddYaw`. |
+| `0x140238750` | Confirmed, control hook built | `HPL3_PidControllerVec3_Output`. `0.17.0` signature-guards this shared vector PID output and changes only exact Grab-state force PID error (`P=400, I=0, D=40`); torque tuple `40/0/0.4|0.1` is observed only. All other calls pass through. |
+| `0x140534eb0` | Confirmed | `HPL3_Script_Register_PidControllers`; registration owner used to confirm vector PID script ownership. |
 | `0x1400ccc90` | Confirmed, control built | Registered `cLux_GetGamePaused()` wrapper. Reads game subsystem `gameContext+0xc8`, paused byte `+0x2d4`; `0.16.0` uses it to suppress both direct body calls and every synthetic gameplay fallback while routing paused controller aim/clicks to the native menu. Ghidra: `SOMA_GetGamePaused`. |
 | `0x14015ca10` | Confirmed | Registers the AngelScript `cLuxPlayer` API. Maps `GetCamera` to `0x140125ef0` and `GetCharacterBody` to `0x140155290`. |
 | `0x1400cc860` | Confirmed by registration and decompilation | Global `GetPlayer()` wrapper. Returns the current `cLuxPlayer*` from game context `+0x140`. Signature-guarded probe anchor in `0.7.0`. Ghidra: `SOMA_GetPlayer`. |

@@ -4,6 +4,7 @@
 #include "HPLLifecycle.h"
 #include "HPLInputBridge.h"
 #include "HPLInteractionBridge.h"
+#include "HPLGrabBridge.h"
 #include "HPLHandsBridge.h"
 #include "HPLHudBridge.h"
 #include "HPLMenuBridge.h"
@@ -143,11 +144,15 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrTrackingRecoveryBlackoutFrames);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f nativeLocomotion=%d turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d flashlight=%d inventory=%d menu=%d menuPointer=%d menuPointerFov=%.1f,%.1f menuPointerSmoothing=%.3f recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d suppressAuthoredCamera=%d interactionRay=%d interactionRayOriginTolerance=%.3f handTrackingProbe=%d handControllerRoot=%d handRootOffset=%.4f,%.4f,%.4f handRootRotationDegrees=%.2f,%.2f,%.2f comfortBlackoutFrames=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
+        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d flashlight=%d inventory=%d menu=%d menuPointer=%d menuPointerFov=%.1f,%.1f menuPointerSmoothing=%.3f recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d suppressAuthoredCamera=%d interactionRay=%d interactionRayOriginTolerance=%.3f grabTranslation=%d grabTranslationScale=%.3f grabMaxOffsetMeters=%.3f manipulationMappings=%d handTrackingProbe=%d handControllerRoot=%d handRootOffset=%.4f,%.4f,%.4f handRootRotationDegrees=%.2f,%.2f,%.2f comfortBlackoutFrames=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
         g_config->Get().hplControllerInput ? 1 : 0,
         g_config->Get().hplControllerMoveDeadzone,
         g_config->Get().hplControllerMoveReleaseDeadzone,
         g_config->Get().hplControllerNativeLocomotion ? 1 : 0,
+        g_config->Get().hplControllerMovementReference.c_str(),
+        g_config->Get().hplControllerPhysicalCrouch ? 1 : 0,
+        g_config->Get().hplControllerPhysicalCrouchEnterMeters,
+        g_config->Get().hplControllerPhysicalCrouchExitMeters,
         g_config->Get().hplControllerSnapTurn ? "snap" : "smooth",
         g_config->Get().hplControllerTurnDeadzone,
         g_config->Get().hplControllerTurnReleaseDeadzone,
@@ -175,6 +180,10 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplControllerSuppressDuringAuthoredCamera ? 1 : 0,
         g_config->Get().hplControllerInteractionRay ? 1 : 0,
         g_config->Get().hplControllerInteractionRayOriginTolerance,
+        g_config->Get().hplControllerGrabTranslation ? 1 : 0,
+        g_config->Get().hplControllerGrabTranslationScale,
+        g_config->Get().hplControllerGrabMaxOffsetMeters,
+        g_config->Get().hplControllerManipulationMappings ? 1 : 0,
         g_config->Get().hplHandTrackingProbe ? 1 : 0,
         g_config->Get().hplHandControllerRoot ? 1 : 0,
         g_config->Get().hplHandRootOffsetX,
@@ -245,6 +254,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     if (!somavr::InstallHPLInteractionBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_interaction_bridge install_failed");
     }
+    if (!somavr::InstallHPLGrabBridge(g_config->Get(), g_openxr.get())) {
+        somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_grab_bridge install_failed");
+    }
     if (!somavr::InstallHPLHandsBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_hands_bridge install_failed");
     }
@@ -284,6 +296,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::RemoveHPLHudBridge();
     somavr::LogHPLHandsBridgeSummary();
     somavr::RemoveHPLHandsBridge();
+    somavr::LogHPLGrabBridgeSummary();
+    somavr::RemoveHPLGrabBridge();
     somavr::LogHPLInteractionBridgeSummary();
     somavr::RemoveHPLInteractionBridge();
     somavr::LogHPLCameraBridgeSummary();

@@ -17,6 +17,7 @@ struct HPLCameraBridgeStatus {
     void* activeCamera = nullptr;
     void* activeFrustum = nullptr;
     uint64_t headPoseFrame = 0;
+    uint64_t calibrationGeneration = 0;
     float headWorldRotationX = 0.0f;
     float headWorldRotationY = 0.0f;
     float headWorldRotationZ = 0.0f;

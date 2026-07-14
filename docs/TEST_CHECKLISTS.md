@@ -1,5 +1,31 @@
 # Test Checklists
 
+## 0.17.0 Physics Input And Native Grab
+
+1. Launch the OpenXR Release DLL and press F10 after loading a save. Confirm
+   `version=0.17.0-physics-input`, `hpl_grab_bridge install_ok`, and no signature
+   or hook failures.
+2. Walk forward while facing several headings. With `MovementReference=head`,
+   forward follows HMD yaw, but looking up/down or rolling the head does not
+   skew, accelerate, or tilt movement. Verify run, collision, stairs, and the
+   semantic fallback on ladders/terminals.
+3. Stand naturally after F10/recenter, lower the HMD by at least the configured
+   enter distance, then rise above the exit threshold. Confirm one crouch toggle
+   each way, no threshold chatter, and sensible behavior after F2/F10 recenter.
+4. Pick up light, heavy, jointed, and collision-constrained objects. The pickup
+   must not jump. Moving the dominant controller should move the held target
+   through SOMA's native physics; tracking loss or leaving Grab must return to
+   the native camera target without a crash or runaway force.
+5. During Grab/Push/Rotate interactions, hold support squeeze and use the turn
+   stick to exercise native InteractRotate. Press dominant primary to test the
+   native throw/cancel route. Confirm jump, sprint, crouch, and recenter do not
+   fire accidentally in manipulation states.
+6. Capture representative slow rotation and fast release motion. Preserve
+   `hpl_grab_torque_probe`, `hpl_native_throw`, `openxr_input state`, and both
+   bridge summary rows for controller-orientation and throw-scale correlation.
+7. Regress hands, interaction ray, HUD/menu pointer, stereo geometry, shadows,
+   reflections, authored camera sequences, save/load transitions, and shutdown.
+
 ## 0.16.0 Controller Hands, Pause Safety, And Menu Pointer
 
 1. Launch the OpenXR Release build, load a normal gameplay save, and press F10

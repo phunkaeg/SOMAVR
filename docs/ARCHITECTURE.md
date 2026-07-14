@@ -26,6 +26,13 @@ HPLInputBridge
   -> HPLCameraBridge recenter/status
   -> HPLNativeLocomotion guarded normal-state fast path
   -> HPLMenuBridge paused pointer and click policy
+  -> HPLPhysicalCrouchMath tested height/hysteresis state machine
+
+HPLGrabBridge
+  -> signature-guarded vector PID output
+  -> HPLPlayerState Grab ownership snapshot
+  -> HPLCameraBridge world-pose conversion and camera origin
+  -> OpenXRInput dominant grip pose/velocity snapshot
 
 HPLNativeLocomotion
   -> signature-guarded iCharacterBody Move/AddYaw and game-pause getter
@@ -81,12 +88,14 @@ lifecycle.
 | `HPLCameraBridge` | Signature-guarded player-camera interception and VR mode state | Generic quaternion/projection algorithms |
 | `HPLCameraMath` | Pure pose, matrix, FOV centering, projection construction | HPL pointers, hotkeys, logging, OpenXR handles |
 | `HPLInputMath` | Pure radial stick deadzone and angle conversion used by native locomotion | Native pointers, action state, logging, or input injection |
+| `HPLPhysicalCrouchMath` | Pure standing-height calibration and crouch hysteresis | Native input injection, OpenXR handles, player state, or logging |
 | `HPLPlayerState` | Signature-guarded player/camera/body discovery, player/move IDs, camera ownership classification, immutable snapshots | Controller injection, camera transforms, OpenXR actions |
 | `HPLInputBridge` | Reversible SOMA input-path controls plus authored-camera and hard-pause suppression policy | Native player discovery, OpenXR action ownership, camera math |
 | `HPLNativeLocomotion` | Guarded analog Move and exact-radian AddYaw calls only in unpaused normal player/move state; exposes the confirmed pause state to input policy | Player discovery, special-state input semantics, direct capsule transforms, or bypassing pause ownership |
 | `HPLMenuBridge` | Paused-only head-relative controller aim to native client cursor routing | GUI rendering/capture, pause ownership, OpenXR actions, or gameplay clicks |
 | `HPLMenuMath` | Pure HMD/controller orientation projection into normalized menu coordinates | HWND state, cursor mutation, native pointers, or logging |
 | `HPLInteractionBridge` | Signature-guarded native closest-entity query substitution; changes only the query start/direction under strict controller/camera/state gates | `CanInteract`, distance policy, focus callbacks, object physics, or controller action ownership |
+| `HPLGrabBridge` | Exact Grab force-PID identity and guarded controller-relative position-error substitution | PID tuning, object mass/collision/joints, rotational error without live correlation, or script callbacks |
 | `HPLHandsBridge` | Exact `PlayerHands_*` identity and guarded normal-state quarter-scale controller-root substitution at the script SetMatrix boundary | Skeletal/tool animation, sockets, full-scale/custom/authored transforms, or untracked pose ownership |
 | `HPLHandsMath` | Pure HPL basis reconstruction, scale preservation, and configurable root calibration | Native pointers, entity identity, tracking policy, or logging |
 | `HPLHudBridge` | Signature-guarded exact GameHudSet identity, per-set telemetry, and reversible begin/render/end capture routing | OpenXR swapchain/session ownership, ImGui/menu capture, or diegetic GUI policy |

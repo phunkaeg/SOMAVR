@@ -98,7 +98,9 @@ void LocatePose(XrSpace actionSpace, XrSpace baseSpace, XrTime time, OpenXRContr
     if (actionSpace == XR_NULL_HANDLE || baseSpace == XR_NULL_HANDLE) {
         return;
     }
+    XrSpaceVelocity velocity{XR_TYPE_SPACE_VELOCITY};
     XrSpaceLocation location{XR_TYPE_SPACE_LOCATION};
+    location.next = &velocity;
     if (XR_FAILED(xrLocateSpace(actionSpace, baseSpace, time, &location))) {
         return;
     }
@@ -114,6 +116,16 @@ void LocatePose(XrSpace actionSpace, XrSpace baseSpace, XrTime time, OpenXRContr
     pose.orientationY = location.pose.orientation.y;
     pose.orientationZ = location.pose.orientation.z;
     pose.orientationW = location.pose.orientation.w;
+    pose.linearVelocityValid =
+        (velocity.velocityFlags & XR_SPACE_VELOCITY_LINEAR_VALID_BIT) != 0;
+    pose.angularVelocityValid =
+        (velocity.velocityFlags & XR_SPACE_VELOCITY_ANGULAR_VALID_BIT) != 0;
+    pose.linearVelocityX = velocity.linearVelocity.x;
+    pose.linearVelocityY = velocity.linearVelocity.y;
+    pose.linearVelocityZ = velocity.linearVelocity.z;
+    pose.angularVelocityX = velocity.angularVelocity.x;
+    pose.angularVelocityY = velocity.angularVelocity.y;
+    pose.angularVelocityZ = velocity.angularVelocity.z;
 }
 
 } // namespace
@@ -380,6 +392,11 @@ void OpenXRInput::Sync(XrSession session, XrSpace baseSpace, XrTime displayTime,
     LocatePose(gripSpaces_[1], baseSpace, displayTime, next.right.gripPose);
     LocatePose(aimSpaces_[0], baseSpace, displayTime, next.left.aimPose);
     LocatePose(aimSpaces_[1], baseSpace, displayTime, next.right.aimPose);
+    for (uint32_t hand = 0; hand < 2; ++hand) {
+        const OpenXRControllerPose& grip = hand == 0 ? next.left.gripPose : next.right.gripPose;
+        if (grip.linearVelocityValid) ++gripLinearVelocitySamples_[hand];
+        if (grip.angularVelocityValid) ++gripAngularVelocitySamples_[hand];
+    }
     next.left.active |= next.left.gripPose.valid || next.left.aimPose.valid;
     next.right.active |= next.right.gripPose.valid || next.right.aimPose.valid;
     next.active = moveActive || turnActive || next.left.active || next.right.active;
@@ -391,7 +408,7 @@ void OpenXRInput::Sync(XrSession session, XrSpace baseSpace, XrTime displayTime,
         || next.jumpChanged || next.crouchChanged) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_input state frame=%llu active=%d move=%.3f,%.3f turn=%.3f,%.3f select=%d,%d trigger=%.3f,%.3f squeeze=%.3f,%.3f primary=%d,%d secondary=%d,%d menu=%d gripValid=%d,%d aimValid=%d,%d",
+            "openxr_input state frame=%llu active=%d move=%.3f,%.3f turn=%.3f,%.3f select=%d,%d trigger=%.3f,%.3f squeeze=%.3f,%.3f primary=%d,%d secondary=%d,%d menu=%d gripValid=%d,%d aimValid=%d,%d gripLinearValid=%d,%d gripLinearL=%.3f,%.3f,%.3f gripLinearR=%.3f,%.3f,%.3f",
             static_cast<unsigned long long>(gameFrame),
             next.active ? 1 : 0,
             next.moveX,
@@ -412,7 +429,15 @@ void OpenXRInput::Sync(XrSession session, XrSpace baseSpace, XrTime displayTime,
             next.left.gripPose.valid ? 1 : 0,
             next.right.gripPose.valid ? 1 : 0,
             next.left.aimPose.valid ? 1 : 0,
-            next.right.aimPose.valid ? 1 : 0);
+            next.right.aimPose.valid ? 1 : 0,
+            next.left.gripPose.linearVelocityValid ? 1 : 0,
+            next.right.gripPose.linearVelocityValid ? 1 : 0,
+            next.left.gripPose.linearVelocityX,
+            next.left.gripPose.linearVelocityY,
+            next.left.gripPose.linearVelocityZ,
+            next.right.gripPose.linearVelocityX,
+            next.right.gripPose.linearVelocityY,
+            next.right.gripPose.linearVelocityZ);
     }
 }
 
@@ -492,6 +517,10 @@ std::string OpenXRInput::SummaryString() const
         << " openxrInputFocusRestores=" << focusRestoreCount_
         << " openxrHapticRequests=" << hapticRequestCount_
         << " openxrHapticFailures=" << hapticFailureCount_
+        << " openxrGripLinearVelocitySamples=" << gripLinearVelocitySamples_[0]
+        << ',' << gripLinearVelocitySamples_[1]
+        << " openxrGripAngularVelocitySamples=" << gripAngularVelocitySamples_[0]
+        << ',' << gripAngularVelocitySamples_[1]
         << " openxrInputLastFrame=" << snapshot_.gameFrame
         << " openxrInputActive=" << (snapshot_.active ? 1 : 0);
     return oss.str();

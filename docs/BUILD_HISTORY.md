@@ -2,6 +2,32 @@
 
 ## 2026-07-15
 
+### 0.17.0-physics-input
+
+- Added configurable head-relative locomotion using calibrated HMD yaw only;
+  pitch and roll cannot tilt the movement plane. Body-relative movement remains
+  the generated-config default and native/semantic routing is unchanged.
+- Added physical crouch with standing-height calibration, recenter generation,
+  and separate enter/exit thresholds. It owns SOMA's native crouch toggle only
+  in Normal/Normal state and falls back to the existing button route when pose
+  data is unusable.
+- Added `HPLGrabBridge` at confirmed vector PID output `0x140238750`. In Grab
+  state only, the dominant grip's camera-relative translation augments the
+  exact `400/0/40` native position error while SOMA retains PID gains, mass,
+  force caps, gravity, collision, joints, and callbacks. Pickup, invalid pose,
+  stale input, authored camera, and all other PID calls pass through unchanged.
+- Added native manipulation mappings: support squeeze plus turn-stick movement
+  holds SOMA's existing InteractRotate action, while dominant primary requests
+  SOMA's native Grab/Push throw/cancel action.
+- Captured OpenXR grip linear and angular velocity at predicted display time.
+  Release telemetry and exact `40/0/0.4|0.1` torque-PID probes now provide the
+  next dataset for controller rotation and calibrated throw impulse; neither is
+  substituted in this build.
+- Added deterministic tests for head-relative yaw, pitch rejection, crouch
+  calibration, hysteresis, and exit. Built and tested default and OpenXR x64
+  Release flavors. OpenXR SHA-256:
+  `4226008C6B5E844077A1C039628E5F6AD93BD9ED0AD2C3D0801D14346914276A`.
+
 ### 0.16.0-controller-hands
 
 - Promoted the exact `PlayerHands_*` SetMatrix probe into a guarded controller

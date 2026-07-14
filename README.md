@@ -66,6 +66,12 @@ normal player/move state are replaced; full-scale/authored animations, stale or
 lost tracking, and every identity/signature mismatch retain SOMA's matrix.
 Paused menus suppress all gameplay injection. The dominant controller aim moves
 the native menu cursor and trigger/select clicks when `MenuPointer=1`.
+With the opt-in `MovementReference=head`, movement follows calibrated HMD yaw
+without inheriting pitch/roll. `PhysicalCrouch=1` drives SOMA's native crouch
+toggle from tracked height with hysteresis. `GrabTranslation=1` augments only
+the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
+mass, collision, constraints, gravity, and callbacks. These 0.17 prototypes
+remain live-acceptance features rather than generated-config defaults.
 
 ## Current Goal
 
@@ -148,6 +154,10 @@ HudMaxAgeFrames=2
 [Controller]
 Enabled=1
 NativeLocomotion=1
+MovementReference=head
+PhysicalCrouch=1
+PhysicalCrouchEnterMeters=0.35
+PhysicalCrouchExitMeters=0.25
 NativeTurn=1
 SnapTurnDegrees=30
 SmoothTurnDegreesPerSecond=120
@@ -167,6 +177,10 @@ OneHandFallback=1
 SuppressDuringAuthoredCamera=1
 InteractionRay=1
 InteractionRayOriginTolerance=0.75
+GrabTranslation=1
+GrabTranslationScale=1.0
+GrabMaxOffsetMeters=0.75
+ManipulationMappings=1
 HandTrackingProbe=1
 HandControllerRoot=1
 HandRootOffsetX=0.0

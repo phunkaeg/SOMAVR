@@ -45,6 +45,10 @@ struct Config {
     float hplControllerMoveDeadzone = 0.35f;
     float hplControllerMoveReleaseDeadzone = 0.25f;
     bool hplControllerNativeLocomotion = true;
+    std::string hplControllerMovementReference = "body";
+    bool hplControllerPhysicalCrouch = false;
+    float hplControllerPhysicalCrouchEnterMeters = 0.35f;
+    float hplControllerPhysicalCrouchExitMeters = 0.25f;
     bool hplControllerSnapTurn = true;
     float hplControllerTurnDeadzone = 0.65f;
     float hplControllerTurnReleaseDeadzone = 0.35f;
@@ -72,6 +76,10 @@ struct Config {
     bool hplControllerSuppressDuringAuthoredCamera = true;
     bool hplControllerInteractionRay = false;
     float hplControllerInteractionRayOriginTolerance = 0.75f;
+    bool hplControllerGrabTranslation = false;
+    float hplControllerGrabTranslationScale = 1.0f;
+    float hplControllerGrabMaxOffsetMeters = 0.75f;
+    bool hplControllerManipulationMappings = true;
     bool hplHandTrackingProbe = false;
     bool hplHandControllerRoot = false;
     float hplHandRootOffsetX = 0.0f;

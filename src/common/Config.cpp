@@ -183,6 +183,10 @@ void ConfigManager::WriteDefaultConfig() const
         << "MoveDeadzone=0.35\n"
         << "MoveReleaseDeadzone=0.25\n"
         << "NativeLocomotion=1\n"
+        << "MovementReference=body\n"
+        << "PhysicalCrouch=0\n"
+        << "PhysicalCrouchEnterMeters=0.35\n"
+        << "PhysicalCrouchExitMeters=0.25\n"
         << "SnapTurn=1\n"
         << "TurnDeadzone=0.65\n"
         << "TurnReleaseDeadzone=0.35\n"
@@ -210,6 +214,10 @@ void ConfigManager::WriteDefaultConfig() const
         << "SuppressDuringAuthoredCamera=1\n"
         << "InteractionRay=0\n"
         << "InteractionRayOriginTolerance=0.75\n"
+        << "GrabTranslation=0\n"
+        << "GrabTranslationScale=1.0\n"
+        << "GrabMaxOffsetMeters=0.75\n"
+        << "ManipulationMappings=1\n"
         << "HandTrackingProbe=0\n"
         << "HandControllerRoot=0\n"
         << "HandRootOffsetX=0.0\n"
@@ -374,6 +382,13 @@ void ConfigManager::LoadFromFile()
             else if (key == "movedeadzone") config_.hplControllerMoveDeadzone = ParseFloat(value, config_.hplControllerMoveDeadzone, 0.05f, 0.95f);
             else if (key == "movereleasedeadzone") config_.hplControllerMoveReleaseDeadzone = ParseFloat(value, config_.hplControllerMoveReleaseDeadzone, 0.0f, 0.9f);
             else if (key == "nativelocomotion") config_.hplControllerNativeLocomotion = ParseBool(value, config_.hplControllerNativeLocomotion);
+            else if (key == "movementreference") {
+                const std::string reference = Lower(Trim(value));
+                if (reference == "body" || reference == "head") config_.hplControllerMovementReference = reference;
+            }
+            else if (key == "physicalcrouch") config_.hplControllerPhysicalCrouch = ParseBool(value, config_.hplControllerPhysicalCrouch);
+            else if (key == "physicalcrouchentermeters") config_.hplControllerPhysicalCrouchEnterMeters = ParseFloat(value, config_.hplControllerPhysicalCrouchEnterMeters, 0.10f, 1.20f);
+            else if (key == "physicalcrouchexitmeters") config_.hplControllerPhysicalCrouchExitMeters = ParseFloat(value, config_.hplControllerPhysicalCrouchExitMeters, 0.05f, 1.10f);
             else if (key == "snapturn") config_.hplControllerSnapTurn = ParseBool(value, config_.hplControllerSnapTurn);
             else if (key == "turndeadzone") config_.hplControllerTurnDeadzone = ParseFloat(value, config_.hplControllerTurnDeadzone, 0.05f, 0.95f);
             else if (key == "turnreleasedeadzone") config_.hplControllerTurnReleaseDeadzone = ParseFloat(value, config_.hplControllerTurnReleaseDeadzone, 0.0f, 0.9f);
@@ -404,6 +419,10 @@ void ConfigManager::LoadFromFile()
             else if (key == "suppressduringauthoredcamera") config_.hplControllerSuppressDuringAuthoredCamera = ParseBool(value, config_.hplControllerSuppressDuringAuthoredCamera);
             else if (key == "interactionray") config_.hplControllerInteractionRay = ParseBool(value, config_.hplControllerInteractionRay);
             else if (key == "interactionrayorigintolerance") config_.hplControllerInteractionRayOriginTolerance = ParseFloat(value, config_.hplControllerInteractionRayOriginTolerance, 0.05f, 10.0f);
+            else if (key == "grabtranslation") config_.hplControllerGrabTranslation = ParseBool(value, config_.hplControllerGrabTranslation);
+            else if (key == "grabtranslationscale") config_.hplControllerGrabTranslationScale = ParseFloat(value, config_.hplControllerGrabTranslationScale, 0.1f, 3.0f);
+            else if (key == "grabmaxoffsetmeters") config_.hplControllerGrabMaxOffsetMeters = ParseFloat(value, config_.hplControllerGrabMaxOffsetMeters, 0.05f, 3.0f);
+            else if (key == "manipulationmappings") config_.hplControllerManipulationMappings = ParseBool(value, config_.hplControllerManipulationMappings);
             else if (key == "handtrackingprobe") config_.hplHandTrackingProbe = ParseBool(value, config_.hplHandTrackingProbe);
             else if (key == "handcontrollerroot") config_.hplHandControllerRoot = ParseBool(value, config_.hplHandControllerRoot);
             else if (key == "handrootoffsetx") config_.hplHandRootOffsetX = ParseFloat(value, config_.hplHandRootOffsetX, -5.0f, 5.0f);

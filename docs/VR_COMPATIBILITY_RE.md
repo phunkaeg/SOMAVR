@@ -121,15 +121,18 @@ and angular-torque controllers. Its target transform is currently reconstructed
 from camera position, camera rotation, local grab offset, and held depth. Throwing
 uses camera forward for impulse direction.
 
-The first controller implementation should:
+The `0.17.0` controller implementation now:
 
-1. Feed controller position/orientation into the existing target transform.
-2. Preserve the native PID gains, force caps, mass behavior, collision, and state exit.
-3. Use sampled controller velocity for release/throw after validating SOMA's impulse scale.
-4. Fall back to the original camera target when controller pose is invalid.
+1. Feeds camera-relative controller translation into exact force-PID error
+   `0x140238750` only for Grab state `1` and gains `400/0/40`.
+2. Preserves native PID gains, force caps, mass behavior, collision, joints, and state exit.
+3. Captures predicted-time controller linear/angular velocity and the native
+   `40/0/0.4|0.1` torque error without mutating either yet.
+4. Falls back to the original camera target when controller pose/state is invalid.
 
 This keeps SOMA responsible for physics and map behavior while VR owns only the
-desired hand pose.
+desired hand pose. Live evidence is still required before controller orientation
+or release velocity can safely replace the native rotational/throw inputs.
 
 ### Rotate, doors, wheels, and levers
 

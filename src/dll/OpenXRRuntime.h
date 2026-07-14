@@ -34,6 +34,14 @@ struct OpenXRControllerPose {
     float orientationY = 0.0f;
     float orientationZ = 0.0f;
     float orientationW = 1.0f;
+    bool linearVelocityValid = false;
+    bool angularVelocityValid = false;
+    float linearVelocityX = 0.0f;
+    float linearVelocityY = 0.0f;
+    float linearVelocityZ = 0.0f;
+    float angularVelocityX = 0.0f;
+    float angularVelocityY = 0.0f;
+    float angularVelocityZ = 0.0f;
 };
 
 struct OpenXRHandInput {

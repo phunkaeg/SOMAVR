@@ -35,6 +35,8 @@ private:
     uint64_t focusRestoreCount_ = 0;
     uint64_t hapticRequestCount_ = 0;
     uint64_t hapticFailureCount_ = 0;
+    uint64_t gripLinearVelocitySamples_[2] = {};
+    uint64_t gripAngularVelocitySamples_[2] = {};
     bool focusSuppressed_ = false;
     XrInstance instance_ = XR_NULL_HANDLE;
     XrActionSet actionSet_ = XR_NULL_HANDLE;

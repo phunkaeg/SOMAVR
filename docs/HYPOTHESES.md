@@ -1,5 +1,33 @@
 # Hypotheses
 
+## S12 - Controller translation can steer SOMA's native Grab PID safely
+
+Status: GUARDED BUILD READY (`0.17.0-physics-input`)
+
+Hypothesis: adding camera-relative dominant-grip displacement to the existing
+Grab position error, while retaining SOMA's exact PID and physics response, will
+produce physical controller-owned object translation without bypassing mass,
+collision, gravity, joints, limits, or script callbacks.
+
+Evidence:
+
+- The shipped Grab state configures vector PID gains `400/0/40` and passes
+  `wantedPosition - bodyPosition` to confirmed output `0x140238750`.
+- `HPLGrabBridge` requires that tuple, player state Grab `1`, native camera
+  ownership, fresh fully tracked grip, and a matching camera/player anchor.
+- The pickup sample is unchanged; invalid or changing ownership resets the
+  anchor and forwards the original error.
+- The same output's torque tuple `40/0/0.4|0.1` is probe-only until axis and
+  quaternion-delta correlation is observed live.
+
+Confirms if held objects follow controller translation without pickup jumps,
+oscillation, runaway force, broken collision, or joint/callback regressions, and
+tracking loss returns cleanly to native behavior.
+
+Redirects if camera-relative displacement rotates incorrectly with body yaw or
+native held-depth updates fight the controller target; use a world-space anchor
+or intercept the earlier wanted-transform construction while retaining PID output.
+
 ## S1 - OpenXR can bind directly to SOMA's live OpenGL context
 
 Status: CONFIRMED

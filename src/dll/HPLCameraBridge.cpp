@@ -109,6 +109,7 @@ struct BridgeState {
     PoseStabilityState recenterPoseStability{};
     Quaternion neutralOrientation{};
     Vector3 neutralPosition{};
+    uint64_t calibrationGeneration = 0;
     std::array<float, 16> baseProjection{};
     std::array<float, 16> baseView{};
     FrustumParameters parameters{};
@@ -718,6 +719,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
         g_state.trackingEnabled = true;
         g_state.neutralOrientation = orientation;
         g_state.neutralPosition = position;
+        ++g_state.calibrationGeneration;
         g_state.baseMatricesValid = false;
         if (g_config.hplStereoAfr) {
             g_state.stereoEnabled = true;
@@ -908,6 +910,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
             g_state.recenterPending = false;
             g_state.neutralOrientation = orientation;
             g_state.neutralPosition = position;
+            ++g_state.calibrationGeneration;
             g_state.currentEyeIndex = -1;
             g_state.currentEyePoseFrame = 0;
             g_state.nextEyeIndex = 0;
@@ -1182,6 +1185,7 @@ HPLCameraBridgeStatus GetHPLCameraBridgeStatus()
     status.stereoRenderPoseFrame = g_state.currentEyePoseFrame;
     status.activeCamera = g_state.activeCamera;
     status.activeFrustum = g_state.activeFrustum;
+    status.calibrationGeneration = g_state.calibrationGeneration;
     if (g_state.baseMatricesValid
         && std::isfinite(g_state.parameters.origin[0])
         && std::isfinite(g_state.parameters.origin[1])

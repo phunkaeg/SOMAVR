@@ -21,10 +21,21 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.16.0-controller-hands`, layered on the
+The active build candidate is `0.17.0-physics-input`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Optional head-relative movement now rotates the movement stick by calibrated
+  HMD yaw while rejecting pitch and roll. Optional physical crouch calibrates
+  standing HMD height and drives SOMA's existing crouch toggle with hysteresis.
+- A signature-guarded native grab path now augments only SOMA's exact Grab-state
+  position PID error with dominant-controller translation. The first pickup
+  sample and every unsafe state remain native, and SOMA still owns object mass,
+  gravity, force limits, collision, joints, and callbacks.
+- Support squeeze exposes SOMA's existing InteractRotate modifier and dominant
+  primary requests its native Grab/Push throw action. OpenXR grip velocities and
+  native torque-PID errors are logged for the next rotation/throw implementation.
 
 - The working stereo transform now also resolves HMD and controller poses into
   HPL world coordinates. Periodic controller rows report dominant aim/grip
@@ -110,8 +121,9 @@ compatibility probes:
 - Render-stage logs now include per-stage GL draw/state deltas. Active post
   effects are inventoried by object/vtable/flags, and `Ctrl+F12` can isolate one
   active effect at a time without persisting mutations.
-- This is a fast testable bridge, not final analog locomotion. The live state log
-  is intended to identify the safe native action boundary for its replacement.
+- This remains a guarded feature build: physical crouch toggle synchronization,
+  grab scale/stability, rotate mapping, and native throw behavior require live
+  acceptance before defaults can be enabled globally.
 
 - `somavr_injector.exe`: launch-suspended or attach-by-PID/process-name DLL injector.
 - `somavr.dll`: MinHook-based OpenGL/WGL telemetry DLL.

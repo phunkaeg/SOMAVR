@@ -17,6 +17,27 @@ Axis2 ApplyRadialDeadzone(float x, float y, float deadzone)
     return {x * scale, y * scale};
 }
 
+Axis2 ApplyHeadRelativeMovement(
+    float right,
+    float forward,
+    const camera_math::Quaternion& headOrientation)
+{
+    if (!std::isfinite(right) || !std::isfinite(forward)) return {};
+    const camera_math::Vector3 headForward = camera_math::RotateVector(
+        headOrientation, {0.0f, 0.0f, -1.0f});
+    const float horizontalLength = std::sqrt(
+        headForward.x * headForward.x + headForward.z * headForward.z);
+    if (!std::isfinite(horizontalLength) || horizontalLength < 0.0001f) return {right, forward};
+    const float forwardRight = headForward.x / horizontalLength;
+    const float forwardForward = -headForward.z / horizontalLength;
+    const Axis2 result{
+        forwardForward * right + forwardRight * forward,
+        -forwardRight * right + forwardForward * forward,
+    };
+    if (!std::isfinite(result.x) || !std::isfinite(result.y)) return {};
+    return result;
+}
+
 float DegreesToRadians(float degrees)
 {
     constexpr float kDegreesToRadians = 0.01745329251994329577f;

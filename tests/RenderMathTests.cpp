@@ -3,6 +3,7 @@
 #include "HPLHudMath.h"
 #include "HPLInputMath.h"
 #include "HPLMenuMath.h"
+#include "HPLPhysicalCrouchMath.h"
 #include "OpenGLMatrixAnalysis.h"
 
 #include <array>
@@ -44,6 +45,39 @@ int main()
     const input_math::Axis2 halfStick = input_math::ApplyRadialDeadzone(0.0f, 0.675f, 0.35f);
     failures += Check(Near(halfStick.x, 0.0f) && Near(halfStick.y, 0.5f), "radial deadzone rescales magnitude");
     failures += Check(Near(input_math::DegreesToRadians(30.0f), 0.5235988f), "snap-turn degree conversion");
+    constexpr float kHalfSqrtTwo = 0.7071067811865475f;
+    const input_math::Axis2 headRightMovement = input_math::ApplyHeadRelativeMovement(
+        0.0f,
+        1.0f,
+        {0.0f, -kHalfSqrtTwo, 0.0f, kHalfSqrtTwo});
+    failures += Check(
+        Near(headRightMovement.x, 1.0f) && Near(headRightMovement.y, 0.0f),
+        "head-relative forward follows rightward head yaw");
+    const input_math::Axis2 pitchedHeadMovement = input_math::ApplyHeadRelativeMovement(
+        0.0f,
+        1.0f,
+        {kHalfSqrtTwo, 0.0f, 0.0f, kHalfSqrtTwo});
+    failures += Check(
+        Near(pitchedHeadMovement.x, 0.0f) && Near(pitchedHeadMovement.y, 1.0f),
+        "head-relative movement ignores head pitch");
+
+    crouch_math::PhysicalCrouchState crouchState;
+    failures += Check(
+        crouch_math::UpdatePhysicalCrouch(crouchState, 1.70f, true, 1, 0.35f, 0.25f)
+            == crouch_math::PhysicalCrouchUpdate::Calibrated,
+        "physical crouch calibrates standing height");
+    failures += Check(
+        crouch_math::UpdatePhysicalCrouch(crouchState, 1.34f, true, 1, 0.35f, 0.25f)
+            == crouch_math::PhysicalCrouchUpdate::Enter,
+        "physical crouch enters below threshold");
+    failures += Check(
+        crouch_math::UpdatePhysicalCrouch(crouchState, 1.40f, true, 1, 0.35f, 0.25f)
+            == crouch_math::PhysicalCrouchUpdate::None,
+        "physical crouch hysteresis holds state");
+    failures += Check(
+        crouch_math::UpdatePhysicalCrouch(crouchState, 1.46f, true, 1, 0.35f, 0.25f)
+            == crouch_math::PhysicalCrouchUpdate::Exit,
+        "physical crouch exits above release threshold");
 
     hud_math::HudQuadPose hudPose;
     failures += Check(
@@ -162,7 +196,6 @@ int main()
             && Near(identityRotated.y, inputVector.y)
             && Near(identityRotated.z, inputVector.z),
         "identity quaternion rotation");
-    constexpr float kHalfSqrtTwo = 0.7071067811865475f;
     const camera_math::Vector3 yawRotated = camera_math::RotateVector(
         {0.0f, kHalfSqrtTwo, 0.0f, kHalfSqrtTwo},
         {0.0f, 0.0f, 1.0f});

@@ -46,6 +46,15 @@ Created: 2026-07-09. Status: early reverse-engineering notes. Keep confirmed add
 | F11 alternating-eye bridge | Build ready | First native IPD, position, and asymmetric-FOV stereo proof | Updates one HPL eye per game frame and retains both through GL caches. |
 | Per-eye GL cache texture/FBO | Build ready | Decouple AFR game renders from OpenXR swapchain image rotation | Each acquired swapchain image receives the latest cached render for that eye. |
 
+## Native Physics And Input Candidates
+
+| Candidate | Confidence | Purpose | Evidence |
+| --- | --- | --- | --- |
+| `Soma_NoSteam.exe+0x238750` | Static confirmed, guarded control built | Add dominant-controller translation to native Grab target error | Shipped Grab script uses exact position PID `400/0/40`; `0.17.0` changes only that tuple in player state `1` and preserves native solver ownership. |
+| Same PID output, tuple `40/0/0.4|0.1` | Probe built | Correlate controller quaternion delta with native rotational error | Grab script configures torque PID separately; `0.17.0` logs error plus OpenXR angular velocity without mutation. |
+| OpenXR `XrSpaceVelocity` on grip spaces | Build ready | Measure release linear/angular velocity | Predicted-time grip velocities are now captured and logged with native throw requests; impulse scaling remains unmodified pending live evidence. |
+| Native Middle/Right Mouse interaction actions | Build ready | Reuse SOMA rotate and throw/cancel state routes | Support squeeze holds InteractRotate; dominant primary invokes native Grab/Push right-click action under manipulation-state gates. |
+
 ## Likely Next Runtime Hooks
 
 | Candidate | Confidence | Purpose | Notes |

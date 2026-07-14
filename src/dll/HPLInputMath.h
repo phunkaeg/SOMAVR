@@ -1,5 +1,7 @@
 #pragma once
 
+#include "HPLCameraMath.h"
+
 namespace somavr::input_math
 {
 
@@ -10,6 +12,10 @@ struct Axis2
 };
 
 Axis2 ApplyRadialDeadzone(float x, float y, float deadzone);
+Axis2 ApplyHeadRelativeMovement(
+    float right,
+    float forward,
+    const camera_math::Quaternion& headOrientation);
 float DegreesToRadians(float degrees);
 
 } // namespace somavr::input_math

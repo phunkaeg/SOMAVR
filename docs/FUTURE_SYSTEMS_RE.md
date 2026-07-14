@@ -1,5 +1,32 @@
 # Future Systems Reverse Engineering
 
+## 0.17.0 Physics Input And Native Grab Findings
+
+SOMA's shipped `PlayerState_Interact_Grab.hps` configures its position PID as
+`P=400, I=0, D=40`, computes `wantedPosition - bodyPosition`, and sends that
+vector through native output `0x140238750`. Rotation uses the same vector PID
+implementation with `P=40, I=0, D=0.4` (`0.1` underwater). These exact gain
+tuples provide a stronger runtime identity gate than a broad camera getter.
+
+`HPLGrabBridge` therefore changes only the force-PID error in player state Grab
+`1`. It anchors dominant grip relative to the current native camera on the first
+sample, leaves that pickup call untouched, and adds subsequent camera-relative
+controller displacement with a configurable world-scale cap. The native solver,
+force clamps, object mass, gravity, collision, constraints, and script lifecycle
+remain authoritative. Invalid/stale tracking, authored cameras, state changes,
+signature mismatch, or a different PID tuple preserve the original error.
+
+OpenXR grip spaces now return predicted-time linear and angular velocity. The
+torque tuple is observed without mutation, and release logs include both vectors.
+The next safe step is to correlate controller quaternion delta against native
+rotation-error axes in a live capture before replacing rotational error. Throw
+impulse substitution likewise waits for native impulse scale and direction
+evidence; this build invokes SOMA's existing Right Mouse throw/cancel action.
+
+Movement can now be head-relative by applying calibrated HMD yaw only. Physical
+crouch uses raw tracked head height, a recenter generation, and hysteresis while
+leaving SOMA's crouch state and capsule transition on the native action path.
+
 ## 0.16.0 Controller Hands And Paused Menu Findings
 
 The shipped `PlayerHandsHandler.hps` closes the default transform equation:

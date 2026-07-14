@@ -2,6 +2,24 @@
 
 ## 2026-07-15
 
+### 0.26.0-gpu-depth-probe
+
+- Added nonblocking per-eye GPU telemetry to the six existing guarded HPL
+  render-stage hooks. Nested-safe `GL_TIMESTAMP` pairs use a bounded pool, are
+  polled only after availability, and are attributed at stage end. Pool
+  exhaustion drops samples instead of stalling SOMA.
+- Added an opt-in OpenXR depth-capability probe. The runtime detects and
+  conditionally enables `XR_KHR_composition_layer_depth`, then records default
+  OpenGL depth precision/range with confirmed HPL projection near/far planes.
+  This build deliberately does not submit depth layers yet.
+- Missing timer-query entry points and unsupported depth extensions are isolated
+  fallbacks. Generated configs keep both probes disabled; the active profile
+  enables a 128-pair pool and depth evidence capture. Both build flavors pass.
+  OpenXR SHA-256:
+  `67C0A882F995EDD41F38A958951105377A347AC21EF138F9242D40CBE12C56F0`.
+  Package SHA-256:
+  `7658C575D49616064D829C56F08F89425C1AC5B92DD2826EE29FE941E57990E9`.
+
 ### 0.25.0-volume-spectator-telemetry
 
 - Replaced the point-only room-scale safety sample with a configurable swept

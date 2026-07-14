@@ -272,6 +272,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrMirrorBackbuffer,
         g_config->Get().openxrDesktopMirrorEye,
         g_config->Get().openxrDesktopMirrorAspect,
+        g_config->Get().openxrDepthCompositionProbe,
         g_config->Get().openxrResolutionScalePercent,
         g_config->Get().openxrReferenceSpace,
         g_config->Get().openxrInputEnabled,

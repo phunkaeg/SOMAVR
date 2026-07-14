@@ -28,6 +28,7 @@ struct Config {
     bool openxrMirrorBackbuffer = true;
     std::string openxrDesktopMirrorEye = "native";
     std::string openxrDesktopMirrorAspect = "fit";
+    bool openxrDepthCompositionProbe = false;
     int openxrResolutionScalePercent = 100;
     std::string openxrReferenceSpace = "local";
     bool openxrInputEnabled = false;
@@ -174,6 +175,8 @@ struct Config {
     float hplWorldScale = 1.0f;
     bool hplRenderStageProbe = false;
     bool hplPerEyePerformanceTelemetry = false;
+    bool hplPerEyeGpuTelemetry = false;
+    int hplGpuQueryPoolSize = 128;
     bool hplAudioListenerProbe = false;
     bool hplAudioListenerCorrection = false;
     bool hplAudioListenerTranslation = false;

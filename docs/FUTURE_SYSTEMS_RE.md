@@ -1,5 +1,20 @@
 # Future Systems Reverse Engineering
 
+## 0.26.0 GPU Budget And Depth Capability Result
+
+The six guarded render stages now carry nested-safe OpenGL timestamp pairs in
+addition to QPC timing. A fixed pool is resolved lazily on the active GL context.
+Results are read only after `GL_QUERY_RESULT_AVAILABLE`; a full pool increments
+`dropped` and leaves rendering untouched. Periodic `hpl_per_eye_gpu` rows report
+calls, average microseconds, and total milliseconds for left, right, and mono.
+
+OpenXR bootstrap now inventories `XR_KHR_composition_layer_depth` and may enable
+it without using it. `openxr_depth_capability` correlates extension state with
+`GL_DEPTH_BITS`, `GL_DEPTH_RANGE`, and confirmed HPL projection type/near/far.
+The next step requires supported live evidence, verified eye-owned depth images,
+and confirmed GL-to-OpenXR depth mapping before creating depth swapchains or
+chaining `XrCompositionLayerDepthInfoKHR`.
+
 ## 0.25.0 Head Volume, Spectator, And CPU Budget Result
 
 The `0.24.0` point segment now expands into a bounded static-world sweep without
@@ -21,8 +36,9 @@ Finally, the six existing HPL render-stage detours now optionally measure every
 call with QPC and attribute it to the active AFR eye. Periodic and shutdown rows
 report calls, average microseconds, and total milliseconds for viewport, world,
 callbacks, post effects, post-post, and screen GUI. This supplies CPU evidence
-for same-frame dual rendering. A nonblocking OpenGL timestamp-query ring is still
-needed for GPU cost; CPU totals alone do not prove dual-render feasibility.
+for same-frame dual rendering. The nonblocking timestamp-query pool added in
+`0.26.0` supplies GPU evidence; representative live CPU/GPU totals still decide
+whether dual-render promotion is feasible.
 
 ## 0.24.0 Room-Scale Safety Result
 

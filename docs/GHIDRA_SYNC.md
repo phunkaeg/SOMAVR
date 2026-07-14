@@ -2,6 +2,11 @@
 
 ## 2026-07-15 Volume/Spectator/Telemetry Reuse Audit
 
+`0.26.0` adds no executable address. GPU timestamps use OpenGL entry points at
+the existing six guarded render-stage boundaries. Depth probing reuses confirmed
+HPL frustum fields already exposed by `HPLCameraBridge`; no new SOMA detour or
+Ghidra label is required.
+
 `0.25.0` adds no executable address. The head-volume sweep reuses the already
 typed and tagged `SOMA_CheckLineOfSight` wrapper at `0x1400cd710`; spectator
 output and CPU timing use existing GL/frame and six guarded render-stage hooks.

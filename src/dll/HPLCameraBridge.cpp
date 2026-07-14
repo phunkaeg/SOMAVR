@@ -1493,6 +1493,14 @@ HPLCameraBridgeStatus GetHPLCameraBridgeStatus()
     status.activeFrustum = g_state.activeFrustum;
     status.calibrationGeneration = g_state.calibrationGeneration;
     if (g_state.baseMatricesValid
+        && std::isfinite(g_state.parameters.nearPlane)
+        && std::isfinite(g_state.parameters.farPlane)) {
+        status.projectionParametersValid = true;
+        status.nearPlane = g_state.parameters.nearPlane;
+        status.farPlane = g_state.parameters.farPlane;
+        status.projectionType = g_state.parameters.projectionType;
+    }
+    if (g_state.baseMatricesValid
         && std::isfinite(g_state.parameters.origin[0])
         && std::isfinite(g_state.parameters.origin[1])
         && std::isfinite(g_state.parameters.origin[2])) {

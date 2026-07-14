@@ -1,5 +1,21 @@
 # Test Checklists
 
+## 0.26.0 GPU And Depth Capability
+
+1. Confirm `version=0.26.0-gpu-depth-probe`, `perEyeGpu=1`,
+   `gpuQueryPairs=128`, and `hpl_per_eye_gpu ready ... nonBlocking=1` after F10.
+2. Play through a representative lit room, post-effect-heavy area, menu, and
+   interaction. Confirm `hpl_per_eye_gpu` has nonzero left/right timings;
+   `dropped` should remain zero or bounded and `invalid=0`.
+3. Confirm one `openxr_depth_capability` row reports extension available/enabled
+   state, nonzero `glDepthBits`, depth range, projection type, and finite positive
+   HPL near/far. An unavailable extension is a valid probe result.
+4. Verify no hitching, world skew, stereo mismatch, shadow/reflection change,
+   startup failure, or shutdown regression. Preserve the complete log.
+
+Stop for sustained dropped samples, timer-query GL errors, or a visual/frame-
+pacing regression. The two new probes can be disabled independently.
+
 ## 0.25.0 Head Volume, Spectator, And CPU Telemetry
 
 1. Confirm `version=0.25.0-volume-spectator-telemetry`,

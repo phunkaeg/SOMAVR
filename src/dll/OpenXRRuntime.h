@@ -125,6 +125,7 @@ public:
         bool mirrorBackbuffer,
         const std::string& desktopMirrorEye,
         const std::string& desktopMirrorAspect,
+        bool depthCompositionProbe,
         int resolutionScalePercent,
         const std::string& referenceSpace,
         bool inputEnabled,

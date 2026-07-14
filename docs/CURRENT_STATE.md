@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.25.0-volume-spectator-telemetry`, layered on the
+The active build candidate is `0.26.0-gpu-depth-probe`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
@@ -35,7 +35,12 @@ compatibility probes:
 - The desktop mirror can now show a stable cached left or right eye with fit,
   fill, or stretch layout after XR submission. Native mode leaves the original
   backbuffer untouched. Existing render-stage hooks also accumulate left/right/
-  mono CPU timings for dual-render budgeting; GPU timing is not yet claimed.
+  mono CPU and nonblocking GPU timings for dual-render budgeting. A bounded
+  timestamp-query pool drops saturated samples rather than stalling the game.
+- OpenXR depth capability is now explicitly probed. Supported runtimes enable
+  `XR_KHR_composition_layer_depth`, and one evidence row combines extension
+  state, framebuffer depth bits/range, and HPL near/far projection data. Per-eye
+  depth swapchains and submission remain gated on that live evidence.
 
 - The exact scripted `Flashlight` light now follows the dominant controller's
   tracked aim pose through the existing guarded Lux-entity transform boundary.
@@ -435,7 +440,7 @@ The OpenXR build now asks for:
 & "D:\Dev Debug\SOMAVR\build-openxr\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.25.0-volume-spectator-telemetry`, six compatibility render-stage hooks,
+2. Confirm `version=0.26.0-gpu-depth-probe`, six compatibility render-stage hooks,
    `hpl_hud_bridge installed ... layer=1`,
    `hpl_interaction_bridge install_ok`, `hpl_hands_bridge install_ok`, and
    `hpl_grab_bridge install_ok ... rotation=1 throwRedirect=1`, plus
@@ -444,6 +449,7 @@ The OpenXR build now asks for:
    Confirm `hpl_crosshair_bridge install_ok`,
    `openxr_interaction_reticle native_assets_loaded count=34`, and the
    semantic/native-icon/focus-haptic configuration row before judging behavior.
+   Also confirm `perEyeGpu=1`, `gpuQueryPairs=128`, and depth probing enabled.
 3. Load a save game, face forward, and press F10 once.
 4. Confirm `hpl_vr_mode requested`, API-attributed `openxr_manual_start triggered`,
    one or more `calibration_wait` rows, then `hpl_vr_mode activated` with
@@ -501,8 +507,11 @@ The OpenXR build now asks for:
 22. Toggle the flashlight and aim the dominant controller separately from the
     HMD. Confirm exact `Flashlight` identity plus `hpl_flashlight_pose ...
     overridden=1`; tracking loss and authored cameras must restore native aim.
-23. Confirm `somavr_build_manifest.txt` reports version
-    `0.25.0-volume-spectator-telemetry`, flavor `openxr`, and a DLL SHA-256.
-24. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
+23. Confirm periodic `hpl_per_eye_gpu` rows have left/right samples with
+    `invalid=0` and no sustained drops. Confirm one `openxr_depth_capability`
+    row captures extension, framebuffer depth, and finite HPL near/far evidence.
+24. Confirm `somavr_build_manifest.txt` reports version
+    `0.26.0-gpu-depth-probe`, flavor `openxr`, and a DLL SHA-256.
+25. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
     `complete`, then check that `Soma_NoSteam.exe` disappears. If it remains,
     capture it with the dumper before manually terminating it.

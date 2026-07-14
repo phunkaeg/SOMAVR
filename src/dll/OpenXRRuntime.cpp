@@ -1,11 +1,13 @@
 #include "OpenXRRuntime.h"
 
 #include "Logger.h"
+#include "HPLCameraBridge.h"
 #include "HPLHudMath.h"
 #include "OpenXRGLBridge.h"
 
 #include <Windows.h>
 #include <Unknwn.h>
+#include <gl/GL.h>
 
 #include <algorithm>
 #include <array>
@@ -111,6 +113,7 @@ struct OpenXRRuntime::Impl {
         bool mirrorBackbuffer,
         const std::string& desktopMirrorEye,
         const std::string& desktopMirrorAspect,
+        bool depthCompositionProbe,
         int resolutionScalePercent,
         const std::string& referenceSpace,
         bool inputEnabled,
@@ -159,6 +162,10 @@ struct OpenXRRuntime::Impl {
             : desktopMirrorAspect_ == "stretch"
                 ? spectator_math::AspectMode::Stretch
                 : spectator_math::AspectMode::Fit;
+        depthCompositionProbeEnabled_ = depthCompositionProbe;
+        depthExtensionAvailable_ = false;
+        depthExtensionEnabled_ = false;
+        depthCapabilityLogged_ = false;
         resolutionScalePercent_ = std::clamp(resolutionScalePercent, 25, 200);
         requestedReferenceSpace_ = referenceSpace == "stage" ? "stage" : "local";
         inputEnabled_ = inputEnabled;
@@ -272,6 +279,7 @@ struct OpenXRRuntime::Impl {
 
     void OnFrameBoundary(HDC deviceContext, HGLRC glContext, uint64_t frameIndex)
     {
+        const HPLCameraBridgeStatus cameraStatus = GetHPLCameraBridgeStatus();
         std::lock_guard lock(mutex_);
         currentGameFrame_ = frameIndex;
         latestHdc_ = deviceContext;
@@ -307,6 +315,8 @@ struct OpenXRRuntime::Impl {
                 return;
             }
         }
+
+        LogDepthCapabilityLocked(glContext, frameIndex, cameraStatus);
 
         if (sessionRunning_ && frameResourcesReady_ && !frameSubmitFailed_) {
             SubmitFrameLocked(frameIndex);
@@ -396,6 +406,10 @@ struct OpenXRRuntime::Impl {
             << " openxrDesktopMirrorAspect=" << desktopMirrorAspect_
             << " openxrDesktopMirrorFrames=" << static_cast<unsigned long long>(desktopMirrorFrames_)
             << " openxrDesktopMirrorFailures=" << static_cast<unsigned long long>(desktopMirrorFailures_)
+            << " openxrDepthCompositionProbe=" << (depthCompositionProbeEnabled_ ? 1 : 0)
+            << " openxrDepthExtensionAvailable=" << (depthExtensionAvailable_ ? 1 : 0)
+            << " openxrDepthExtensionEnabled=" << (depthExtensionEnabled_ ? 1 : 0)
+            << " openxrDepthCapabilityLogged=" << (depthCapabilityLogged_ ? 1 : 0)
             << " openxrResolutionScalePercent=" << resolutionScalePercent_
             << " openxrReferenceSpaceRequested=" << requestedReferenceSpace_
             << " openxrReferenceSpaceSelected=" << ReferenceSpaceTypeName(selectedReferenceSpace_)
@@ -812,11 +826,15 @@ private:
         createInfo.applicationInfo.engineVersion = 2;
         createInfo.applicationInfo.apiVersion = XR_API_VERSION_1_0;
 
-        const char* extensions[] = {
+        std::vector<const char*> enabledExtensions = {
             XR_KHR_OPENGL_ENABLE_EXTENSION_NAME,
         };
-        createInfo.enabledExtensionCount = 1;
-        createInfo.enabledExtensionNames = extensions;
+        if (depthCompositionProbeEnabled_ && depthExtensionAvailable_) {
+            enabledExtensions.push_back("XR_KHR_composition_layer_depth");
+            depthExtensionEnabled_ = true;
+        }
+        createInfo.enabledExtensionCount = static_cast<uint32_t>(enabledExtensions.size());
+        createInfo.enabledExtensionNames = enabledExtensions.data();
 
         XrResult result = xrCreateInstance(&createInfo, &instance_);
         if (XR_FAILED(result)) {
@@ -1077,18 +1095,52 @@ private:
 
         const bool hasOpenGL = ExtensionPresent(extensions, XR_KHR_OPENGL_ENABLE_EXTENSION_NAME);
         const bool hasWin32Time = ExtensionPresent(extensions, "XR_KHR_win32_convert_performance_counter_time");
+        depthExtensionAvailable_ = ExtensionPresent(extensions, "XR_KHR_composition_layer_depth");
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_extensions count=%u khrOpenGL=%d khrWin32Time=%d sample=\"%s\"",
+            "openxr_extensions count=%u khrOpenGL=%d khrWin32Time=%d khrCompositionLayerDepth=%d depthProbeRequested=%d sample=\"%s\"",
             extensionCount,
             hasOpenGL ? 1 : 0,
             hasWin32Time ? 1 : 0,
+            depthExtensionAvailable_ ? 1 : 0,
+            depthCompositionProbeEnabled_ ? 1 : 0,
             ExtensionSample(extensions).c_str());
 
         if (!hasOpenGL) {
             Logger::Instance().Write(LogLevel::Warn, "openxr_bootstrap missing_required_extension name=%s", XR_KHR_OPENGL_ENABLE_EXTENSION_NAME);
         }
         return hasOpenGL;
+    }
+
+    void LogDepthCapabilityLocked(
+        HGLRC glContext,
+        uint64_t frameIndex,
+        const HPLCameraBridgeStatus& camera)
+    {
+        if (!depthCompositionProbeEnabled_ || depthCapabilityLogged_
+            || glContext == nullptr || wglGetCurrentContext() != glContext) {
+            return;
+        }
+        if (!camera.projectionParametersValid) {
+            return;
+        }
+        GLint depthBits = 0;
+        GLdouble depthRange[2] = {};
+        glGetIntegerv(GL_DEPTH_BITS, &depthBits);
+        glGetDoublev(GL_DEPTH_RANGE, depthRange);
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "openxr_depth_capability frame=%llu requested=1 extensionAvailable=%d extensionEnabled=%d glDepthBits=%d glDepthRange=%.6f,%.6f hplProjectionValid=1 hplProjectionType=%d hplNear=%.6f hplFar=%.6f submissionImplemented=0",
+            static_cast<unsigned long long>(frameIndex),
+            depthExtensionAvailable_ ? 1 : 0,
+            depthExtensionEnabled_ ? 1 : 0,
+            depthBits,
+            depthRange[0],
+            depthRange[1],
+            camera.projectionType,
+            camera.nearPlane,
+            camera.farPlane);
+        depthCapabilityLogged_ = true;
     }
 
     void LogSystemPropertiesLocked()
@@ -2145,6 +2197,10 @@ private:
     bool mirrorBackbufferEnabled_ = true;
     std::string desktopMirrorEye_ = "native";
     std::string desktopMirrorAspect_ = "fit";
+    bool depthCompositionProbeEnabled_ = false;
+    bool depthExtensionAvailable_ = false;
+    bool depthExtensionEnabled_ = false;
+    bool depthCapabilityLogged_ = false;
     int desktopMirrorEyeIndex_ = -1;
     spectator_math::AspectMode desktopMirrorAspectMode_ = spectator_math::AspectMode::Fit;
     uint64_t desktopMirrorFrames_ = 0;
@@ -2280,6 +2336,7 @@ struct OpenXRRuntime::Impl {
         bool mirrorBackbuffer,
         const std::string& desktopMirrorEye,
         const std::string& desktopMirrorAspect,
+        bool depthCompositionProbe,
         int resolutionScalePercent,
         const std::string& referenceSpace,
         bool inputEnabled,
@@ -2319,6 +2376,7 @@ struct OpenXRRuntime::Impl {
         mirrorBackbufferEnabled_ = mirrorBackbuffer;
         desktopMirrorEye_ = desktopMirrorEye;
         desktopMirrorAspect_ = desktopMirrorAspect;
+        depthCompositionProbeEnabled_ = depthCompositionProbe;
         resolutionScalePercent_ = resolutionScalePercent;
         referenceSpace_ = referenceSpace;
         inputEnabled_ = inputEnabled;
@@ -2414,6 +2472,7 @@ struct OpenXRRuntime::Impl {
             << " openxrManualStartArmed=" << (manualStartArmed_ ? 1 : 0)
             << " openxrManualStartFrame=0"
             << " openxrFrameSubmit=" << (frameSubmitEnabled_ ? 1 : 0)
+            << " openxrDepthCompositionProbe=" << (depthCompositionProbeEnabled_ ? 1 : 0)
             << " openxrMirrorBackbuffer=" << (mirrorBackbufferEnabled_ ? 1 : 0)
             << " openxrResolutionScalePercent=" << resolutionScalePercent_
             << " openxrInputEnabled=" << (inputEnabled_ ? 1 : 0)
@@ -2503,6 +2562,7 @@ private:
     bool mirrorBackbufferEnabled_ = true;
     std::string desktopMirrorEye_ = "native";
     std::string desktopMirrorAspect_ = "fit";
+    bool depthCompositionProbeEnabled_ = false;
     int resolutionScalePercent_ = 100;
     std::string referenceSpace_ = "local";
     bool unavailableLogged_ = false;
@@ -2526,6 +2586,7 @@ void OpenXRRuntime::Configure(
     bool mirrorBackbuffer,
     const std::string& desktopMirrorEye,
     const std::string& desktopMirrorAspect,
+    bool depthCompositionProbe,
     int resolutionScalePercent,
     const std::string& referenceSpace,
     bool inputEnabled,
@@ -2565,6 +2626,7 @@ void OpenXRRuntime::Configure(
         mirrorBackbuffer,
         desktopMirrorEye,
         desktopMirrorAspect,
+        depthCompositionProbe,
         resolutionScalePercent,
         referenceSpace,
         inputEnabled,

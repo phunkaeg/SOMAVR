@@ -1,5 +1,17 @@
 # VR Compatibility Reverse-Engineering Map
 
+## 0.26.0 GPU And Depth Evidence
+
+`HPLCompatibilityProbe` now issues nested-safe start/end `GL_TIMESTAMP` queries
+for viewport, world, callbacks, post effects, post-post, and screen GUI. It never
+blocks for results and preserves AFR eye attribution at stage completion. Read
+`hpl_per_eye_cpu` and `hpl_per_eye_gpu` together to compare representative frame
+budgets and identify stages whose side effects prevent same-frame repetition.
+
+The same build conditionally enables `XR_KHR_composition_layer_depth` and logs
+HPL near/far plus default framebuffer depth facts. This is capability discovery,
+not depth submission; per-eye depth ownership and conversion remain required.
+
 ## 0.25.0 Dual-Render Budget Evidence
 
 The six existing viewport/world/callback/post/post-post/GUI hooks now accumulate

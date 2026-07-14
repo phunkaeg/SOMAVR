@@ -63,6 +63,9 @@ constexpr GLenum kGLBlendSrcAlpha = 0x80cb;
 constexpr GLenum kGLBlendDstAlpha = 0x80ca;
 constexpr GLenum kGLBlendEquationRgb = 0x8009;
 constexpr GLenum kGLBlendEquationAlpha = 0x883d;
+constexpr GLenum kGLTimestamp = 0x8e28;
+constexpr GLenum kGLQueryResult = 0x8866;
+constexpr GLenum kGLQueryResultAvailable = 0x8867;
 
 constexpr size_t kListenerUpOffset = 0x50;
 constexpr size_t kListenerForwardOffset = 0x5c;
@@ -72,6 +75,11 @@ constexpr size_t kListenerVelocityOffset = 0x80;
 using GlGetIntegervFn = void(APIENTRY*)(GLenum, GLint*);
 using GlGetBooleanvFn = void(APIENTRY*)(GLenum, GLboolean*);
 using GlIsEnabledFn = GLboolean(APIENTRY*)(GLenum);
+using GlGenQueriesFn = void(APIENTRY*)(GLsizei, GLuint*);
+using GlDeleteQueriesFn = void(APIENTRY*)(GLsizei, const GLuint*);
+using GlQueryCounterFn = void(APIENTRY*)(GLuint, GLenum);
+using GlGetQueryObjectivFn = void(APIENTRY*)(GLuint, GLenum, GLint*);
+using GlGetQueryObjectui64vFn = void(APIENTRY*)(GLuint, GLenum, uint64_t*);
 using RenderViewportFn = void (*)(void*, void*, float, uint64_t);
 using RenderWorldFn = void (*)(void*, float, void*, void*, void*, void*, bool, void*);
 using RenderWorldCallbacksFn = void (*)(void*, void*, void*, float);
@@ -102,6 +110,7 @@ struct GLState {
 struct StageSample {
     bool enabled = false;
     bool timingEnabled = false;
+    int gpuTimingSlot = -1;
     HPLRenderStage stage = HPLRenderStage::Viewport;
     HPLRenderStage previousStage = HPLRenderStage::None;
     uint64_t frame = 0;
@@ -112,6 +121,16 @@ struct StageSample {
     LARGE_INTEGER start = {};
     GLState before = {};
     OpenGLTelemetrySnapshot telemetryBefore = {};
+};
+
+struct GpuTimingRecord {
+    GLuint startQuery = 0;
+    GLuint endQuery = 0;
+    bool active = false;
+    bool pending = false;
+    HPLRenderStage stage = HPLRenderStage::Viewport;
+    int eyeIndex = -1;
+    uint64_t frame = 0;
 };
 
 struct FrameSampleBudget {
@@ -125,6 +144,14 @@ uintptr_t g_executableBase = 0;
 GlGetIntegervFn g_glGetIntegerv = nullptr;
 GlGetBooleanvFn g_glGetBooleanv = nullptr;
 GlIsEnabledFn g_glIsEnabled = nullptr;
+GlGenQueriesFn g_glGenQueries = nullptr;
+GlDeleteQueriesFn g_glDeleteQueries = nullptr;
+GlQueryCounterFn g_glQueryCounter = nullptr;
+GlGetQueryObjectivFn g_glGetQueryObjectiv = nullptr;
+GlGetQueryObjectui64vFn g_glGetQueryObjectui64v = nullptr;
+HGLRC g_gpuTimingContext = nullptr;
+HGLRC g_gpuTimingUnavailableContext = nullptr;
+std::vector<GpuTimingRecord> g_gpuTimingRecords;
 std::vector<void*> g_hookTargets;
 std::mutex g_installMutex;
 std::mutex g_sampleMutex;
@@ -132,7 +159,12 @@ std::array<FrameSampleBudget, kStageCount> g_sampleBudgets;
 std::array<std::atomic<uint64_t>, kStageCount> g_stageCalls = {};
 std::array<std::array<std::atomic<uint64_t>, 3>, kStageCount> g_stageEyeCalls = {};
 std::array<std::array<std::atomic<uint64_t>, 3>, kStageCount> g_stageEyeCpuNanoseconds = {};
+std::array<std::array<std::atomic<uint64_t>, 3>, kStageCount> g_stageEyeGpuCalls = {};
+std::array<std::array<std::atomic<uint64_t>, 3>, kStageCount> g_stageEyeGpuNanoseconds = {};
+std::atomic<uint64_t> g_gpuTimingDropped = 0;
+std::atomic<uint64_t> g_gpuTimingInvalid = 0;
 std::atomic<uint64_t> g_lastPerformanceLogFrame = 0;
+std::atomic<uint64_t> g_lastGpuPerformanceLogFrame = 0;
 int64_t g_performanceFrequency = 0;
 std::atomic<uint64_t> g_audioCalls = 0;
 std::atomic<uint64_t> g_audioPoseSamples = 0;
@@ -192,6 +224,172 @@ double AverageStageCpuMicroseconds(size_t stageIndex, size_t eyeSlot)
         : 0.0;
 }
 
+double AverageStageGpuMicroseconds(size_t stageIndex, size_t eyeSlot)
+{
+    const uint64_t calls = g_stageEyeGpuCalls[stageIndex][eyeSlot].load(std::memory_order_relaxed);
+    const uint64_t nanoseconds = g_stageEyeGpuNanoseconds[stageIndex][eyeSlot].load(
+        std::memory_order_relaxed);
+    return calls != 0
+        ? static_cast<double>(nanoseconds) / static_cast<double>(calls) / 1000.0
+        : 0.0;
+}
+
+bool IsValidWglProcAddress(PROC address)
+{
+    const uintptr_t value = reinterpret_cast<uintptr_t>(address);
+    return address != nullptr && value > 3 && value != static_cast<uintptr_t>(-1);
+}
+
+template <typename T>
+T ResolveGLProc(const char* name)
+{
+    PROC address = wglGetProcAddress(name);
+    return IsValidWglProcAddress(address) ? reinterpret_cast<T>(address) : nullptr;
+}
+
+void ResetGpuTimingState(bool deleteQueries)
+{
+    if (deleteQueries && g_glDeleteQueries != nullptr && !g_gpuTimingRecords.empty()) {
+        std::vector<GLuint> queries;
+        queries.reserve(g_gpuTimingRecords.size() * 2);
+        for (const GpuTimingRecord& record : g_gpuTimingRecords) {
+            queries.push_back(record.startQuery);
+            queries.push_back(record.endQuery);
+        }
+        g_glDeleteQueries(static_cast<GLsizei>(queries.size()), queries.data());
+    }
+    g_gpuTimingRecords.clear();
+    g_glGenQueries = nullptr;
+    g_glDeleteQueries = nullptr;
+    g_glQueryCounter = nullptr;
+    g_glGetQueryObjectiv = nullptr;
+    g_glGetQueryObjectui64v = nullptr;
+    g_gpuTimingContext = nullptr;
+}
+
+bool EnsureGpuTimingReady()
+{
+    if (!g_config.hplPerEyeGpuTelemetry) {
+        return false;
+    }
+    const HGLRC context = wglGetCurrentContext();
+    if (context == nullptr) {
+        return false;
+    }
+    if (context == g_gpuTimingContext && !g_gpuTimingRecords.empty()) {
+        return true;
+    }
+    if (context == g_gpuTimingUnavailableContext) {
+        return false;
+    }
+    if (g_gpuTimingContext != nullptr && context != g_gpuTimingContext) {
+        ResetGpuTimingState(false);
+    }
+
+    g_glGenQueries = ResolveGLProc<GlGenQueriesFn>("glGenQueries");
+    g_glDeleteQueries = ResolveGLProc<GlDeleteQueriesFn>("glDeleteQueries");
+    g_glQueryCounter = ResolveGLProc<GlQueryCounterFn>("glQueryCounter");
+    g_glGetQueryObjectiv = ResolveGLProc<GlGetQueryObjectivFn>("glGetQueryObjectiv");
+    g_glGetQueryObjectui64v = ResolveGLProc<GlGetQueryObjectui64vFn>("glGetQueryObjectui64v");
+    if (g_glGenQueries == nullptr || g_glDeleteQueries == nullptr
+        || g_glQueryCounter == nullptr || g_glGetQueryObjectiv == nullptr
+        || g_glGetQueryObjectui64v == nullptr) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "hpl_per_eye_gpu unavailable context=%p reason=missing_timer_query_functions",
+            context);
+        ResetGpuTimingState(false);
+        g_gpuTimingUnavailableContext = context;
+        return false;
+    }
+
+    const size_t recordCount = static_cast<size_t>(std::clamp(g_config.hplGpuQueryPoolSize, 16, 512));
+    std::vector<GLuint> queries(recordCount * 2, 0);
+    g_glGenQueries(static_cast<GLsizei>(queries.size()), queries.data());
+    g_gpuTimingRecords.resize(recordCount);
+    for (size_t index = 0; index < recordCount; ++index) {
+        g_gpuTimingRecords[index].startQuery = queries[index * 2];
+        g_gpuTimingRecords[index].endQuery = queries[index * 2 + 1];
+    }
+    g_gpuTimingContext = context;
+    g_gpuTimingUnavailableContext = nullptr;
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_per_eye_gpu ready context=%p queryPairs=%llu nonBlocking=1",
+        context,
+        static_cast<unsigned long long>(recordCount));
+    return true;
+}
+
+void PollGpuTimingResults()
+{
+    if (g_glGetQueryObjectiv == nullptr || g_glGetQueryObjectui64v == nullptr) {
+        return;
+    }
+    if (wglGetCurrentContext() != g_gpuTimingContext) {
+        return;
+    }
+    for (GpuTimingRecord& record : g_gpuTimingRecords) {
+        if (!record.pending) {
+            continue;
+        }
+        GLint available = GL_FALSE;
+        g_glGetQueryObjectiv(record.endQuery, kGLQueryResultAvailable, &available);
+        if (available != GL_TRUE) {
+            continue;
+        }
+        uint64_t start = 0;
+        uint64_t end = 0;
+        g_glGetQueryObjectui64v(record.startQuery, kGLQueryResult, &start);
+        g_glGetQueryObjectui64v(record.endQuery, kGLQueryResult, &end);
+        if (end >= start) {
+            const size_t stageIndex = StageIndex(record.stage);
+            const size_t eyeSlot = EyeSlot(record.eyeIndex);
+            g_stageEyeGpuCalls[stageIndex][eyeSlot].fetch_add(1, std::memory_order_relaxed);
+            g_stageEyeGpuNanoseconds[stageIndex][eyeSlot].fetch_add(end - start, std::memory_order_relaxed);
+        } else {
+            g_gpuTimingInvalid.fetch_add(1, std::memory_order_relaxed);
+        }
+        record.pending = false;
+    }
+}
+
+int BeginGpuTiming(HPLRenderStage stage, uint64_t frame)
+{
+    if (!EnsureGpuTimingReady()) {
+        return -1;
+    }
+    for (size_t index = 0; index < g_gpuTimingRecords.size(); ++index) {
+        GpuTimingRecord& record = g_gpuTimingRecords[index];
+        if (!record.active && !record.pending) {
+            record.active = true;
+            record.stage = stage;
+            record.frame = frame;
+            record.eyeIndex = -1;
+            g_glQueryCounter(record.startQuery, kGLTimestamp);
+            return static_cast<int>(index);
+        }
+    }
+    g_gpuTimingDropped.fetch_add(1, std::memory_order_relaxed);
+    return -1;
+}
+
+void EndGpuTiming(int slot, int eyeIndex)
+{
+    if (slot < 0 || static_cast<size_t>(slot) >= g_gpuTimingRecords.size()
+        || g_glQueryCounter == nullptr) {
+        return;
+    }
+    GpuTimingRecord& record = g_gpuTimingRecords[static_cast<size_t>(slot)];
+    if (!record.active) {
+        return;
+    }
+    g_glQueryCounter(record.endQuery, kGLTimestamp);
+    record.eyeIndex = eyeIndex;
+    record.active = false;
+    record.pending = true;
+}
+
 void LogPerEyePerformance(uint64_t frame, bool finalSummary)
 {
     if (!g_config.hplPerEyePerformanceTelemetry) {
@@ -228,6 +426,47 @@ void LogPerEyePerformance(uint64_t frame, bool finalSummary)
             static_cast<unsigned long long>(g_stageEyeCalls[stageIndex][2].load(std::memory_order_relaxed)),
             AverageStageCpuMicroseconds(stageIndex, 2),
             static_cast<double>(g_stageEyeCpuNanoseconds[stageIndex][2].load(std::memory_order_relaxed)) / 1000000.0);
+    }
+}
+
+void LogPerEyeGpuPerformance(uint64_t frame, bool finalSummary)
+{
+    if (!g_config.hplPerEyeGpuTelemetry) {
+        return;
+    }
+    PollGpuTimingResults();
+    if (!finalSummary) {
+        const uint64_t previous = g_lastGpuPerformanceLogFrame.exchange(frame, std::memory_order_relaxed);
+        if (previous == frame) {
+            return;
+        }
+    }
+    constexpr HPLRenderStage kStages[kStageCount] = {
+        HPLRenderStage::Viewport,
+        HPLRenderStage::World,
+        HPLRenderStage::WorldCallbacks,
+        HPLRenderStage::PostEffects,
+        HPLRenderStage::PostPostEffect,
+        HPLRenderStage::ScreenGui,
+    };
+    for (size_t stageIndex = 0; stageIndex < kStageCount; ++stageIndex) {
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_per_eye_gpu frame=%llu final=%d stage=%s left={calls=%llu avgUs=%.2f totalMs=%.2f} right={calls=%llu avgUs=%.2f totalMs=%.2f} mono={calls=%llu avgUs=%.2f totalMs=%.2f} dropped=%llu invalid=%llu",
+            static_cast<unsigned long long>(frame),
+            finalSummary ? 1 : 0,
+            GetHPLRenderStageName(kStages[stageIndex]),
+            static_cast<unsigned long long>(g_stageEyeGpuCalls[stageIndex][0].load(std::memory_order_relaxed)),
+            AverageStageGpuMicroseconds(stageIndex, 0),
+            static_cast<double>(g_stageEyeGpuNanoseconds[stageIndex][0].load(std::memory_order_relaxed)) / 1000000.0,
+            static_cast<unsigned long long>(g_stageEyeGpuCalls[stageIndex][1].load(std::memory_order_relaxed)),
+            AverageStageGpuMicroseconds(stageIndex, 1),
+            static_cast<double>(g_stageEyeGpuNanoseconds[stageIndex][1].load(std::memory_order_relaxed)) / 1000000.0,
+            static_cast<unsigned long long>(g_stageEyeGpuCalls[stageIndex][2].load(std::memory_order_relaxed)),
+            AverageStageGpuMicroseconds(stageIndex, 2),
+            static_cast<double>(g_stageEyeGpuNanoseconds[stageIndex][2].load(std::memory_order_relaxed)) / 1000000.0,
+            static_cast<unsigned long long>(g_gpuTimingDropped.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_gpuTimingInvalid.load(std::memory_order_relaxed)));
     }
 }
 
@@ -723,6 +962,7 @@ StageSample BeginStage(HPLRenderStage stage, void* viewport = nullptr, uint64_t 
     if (sample.enabled || sample.timingEnabled) {
         QueryPerformanceCounter(&sample.start);
     }
+    sample.gpuTimingSlot = BeginGpuTiming(stage, sample.frame);
     return sample;
 }
 
@@ -737,10 +977,14 @@ void EndStage(const StageSample& sample)
         ? static_cast<double>(end.QuadPart - sample.start.QuadPart) * 1000000.0
             / static_cast<double>(g_performanceFrequency)
         : 0.0;
+    int stereoRenderEye = -1;
+    if (sample.timingEnabled || sample.gpuTimingSlot >= 0) {
+        stereoRenderEye = GetHPLCameraBridgeStatus().stereoRenderEye;
+    }
+    EndGpuTiming(sample.gpuTimingSlot, stereoRenderEye);
     if (sample.timingEnabled && g_performanceFrequency > 0 && elapsedTicks >= 0) {
-        const HPLCameraBridgeStatus cameraStatus = GetHPLCameraBridgeStatus();
         const size_t stageIndex = StageIndex(sample.stage);
-        const size_t eyeSlot = EyeSlot(cameraStatus.stereoRenderEye);
+        const size_t eyeSlot = EyeSlot(stereoRenderEye);
         const uint64_t durationNanoseconds = static_cast<uint64_t>(
             static_cast<long double>(elapsedTicks) * 1000000000.0L
             / static_cast<long double>(g_performanceFrequency));
@@ -754,6 +998,14 @@ void EndStage(const StageSample& sample)
             && sample.frame != 0
             && sample.frame % interval == 0) {
             LogPerEyePerformance(sample.frame, false);
+        }
+    }
+    if (sample.stage == HPLRenderStage::Viewport && g_config.hplPerEyeGpuTelemetry) {
+        PollGpuTimingResults();
+        const uint64_t interval = static_cast<uint64_t>(
+            std::max(g_config.hplCompatibilityLogInterval, 1));
+        if (sample.frame != 0 && sample.frame % interval == 0) {
+            LogPerEyeGpuPerformance(sample.frame, false);
         }
     }
     if (!sample.enabled) {
@@ -1093,6 +1345,7 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
     std::lock_guard lock(g_installMutex);
     if (!config.hplRenderStageProbe
         && !config.hplPerEyePerformanceTelemetry
+        && !config.hplPerEyeGpuTelemetry
         && !config.hplAudioListenerProbe
         && !config.hplPostEffectControl) {
         Logger::Instance().Write(LogLevel::Info, "hpl_compat_probe install_skipped enabled=0");
@@ -1114,6 +1367,9 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
     g_postEffectIsolated.store(nullptr, std::memory_order_relaxed);
     g_f12Down.store(false, std::memory_order_relaxed);
     g_lastPerformanceLogFrame.store(0, std::memory_order_relaxed);
+    g_lastGpuPerformanceLogFrame.store(0, std::memory_order_relaxed);
+    g_gpuTimingDropped.store(0, std::memory_order_relaxed);
+    g_gpuTimingInvalid.store(0, std::memory_order_relaxed);
     LARGE_INTEGER performanceFrequency = {};
     QueryPerformanceFrequency(&performanceFrequency);
     g_performanceFrequency = performanceFrequency.QuadPart;
@@ -1122,6 +1378,8 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
         for (size_t eyeSlot = 0; eyeSlot < 3; ++eyeSlot) {
             g_stageEyeCalls[stageIndex][eyeSlot].store(0, std::memory_order_relaxed);
             g_stageEyeCpuNanoseconds[stageIndex][eyeSlot].store(0, std::memory_order_relaxed);
+            g_stageEyeGpuCalls[stageIndex][eyeSlot].store(0, std::memory_order_relaxed);
+            g_stageEyeGpuNanoseconds[stageIndex][eyeSlot].store(0, std::memory_order_relaxed);
         }
     }
     HMODULE executable = GetModuleHandleW(nullptr);
@@ -1169,7 +1427,8 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
 
     size_t installed = 0;
     const bool stageHooksEnabled = config.hplRenderStageProbe
-        || config.hplPerEyePerformanceTelemetry;
+        || config.hplPerEyePerformanceTelemetry
+        || config.hplPerEyeGpuTelemetry;
     if (stageHooksEnabled) {
         installed += InstallHook(executable, kRenderViewportRva, kRenderViewportSignature,
             sizeof(kRenderViewportSignature), "render_viewport", reinterpret_cast<void*>(&HookRenderViewport),
@@ -1204,9 +1463,11 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         installed > 0 ? LogLevel::Warn : LogLevel::Error,
-        "hpl_compat_probe install_complete renderStages=%d perEyeCpu=%d audioListener=%d audioCorrection=%d audioTranslation=%d postEffectControl=%d postEffectBypass=%d postEffectComfort={imageTrail=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
+        "hpl_compat_probe install_complete renderStages=%d perEyeCpu=%d perEyeGpu=%d gpuQueryPairs=%d audioListener=%d audioCorrection=%d audioTranslation=%d postEffectControl=%d postEffectBypass=%d postEffectComfort={imageTrail=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
         config.hplRenderStageProbe ? 1 : 0,
         config.hplPerEyePerformanceTelemetry ? 1 : 0,
+        config.hplPerEyeGpuTelemetry ? 1 : 0,
+        config.hplGpuQueryPoolSize,
         config.hplAudioListenerProbe ? 1 : 0,
         g_config.hplAudioListenerCorrection ? 1 : 0,
         g_config.hplAudioListenerTranslation ? 1 : 0,
@@ -1227,6 +1488,7 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
 void LogHPLCompatibilityProbeSummary()
 {
     LogPerEyePerformance(GetOpenGLRenderFrameHint(), true);
+    LogPerEyeGpuPerformance(GetOpenGLRenderFrameHint(), true);
     Logger::Instance().Write(
         LogLevel::Info,
         "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu audioUpdates=%llu audioSamples=%llu audioCorrections=%llu audioTranslations=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
@@ -1254,6 +1516,8 @@ void LogHPLCompatibilityProbeSummary()
 void RemoveHPLCompatibilityProbe()
 {
     std::lock_guard lock(g_installMutex);
+    ResetGpuTimingState(wglGetCurrentContext() == g_gpuTimingContext);
+    g_gpuTimingUnavailableContext = nullptr;
     for (void* target : g_hookTargets) {
         MH_DisableHook(target);
         MH_RemoveHook(target);

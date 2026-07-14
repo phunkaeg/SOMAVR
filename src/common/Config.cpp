@@ -153,6 +153,8 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLWorldScale=1.0\n"
         << "HPLRenderStageProbe=0\n"
         << "HPLPerEyePerformanceTelemetry=0\n"
+        << "HPLPerEyeGpuTelemetry=0\n"
+        << "HPLGpuQueryPoolSize=128\n"
         << "HPLAudioListenerProbe=0\n"
         << "HPLAudioListenerCorrection=0\n"
         << "HPLAudioListenerTranslation=0\n"
@@ -177,6 +179,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "MirrorBackbuffer=1\n"
         << "DesktopMirrorEye=native\n"
         << "DesktopMirrorAspect=fit\n"
+        << "DepthCompositionProbe=0\n"
         << "ResolutionScalePercent=100\n"
         << "ReferenceSpace=local\n"
         << "InputEnabled=0\n"
@@ -371,6 +374,8 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplworldscale") config_.hplWorldScale = ParseFloat(value, config_.hplWorldScale, 0.1f, 10.0f);
             else if (key == "hplrenderstageprobe") config_.hplRenderStageProbe = ParseBool(value, config_.hplRenderStageProbe);
             else if (key == "hplpereyeperformancetelemetry") config_.hplPerEyePerformanceTelemetry = ParseBool(value, config_.hplPerEyePerformanceTelemetry);
+            else if (key == "hplpereyegputelemetry") config_.hplPerEyeGpuTelemetry = ParseBool(value, config_.hplPerEyeGpuTelemetry);
+            else if (key == "hplgpuquerypoolsize") config_.hplGpuQueryPoolSize = ParseInt(value, config_.hplGpuQueryPoolSize, 16, 512);
             else if (key == "hplaudiolistenerprobe") config_.hplAudioListenerProbe = ParseBool(value, config_.hplAudioListenerProbe);
             else if (key == "hplaudiolistenercorrection") config_.hplAudioListenerCorrection = ParseBool(value, config_.hplAudioListenerCorrection);
             else if (key == "hplaudiolistenertranslation") config_.hplAudioListenerTranslation = ParseBool(value, config_.hplAudioListenerTranslation);
@@ -413,6 +418,8 @@ void ConfigManager::LoadFromFile()
                 if (aspect == "fit" || aspect == "fill" || aspect == "stretch") {
                     config_.openxrDesktopMirrorAspect = aspect;
                 }
+            } else if (key == "depthcompositionprobe") {
+                config_.openxrDepthCompositionProbe = ParseBool(value, config_.openxrDepthCompositionProbe);
             } else if (key == "resolutionscalepercent") {
                 config_.openxrResolutionScalePercent = ParseInt(value, config_.openxrResolutionScalePercent, 25, 200);
             } else if (key == "referencespace") {

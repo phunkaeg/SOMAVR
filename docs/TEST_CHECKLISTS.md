@@ -1,5 +1,32 @@
 # Test Checklists
 
+## 0.5.11 In-Session Recenter
+
+1. Close any running SOMA process and launch:
+
+```powershell
+& "D:\Dev Debug\SOMAVR\build-openxr-recenter\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
+```
+
+2. Confirm `version=0.5.11-recenter buildOpenXR=1` and the camera install row
+   reports `recenterKey=F2 recenterControl=1`.
+3. Load the same save, face forward, and press F10 once. Confirm the known-good
+   `0.5.10` path: stereo, projection centering, room scale, and clean graphics.
+4. Turn your body or chair to a deliberately offset facing direction, hold still,
+   and press F2 once.
+5. Expect `hpl_recenter requested key=F2`, then bounded `hpl_recenter
+   calibration_wait` rows if tracking needs to settle, then
+   `hpl_recenter applied ... stablePoseFrames=8`.
+6. During the wait, the headset should continue showing the existing VR view
+   rather than snapping back to the desktop camera.
+7. After apply, the current HMD pose should become the new neutral orientation and
+   room-scale origin. Stereo must remain active and no F8/F11 presses are needed.
+8. Repeat F2 once while moving slightly. A `calibration_reset` row is acceptable;
+   it should settle and apply only after motion stops.
+9. Press F10 to exit VR mode, then F10 again to confirm one-key re-entry still
+   uses the original activation latch. Exit SOMA normally and confirm clean
+   lifecycle shutdown.
+
 ## 0.5.10 Neutral Pose Latch
 
 1. Close any running SOMA process and launch:

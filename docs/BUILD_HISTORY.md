@@ -2,6 +2,22 @@
 
 ## 2026-07-14
 
+### 0.5.11-recenter
+
+- Accepted the user-confirmed `0.5.10-poselatch` run as the current graphics
+  baseline: one F10 enabled tracking, AFR stereo, full projection centering, and
+  clean shutdown with no observed shadow/reflection regressions.
+- Added an in-session F2 recenter control gated by `[Hooks] HPLRecenterControl`.
+  Recenter does not restart OpenXR, disable stereo, or leave VR mode.
+- Reused the same fully-tracked, eight-stable-frame neutral-pose latch as F10.
+  While F2 is waiting for stable samples, SOMAVR continues rendering with the
+  previous neutral pose rather than dropping back to the unmodified camera.
+- F2 atomically replaces `neutralOrientation` and `neutralPosition`, resets AFR
+  eye alternation to the left eye, and logs `hpl_recenter requested`,
+  `calibration_wait`, `calibration_reset`, and `applied` rows.
+- Built default and OpenXR x64 Release flavors. OpenXR output:
+  `build-openxr-recenter\Release`.
+
 ### 0.5.10-poselatch
 
 - Triaged the first `0.5.9-rotationfix` live run. The world remained rigid, but

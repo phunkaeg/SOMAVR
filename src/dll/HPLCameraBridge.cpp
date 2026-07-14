@@ -85,9 +85,11 @@ struct FrustumParameters {
 };
 
 struct BridgeState {
+    bool f2Down = false;
     bool f10Down = false;
     bool f11Down = false;
     bool activationPending = false;
+    bool recenterPending = false;
     bool trackingEnabled = false;
     bool stereoEnabled = false;
     bool baseMatricesValid = false;
@@ -95,9 +97,11 @@ struct BridgeState {
     int currentEyeIndex = -1;
     uint64_t currentEyePoseFrame = 0;
     uint32_t activationTrackingWaitLogs = 0;
+    uint32_t recenterTrackingWaitLogs = 0;
     void* activeCamera = nullptr;
     void* activeFrustum = nullptr;
     PoseStabilityState activationPoseStability{};
+    PoseStabilityState recenterPoseStability{};
     Quaternion neutralOrientation{};
     Vector3 neutralPosition{};
     std::array<float, 16> baseProjection{};
@@ -491,6 +495,9 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
                 g_state.stereoEnabled ? 1 : 0);
         }
     }
+    const bool f2Down = (GetAsyncKeyState(VK_F2) & 0x8000) != 0;
+    const bool f2Pressed = f2Down && !g_state.f2Down;
+    g_state.f2Down = f2Down;
     const bool f10Down = (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
     const bool f10Pressed = f10Down && !g_state.f10Down;
     g_state.f10Down = f10Down;
@@ -501,6 +508,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
     if (f10Pressed && (g_state.trackingEnabled || g_state.activationPending)) {
         if (g_state.activationPending && !g_state.trackingEnabled) {
             g_state = BridgeState{};
+            g_state.f2Down = f2Down;
             g_state.f10Down = true;
             g_state.f11Down = f11Down;
             Logger::Instance().Write(
@@ -517,12 +525,14 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
         }
         Logger::Instance().Write(
             LogLevel::Warn,
-            "hpl_vr_mode disabled key=F10 camera=%p frustum=%p restored=%d applied=%llu",
+            "hpl_vr_mode disabled key=F10 camera=%p frustum=%p restored=%d recenterPending=%d applied=%llu",
             camera,
             frustum,
             restored ? 1 : 0,
+            g_state.recenterPending ? 1 : 0,
             static_cast<unsigned long long>(g_appliedCalls.load(std::memory_order_relaxed)));
         g_state = BridgeState{};
+        g_state.f2Down = f2Down;
         g_state.f10Down = true;
         g_state.f11Down = f11Down;
         return frustum;
@@ -664,12 +674,36 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
     }
 
     if (!g_state.trackingEnabled || g_state.activeCamera != camera) {
+        if (f2Pressed && g_config.hplRecenterControl) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_recenter ignored key=F2 reason=head_tracking_disabled");
+        }
         if (f11Pressed) {
             Logger::Instance().Write(
                 LogLevel::Warn,
                 "hpl_stereo enable_ignored key=F11 reason=head_tracking_disabled");
         }
         return frustum;
+    }
+
+    if (f2Pressed) {
+        if (!g_config.hplRecenterControl) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_recenter ignored key=F2 reason=config_disabled");
+        } else {
+            g_state.recenterPending = true;
+            g_state.recenterTrackingWaitLogs = 0;
+            g_state.recenterPoseStability = PoseStabilityState{};
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_recenter requested key=F2 camera=%p frustum=%p stereo=%d roomscale=%d",
+                camera,
+                frustum,
+                g_state.stereoEnabled ? 1 : 0,
+                g_roomscaleEnabled.load(std::memory_order_relaxed) ? 1 : 0);
+        }
     }
 
     if (f11Pressed) {
@@ -719,6 +753,107 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
 
     if (wasDirty || !g_state.baseMatricesValid || g_state.activeFrustum != frustum) {
         RefreshBaseMatrices(frustum, parameters);
+    }
+
+    if (g_state.recenterPending) {
+        do {
+            Quaternion orientation;
+            Vector3 position;
+            uint64_t poseFrame = 0;
+            bool fullyTracked = false;
+            OpenXRStereoViewSnapshot views;
+            const bool poseReady = ReadHeadPose(orientation, position, poseFrame, &fullyTracked);
+            const bool stereoReady = !g_state.stereoEnabled || ReadStereoViews(views);
+            if (!poseReady || !stereoReady) {
+                break;
+            }
+            if (!fullyTracked) {
+                if (g_state.recenterTrackingWaitLogs < 4) {
+                    ++g_state.recenterTrackingWaitLogs;
+                    Logger::Instance().Write(
+                        LogLevel::Info,
+                        "hpl_recenter calibration_wait reason=tracking_not_settled poseFrame=%llu sample=%u",
+                        static_cast<unsigned long long>(poseFrame),
+                        g_state.recenterTrackingWaitLogs);
+                }
+                break;
+            }
+            if (g_state.stereoEnabled && views.gameFrame != poseFrame) {
+                break;
+            }
+
+            float positionStep = 0.0f;
+            float orientationStepRadians = 0.0f;
+            const PoseStabilityUpdate stability = UpdatePoseStability(
+                g_state.recenterPoseStability,
+                poseFrame,
+                orientation,
+                position,
+                kActivationStablePoseFrames,
+                kActivationMaxPositionStepMeters,
+                kActivationMaxOrientationStepRadians,
+                positionStep,
+                orientationStepRadians);
+            if (stability == PoseStabilityUpdate::Invalid) {
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "hpl_recenter calibration_wait reason=invalid_pose poseFrame=%llu",
+                    static_cast<unsigned long long>(poseFrame));
+                break;
+            }
+            if (stability == PoseStabilityUpdate::Started) {
+                Logger::Instance().Write(
+                    LogLevel::Info,
+                    "hpl_recenter calibration_wait reason=initial_tracked_pose poseFrame=%llu stable=%u/%u position=%.6f,%.6f,%.6f",
+                    static_cast<unsigned long long>(poseFrame),
+                    g_state.recenterPoseStability.consecutiveFrames,
+                    kActivationStablePoseFrames,
+                    position.x,
+                    position.y,
+                    position.z);
+                break;
+            }
+            if (stability == PoseStabilityUpdate::Reset) {
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "hpl_recenter calibration_reset reason=reference_space_jump poseFrame=%llu positionStep=%.5f orientationStepDeg=%.3f stable=%u/%u position=%.6f,%.6f,%.6f",
+                    static_cast<unsigned long long>(poseFrame),
+                    positionStep,
+                    orientationStepRadians * kRadiansToDegrees,
+                    g_state.recenterPoseStability.consecutiveFrames,
+                    kActivationStablePoseFrames,
+                    position.x,
+                    position.y,
+                    position.z);
+                break;
+            }
+            if (stability != PoseStabilityUpdate::Ready) {
+                break;
+            }
+
+            g_state.recenterPending = false;
+            g_state.neutralOrientation = orientation;
+            g_state.neutralPosition = position;
+            g_state.currentEyeIndex = -1;
+            g_state.currentEyePoseFrame = 0;
+            g_state.nextEyeIndex = 0;
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_recenter applied key=F2 camera=%p frustum=%p poseFrame=%llu stablePoseFrames=%u stereo=%d roomscale=%d neutralPosition=%.6f,%.6f,%.6f neutralQuaternion=%.6f,%.6f,%.6f,%.6f",
+                camera,
+                frustum,
+                static_cast<unsigned long long>(poseFrame),
+                g_state.recenterPoseStability.consecutiveFrames,
+                g_state.stereoEnabled ? 1 : 0,
+                g_roomscaleEnabled.load(std::memory_order_relaxed) ? 1 : 0,
+                position.x,
+                position.y,
+                position.z,
+                orientation.x,
+                orientation.y,
+                orientation.z,
+                orientation.w);
+        } while (false);
     }
 
     if (g_state.stereoEnabled) {
@@ -884,12 +1019,13 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         LogLevel::Warn,
-        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 projectionKey=F5 roomscaleKey=F4 stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d worldScale=%.4f activationStableFrames=%u activationMaxPositionStep=%.3f activationMaxOrientationStepDeg=%.1f logInterval=%d",
+        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 recenterKey=F2 projectionKey=F5 roomscaleKey=F4 recenterControl=%d stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d worldScale=%.4f activationStableFrames=%u activationMaxPositionStep=%.3f activationMaxOrientationStepDeg=%.1f logInterval=%d",
         ModulePath(executable).c_str(),
         executable,
         static_cast<unsigned long long>(kCameraGetFrustumRva),
         static_cast<unsigned long long>(kSetupPerspectiveFrustumRva),
         static_cast<unsigned long long>(kRenderViewportGetFrustumReturnRva),
+        g_config.hplRecenterControl ? 1 : 0,
         g_config.hplStereoAfr ? 1 : 0,
         g_projectionCentered.load(std::memory_order_relaxed) ? 1 : 0,
         g_roomscaleEnabled.load(std::memory_order_relaxed) ? 1 : 0,
@@ -906,10 +1042,11 @@ void LogHPLCameraBridgeSummary()
     std::lock_guard lock(g_stateMutex);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu activationPending=%d trackingEnabled=%d stereoEnabled=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu",
+        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu",
         static_cast<unsigned long long>(g_getFrustumCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_candidateCalls.load(std::memory_order_relaxed)),
         g_state.activationPending ? 1 : 0,
+        g_state.recenterPending ? 1 : 0,
         g_state.trackingEnabled ? 1 : 0,
         g_state.stereoEnabled ? 1 : 0,
         g_state.activeCamera,

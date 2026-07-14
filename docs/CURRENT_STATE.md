@@ -1,6 +1,6 @@
 # Current State
 
-Date: 2026-07-13
+Date: 2026-07-14
 
 ## Objective
 
@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active runtime test baseline is `0.5.10-poselatch`, layered on the proven
+The active runtime test baseline is `0.5.11-recenter`, layered on the proven
 OpenXR transport, native HPL camera bridge, AFR stereo, full projection centering,
 one-key F10 activation, and compatibility probes:
 
@@ -228,6 +228,12 @@ reference-space transition was incorrectly applied as room-scale head movement.
 settled unique poses before neutral capture. Large startup jumps reset the latch;
 projection, stereo, world scale, and normal physical head translation are unchanged.
 
+The user confirmed `0.5.10` has no current graphical issues. `0.5.11-recenter`
+keeps that path and adds F2 as an in-session neutral-pose recenter. It uses the
+same tracked/stable latch as F10, leaves OpenXR and AFR stereo running, continues
+rendering with the old neutral pose while waiting, then atomically replaces the
+neutral orientation and position once eight stable tracked samples arrive.
+
 The exit minidump disproved the earlier orphan-worker diagnosis for this run. It
 contains only SOMA's main thread in OpenGL with Virtual Desktop runtime frames.
 Ghidra names `HPL3_cSDLEngineSetup_Destructor` at `0x1403b16e0`. The `0.5.5`
@@ -258,15 +264,16 @@ The OpenXR build now asks for:
 
 ## Next Step
 
-1. Launch the pose-latch OpenXR build:
+1. Launch the recenter OpenXR build:
 
 ```powershell
-& "D:\Dev Debug\SOMAVR\build-openxr-poselatch\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
+& "D:\Dev Debug\SOMAVR\build-openxr-recenter\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Inspect `logs\somavr.log` for `version=0.5.10-poselatch`,
+2. Inspect `logs\somavr.log` for `version=0.5.11-recenter`,
    `hpl_lifecycle install_ok`, `renderDiagnostic=1`, and the camera/compatibility
-   hook install rows.
+   hook install rows. The camera install row should include `recenterKey=F2`
+   and `recenterControl=1`.
 3. Load a save game, face forward, and press F10 once.
 4. Confirm `hpl_vr_mode requested`, API-attributed `openxr_manual_start triggered`,
    one or more `calibration_wait` rows, then `hpl_vr_mode activated` with
@@ -282,7 +289,11 @@ The OpenXR build now asks for:
 11. Without pressing F5, test shadow motion using deliberate pitch and roll, then
     inspect the ceiling angle and window/oven boundary while moving normally.
 12. Confirm `hpl_stereo` rows report `projectionOffset=0.000000,0.000000`.
-13. Press F5 only for a brief old-asymmetry comparison, then restore centered mode.
-14. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
+13. Press F2 while facing a new comfortable forward direction. Expect
+    `hpl_recenter requested`, then either bounded `calibration_wait` rows or
+    `hpl_recenter applied ... stablePoseFrames=8`. Confirm tracking/stereo stay
+    active and view height remains correct.
+14. Press F5 only for a brief old-asymmetry comparison, then restore centered mode.
+15. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
     `complete`, then check that `Soma_NoSteam.exe` disappears. If it remains,
     capture it with the dumper before manually terminating it.

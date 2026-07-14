@@ -49,6 +49,7 @@ struct Config {
     bool hplProjectionCenteredDefault = false;
     bool hplRoomscaleControl = false;
     bool hplRoomscaleEnabledDefault = true;
+    bool hplRecenterControl = false;
     bool hplReflectionFadeControl = false;
     int hplCameraLogInterval = 120;
     bool hplStereoAfr = false;

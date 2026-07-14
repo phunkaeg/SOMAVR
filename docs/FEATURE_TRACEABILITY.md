@@ -5,7 +5,7 @@ This is the canonical, graph-friendly index for SOMAVR features. Stable
 telemetry where useful. Graphify can then connect implementation, native anchors,
 evidence, and acceptance gates without relying on filenames alone.
 
-Status values: `PROVEN`, `EXPERIMENTAL`, `DESIGNED`, `RE_REQUIRED`, `BLOCKED`.
+Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BLOCKED`.
 
 ## Registry
 
@@ -16,6 +16,7 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `DESIGNED`, `RE_REQUIRED`, `BLOCKED`.
 | `FEATURE.XR_GL_SUBMISSION` | PROVEN | `OpenXRRuntime`, `OpenXRGLBridge` | OpenGL swapchains, FBOs, `xrEndFrame` | `CURRENT_STATE.md` | Validate format/color-space and resize/recreation paths |
 | `FEATURE.CLEAN_SHUTDOWN` | PROVEN | `HPLLifecycle`, `OpenXRRuntime` | `0x1403b16e0`, `0x1403b1803` | `RUNTIME_ANALYSIS_0.5.6.md`, `GHIDRA_SYNC.md` | Preserve clean exit across runtime/session-loss paths |
 | `FEATURE.VR_MODE_CONTROL` | EXPERIMENTAL | `HPLCameraBridge`, `OpenXRRuntime` | F10 pending activation, F8/F11 diagnostics | `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | One F10 reaches tracking, stereo, and full centering from a loaded save |
+| `FEATURE.RECENTER` | BUILT | `HPLCameraBridge`, `HPLCameraMath` | F2, stable neutral-pose latch | `BUILD_HISTORY.md`, `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | Live test confirms F2 recenters without stereo/session reset or height drift |
 | `FEATURE.HEAD_TRACKING` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | `0x140271b80`, `0x140270230` | `CURRENT_STATE.md`, `VR_COMPATIBILITY_RE.md` | Remain correct through every authored camera state |
 | `FEATURE.AFR_STEREO` | PROVEN | `HPLCameraBridge`, `OpenXRRuntime`, `OpenXRGLBridge` | F11, per-eye cache and submitted render pose | `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.1.md` | Preserve stability while shader/temporal compatibility is classified |
 | `FEATURE.DUAL_RENDER` | RE_REQUIRED | `HPLCompatibilityProbe`, future native render bridge | `0x140298850`, `0x140298630`, `0x1401f9790` | `VR_COMPATIBILITY_RE.md` | Live stage/FBO telemetry proves a side-effect-safe per-eye boundary |
@@ -44,6 +45,8 @@ FEATURE.XR_GL_SUBMISSION requires FEATURE.XR_BOOTSTRAP
 FEATURE.CLEAN_SHUTDOWN requires FEATURE.XR_GL_SUBMISSION
 FEATURE.VR_MODE_CONTROL requires FEATURE.XR_GL_SUBMISSION
 FEATURE.VR_MODE_CONTROL requires FEATURE.AFR_STEREO
+FEATURE.RECENTER requires FEATURE.VR_MODE_CONTROL
+FEATURE.RECENTER requires FEATURE.HEAD_TRACKING
 FEATURE.HEAD_TRACKING requires FEATURE.XR_BOOTSTRAP
 FEATURE.AFR_STEREO requires FEATURE.HEAD_TRACKING
 FEATURE.AFR_STEREO requires FEATURE.XR_GL_SUBMISSION

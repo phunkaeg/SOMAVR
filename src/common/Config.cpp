@@ -132,6 +132,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLProjectionCenteredDefault=0\n"
         << "HPLRoomscaleControl=0\n"
         << "HPLRoomscaleEnabledDefault=1\n"
+        << "HPLRecenterControl=0\n"
         << "HPLReflectionFadeControl=0\n"
         << "HPLCameraLogInterval=120\n"
         << "HPLStereoAFR=0\n"
@@ -225,6 +226,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplprojectioncentereddefault") config_.hplProjectionCenteredDefault = ParseBool(value, config_.hplProjectionCenteredDefault);
             else if (key == "hplroomscalecontrol") config_.hplRoomscaleControl = ParseBool(value, config_.hplRoomscaleControl);
             else if (key == "hplroomscaleenableddefault") config_.hplRoomscaleEnabledDefault = ParseBool(value, config_.hplRoomscaleEnabledDefault);
+            else if (key == "hplrecentercontrol") config_.hplRecenterControl = ParseBool(value, config_.hplRecenterControl);
             else if (key == "hplreflectionfadecontrol") config_.hplReflectionFadeControl = ParseBool(value, config_.hplReflectionFadeControl);
             else if (key == "hplcameraloginterval") config_.hplCameraLogInterval = ParseInt(value, config_.hplCameraLogInterval, 1, 100000);
             else if (key == "hplstereoafr") config_.hplStereoAfr = ParseBool(value, config_.hplStereoAfr);

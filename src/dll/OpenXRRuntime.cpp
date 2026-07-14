@@ -113,7 +113,9 @@ struct OpenXRRuntime::Impl {
         bool inputEnabled,
         int inputLogInterval,
         bool recoveryEnabled,
-        int recoveryDelayFrames)
+        int recoveryDelayFrames,
+        int trackingHoldFrames,
+        int trackingRecoveryBlackoutFrames)
     {
         std::lock_guard lock(mutex_);
         enabled_ = enabled;
@@ -130,6 +132,8 @@ struct OpenXRRuntime::Impl {
         inputLogInterval_ = std::max(inputLogInterval, 1);
         recoveryEnabled_ = recoveryEnabled;
         recoveryDelayFrames_ = std::max(recoveryDelayFrames, 1);
+        trackingHoldFrames_ = std::max(trackingHoldFrames, 0);
+        trackingRecoveryBlackoutFrames_ = std::max(trackingRecoveryBlackoutFrames, 0);
         manualStartArmed_ = false;
         manualStartLogged_ = false;
         manualStartKeyDown_ = false;
@@ -137,7 +141,7 @@ struct OpenXRRuntime::Impl {
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d",
+            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -151,7 +155,9 @@ struct OpenXRRuntime::Impl {
             inputEnabled_ ? 1 : 0,
             inputLogInterval_,
             recoveryEnabled_ ? 1 : 0,
-            recoveryDelayFrames_);
+            recoveryDelayFrames_,
+            trackingHoldFrames_,
+            trackingRecoveryBlackoutFrames_);
 
         if (frameSubmitEnabled_ && !sessionProbeEnabled_) {
             Logger::Instance().Write(
@@ -269,6 +275,8 @@ struct OpenXRRuntime::Impl {
         renderedStereoViewValid_[1] = false;
         recoveryRequested_ = false;
         comfortBlackoutUntilFrame_ = 0;
+        trackingDegraded_ = false;
+        trackingLost_ = false;
         releaseFrame_ = 0;
     }
 
@@ -301,6 +309,13 @@ struct OpenXRRuntime::Impl {
             << " openxrRecoveryEnabled=" << (recoveryEnabled_ ? 1 : 0)
             << " openxrRecoveryPending=" << (recoveryRequested_ ? 1 : 0)
             << " openxrRecoveries=" << static_cast<unsigned long long>(runtimeRecoveries_)
+            << " openxrTrackingHoldFrames=" << trackingHoldFrames_
+            << " openxrTrackingRecoveryBlackoutFrames=" << trackingRecoveryBlackoutFrames_
+            << " openxrTrackingDegraded=" << (trackingDegraded_ ? 1 : 0)
+            << " openxrTrackingLost=" << (trackingLost_ ? 1 : 0)
+            << " openxrTrackingInvalidFrames=" << static_cast<unsigned long long>(trackingInvalidFrames_)
+            << " openxrTrackingLossEvents=" << static_cast<unsigned long long>(trackingLossEvents_)
+            << " openxrTrackingRestoreEvents=" << static_cast<unsigned long long>(trackingRestoreEvents_)
             << " openxrStereoCacheInvalidations=" << static_cast<unsigned long long>(stereoCacheInvalidations_)
             << " openxrComfortBlackoutUntilFrame=" << static_cast<unsigned long long>(comfortBlackoutUntilFrame_)
             << " openxrComfortBlackoutRequests=" << static_cast<unsigned long long>(comfortBlackoutRequests_)
@@ -333,7 +348,10 @@ struct OpenXRRuntime::Impl {
         std::lock_guard lock(mutex_);
         std::ostringstream oss;
         oss << std::fixed << std::setprecision(5)
-            << "openxrPoseValid=" << (latestPoseValid_ ? 1 : 0)
+            << "openxrPoseValid=" << (PoseUsableLocked() ? 1 : 0)
+            << " openxrPoseRawValid=" << (latestPoseValid_ ? 1 : 0)
+            << " openxrTrackingDegraded=" << (trackingDegraded_ ? 1 : 0)
+            << " openxrTrackingLost=" << (trackingLost_ ? 1 : 0)
             << " openxrPoseGameFrame=" << static_cast<unsigned long long>(latestPoseGameFrame_)
             << " openxrPoseAgeFrames=" << static_cast<unsigned long long>(
                 currentGameFrame_ >= latestPoseGameFrame_ ? currentGameFrame_ - latestPoseGameFrame_ : 0)
@@ -355,9 +373,11 @@ struct OpenXRRuntime::Impl {
     {
         std::lock_guard lock(mutex_);
         pose = {};
-        pose.valid = latestPoseValid_;
-        pose.orientationTracked = (latestViewStateFlags_ & XR_VIEW_STATE_ORIENTATION_TRACKED_BIT) != 0;
-        pose.positionTracked = (latestViewStateFlags_ & XR_VIEW_STATE_POSITION_TRACKED_BIT) != 0;
+        pose.valid = PoseUsableLocked();
+        pose.orientationTracked = !trackingDegraded_
+            && (latestViewStateFlags_ & XR_VIEW_STATE_ORIENTATION_TRACKED_BIT) != 0;
+        pose.positionTracked = !trackingDegraded_
+            && (latestViewStateFlags_ & XR_VIEW_STATE_POSITION_TRACKED_BIT) != 0;
         pose.gameFrame = latestPoseGameFrame_;
         pose.sampleAgeFrames = currentGameFrame_ >= latestPoseGameFrame_
             ? currentGameFrame_ - latestPoseGameFrame_
@@ -376,16 +396,16 @@ struct OpenXRRuntime::Impl {
     {
         std::lock_guard lock(mutex_);
         views = {};
-        if (!latestPoseValid_ || locatedViews_.size() < 2) {
+        if (!PoseUsableLocked() || locatedViews_.size() < 2) {
             return false;
         }
 
         views.valid = true;
         views.gameFrame = latestPoseGameFrame_;
         views.head.valid = true;
-        views.head.orientationTracked =
+        views.head.orientationTracked = !trackingDegraded_ &&
             (latestViewStateFlags_ & XR_VIEW_STATE_ORIENTATION_TRACKED_BIT) != 0;
-        views.head.positionTracked =
+        views.head.positionTracked = !trackingDegraded_ &&
             (latestViewStateFlags_ & XR_VIEW_STATE_POSITION_TRACKED_BIT) != 0;
         views.head.gameFrame = latestPoseGameFrame_;
         views.head.sampleAgeFrames = currentGameFrame_ >= latestPoseGameFrame_
@@ -770,6 +790,8 @@ private:
         renderedStereoViewValid_[0] = false;
         renderedStereoViewValid_[1] = false;
         latestPoseValid_ = false;
+        trackingDegraded_ = false;
+        trackingLost_ = false;
         consecutiveFrameFailures_ = 0;
         stereoCaptureFailures_ = 0;
         stereoSubmissionEnabled_ = resumeStereo;
@@ -1202,7 +1224,11 @@ private:
         }
 
         locatedViews_.resize(glBridge_.EyeCount());
+        pendingLocatedViews_.resize(glBridge_.EyeCount());
         for (XrView& view : locatedViews_) {
+            view.type = XR_TYPE_VIEW;
+        }
+        for (XrView& view : pendingLocatedViews_) {
             view.type = XR_TYPE_VIEW;
         }
 
@@ -1224,6 +1250,7 @@ private:
             appSpace_ = XR_NULL_HANDLE;
         }
         locatedViews_.clear();
+        pendingLocatedViews_.clear();
         pendingRenderedEyeValid_ = false;
         renderedStereoViewValid_[0] = false;
         renderedStereoViewValid_[1] = false;
@@ -1292,6 +1319,72 @@ private:
         }
     }
 
+    uint64_t PoseAgeFramesLocked() const
+    {
+        return currentGameFrame_ >= latestPoseGameFrame_
+            ? currentGameFrame_ - latestPoseGameFrame_
+            : 0;
+    }
+
+    bool PoseUsableLocked() const
+    {
+        return latestPoseValid_
+            && PoseAgeFramesLocked() <= static_cast<uint64_t>(trackingHoldFrames_);
+    }
+
+    void RecordTrackingInvalidLocked(uint64_t frameIndex, XrResult result, XrViewStateFlags flags)
+    {
+        ++trackingInvalidFrames_;
+        if (!trackingDegraded_) {
+            trackingDegraded_ = true;
+            trackingDegradedStartFrame_ = frameIndex;
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_tracking degraded frame=%llu poseAgeFrames=%llu holdFrames=%d result=%s flags=0x%llx",
+                static_cast<unsigned long long>(frameIndex),
+                static_cast<unsigned long long>(PoseAgeFramesLocked()),
+                trackingHoldFrames_,
+                XrResultString(result).c_str(),
+                static_cast<unsigned long long>(flags));
+        }
+        if (!trackingLost_ && !PoseUsableLocked()) {
+            trackingLost_ = true;
+            ++trackingLossEvents_;
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_tracking lost frame=%llu degradedFrames=%llu poseAgeFrames=%llu lossEvents=%llu action=zero_layers",
+                static_cast<unsigned long long>(frameIndex),
+                static_cast<unsigned long long>(frameIndex - trackingDegradedStartFrame_ + 1),
+                static_cast<unsigned long long>(PoseAgeFramesLocked()),
+                static_cast<unsigned long long>(trackingLossEvents_));
+        }
+    }
+
+    void RecordTrackingRestoredLocked(uint64_t frameIndex)
+    {
+        if (!trackingDegraded_) {
+            return;
+        }
+        const uint64_t degradedFrames = frameIndex - trackingDegradedStartFrame_ + 1;
+        ++trackingRestoreEvents_;
+        if (trackingRecoveryBlackoutFrames_ > 0) {
+            comfortBlackoutUntilFrame_ = std::max(
+                comfortBlackoutUntilFrame_,
+                frameIndex + static_cast<uint64_t>(trackingRecoveryBlackoutFrames_ - 1));
+            ++comfortBlackoutRequests_;
+        }
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "openxr_tracking restored frame=%llu degradedFrames=%llu wasLost=%d restoreEvents=%llu recoveryBlackoutFrames=%d",
+            static_cast<unsigned long long>(frameIndex),
+            static_cast<unsigned long long>(degradedFrames),
+            trackingLost_ ? 1 : 0,
+            static_cast<unsigned long long>(trackingRestoreEvents_),
+            trackingRecoveryBlackoutFrames_);
+        trackingDegraded_ = false;
+        trackingLost_ = false;
+    }
+
     void SubmitFrameLocked(uint64_t frameIndex)
     {
         if (stereoSubmissionEnabled_ && pendingRenderedEyeValid_ && glBridge_.Ready()) {
@@ -1357,6 +1450,9 @@ private:
         uint32_t locatedViewCount = 0;
         XrViewState viewState{XR_TYPE_VIEW_STATE};
         bool submittedStereo = false;
+        for (XrView& view : pendingLocatedViews_) {
+            view = {XR_TYPE_VIEW};
+        }
 
         if (frameState.shouldRender == XR_TRUE && mirrorBackbufferEnabled_ && glBridge_.Ready()) {
             XrViewLocateInfo locateInfo{XR_TYPE_VIEW_LOCATE_INFO};
@@ -1367,9 +1463,9 @@ private:
                 session_,
                 &locateInfo,
                 &viewState,
-                static_cast<uint32_t>(locatedViews_.size()),
+                static_cast<uint32_t>(pendingLocatedViews_.size()),
                 &locatedViewCount,
-                locatedViews_.data());
+                pendingLocatedViews_.data());
 
             const XrViewStateFlags requiredFlags =
                 XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
@@ -1379,11 +1475,13 @@ private:
 
             bool copied = viewsValid;
             if (!viewsValid) {
-                RecordFrameFailureLocked(
-                    "xrLocateViews",
-                    XR_FAILED(result) ? result : XR_ERROR_VALIDATION_FAILURE,
-                    frameIndex);
+                RecordTrackingInvalidLocked(frameIndex, result, viewState.viewStateFlags);
+                if (XR_FAILED(result)) {
+                    RecordFrameFailureLocked("xrLocateViews", result, frameIndex);
+                }
             } else {
+                locatedViews_ = pendingLocatedViews_;
+                RecordTrackingRestoredLocked(frameIndex);
                 latestLeftEyePose_ = locatedViews_[0].pose;
                 latestRightEyePose_ = locatedViews_[1].pose;
                 latestHeadPose_.position = {
@@ -1639,6 +1737,10 @@ private:
     bool recoveryEnabled_ = true;
     bool recoveryRequested_ = false;
     int recoveryDelayFrames_ = 120;
+    int trackingHoldFrames_ = 30;
+    int trackingRecoveryBlackoutFrames_ = 2;
+    bool trackingDegraded_ = false;
+    bool trackingLost_ = false;
     uint64_t retryFrame_ = 0;
     uint64_t releaseFrame_ = 0;
     uint64_t sessionCreatedFrame_ = 0;
@@ -1655,6 +1757,10 @@ private:
     uint64_t stereoCapturedEyeCount_ = 0;
     uint64_t stereoSubmittedFrameCount_ = 0;
     uint64_t runtimeRecoveries_ = 0;
+    uint64_t trackingInvalidFrames_ = 0;
+    uint64_t trackingLossEvents_ = 0;
+    uint64_t trackingRestoreEvents_ = 0;
+    uint64_t trackingDegradedStartFrame_ = 0;
     uint64_t stereoCacheInvalidations_ = 0;
     uint64_t comfortBlackoutUntilFrame_ = 0;
     uint64_t comfortBlackoutRequests_ = 0;
@@ -1683,6 +1789,7 @@ private:
     std::vector<XrViewConfigurationView> viewConfigurationViews_;
     std::vector<int64_t> swapchainFormats_;
     std::vector<XrView> locatedViews_;
+    std::vector<XrView> pendingLocatedViews_;
     std::vector<XrReferenceSpaceType> supportedReferenceSpaces_;
     OpenXRGLBridge glBridge_;
     OpenXRInput input_;
@@ -1705,7 +1812,9 @@ struct OpenXRRuntime::Impl {
         bool inputEnabled,
         int inputLogInterval,
         bool recoveryEnabled,
-        int recoveryDelayFrames)
+        int recoveryDelayFrames,
+        int trackingHoldFrames,
+        int trackingRecoveryBlackoutFrames)
     {
         std::lock_guard lock(mutex_);
         enabled_ = enabled;
@@ -1722,11 +1831,13 @@ struct OpenXRRuntime::Impl {
         inputLogInterval_ = inputLogInterval;
         recoveryEnabled_ = recoveryEnabled;
         recoveryDelayFrames_ = recoveryDelayFrames;
+        trackingHoldFrames_ = trackingHoldFrames;
+        trackingRecoveryBlackoutFrames_ = trackingRecoveryBlackoutFrames;
         manualStartArmed_ = false;
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d",
+            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -1740,7 +1851,9 @@ struct OpenXRRuntime::Impl {
             inputEnabled_ ? 1 : 0,
             inputLogInterval_,
             recoveryEnabled_ ? 1 : 0,
-            recoveryDelayFrames_);
+            recoveryDelayFrames_,
+            trackingHoldFrames_,
+            trackingRecoveryBlackoutFrames_);
     }
 
     void OnOpenGLContext(HDC deviceContext, HGLRC glContext)
@@ -1863,6 +1976,8 @@ private:
     int inputLogInterval_ = 120;
     bool recoveryEnabled_ = true;
     int recoveryDelayFrames_ = 120;
+    int trackingHoldFrames_ = 30;
+    int trackingRecoveryBlackoutFrames_ = 2;
     bool mirrorBackbufferEnabled_ = true;
     int resolutionScalePercent_ = 100;
     std::string referenceSpace_ = "local";
@@ -1890,7 +2005,9 @@ void OpenXRRuntime::Configure(
     bool inputEnabled,
     int inputLogInterval,
     bool recoveryEnabled,
-    int recoveryDelayFrames)
+    int recoveryDelayFrames,
+    int trackingHoldFrames,
+    int trackingRecoveryBlackoutFrames)
 {
     impl_->Configure(
         enabled,
@@ -1906,7 +2023,9 @@ void OpenXRRuntime::Configure(
         inputEnabled,
         inputLogInterval,
         recoveryEnabled,
-        recoveryDelayFrames);
+        recoveryDelayFrames,
+        trackingHoldFrames,
+        trackingRecoveryBlackoutFrames);
 }
 
 void OpenXRRuntime::OnOpenGLContext(HDC deviceContext, HGLRC glContext)

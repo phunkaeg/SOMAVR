@@ -2,6 +2,25 @@
 
 ## 2026-07-15
 
+### 0.10.0-tracking-accessibility
+
+- Preserved OpenXR eye views in a last-known-good cache. `xrLocateViews` now
+  writes into temporary storage and only publishes a sample after both stereo
+  views and orientation/position validity bits pass validation.
+- Added bounded tracking-loss behavior. Cached head/eye poses remain usable for
+  `TrackingHoldFrames`, report untracked during the grace period, expire closed,
+  and resume through a configurable recovery blackout without clearing stereo
+  intent in the native HPL camera bridge.
+- Added tracking degradation, loss, restoration, pose-age, fallback-frame, and
+  recovery counters to bounded runtime and shutdown telemetry.
+- Added configurable dominant-hand actions and left/right stick swap. Touch and
+  Index primary/secondary face actions are now bound on both controllers.
+- Added a one-controller fallback: the available controller owns movement,
+  interaction, jump/crouch, haptics, and a held primary+secondary recenter chord.
+  Turn and sprint are deliberately suppressed in this constrained mode.
+- Built and tested default and OpenXR x64 Release flavors. OpenXR SHA-256:
+  `153E59EDC6F48CA6DB7B10B93EDBC90EED2AA2970AADF878B73237FF7AF39936`.
+
 ### 0.9.0-calibration-haptics
 
 - Added configurable OpenXR application spaces. `ReferenceSpace=local`

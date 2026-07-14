@@ -19,7 +19,9 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.RECENTER` | BUILT | `HPLCameraBridge`, `HPLCameraMath`, `HPLInputBridge` | F2 or two-grip hold, stable neutral-pose latch | `BUILD_HISTORY.md`, `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | Live test confirms keyboard and controller recenter without stereo/session reset or height drift |
 | `FEATURE.XR_INPUT` | BUILT | `OpenXRInput`, `OpenXRRuntime` | OpenXR action set, Simple/Touch/Index/Motion bindings, grip/aim action spaces | `BUILD_HISTORY.md`, `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | Live log confirms active bindings, both tracked controllers, and stable predicted poses |
 | `FEATURE.XR_REFERENCE_SPACE` | BUILT | `OpenXRRuntime`, config | `XR_REFERENCE_SPACE_TYPE_LOCAL`, optional `STAGE`, runtime fallback | `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Compare seated/local and standing/stage calibration, eye height, recenter, and map transitions |
+| `FEATURE.TRACKING_RESILIENCE` | BUILT | `OpenXRRuntime`, `HPLCameraBridge` | pose-age bound, last-valid eye cache, zero-layer loss path, recovery blackout | `BUILD_HISTORY.md`, `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | Live-test brief and extended HMD tracking loss without stale-eye corruption, stereo teardown, or a visible recovery flash |
 | `FEATURE.CONTROLLER_HAPTICS` | BUILT | `OpenXRInput`, `OpenXRRuntime`, `HPLInputBridge` | vibration output action, per-hand output paths, focused-session guard | `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Confirm discrete pulses across active controller profiles |
+| `FEATURE.CONTROLLER_ACCESSIBILITY` | BUILT | `OpenXRInput`, `HPLInputBridge`, config | per-hand primary/secondary actions, dominant-hand roles, stick swap, one-hand fallback | `BUILD_HISTORY.md`, `FUTURE_SYSTEMS_RE.md`, `TEST_CHECKLISTS.md` | Live-test left-dominant, swapped-stick, and each one-controller path on Touch/Index; define missing Simple/Motion bindings |
 | `FEATURE.HEAD_TRACKING` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | `0x140271b80`, `0x140270230` | `CURRENT_STATE.md`, `VR_COMPATIBILITY_RE.md` | Remain correct through every authored camera state |
 | `FEATURE.AFR_STEREO` | PROVEN | `HPLCameraBridge`, `OpenXRRuntime`, `OpenXRGLBridge` | F11, per-eye cache and submitted render pose | `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.1.md` | Preserve stability while shader/temporal compatibility is classified |
 | `FEATURE.DUAL_RENDER` | RE_REQUIRED | `HPLCompatibilityProbe`, future native render bridge | `0x140298850`, `0x140298630`, `0x1401f9790` | `VR_COMPATIBILITY_RE.md` | Live stage/FBO telemetry proves a side-effect-safe per-eye boundary |
@@ -53,8 +55,13 @@ FEATURE.RECENTER requires FEATURE.VR_MODE_CONTROL
 FEATURE.RECENTER requires FEATURE.HEAD_TRACKING
 FEATURE.XR_INPUT requires FEATURE.XR_BOOTSTRAP
 FEATURE.XR_REFERENCE_SPACE requires FEATURE.XR_BOOTSTRAP
+FEATURE.TRACKING_RESILIENCE requires FEATURE.XR_GL_SUBMISSION
+FEATURE.TRACKING_RESILIENCE constrains FEATURE.HEAD_TRACKING
+FEATURE.TRACKING_RESILIENCE constrains FEATURE.AFR_STEREO
 FEATURE.RECENTER requires FEATURE.XR_REFERENCE_SPACE
 FEATURE.CONTROLLER_HAPTICS requires FEATURE.XR_INPUT
+FEATURE.CONTROLLER_ACCESSIBILITY requires FEATURE.XR_INPUT
+FEATURE.CONTROLLER_ACCESSIBILITY constrains FEATURE.LOCOMOTION
 FEATURE.LOCOMOTION requires FEATURE.XR_INPUT
 FEATURE.HEAD_TRACKING requires FEATURE.XR_BOOTSTRAP
 FEATURE.AFR_STEREO requires FEATURE.HEAD_TRACKING

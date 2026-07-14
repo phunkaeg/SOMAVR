@@ -1,5 +1,27 @@
 # Test Checklists
 
+## 0.10.0 Tracking Recovery And Controller Accessibility
+
+1. Launch the OpenXR Release build, load a save, and press F10 once. Confirm
+   `version=0.10.0-tracking-accessibility` and the rigid `0.9.0` visual baseline.
+2. Briefly obstruct or disable HMD tracking, then restore it. Expect one
+   `openxr_tracking degraded`, optional `lost`, then `restored` row. Stereo must
+   resume automatically without F10/F11 and without a stale-eye flash.
+3. Hold tracking unavailable beyond `TrackingHoldFrames=30`. The headset should
+   fail closed through zero submitted layers while SOMA remains alive. Restored
+   tracking should trigger the configured two-frame recovery blackout.
+4. Test default roles, then `DominantHand=left`. Interaction, primary action,
+   secondary action, and their haptics should follow the configured hand while
+   left-stick movement and right-stick turn remain unchanged.
+5. Set `SwapSticks=1`. Right stick should move and left stick should turn. Reset
+   to `0` after testing.
+6. With `OneHandFallback=1`, power off or remove one controller at a time. The
+   available stick should move, its trigger/select should interact, and its
+   primary/secondary buttons should jump/crouch. Turn and sprint should remain
+   suppressed. Hold primary+secondary to recenter.
+7. Restore both controllers. Expect `one_hand_fallback=0` and normal role
+   mapping without stuck keyboard or mouse inputs. Exit and attach the log.
+
 ## 0.9.0 Reference Space, Focus, Haptics, And Native Roll
 
 1. Launch `build-openxr-controller\Release\somavr_injector.exe`, load a save,

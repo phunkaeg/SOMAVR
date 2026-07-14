@@ -96,6 +96,7 @@ struct BridgeState {
     bool recenterPending = false;
     bool trackingEnabled = false;
     bool stereoEnabled = false;
+    bool trackingFallbackActive = false;
     bool baseMatricesValid = false;
     uint32_t nextEyeIndex = 0;
     int currentEyeIndex = -1;
@@ -128,6 +129,8 @@ std::atomic<uint64_t> g_baseRefreshes = 0;
 std::atomic<uint64_t> g_poseMisses = 0;
 std::atomic<uint64_t> g_stereoAppliedCalls = 0;
 std::atomic<uint64_t> g_stereoEyeCalls[2] = {};
+std::atomic<uint64_t> g_trackingFallbackFrames = 0;
+std::atomic<uint64_t> g_trackingRecoveryEvents = 0;
 std::atomic<uint64_t> g_nativeRollObservedCalls = 0;
 std::atomic<uint64_t> g_nativeRollSuppressedCalls = 0;
 std::atomic<bool> g_projectionCenterF5Down = false;
@@ -908,7 +911,26 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
     if (g_state.stereoEnabled) {
         OpenXRStereoViewSnapshot views;
         const uint32_t eyeIndex = g_state.nextEyeIndex;
-        if (ReadStereoViews(views) && ApplyStereoEye(frustum, views, eyeIndex, wasDirty)) {
+        if (!ReadStereoViews(views)) {
+            g_trackingFallbackFrames.fetch_add(1, std::memory_order_relaxed);
+            if (!g_state.trackingFallbackActive) {
+                g_state.trackingFallbackActive = true;
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "hpl_stereo tracking_fallback active=1 action=restore_base_view stereoIntent=preserved");
+            }
+            RestoreBaseView(frustum);
+            return frustum;
+        }
+        if (g_state.trackingFallbackActive) {
+            g_state.trackingFallbackActive = false;
+            g_trackingRecoveryEvents.fetch_add(1, std::memory_order_relaxed);
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_stereo tracking_fallback active=0 action=resume_stereo poseFrame=%llu",
+                static_cast<unsigned long long>(views.gameFrame));
+        }
+        if (ApplyStereoEye(frustum, views, eyeIndex, wasDirty)) {
             g_state.nextEyeIndex ^= 1;
             return frustum;
         }
@@ -921,7 +943,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
         }
         Logger::Instance().Write(
             LogLevel::Warn,
-            "hpl_stereo suspended reason=invalid_view_or_projection fallback=mono_orientation");
+            "hpl_stereo suspended reason=projection_apply_failed fallback=mono_orientation");
     }
 
     Quaternion currentOrientation;
@@ -1098,13 +1120,14 @@ void LogHPLCameraBridgeSummary()
     std::lock_guard lock(g_stateMutex);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu",
+        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu",
         static_cast<unsigned long long>(g_getFrustumCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_candidateCalls.load(std::memory_order_relaxed)),
         g_state.activationPending ? 1 : 0,
         g_state.recenterPending ? 1 : 0,
         g_state.trackingEnabled ? 1 : 0,
         g_state.stereoEnabled ? 1 : 0,
+        g_state.trackingFallbackActive ? 1 : 0,
         g_state.activeCamera,
         g_state.activeFrustum,
         static_cast<unsigned long long>(g_appliedCalls.load(std::memory_order_relaxed)),
@@ -1113,6 +1136,8 @@ void LogHPLCameraBridgeSummary()
         static_cast<unsigned long long>(g_stereoEyeCalls[1].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_baseRefreshes.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_poseMisses.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_trackingFallbackFrames.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_trackingRecoveryEvents.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_nativeRollObservedCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_nativeRollSuppressedCalls.load(std::memory_order_relaxed)));
 }

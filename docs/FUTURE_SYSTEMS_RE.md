@@ -1,5 +1,25 @@
 # Future Systems Reverse Engineering
 
+## 0.10.0 Tracking And Controller Role Findings
+
+OpenXR view validity is now treated as a temporal contract rather than a single
+boolean. A failed or partially valid `xrLocateViews` sample never enters the
+persistent eye cache. The camera may consume the previous sample only within
+`TrackingHoldFrames`; during that grace period the sample is explicitly marked
+untracked, and after it expires the HPL bridge restores the native base view for
+the frame without deleting stereo intent. Recovery adds a short zero-layer
+blackout before normal stereo presentation resumes. Live coverage still needs a
+repeatable way to obstruct or disable HMD tracking for both short and extended
+intervals.
+
+Controller ownership is now explicit and configurable. Dominant hand controls
+interaction and face actions; `SwapSticks` changes locomotion/turn stick roles.
+When exactly one controller remains active, it becomes the dominant movement
+hand and turn/sprint are suppressed to avoid overloading a single stick and
+trigger. Touch and Index have bilateral primary/secondary bindings. Simple and
+Microsoft Motion profiles still need confirmed face-button paths before their
+one-controller action coverage can match Touch/Index.
+
 ## 0.9.0 Calibration, Haptics, And Authored Roll Findings
 
 OpenXR application-space ownership is now explicit. `LOCAL` remains the default

@@ -167,7 +167,9 @@ void ConfigManager::WriteDefaultConfig() const
         << "InputEnabled=0\n"
         << "InputLogInterval=120\n"
         << "RecoveryEnabled=1\n"
-        << "RecoveryDelayFrames=120\n\n"
+        << "RecoveryDelayFrames=120\n"
+        << "TrackingHoldFrames=30\n"
+        << "TrackingRecoveryBlackoutFrames=2\n\n"
         << "[Controller]\n"
         << "Enabled=0\n"
         << "MoveDeadzone=0.35\n"
@@ -183,6 +185,9 @@ void ConfigManager::WriteDefaultConfig() const
         << "Haptics=1\n"
         << "HapticAmplitude=0.35\n"
         << "HapticDurationMs=30\n"
+        << "DominantHand=right\n"
+        << "SwapSticks=0\n"
+        << "OneHandFallback=1\n"
         << "SuppressDuringAuthoredCamera=1\n"
         << "ComfortBlackoutFrames=2\n"
         << "RecenterHoldMs=900\n"
@@ -312,6 +317,10 @@ void ConfigManager::LoadFromFile()
                 config_.openxrRecoveryEnabled = ParseBool(value, config_.openxrRecoveryEnabled);
             } else if (key == "recoverydelayframes") {
                 config_.openxrRecoveryDelayFrames = ParseInt(value, config_.openxrRecoveryDelayFrames, 1, 100000);
+            } else if (key == "trackingholdframes") {
+                config_.openxrTrackingHoldFrames = ParseInt(value, config_.openxrTrackingHoldFrames, 0, 600);
+            } else if (key == "trackingrecoveryblackoutframes") {
+                config_.openxrTrackingRecoveryBlackoutFrames = ParseInt(value, config_.openxrTrackingRecoveryBlackoutFrames, 0, 120);
             }
             continue;
         }
@@ -331,6 +340,12 @@ void ConfigManager::LoadFromFile()
             else if (key == "haptics") config_.hplControllerHaptics = ParseBool(value, config_.hplControllerHaptics);
             else if (key == "hapticamplitude") config_.hplControllerHapticAmplitude = ParseFloat(value, config_.hplControllerHapticAmplitude, 0.0f, 1.0f);
             else if (key == "hapticdurationms") config_.hplControllerHapticDurationMs = ParseInt(value, config_.hplControllerHapticDurationMs, 1, 1000);
+            else if (key == "dominanthand") {
+                const std::string dominantHand = Lower(Trim(value));
+                if (dominantHand == "left" || dominantHand == "right") config_.hplControllerDominantHand = dominantHand;
+            }
+            else if (key == "swapsticks") config_.hplControllerSwapSticks = ParseBool(value, config_.hplControllerSwapSticks);
+            else if (key == "onehandfallback") config_.hplControllerOneHandFallback = ParseBool(value, config_.hplControllerOneHandFallback);
             else if (key == "suppressduringauthoredcamera") config_.hplControllerSuppressDuringAuthoredCamera = ParseBool(value, config_.hplControllerSuppressDuringAuthoredCamera);
             else if (key == "comfortblackoutframes") config_.hplControllerComfortBlackoutFrames = ParseInt(value, config_.hplControllerComfortBlackoutFrames, 0, 120);
             else if (key == "recenterholdms") config_.hplControllerRecenterHoldMs = ParseInt(value, config_.hplControllerRecenterHoldMs, 250, 5000);

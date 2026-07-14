@@ -21,9 +21,20 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active runtime test baseline is `0.9.0-calibration-haptics`, layered on the proven
-OpenXR transport, native HPL camera bridge, AFR stereo, full projection centering,
-one-key F10 activation, and compatibility probes:
+The active build candidate is `0.10.0-tracking-accessibility`, layered on the
+visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
+bridge, AFR stereo, full projection centering, one-key F10 activation, and
+compatibility probes:
+
+- Invalid `xrLocateViews` output can no longer overwrite the last valid eye
+  cache. Tracking samples have a configurable 30-frame usability bound and
+  recover through a two-frame compositor blackout.
+- Temporary pose expiry restores the native base view for that frame while
+  preserving stereo intent, so valid tracking can resume automatically instead
+  of requiring F10/F11 reactivation.
+- Controller primary/secondary actions are available on either Touch/Index
+  hand. Dominant hand and stick roles are configurable, with a bounded
+  one-controller movement/action fallback when only one hand is active.
 
 - `ReferenceSpace=local|stage` now supports seated/local and floor-aware standing
   calibration profiles with a logged fallback when STAGE is unavailable.

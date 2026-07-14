@@ -40,6 +40,10 @@ struct OpenXRHandInput {
     bool active = false;
     bool select = false;
     bool selectChanged = false;
+    bool primary = false;
+    bool primaryChanged = false;
+    bool secondary = false;
+    bool secondaryChanged = false;
     float trigger = 0.0f;
     float squeeze = 0.0f;
     OpenXRControllerPose gripPose{};
@@ -106,7 +110,9 @@ public:
         bool inputEnabled,
         int inputLogInterval,
         bool recoveryEnabled,
-        int recoveryDelayFrames);
+        int recoveryDelayFrames,
+        int trackingHoldFrames,
+        int trackingRecoveryBlackoutFrames);
     void OnOpenGLContext(HDC deviceContext, HGLRC glContext);
     void OnFrameBoundary(HDC deviceContext, HGLRC glContext, uint64_t frameIndex);
     bool RequestManualStart();

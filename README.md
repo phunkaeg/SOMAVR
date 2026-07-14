@@ -121,12 +121,17 @@ ResolutionScalePercent=100
 ReferenceSpace=local
 RecoveryEnabled=1
 RecoveryDelayFrames=120
+TrackingHoldFrames=30
+TrackingRecoveryBlackoutFrames=2
 
 [Controller]
 Enabled=1
 Haptics=1
 HapticAmplitude=0.35
 HapticDurationMs=30
+DominantHand=right
+SwapSticks=0
+OneHandFallback=1
 SuppressDuringAuthoredCamera=1
 ComfortBlackoutFrames=2
 ```

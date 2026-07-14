@@ -34,6 +34,18 @@ struct BridgeState {
     uint64_t lastTickMs = 0;
     double smoothTurnRemainder = 0.0;
     bool authoredCameraSuppressed = false;
+    bool oneHandFallbackActive = false;
+};
+
+struct ControllerRoles {
+    uint32_t dominantHand = 1;
+    uint32_t supportHand = 0;
+    uint32_t movementHand = 0;
+    uint32_t turnHand = 1;
+    bool oneHand = false;
+    float moveX = 0.0f;
+    float moveY = 0.0f;
+    float turnX = 0.0f;
 };
 
 Config g_config;
@@ -48,6 +60,7 @@ std::atomic<uint64_t> g_staleInputFrames = 0;
 std::atomic<uint64_t> g_recenterRequests = 0;
 std::atomic<uint64_t> g_hapticRequests = 0;
 std::atomic<uint64_t> g_hapticApplied = 0;
+std::atomic<uint64_t> g_oneHandFallbackFrames = 0;
 
 uint64_t TickMs()
 {
@@ -124,6 +137,39 @@ void ReleaseGameplayInputs()
     g_state.smoothTurnRemainder = 0.0;
 }
 
+const OpenXRHandInput& HandInput(const OpenXRInputSnapshot& input, uint32_t hand)
+{
+    return hand == 0 ? input.left : input.right;
+}
+
+ControllerRoles ResolveControllerRoles(const OpenXRInputSnapshot& input)
+{
+    ControllerRoles roles;
+    roles.dominantHand = g_config.hplControllerDominantHand == "left" ? 0u : 1u;
+    roles.supportHand = roles.dominantHand ^ 1u;
+
+    const bool leftOnly = input.left.active && !input.right.active;
+    const bool rightOnly = input.right.active && !input.left.active;
+    if (g_config.hplControllerOneHandFallback && (leftOnly || rightOnly)) {
+        roles.oneHand = true;
+        roles.dominantHand = leftOnly ? 0u : 1u;
+        roles.supportHand = roles.dominantHand;
+        roles.movementHand = roles.dominantHand;
+        roles.turnHand = roles.dominantHand;
+        roles.moveX = leftOnly ? input.moveX : input.turnX;
+        roles.moveY = leftOnly ? input.moveY : input.turnY;
+        roles.turnX = 0.0f;
+        return roles;
+    }
+
+    roles.movementHand = g_config.hplControllerSwapSticks ? 1u : 0u;
+    roles.turnHand = roles.movementHand ^ 1u;
+    roles.moveX = g_config.hplControllerSwapSticks ? input.turnX : input.moveX;
+    roles.moveY = g_config.hplControllerSwapSticks ? input.turnY : input.moveY;
+    roles.turnX = g_config.hplControllerSwapSticks ? input.moveX : input.turnX;
+    return roles;
+}
+
 void PulseHaptic(uint32_t hand, const char* reason)
 {
     if (!g_config.hplControllerHaptics || g_openxr == nullptr) {
@@ -146,26 +192,26 @@ void ReleaseAll()
     g_state.recenterLatched = false;
 }
 
-void ApplyLocomotion(const OpenXRInputSnapshot& input)
+void ApplyLocomotion(const ControllerRoles& roles)
 {
     const float press = g_config.hplControllerMoveDeadzone;
     const float release = std::min(g_config.hplControllerMoveReleaseDeadzone, press);
-    SetKey(g_state.forward, 'W', UpdateAxisButton(g_state.forward, input.moveY, press, release));
-    SetKey(g_state.backward, 'S', UpdateAxisButton(g_state.backward, -input.moveY, press, release));
-    SetKey(g_state.right, 'D', UpdateAxisButton(g_state.right, input.moveX, press, release));
-    SetKey(g_state.left, 'A', UpdateAxisButton(g_state.left, -input.moveX, press, release));
+    SetKey(g_state.forward, 'W', UpdateAxisButton(g_state.forward, roles.moveY, press, release));
+    SetKey(g_state.backward, 'S', UpdateAxisButton(g_state.backward, -roles.moveY, press, release));
+    SetKey(g_state.right, 'D', UpdateAxisButton(g_state.right, roles.moveX, press, release));
+    SetKey(g_state.left, 'A', UpdateAxisButton(g_state.left, -roles.moveX, press, release));
 }
 
-void ApplyTurn(const OpenXRInputSnapshot& input, uint64_t nowMs)
+void ApplyTurn(const ControllerRoles& roles, uint64_t nowMs)
 {
-    const float turn = input.turnX;
+    const float turn = roles.turnX;
     if (g_config.hplControllerSnapTurn) {
         const float releaseThreshold = std::min(
             g_config.hplControllerTurnReleaseDeadzone,
             g_config.hplControllerTurnDeadzone);
         if (!g_state.snapLatched && std::fabs(turn) >= g_config.hplControllerTurnDeadzone) {
             SendMouseMove(turn > 0.0f ? g_config.hplControllerSnapTurnPixels : -g_config.hplControllerSnapTurnPixels);
-            PulseHaptic(1, "snap_turn");
+            PulseHaptic(roles.turnHand, "snap_turn");
             if (g_openxr != nullptr && g_config.hplControllerComfortBlackoutFrames > 0) {
                 g_openxr->RequestComfortBlackout(
                     static_cast<uint32_t>(g_config.hplControllerComfortBlackoutFrames),
@@ -188,46 +234,51 @@ void ApplyTurn(const OpenXRInputSnapshot& input, uint64_t nowMs)
     SendMouseMove(pixels);
 }
 
-void ApplySystemActions(const OpenXRInputSnapshot& input, uint64_t nowMs)
+void ApplySystemActions(const OpenXRInputSnapshot& input, const ControllerRoles& roles, uint64_t nowMs)
 {
     if (g_config.hplControllerMenu && input.menu && input.menuChanged) {
         TapKey(VK_ESCAPE);
-        PulseHaptic(0, "menu");
+        PulseHaptic(input.left.active ? 0u : roles.dominantHand, "menu");
     }
 
-    const bool recenterChord = g_config.hplControllerRecenterChord
-        && input.left.squeeze >= 0.85f && input.right.squeeze >= 0.85f;
+    const OpenXRHandInput& dominant = HandInput(input, roles.dominantHand);
+    const bool twoHandChord = input.left.squeeze >= 0.85f && input.right.squeeze >= 0.85f;
+    const bool oneHandChord = roles.oneHand && dominant.primary && dominant.secondary;
+    const bool recenterChord = g_config.hplControllerRecenterChord && (twoHandChord || oneHandChord);
     if (!recenterChord) {
         g_state.recenterStartMs = 0;
         g_state.recenterLatched = false;
     } else if (!g_state.recenterLatched) {
         if (g_state.recenterStartMs == 0) g_state.recenterStartMs = nowMs;
         if (nowMs - g_state.recenterStartMs >= static_cast<uint64_t>(g_config.hplControllerRecenterHoldMs)) {
-            if (RequestHPLRecenter("controller_grip_chord")) {
+            if (RequestHPLRecenter(roles.oneHand ? "controller_face_chord" : "controller_grip_chord")) {
                 g_recenterRequests.fetch_add(1, std::memory_order_relaxed);
-                PulseHaptic(0, "recenter");
-                PulseHaptic(1, "recenter");
+                PulseHaptic(roles.dominantHand, "recenter");
+                if (!roles.oneHand) PulseHaptic(roles.supportHand, "recenter");
             }
             g_state.recenterLatched = true;
         }
     }
 }
 
-void ApplyGameplayActions(const OpenXRInputSnapshot& input)
+void ApplyGameplayActions(const OpenXRInputSnapshot& input, const ControllerRoles& roles)
 {
-    SetKey(g_state.sprint, VK_LSHIFT, input.left.trigger >= 0.75f);
-    if (input.jump && input.jumpChanged) {
+    const OpenXRHandInput& dominant = HandInput(input, roles.dominantHand);
+    const OpenXRHandInput& support = HandInput(input, roles.supportHand);
+    const bool recenterChord = roles.oneHand && dominant.primary && dominant.secondary;
+    SetKey(g_state.sprint, VK_LSHIFT, !roles.oneHand && support.trigger >= 0.75f);
+    if (!recenterChord && dominant.primary && dominant.primaryChanged) {
         TapKey(VK_SPACE);
-        PulseHaptic(1, "jump");
+        PulseHaptic(roles.dominantHand, "jump");
     }
-    if (input.crouch && input.crouchChanged) {
+    if (!recenterChord && dominant.secondary && dominant.secondaryChanged) {
         TapKey(VK_LCONTROL);
-        PulseHaptic(1, "crouch");
+        PulseHaptic(roles.dominantHand, "crouch");
     }
     if (g_config.hplControllerInteraction) {
-        const bool interact = input.right.select || input.right.trigger >= 0.75f;
+        const bool interact = dominant.select || dominant.trigger >= 0.75f;
         if (interact && !g_state.interact.down) {
-            PulseHaptic(1, "interaction");
+            PulseHaptic(roles.dominantHand, "interaction");
         }
         SetMouseButton(g_state.interact, interact);
     }
@@ -242,7 +293,7 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
     g_openxr = openxr;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f turnMode=%s turnDeadzone=%.2f interaction=%d menu=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d suppressAuthoredCamera=%d comfortBlackoutFrames=%d maxInputAgeFrames=%d",
+        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f turnMode=%s turnDeadzone=%.2f interaction=%d menu=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d suppressAuthoredCamera=%d comfortBlackoutFrames=%d maxInputAgeFrames=%d",
         config.hplControllerInput ? 1 : 0,
         config.hplControllerMoveDeadzone,
         config.hplControllerSnapTurn ? "snap" : "smooth",
@@ -253,6 +304,9 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplControllerHaptics ? 1 : 0,
         config.hplControllerHapticAmplitude,
         config.hplControllerHapticDurationMs,
+        config.hplControllerDominantHand.c_str(),
+        config.hplControllerSwapSticks ? 1 : 0,
+        config.hplControllerOneHandFallback ? 1 : 0,
         config.hplControllerSuppressDuringAuthoredCamera ? 1 : 0,
         config.hplControllerComfortBlackoutFrames,
         config.hplControllerMaxInputAgeFrames);
@@ -282,16 +336,28 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
 
     g_activeUpdates.fetch_add(1, std::memory_order_relaxed);
     const uint64_t nowMs = TickMs();
+    const ControllerRoles roles = ResolveControllerRoles(input);
+    if (roles.oneHand) g_oneHandFallbackFrames.fetch_add(1, std::memory_order_relaxed);
+    if (roles.oneHand != g_state.oneHandFallbackActive) {
+        Logger::Instance().Write(
+            roles.oneHand ? LogLevel::Warn : LogLevel::Info,
+            "hpl_controller one_hand_fallback=%d activeHand=%s movementStick=%s turnSuppressed=%d",
+            roles.oneHand ? 1 : 0,
+            roles.dominantHand == 0 ? "left" : "right",
+            roles.movementHand == 0 ? "left" : "right",
+            roles.oneHand ? 1 : 0);
+        g_state.oneHandFallbackActive = roles.oneHand;
+    }
     const bool suppressGameplay = g_config.hplControllerSuppressDuringAuthoredCamera
         && player.authoredCameraActive;
     if (suppressGameplay) {
         ReleaseGameplayInputs();
     } else {
-        ApplyLocomotion(input);
-        ApplyTurn(input, nowMs);
-        ApplyGameplayActions(input);
+        ApplyLocomotion(roles);
+        ApplyTurn(roles, nowMs);
+        ApplyGameplayActions(input, roles);
     }
-    ApplySystemActions(input, nowMs);
+    ApplySystemActions(input, roles, nowMs);
     g_state.lastTickMs = nowMs;
 
     if (suppressGameplay != g_state.authoredCameraSuppressed) {
@@ -315,11 +381,11 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
             static_cast<unsigned long long>(frameIndex),
             static_cast<unsigned long long>(input.gameFrame),
             static_cast<unsigned long long>(age),
-            input.moveX, input.moveY,
+            roles.moveX, roles.moveY,
             g_state.forward.down ? 1 : 0, g_state.backward.down ? 1 : 0,
             g_state.left.down ? 1 : 0, g_state.right.down ? 1 : 0,
             g_state.sprint.down ? 1 : 0, input.jump ? 1 : 0, input.crouch ? 1 : 0,
-            input.turnX, g_config.hplControllerSnapTurn ? "snap" : "smooth",
+            roles.turnX, g_config.hplControllerSnapTurn ? "snap" : "smooth",
             g_state.interact.down ? 1 : 0, input.menu ? 1 : 0,
             g_state.recenterStartMs != 0 ? 1 : 0,
             player.playerStateId, player.moveStateId,
@@ -343,7 +409,7 @@ void LogHPLInputBridgeSummary()
     GetHPLPlayerStateSnapshot(player);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu authoredCameraSuppress=%d player=%p camera=%p body=%p playerState=%d moveState=%d",
+        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu authoredCameraSuppress=%d player=%p camera=%p body=%p playerState=%d moveState=%d",
         g_openxr != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_updates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_activeUpdates.load(std::memory_order_relaxed)),
@@ -353,6 +419,7 @@ void LogHPLInputBridgeSummary()
         static_cast<unsigned long long>(g_recenterRequests.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hapticRequests.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hapticApplied.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_oneHandFallbackFrames.load(std::memory_order_relaxed)),
         g_state.authoredCameraSuppressed ? 1 : 0,
         player.player, player.camera, player.characterBody,
         player.playerStateId, player.moveStateId);

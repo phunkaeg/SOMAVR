@@ -32,6 +32,8 @@ struct Config {
     int openxrInputLogInterval = 120;
     bool openxrRecoveryEnabled = true;
     int openxrRecoveryDelayFrames = 120;
+    int openxrTrackingHoldFrames = 30;
+    int openxrTrackingRecoveryBlackoutFrames = 2;
     bool hplControllerInput = false;
     float hplControllerMoveDeadzone = 0.35f;
     float hplControllerMoveReleaseDeadzone = 0.25f;
@@ -46,6 +48,9 @@ struct Config {
     bool hplControllerHaptics = true;
     float hplControllerHapticAmplitude = 0.35f;
     int hplControllerHapticDurationMs = 30;
+    std::string hplControllerDominantHand = "right";
+    bool hplControllerSwapSticks = false;
+    bool hplControllerOneHandFallback = true;
     bool hplControllerSuppressDuringAuthoredCamera = true;
     int hplControllerComfortBlackoutFrames = 2;
     int hplControllerRecenterHoldMs = 900;

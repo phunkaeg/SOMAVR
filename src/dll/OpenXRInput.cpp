@@ -149,6 +149,8 @@ bool OpenXRInput::Initialize(XrInstance instance, bool enabled, int logInterval)
         && CreateAction(actionSet_, XR_ACTION_TYPE_FLOAT_INPUT, "trigger", "Trigger", handPaths_, 2, triggerAction_)
         && CreateAction(actionSet_, XR_ACTION_TYPE_FLOAT_INPUT, "squeeze", "Squeeze", handPaths_, 2, squeezeAction_)
         && CreateAction(actionSet_, XR_ACTION_TYPE_BOOLEAN_INPUT, "menu", "Menu", &handPaths_[0], 1, menuAction_)
+        && CreateAction(actionSet_, XR_ACTION_TYPE_BOOLEAN_INPUT, "jump", "Jump", &handPaths_[1], 1, jumpAction_)
+        && CreateAction(actionSet_, XR_ACTION_TYPE_BOOLEAN_INPUT, "crouch", "Crouch", &handPaths_[1], 1, crouchAction_)
         && CreateAction(actionSet_, XR_ACTION_TYPE_POSE_INPUT, "grip_pose", "Grip Pose", handPaths_, 2, gripPoseAction_)
         && CreateAction(actionSet_, XR_ACTION_TYPE_POSE_INPUT, "aim_pose", "Aim Pose", handPaths_, 2, aimPoseAction_);
     if (!actionsOk) {
@@ -172,16 +174,18 @@ bool OpenXRInput::Initialize(XrInstance instance, bool enabled, int logInterval)
     }};
     SuggestBindings(instance_, "/interaction_profiles/khr/simple_controller", simpleBindings.data(), static_cast<uint32_t>(simpleBindings.size()));
 
-    const std::array<XrActionSuggestedBinding, 13> touchBindings{{
+    const std::array<XrActionSuggestedBinding, 15> touchBindings{{
         {moveAction_, path("/user/hand/left/input/thumbstick")},
         {turnAction_, path("/user/hand/right/input/thumbstick")},
-        {selectAction_, path("/user/hand/left/input/x/click")},
-        {selectAction_, path("/user/hand/right/input/a/click")},
+        {selectAction_, path("/user/hand/left/input/trigger/click")},
+        {selectAction_, path("/user/hand/right/input/trigger/click")},
         {triggerAction_, path("/user/hand/left/input/trigger/value")},
         {triggerAction_, path("/user/hand/right/input/trigger/value")},
         {squeezeAction_, path("/user/hand/left/input/squeeze/value")},
         {squeezeAction_, path("/user/hand/right/input/squeeze/value")},
         {menuAction_, path("/user/hand/left/input/menu/click")},
+        {jumpAction_, path("/user/hand/right/input/a/click")},
+        {crouchAction_, path("/user/hand/right/input/b/click")},
         {gripPoseAction_, path("/user/hand/left/input/grip/pose")},
         {gripPoseAction_, path("/user/hand/right/input/grip/pose")},
         {aimPoseAction_, path("/user/hand/left/input/aim/pose")},
@@ -189,15 +193,17 @@ bool OpenXRInput::Initialize(XrInstance instance, bool enabled, int logInterval)
     }};
     SuggestBindings(instance_, "/interaction_profiles/oculus/touch_controller", touchBindings.data(), static_cast<uint32_t>(touchBindings.size()));
 
-    const std::array<XrActionSuggestedBinding, 12> indexBindings{{
+    const std::array<XrActionSuggestedBinding, 14> indexBindings{{
         {moveAction_, path("/user/hand/left/input/thumbstick")},
         {turnAction_, path("/user/hand/right/input/thumbstick")},
-        {selectAction_, path("/user/hand/left/input/a/click")},
-        {selectAction_, path("/user/hand/right/input/a/click")},
+        {selectAction_, path("/user/hand/left/input/trigger/click")},
+        {selectAction_, path("/user/hand/right/input/trigger/click")},
         {triggerAction_, path("/user/hand/left/input/trigger/value")},
         {triggerAction_, path("/user/hand/right/input/trigger/value")},
         {squeezeAction_, path("/user/hand/left/input/squeeze/force")},
         {squeezeAction_, path("/user/hand/right/input/squeeze/force")},
+        {jumpAction_, path("/user/hand/right/input/a/click")},
+        {crouchAction_, path("/user/hand/right/input/b/click")},
         {gripPoseAction_, path("/user/hand/left/input/grip/pose")},
         {gripPoseAction_, path("/user/hand/right/input/grip/pose")},
         {aimPoseAction_, path("/user/hand/left/input/aim/pose")},
@@ -219,7 +225,7 @@ bool OpenXRInput::Initialize(XrInstance instance, bool enabled, int logInterval)
     SuggestBindings(instance_, "/interaction_profiles/microsoft/motion_controller", motionBindings.data(), static_cast<uint32_t>(motionBindings.size()));
 
     initialized_ = true;
-    Logger::Instance().Write(LogLevel::Info, "openxr_input initialized actions=8 profiles=4 logInterval=%d", logInterval_);
+    Logger::Instance().Write(LogLevel::Info, "openxr_input initialized actions=10 profiles=4 logInterval=%d", logInterval_);
     return true;
 }
 
@@ -327,6 +333,8 @@ void OpenXRInput::Sync(XrSession session, XrSpace baseSpace, XrTime displayTime,
     ReadFloat(session, squeezeAction_, handPaths_[0], next.left.squeeze, next.left.active);
     ReadFloat(session, squeezeAction_, handPaths_[1], next.right.squeeze, next.right.active);
     ReadBoolean(session, menuAction_, handPaths_[0], next.menu, next.menuChanged, next.left.active);
+    ReadBoolean(session, jumpAction_, handPaths_[1], next.jump, next.jumpChanged, next.right.active);
+    ReadBoolean(session, crouchAction_, handPaths_[1], next.crouch, next.crouchChanged, next.right.active);
     LocatePose(gripSpaces_[0], baseSpace, displayTime, next.left.gripPose);
     LocatePose(gripSpaces_[1], baseSpace, displayTime, next.right.gripPose);
     LocatePose(aimSpaces_[0], baseSpace, displayTime, next.left.aimPose);
@@ -338,10 +346,11 @@ void OpenXRInput::Sync(XrSession session, XrSpace baseSpace, XrTime displayTime,
     ++syncCount_;
 
     if (syncCount_ == 1 || syncCount_ % static_cast<uint64_t>(logInterval_) == 0
-        || next.left.selectChanged || next.right.selectChanged || next.menuChanged) {
+        || next.left.selectChanged || next.right.selectChanged || next.menuChanged
+        || next.jumpChanged || next.crouchChanged) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_input state frame=%llu active=%d move=%.3f,%.3f turn=%.3f,%.3f select=%d,%d trigger=%.3f,%.3f squeeze=%.3f,%.3f menu=%d gripValid=%d,%d aimValid=%d,%d",
+            "openxr_input state frame=%llu active=%d move=%.3f,%.3f turn=%.3f,%.3f select=%d,%d trigger=%.3f,%.3f squeeze=%.3f,%.3f menu=%d jump=%d crouch=%d gripValid=%d,%d aimValid=%d,%d",
             static_cast<unsigned long long>(gameFrame),
             next.active ? 1 : 0,
             next.moveX,
@@ -355,6 +364,8 @@ void OpenXRInput::Sync(XrSession session, XrSpace baseSpace, XrTime displayTime,
             next.left.squeeze,
             next.right.squeeze,
             next.menu ? 1 : 0,
+            next.jump ? 1 : 0,
+            next.crouch ? 1 : 0,
             next.left.gripPose.valid ? 1 : 0,
             next.right.gripPose.valid ? 1 : 0,
             next.left.aimPose.valid ? 1 : 0,

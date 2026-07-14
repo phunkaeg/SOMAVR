@@ -56,6 +56,10 @@ struct OpenXRInputSnapshot {
     float turnY = 0.0f;
     bool menu = false;
     bool menuChanged = false;
+    bool jump = false;
+    bool jumpChanged = false;
+    bool crouch = false;
+    bool crouchChanged = false;
     OpenXRHandInput left{};
     OpenXRHandInput right{};
 };

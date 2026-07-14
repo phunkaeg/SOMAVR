@@ -1,6 +1,6 @@
 # Test Checklists
 
-## 0.7.0 Controller And Player-State Prototype
+## 0.7.1 Controller, Gameplay Actions, And Player-State Prototype
 
 1. Close SOMA and launch:
 
@@ -8,7 +8,7 @@
 & "D:\Dev Debug\SOMAVR\build-openxr-controller\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.7.0-controller-prototype`, `controller_config enabled=1`,
+2. Confirm `version=0.7.1-gameplay-actions`, `controller_config enabled=1`,
    and `hpl_input_bridge install_ok`. A signature mismatch means this executable
    build is unsupported and controller injection will remain inactive.
 3. Load a save and press F10 once. Confirm the known-good rigid stereo image,
@@ -23,14 +23,17 @@
    returning it to center.
 7. Point the normal gaze interaction at a door/object and press right trigger.
    Confirm it behaves like left click. Test the controller menu action as Escape.
-8. Hold both grips for about one second while still. Expect
+8. On Touch or Index, test right A/Space jump, right B/Left-Control toggle
+   crouch, and left-trigger/Left-Shift hold run. Each must preserve SOMA's normal
+   movement noise, stamina/speed, animation, and state restrictions.
+9. Hold both grips for about one second while still. Expect
    `hpl_recenter requested source=controller_grip_chord`, then the normal stable
    calibration and apply rows.
-9. Briefly remove runtime focus or disable VR with F10 while holding movement.
+10. Briefly remove runtime focus or disable VR with F10 while holding movement.
    The player must stop; later summary should show no `sendFailures`.
-10. Exercise a ladder, crawl/crouch area, scripted interaction, and pause/menu if
+11. Exercise a ladder, crawl/crouch area, scripted interaction, and pause/menu if
     convenient. Attach the log so state IDs can be mapped to each behavior.
-11. Exit normally and confirm clean shutdown. Verify the DLL against the SHA-256
+12. Exit normally and confirm clean shutdown. Verify the DLL against the SHA-256
     in `somavr_build_manifest.txt` beside the final DLL.
 
 ## 0.6.0 Input, Pose, And Calibration Foundation

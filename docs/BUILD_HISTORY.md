@@ -2,6 +2,22 @@
 
 ## 2026-07-14
 
+### 0.7.1-gameplay-actions
+
+- Confirmed SOMA's shipped action defaults in `script/base/InputHandler.hps`:
+  Space jump, Left Control toggle crouch, Left Shift hold run, left mouse
+  interact, and right mouse interaction cancel.
+- Added dedicated OpenXR jump and crouch actions. Oculus Touch and Valve Index
+  bind right A to jump and right B to crouch; profiles without confirmed face
+  buttons remain deliberately unbound.
+- Moved Touch/Index `select` to trigger click, matching OpenXR semantics and
+  avoiding the previous face-button/interact overlap.
+- Added left-trigger hold-run, A/Space jump, and B/Left-Control crouch to the
+  reversible SOMA input-path prototype. All held run state participates in the
+  existing stale-input, F10-disable, and teardown release policy.
+- Built and tested OpenXR/default x64 Release flavors. OpenXR output:
+  `build-openxr-controller\Release`.
+
 ### 0.7.0-controller-prototype
 
 - Added `HPLInputBridge` as a separate gameplay-input and native-player probe

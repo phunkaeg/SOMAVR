@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active runtime test baseline is `0.7.0-controller-prototype`, layered on the proven
+The active runtime test baseline is `0.7.1-gameplay-actions`, layered on the proven
 OpenXR transport, native HPL camera bridge, AFR stereo, full projection centering,
 one-key F10 activation, and compatibility probes:
 
@@ -30,6 +30,8 @@ one-key F10 activation, and compatibility probes:
 - Right-stick turning supports configurable snap or smooth mouse-path input.
 - Right trigger/select maps to native interaction, menu maps to Escape, and a
   held two-grip chord requests the existing stable F2 recenter pipeline.
+- Left trigger holds run, right A jumps, and right B toggles crouch on confirmed
+  Touch/Index profiles through SOMA's shipped default action keys.
 - Every injected held input is released on VR disable, inactive controls, stale
   OpenXR samples, or DLL teardown.
 - A signature-guarded native player probe logs player/camera/body ownership plus

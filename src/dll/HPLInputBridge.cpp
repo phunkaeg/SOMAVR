@@ -36,6 +36,7 @@ struct BridgeState {
     ButtonState left;
     ButtonState right;
     ButtonState interact;
+    ButtonState sprint;
     bool snapLatched = false;
     bool recenterLatched = false;
     uint64_t recenterStartMs = 0;
@@ -186,6 +187,7 @@ void ReleaseAll()
     SetKey(g_state.left, 'A', false);
     SetKey(g_state.right, 'D', false);
     SetMouseButton(g_state.interact, false);
+    SetKey(g_state.sprint, VK_LSHIFT, false);
     g_state.snapLatched = false;
     g_state.recenterStartMs = 0;
 }
@@ -273,6 +275,9 @@ void ApplyTurn(const OpenXRInputSnapshot& input, uint64_t nowMs)
 
 void ApplyActions(const OpenXRInputSnapshot& input, uint64_t nowMs)
 {
+    SetKey(g_state.sprint, VK_LSHIFT, input.left.trigger >= 0.75f);
+    if (input.jump && input.jumpChanged) TapKey(VK_SPACE);
+    if (input.crouch && input.crouchChanged) TapKey(VK_LCONTROL);
     if (g_config.hplControllerInteraction) {
         const bool interact = input.right.select || input.right.trigger >= 0.75f;
         SetMouseButton(g_state.interact, interact);
@@ -385,13 +390,14 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
     if (frameIndex % interval == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_controller frame=%llu inputFrame=%llu age=%llu move=%.3f,%.3f keys=%d%d%d%d turn=%.3f mode=%s interact=%d menu=%d recenterChord=%d playerState=%d moveState=%d",
+            "hpl_controller frame=%llu inputFrame=%llu age=%llu move=%.3f,%.3f keys=%d%d%d%d run=%d jump=%d crouch=%d turn=%.3f mode=%s interact=%d menu=%d recenterChord=%d playerState=%d moveState=%d",
             static_cast<unsigned long long>(frameIndex),
             static_cast<unsigned long long>(input.gameFrame),
             static_cast<unsigned long long>(age),
             input.moveX, input.moveY,
             g_state.forward.down ? 1 : 0, g_state.backward.down ? 1 : 0,
             g_state.left.down ? 1 : 0, g_state.right.down ? 1 : 0,
+            g_state.sprint.down ? 1 : 0, input.jump ? 1 : 0, input.crouch ? 1 : 0,
             input.turnX, g_config.hplControllerSnapTurn ? "snap" : "smooth",
             g_state.interact.down ? 1 : 0, input.menu ? 1 : 0,
             g_state.recenterStartMs != 0 ? 1 : 0,

@@ -38,6 +38,8 @@ private:
     XrAction triggerAction_ = XR_NULL_HANDLE;
     XrAction squeezeAction_ = XR_NULL_HANDLE;
     XrAction menuAction_ = XR_NULL_HANDLE;
+    XrAction jumpAction_ = XR_NULL_HANDLE;
+    XrAction crouchAction_ = XR_NULL_HANDLE;
     XrAction gripPoseAction_ = XR_NULL_HANDLE;
     XrAction aimPoseAction_ = XR_NULL_HANDLE;
     XrPath handPaths_[2] = {XR_NULL_PATH, XR_NULL_PATH};

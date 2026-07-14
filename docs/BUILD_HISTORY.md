@@ -2,6 +2,31 @@
 
 ## 2026-07-14
 
+### 0.6.0-input-foundation
+
+- Added `OpenXRInput` as a dedicated action/pose owner rather than expanding
+  `OpenXRRuntime::Impl` with gameplay semantics.
+- Added a runtime-neutral `somavr_gameplay` action set with move, turn, select,
+  analog trigger, squeeze, menu, grip-pose, and aim-pose actions. Initial
+  suggested bindings cover Khronos Simple, Oculus Touch, Valve Index, and
+  Microsoft Motion Controller profiles.
+- Attached the action set before session begin, created left/right grip and aim
+  spaces, synchronized actions at predicted display time, and exposed a stable
+  `OpenXRInputSnapshot` for future locomotion, hands, HUD pointer, and interaction
+  bridges. This build observes input only and cannot move or interact with SOMA.
+- Added bounded `openxr_input` state telemetry for sticks, buttons, squeeze, and
+  pose validity, enabled in the active development config with
+  `[OpenXR] InputEnabled=1`.
+- Added pose-age telemetry to head and stereo snapshots, `openxr_view` summaries,
+  and `hpl_stereo` rows to prepare tracking-loss and stale-pose policy work.
+- Added configurable vertical room-scale policy and calibrated eye-height offset.
+  Defaults preserve the proven camera path: `HPLRoomscaleVertical=1` and
+  `HPLEyeHeightOffsetMeters=0.0`.
+- Added an automatic `somavr_build_manifest.txt` beside each DLL with version,
+  flavor, OpenXR bit, artifact name, and SHA-256.
+- Built and tested default/OpenXR x64 Release flavors. OpenXR output:
+  `build-openxr-input-foundation\Release`.
+
 ### 0.5.11-recenter
 
 - Accepted the user-confirmed `0.5.10-poselatch` run as the current graphics

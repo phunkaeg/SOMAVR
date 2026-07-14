@@ -28,6 +28,7 @@
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 #include "OpenXRHelpers.h"
+#include "OpenXRInput.h"
 #endif
 
 namespace somavr {
@@ -107,7 +108,9 @@ struct OpenXRRuntime::Impl {
         bool manualStart,
         bool frameSubmit,
         bool mirrorBackbuffer,
-        int resolutionScalePercent)
+        int resolutionScalePercent,
+        bool inputEnabled,
+        int inputLogInterval)
     {
         std::lock_guard lock(mutex_);
         enabled_ = enabled;
@@ -119,6 +122,8 @@ struct OpenXRRuntime::Impl {
         frameSubmitEnabled_ = frameSubmit;
         mirrorBackbufferEnabled_ = mirrorBackbuffer;
         resolutionScalePercent_ = std::clamp(resolutionScalePercent, 25, 200);
+        inputEnabled_ = inputEnabled;
+        inputLogInterval_ = std::max(inputLogInterval, 1);
         manualStartArmed_ = false;
         manualStartLogged_ = false;
         manualStartKeyDown_ = false;
@@ -126,7 +131,7 @@ struct OpenXRRuntime::Impl {
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d",
+            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d input=%d inputLogInterval=%d",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -135,7 +140,9 @@ struct OpenXRRuntime::Impl {
             manualStartEnabled_ ? 1 : 0,
             frameSubmitEnabled_ ? 1 : 0,
             mirrorBackbufferEnabled_ ? 1 : 0,
-            resolutionScalePercent_);
+            resolutionScalePercent_,
+            inputEnabled_ ? 1 : 0,
+            inputLogInterval_);
 
         if (frameSubmitEnabled_ && !sessionProbeEnabled_) {
             Logger::Instance().Write(
@@ -165,6 +172,7 @@ struct OpenXRRuntime::Impl {
     void OnFrameBoundary(HDC deviceContext, HGLRC glContext, uint64_t frameIndex)
     {
         std::lock_guard lock(mutex_);
+        currentGameFrame_ = frameIndex;
         latestHdc_ = deviceContext;
         latestGlContext_ = glContext;
         if (!enabled_ || failed_) {
@@ -219,12 +227,16 @@ struct OpenXRRuntime::Impl {
     void Shutdown()
     {
         std::lock_guard lock(mutex_);
-        DestroyFrameResourcesLocked();
         if (session_ != XR_NULL_HANDLE) {
+            input_.ShutdownSession();
+            DestroyFrameResourcesLocked();
             xrDestroySession(session_);
             session_ = XR_NULL_HANDLE;
+        } else {
+            DestroyFrameResourcesLocked();
         }
         if (instance_ != XR_NULL_HANDLE) {
+            input_.Shutdown();
             xrDestroyInstance(instance_);
             instance_ = XR_NULL_HANDLE;
         }
@@ -284,6 +296,7 @@ struct OpenXRRuntime::Impl {
             << " openxrSwapchainFormats=" << swapchainFormatCount_
             << " openxrHdc=" << HexPointer(latestHdc_)
             << " openxrGlContext=" << HexPointer(latestGlContext_);
+        oss << " " << input_.SummaryString();
         return oss.str();
     }
 
@@ -294,6 +307,8 @@ struct OpenXRRuntime::Impl {
         oss << std::fixed << std::setprecision(5)
             << "openxrPoseValid=" << (latestPoseValid_ ? 1 : 0)
             << " openxrPoseGameFrame=" << static_cast<unsigned long long>(latestPoseGameFrame_)
+            << " openxrPoseAgeFrames=" << static_cast<unsigned long long>(
+                currentGameFrame_ >= latestPoseGameFrame_ ? currentGameFrame_ - latestPoseGameFrame_ : 0)
             << " openxrViewStateFlags=0x" << std::hex << static_cast<unsigned long long>(latestViewStateFlags_) << std::dec
             << " openxrIpdMeters=" << latestIpdMeters_
             << " openxrHeadPosition="
@@ -316,6 +331,9 @@ struct OpenXRRuntime::Impl {
         pose.orientationTracked = (latestViewStateFlags_ & XR_VIEW_STATE_ORIENTATION_TRACKED_BIT) != 0;
         pose.positionTracked = (latestViewStateFlags_ & XR_VIEW_STATE_POSITION_TRACKED_BIT) != 0;
         pose.gameFrame = latestPoseGameFrame_;
+        pose.sampleAgeFrames = currentGameFrame_ >= latestPoseGameFrame_
+            ? currentGameFrame_ - latestPoseGameFrame_
+            : 0;
         pose.positionX = latestHeadPose_.position.x;
         pose.positionY = latestHeadPose_.position.y;
         pose.positionZ = latestHeadPose_.position.z;
@@ -342,6 +360,9 @@ struct OpenXRRuntime::Impl {
         views.head.positionTracked =
             (latestViewStateFlags_ & XR_VIEW_STATE_POSITION_TRACKED_BIT) != 0;
         views.head.gameFrame = latestPoseGameFrame_;
+        views.head.sampleAgeFrames = currentGameFrame_ >= latestPoseGameFrame_
+            ? currentGameFrame_ - latestPoseGameFrame_
+            : 0;
         views.head.positionX = latestHeadPose_.position.x;
         views.head.positionY = latestHeadPose_.position.y;
         views.head.positionZ = latestHeadPose_.position.z;
@@ -352,6 +373,13 @@ struct OpenXRRuntime::Impl {
         views.eyes[0] = ToEyeView(locatedViews_[0], latestPoseGameFrame_);
         views.eyes[1] = ToEyeView(locatedViews_[1], latestPoseGameFrame_);
         return true;
+    }
+
+    bool GetLatestInput(OpenXRInputSnapshot& input) const
+    {
+        std::lock_guard lock(mutex_);
+        input = input_.Snapshot();
+        return input.available;
     }
 
     void SetStereoSubmissionEnabled(bool enabled)
@@ -502,6 +530,12 @@ private:
                 XrVersionString(properties.runtimeVersion).c_str());
         }
 
+        if (!input_.Initialize(instance_, inputEnabled_, inputLogInterval_)) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_input unavailable fallback=headset_only");
+        }
+
         XrSystemGetInfo systemInfo{XR_TYPE_SYSTEM_GET_INFO};
         systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
         result = xrGetSystem(instance_, &systemInfo, &systemId_);
@@ -512,6 +546,7 @@ private:
                 XrResultString(result).c_str());
             if (result == XR_ERROR_FORM_FACTOR_UNAVAILABLE) {
                 retryFrame_ = frameIndex + 300;
+                input_.Shutdown();
                 xrDestroyInstance(instance_);
                 instance_ = XR_NULL_HANDLE;
                 attempted_ = false;
@@ -593,6 +628,7 @@ private:
         bool releasedSession = false;
         bool releasedInstance = false;
         if (session_ != XR_NULL_HANDLE) {
+            input_.ShutdownSession();
             DestroyFrameResourcesLocked();
             xrDestroySession(session_);
             session_ = XR_NULL_HANDLE;
@@ -602,6 +638,7 @@ private:
             releasedSession = true;
         }
         if (instance_ != XR_NULL_HANDLE) {
+            input_.Shutdown();
             xrDestroyInstance(instance_);
             instance_ = XR_NULL_HANDLE;
             instanceReleasedAfterProbe_ = true;
@@ -901,6 +938,12 @@ private:
             HexPointer(deviceContext).c_str(),
             HexPointer(glContext).c_str());
 
+        if (!input_.AttachSession(session_)) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_input session_attach_unavailable fallback=headset_only");
+        }
+
         LogReferenceSpacesLocked();
         LogSwapchainFormatsLocked();
         if (frameSubmitEnabled_) {
@@ -1145,6 +1188,8 @@ private:
             return;
         }
 
+        input_.Sync(session_, localSpace_, frameState.predictedDisplayTime, frameIndex);
+
         std::array<XrCompositionLayerProjectionView, 2> projectionViews{};
         XrCompositionLayerProjection projectionLayer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
         const XrCompositionLayerBaseHeader* layers[1] = {};
@@ -1374,6 +1419,8 @@ private:
     bool manualStartLogged_ = false;
     bool manualStartKeyDown_ = false;
     bool frameSubmitEnabled_ = false;
+    bool inputEnabled_ = false;
+    int inputLogInterval_ = 120;
     bool mirrorBackbufferEnabled_ = true;
     int resolutionScalePercent_ = 100;
     bool frameResourcesReady_ = false;
@@ -1401,6 +1448,7 @@ private:
     uint64_t completedXrFrameCount_ = 0;
     uint64_t submittedFrameCount_ = 0;
     uint64_t lastSubmittedGameFrame_ = 0;
+    uint64_t currentGameFrame_ = 0;
     uint32_t consecutiveFrameFailures_ = 0;
     uint32_t frameErrorLogCount_ = 0;
     uint32_t pendingRenderedEye_ = 0;
@@ -1432,6 +1480,7 @@ private:
     std::vector<int64_t> swapchainFormats_;
     std::vector<XrView> locatedViews_;
     OpenXRGLBridge glBridge_;
+    OpenXRInput input_;
 };
 
 #else
@@ -1446,7 +1495,9 @@ struct OpenXRRuntime::Impl {
         bool manualStart,
         bool frameSubmit,
         bool mirrorBackbuffer,
-        int resolutionScalePercent)
+        int resolutionScalePercent,
+        bool inputEnabled,
+        int inputLogInterval)
     {
         std::lock_guard lock(mutex_);
         enabled_ = enabled;
@@ -1458,11 +1509,13 @@ struct OpenXRRuntime::Impl {
         frameSubmitEnabled_ = frameSubmit;
         mirrorBackbufferEnabled_ = mirrorBackbuffer;
         resolutionScalePercent_ = resolutionScalePercent;
+        inputEnabled_ = inputEnabled;
+        inputLogInterval_ = inputLogInterval;
         manualStartArmed_ = false;
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d",
+            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d input=%d inputLogInterval=%d",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -1471,7 +1524,9 @@ struct OpenXRRuntime::Impl {
             manualStartEnabled_ ? 1 : 0,
             frameSubmitEnabled_ ? 1 : 0,
             mirrorBackbufferEnabled_ ? 1 : 0,
-            resolutionScalePercent_);
+            resolutionScalePercent_,
+            inputEnabled_ ? 1 : 0,
+            inputLogInterval_);
     }
 
     void OnOpenGLContext(HDC deviceContext, HGLRC glContext)
@@ -1518,6 +1573,7 @@ struct OpenXRRuntime::Impl {
             << " openxrFrameSubmit=" << (frameSubmitEnabled_ ? 1 : 0)
             << " openxrMirrorBackbuffer=" << (mirrorBackbufferEnabled_ ? 1 : 0)
             << " openxrResolutionScalePercent=" << resolutionScalePercent_
+            << " openxrInputEnabled=" << (inputEnabled_ ? 1 : 0)
             << " openxrFrameResourcesReady=0"
             << " openxrFrameSubmitFailed=" << (enabled_ && frameSubmitEnabled_ ? 1 : 0)
             << " openxrSessionRunning=0"
@@ -1552,6 +1608,12 @@ struct OpenXRRuntime::Impl {
         return false;
     }
 
+    bool GetLatestInput(OpenXRInputSnapshot& input) const
+    {
+        input = {};
+        return false;
+    }
+
     void SetStereoSubmissionEnabled(bool) {}
     bool MarkRenderedStereoEye(uint32_t, const OpenXREyeView&) { return false; }
 
@@ -1576,6 +1638,8 @@ private:
     bool manualStartEnabled_ = false;
     bool manualStartArmed_ = false;
     bool frameSubmitEnabled_ = false;
+    bool inputEnabled_ = false;
+    int inputLogInterval_ = 120;
     bool mirrorBackbufferEnabled_ = true;
     int resolutionScalePercent_ = 100;
     bool unavailableLogged_ = false;
@@ -1597,7 +1661,9 @@ void OpenXRRuntime::Configure(
     bool manualStart,
     bool frameSubmit,
     bool mirrorBackbuffer,
-    int resolutionScalePercent)
+    int resolutionScalePercent,
+    bool inputEnabled,
+    int inputLogInterval)
 {
     impl_->Configure(
         enabled,
@@ -1608,7 +1674,9 @@ void OpenXRRuntime::Configure(
         manualStart,
         frameSubmit,
         mirrorBackbuffer,
-        resolutionScalePercent);
+        resolutionScalePercent,
+        inputEnabled,
+        inputLogInterval);
 }
 
 void OpenXRRuntime::OnOpenGLContext(HDC deviceContext, HGLRC glContext)
@@ -1649,6 +1717,11 @@ bool OpenXRRuntime::GetLatestHeadPose(OpenXRHeadPose& pose) const
 bool OpenXRRuntime::GetLatestStereoViews(OpenXRStereoViewSnapshot& views) const
 {
     return impl_->GetLatestStereoViews(views);
+}
+
+bool OpenXRRuntime::GetLatestInput(OpenXRInputSnapshot& input) const
+{
+    return impl_->GetLatestInput(input);
 }
 
 void OpenXRRuntime::SetStereoSubmissionEnabled(bool enabled)

@@ -31,6 +31,7 @@ using camera_math::PoseStabilityUpdate;
 using camera_math::Quaternion;
 using camera_math::RotateVector;
 using camera_math::RotationMatrix;
+using camera_math::ResolveTrackedEyeOffset;
 using camera_math::TranslationMatrix;
 using camera_math::UpdatePoseStability;
 using camera_math::ValidateStereoProjectionMath;
@@ -329,23 +330,15 @@ bool ApplyStereoEye(
         (views.eyes[0].positionZ + views.eyes[1].positionZ) * 0.5f,
     };
     const bool roomscaleEnabled = g_roomscaleEnabled.load(std::memory_order_relaxed);
-    const Vector3 referenceOffset = roomscaleEnabled
-        ? Vector3{
-            eye.positionX - g_state.neutralPosition.x,
-            eye.positionY - g_state.neutralPosition.y,
-            eye.positionZ - g_state.neutralPosition.z,
-        }
-        : Vector3{
-            eye.positionX - currentHeadCenter.x,
-            eye.positionY - currentHeadCenter.y,
-            eye.positionZ - currentHeadCenter.z,
-        };
-    Vector3 relativeEyePosition = RotateVector(
-        Conjugate(g_state.neutralOrientation),
-        referenceOffset);
-    relativeEyePosition.x *= g_config.hplWorldScale;
-    relativeEyePosition.y *= g_config.hplWorldScale;
-    relativeEyePosition.z *= g_config.hplWorldScale;
+    const Vector3 relativeEyePosition = ResolveTrackedEyeOffset(
+        {eye.positionX, eye.positionY, eye.positionZ},
+        currentHeadCenter,
+        g_state.neutralPosition,
+        g_state.neutralOrientation,
+        roomscaleEnabled,
+        g_config.hplRoomscaleVertical,
+        g_config.hplWorldScale,
+        g_config.hplEyeHeightOffsetMeters);
 
     const std::array<float, 16> inverseEyeTranslation = TranslationMatrix({
         -relativeEyePosition.x,
@@ -407,12 +400,15 @@ bool ApplyStereoEye(
     if (stereoApplied <= 2 || stereoApplied % logInterval == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_stereo applied=%llu eye=%u poseFrame=%llu dirtyBefore=%d worldScale=%.4f eyeOffset=%.5f,%.5f,%.5f fovDegrees=%.3f aspect=%.5f projectionCentered=%d roomscale=%d projectionOffset=%.6f,%.6f",
+            "hpl_stereo applied=%llu eye=%u poseFrame=%llu poseAgeFrames=%llu dirtyBefore=%d worldScale=%.4f eyeHeightOffsetMeters=%.4f verticalRoomscale=%d eyeOffset=%.5f,%.5f,%.5f fovDegrees=%.3f aspect=%.5f projectionCentered=%d roomscale=%d projectionOffset=%.6f,%.6f",
             static_cast<unsigned long long>(stereoApplied),
             eyeIndex,
             static_cast<unsigned long long>(eye.gameFrame),
+            static_cast<unsigned long long>(views.head.sampleAgeFrames),
             wasDirty ? 1 : 0,
             g_config.hplWorldScale,
+            g_config.hplEyeHeightOffsetMeters,
+            g_config.hplRoomscaleVertical ? 1 : 0,
             relativeEyePosition.x,
             relativeEyePosition.y,
             relativeEyePosition.z,
@@ -1019,7 +1015,7 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         LogLevel::Warn,
-        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 recenterKey=F2 projectionKey=F5 roomscaleKey=F4 recenterControl=%d stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d worldScale=%.4f activationStableFrames=%u activationMaxPositionStep=%.3f activationMaxOrientationStepDeg=%.1f logInterval=%d",
+        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 recenterKey=F2 projectionKey=F5 roomscaleKey=F4 recenterControl=%d stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d verticalRoomscale=%d eyeHeightOffsetMeters=%.4f worldScale=%.4f activationStableFrames=%u activationMaxPositionStep=%.3f activationMaxOrientationStepDeg=%.1f logInterval=%d",
         ModulePath(executable).c_str(),
         executable,
         static_cast<unsigned long long>(kCameraGetFrustumRva),
@@ -1029,6 +1025,8 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
         g_config.hplStereoAfr ? 1 : 0,
         g_projectionCentered.load(std::memory_order_relaxed) ? 1 : 0,
         g_roomscaleEnabled.load(std::memory_order_relaxed) ? 1 : 0,
+        g_config.hplRoomscaleVertical ? 1 : 0,
+        g_config.hplEyeHeightOffsetMeters,
         g_config.hplWorldScale,
         kActivationStablePoseFrames,
         kActivationMaxPositionStepMeters,

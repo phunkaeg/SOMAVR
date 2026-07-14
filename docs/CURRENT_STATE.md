@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active runtime test baseline is `0.5.11-recenter`, layered on the proven
+The active runtime test baseline is `0.6.0-input-foundation`, layered on the proven
 OpenXR transport, native HPL camera bridge, AFR stereo, full projection centering,
 one-key F10 activation, and compatibility probes:
 
@@ -234,6 +234,20 @@ same tracked/stable latch as F10, leaves OpenXR and AFR stereo running, continue
 rendering with the old neutral pose while waiting, then atomically replaces the
 neutral orientation and position once eight stable tracked samples arrive.
 
+`0.6.0-input-foundation` batches the first controller, calibration, tracking
+diagnostic, and release-identity foundations without changing the proven default
+camera transform. `OpenXRInput` owns a seven-action gameplay set, suggested
+Simple, Touch, Index, and Motion Controller bindings, per-frame action synchronization, and
+left/right grip and aim spaces. The public snapshot includes move/turn axes,
+select, squeeze, menu, pose validity, and tracked bits. No snapshot value is fed
+into SOMA yet, so keyboard/mouse behavior and native gameplay remain authoritative.
+
+The camera bridge now supports `HPLRoomscaleVertical` and
+`HPLEyeHeightOffsetMeters`. Their active defaults (`1` and `0.0`) are mathematically
+identical to `0.5.11`; they provide a reversible route to seated/standing tuning.
+Head snapshots now report sample age, and every build emits a SHA-256 manifest
+beside the DLL.
+
 The exit minidump disproved the earlier orphan-worker diagnosis for this run. It
 contains only SOMA's main thread in OpenGL with Virtual Desktop runtime frames.
 Ghidra names `HPL3_cSDLEngineSetup_Destructor` at `0x1403b16e0`. The `0.5.5`
@@ -264,13 +278,13 @@ The OpenXR build now asks for:
 
 ## Next Step
 
-1. Launch the recenter OpenXR build:
+1. Launch the input-foundation OpenXR build:
 
 ```powershell
-& "D:\Dev Debug\SOMAVR\build-openxr-recenter\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
+& "D:\Dev Debug\SOMAVR\build-openxr-input-foundation\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Inspect `logs\somavr.log` for `version=0.5.11-recenter`,
+2. Inspect `logs\somavr.log` for `version=0.6.0-input-foundation`,
    `hpl_lifecycle install_ok`, `renderDiagnostic=1`, and the camera/compatibility
    hook install rows. The camera install row should include `recenterKey=F2`
    and `recenterControl=1`.
@@ -294,6 +308,14 @@ The OpenXR build now asks for:
     `hpl_recenter applied ... stablePoseFrames=8`. Confirm tracking/stereo stay
     active and view height remains correct.
 14. Press F5 only for a brief old-asymmetry comparison, then restore centered mode.
-15. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
+15. Move both controllers and operate both sticks, triggers/grips, and the left
+    menu button. Expect periodic `openxr_input state` rows with active hand poses,
+    changing axes/buttons, and `gripValid=1,1 aimValid=1,1`. These are telemetry
+    only and must not move the player or trigger native actions.
+16. Confirm `hpl_stereo` rows report `poseAgeFrames` near zero,
+    `verticalRoomscale=1`, and `eyeHeightOffsetMeters=0.0000`.
+17. Confirm `somavr_build_manifest.txt` reports version
+    `0.6.0-input-foundation`, flavor `openxr`, and a DLL SHA-256.
+18. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
     `complete`, then check that `Soma_NoSteam.exe` disappears. If it remains,
     capture it with the dumper before manually terminating it.

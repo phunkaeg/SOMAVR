@@ -13,6 +13,7 @@ struct OpenXRHeadPose {
     bool orientationTracked = false;
     bool positionTracked = false;
     uint64_t gameFrame = 0;
+    uint64_t sampleAgeFrames = 0;
     float positionX = 0.0f;
     float positionY = 0.0f;
     float positionZ = 0.0f;
@@ -20,6 +21,43 @@ struct OpenXRHeadPose {
     float orientationY = 0.0f;
     float orientationZ = 0.0f;
     float orientationW = 1.0f;
+};
+
+struct OpenXRControllerPose {
+    bool valid = false;
+    bool orientationTracked = false;
+    bool positionTracked = false;
+    float positionX = 0.0f;
+    float positionY = 0.0f;
+    float positionZ = 0.0f;
+    float orientationX = 0.0f;
+    float orientationY = 0.0f;
+    float orientationZ = 0.0f;
+    float orientationW = 1.0f;
+};
+
+struct OpenXRHandInput {
+    bool active = false;
+    bool select = false;
+    bool selectChanged = false;
+    float trigger = 0.0f;
+    float squeeze = 0.0f;
+    OpenXRControllerPose gripPose{};
+    OpenXRControllerPose aimPose{};
+};
+
+struct OpenXRInputSnapshot {
+    bool available = false;
+    bool active = false;
+    uint64_t gameFrame = 0;
+    float moveX = 0.0f;
+    float moveY = 0.0f;
+    float turnX = 0.0f;
+    float turnY = 0.0f;
+    bool menu = false;
+    bool menuChanged = false;
+    OpenXRHandInput left{};
+    OpenXRHandInput right{};
 };
 
 struct OpenXREyeView {
@@ -59,7 +97,9 @@ public:
         bool manualStart,
         bool frameSubmit,
         bool mirrorBackbuffer,
-        int resolutionScalePercent);
+        int resolutionScalePercent,
+        bool inputEnabled,
+        int inputLogInterval);
     void OnOpenGLContext(HDC deviceContext, HGLRC glContext);
     void OnFrameBoundary(HDC deviceContext, HGLRC glContext, uint64_t frameIndex);
     bool RequestManualStart();
@@ -69,6 +109,7 @@ public:
     std::string ViewSummaryString() const;
     bool GetLatestHeadPose(OpenXRHeadPose& pose) const;
     bool GetLatestStereoViews(OpenXRStereoViewSnapshot& views) const;
+    bool GetLatestInput(OpenXRInputSnapshot& input) const;
     void SetStereoSubmissionEnabled(bool enabled);
     bool MarkRenderedStereoEye(uint32_t eyeIndex, const OpenXREyeView& view);
 

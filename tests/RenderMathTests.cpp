@@ -211,6 +211,38 @@ int main()
         camera_math::MatrixMultiply(identityMatrix, translation) == translation,
         "matrix identity multiplication");
 
+    const camera_math::Vector3 roomscaleEye{1.0f, 2.0f, 3.0f};
+    const camera_math::Vector3 roomscaleCenter{0.9f, 1.5f, 2.8f};
+    const camera_math::Vector3 roomscaleNeutral{0.5f, 1.0f, 2.0f};
+    const camera_math::Vector3 fullRoomscale = camera_math::ResolveTrackedEyeOffset(
+        roomscaleEye,
+        roomscaleCenter,
+        roomscaleNeutral,
+        camera_math::Quaternion{},
+        true,
+        true,
+        2.0f,
+        0.1f);
+    failures += Check(
+        Near(fullRoomscale.x, 1.0f)
+            && Near(fullRoomscale.y, 2.2f)
+            && Near(fullRoomscale.z, 2.0f),
+        "roomscale and eye-height calibration");
+    const camera_math::Vector3 horizontalRoomscale = camera_math::ResolveTrackedEyeOffset(
+        roomscaleEye,
+        roomscaleCenter,
+        roomscaleNeutral,
+        camera_math::Quaternion{},
+        true,
+        false,
+        2.0f,
+        0.1f);
+    failures += Check(
+        Near(horizontalRoomscale.x, 1.0f)
+            && Near(horizontalRoomscale.y, 1.2f)
+            && Near(horizontalRoomscale.z, 2.0f),
+        "vertical roomscale suppression preserves stereo height");
+
     const GLfloat perspective[16] = {
         0.803333f, 0.0f, 0.0f, 0.0f,
         0.0f, 1.428148f, 0.0f, 0.0f,

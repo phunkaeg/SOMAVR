@@ -47,6 +47,15 @@ std::array<float, 16> MatrixMultiply(
     const std::array<float, 16>& left,
     const std::array<float, 16>& right);
 std::array<float, 16> TranslationMatrix(const Vector3& translation);
+Vector3 ResolveTrackedEyeOffset(
+    const Vector3& eyePosition,
+    const Vector3& headCenter,
+    const Vector3& neutralPosition,
+    const Quaternion& neutralOrientation,
+    bool roomscaleEnabled,
+    bool verticalRoomscale,
+    float worldScale,
+    float eyeHeightOffsetMeters);
 
 PoseStabilityUpdate UpdatePoseStability(
     PoseStabilityState& state,

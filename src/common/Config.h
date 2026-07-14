@@ -27,6 +27,8 @@ struct Config {
     bool openxrFrameSubmit = false;
     bool openxrMirrorBackbuffer = true;
     int openxrResolutionScalePercent = 100;
+    bool openxrInputEnabled = false;
+    int openxrInputLogInterval = 120;
     bool forceDisableVsync = false;
 
     int frameSummaryInterval = 120;
@@ -49,6 +51,8 @@ struct Config {
     bool hplProjectionCenteredDefault = false;
     bool hplRoomscaleControl = false;
     bool hplRoomscaleEnabledDefault = true;
+    bool hplRoomscaleVertical = true;
+    float hplEyeHeightOffsetMeters = 0.0f;
     bool hplRecenterControl = false;
     bool hplReflectionFadeControl = false;
     int hplCameraLogInterval = 120;

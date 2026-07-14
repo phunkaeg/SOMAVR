@@ -132,6 +132,8 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLProjectionCenteredDefault=0\n"
         << "HPLRoomscaleControl=0\n"
         << "HPLRoomscaleEnabledDefault=1\n"
+        << "HPLRoomscaleVertical=1\n"
+        << "HPLEyeHeightOffsetMeters=0.0\n"
         << "HPLRecenterControl=0\n"
         << "HPLReflectionFadeControl=0\n"
         << "HPLCameraLogInterval=120\n"
@@ -156,7 +158,9 @@ void ConfigManager::WriteDefaultConfig() const
         << "ManualStart=0\n"
         << "FrameSubmit=0\n"
         << "MirrorBackbuffer=1\n"
-        << "ResolutionScalePercent=100\n";
+        << "ResolutionScalePercent=100\n"
+        << "InputEnabled=0\n"
+        << "InputLogInterval=120\n";
 }
 
 void ConfigManager::LoadFromFile()
@@ -226,6 +230,8 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplprojectioncentereddefault") config_.hplProjectionCenteredDefault = ParseBool(value, config_.hplProjectionCenteredDefault);
             else if (key == "hplroomscalecontrol") config_.hplRoomscaleControl = ParseBool(value, config_.hplRoomscaleControl);
             else if (key == "hplroomscaleenableddefault") config_.hplRoomscaleEnabledDefault = ParseBool(value, config_.hplRoomscaleEnabledDefault);
+            else if (key == "hplroomscalevertical") config_.hplRoomscaleVertical = ParseBool(value, config_.hplRoomscaleVertical);
+            else if (key == "hpleyeheightoffsetmeters") config_.hplEyeHeightOffsetMeters = ParseFloat(value, config_.hplEyeHeightOffsetMeters, -2.0f, 2.0f);
             else if (key == "hplrecentercontrol") config_.hplRecenterControl = ParseBool(value, config_.hplRecenterControl);
             else if (key == "hplreflectionfadecontrol") config_.hplReflectionFadeControl = ParseBool(value, config_.hplReflectionFadeControl);
             else if (key == "hplcameraloginterval") config_.hplCameraLogInterval = ParseInt(value, config_.hplCameraLogInterval, 1, 100000);
@@ -262,6 +268,10 @@ void ConfigManager::LoadFromFile()
                 config_.openxrMirrorBackbuffer = ParseBool(value, config_.openxrMirrorBackbuffer);
             } else if (key == "resolutionscalepercent") {
                 config_.openxrResolutionScalePercent = ParseInt(value, config_.openxrResolutionScalePercent, 25, 200);
+            } else if (key == "inputenabled") {
+                config_.openxrInputEnabled = ParseBool(value, config_.openxrInputEnabled);
+            } else if (key == "inputloginterval") {
+                config_.openxrInputLogInterval = ParseInt(value, config_.openxrInputLogInterval, 1, 100000);
             }
         }
     }

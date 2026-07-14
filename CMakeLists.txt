@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.5.11-recenter")
+set(SOMAVR_BUILD_VERSION "0.6.0-input-foundation")
 
 include(FetchContent)
 
@@ -94,6 +94,16 @@ add_custom_command(TARGET somavr POST_BUILD
         "$<TARGET_FILE_DIR:somavr>/somavr_build_flavor.txt"
     VERBATIM
 )
+add_custom_command(TARGET somavr POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+        -DSOMAVR_BINARY=$<TARGET_FILE:somavr>
+        -DSOMAVR_MANIFEST=$<TARGET_FILE_DIR:somavr>/somavr_build_manifest.txt
+        -DSOMAVR_VERSION=${SOMAVR_BUILD_VERSION}
+        -DSOMAVR_FLAVOR=${SOMAVR_BUILD_FLAVOR}
+        -DSOMAVR_OPENXR=${SOMAVR_BUILD_OPENXR}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/WriteBuildManifest.cmake"
+    VERBATIM
+)
 
 add_executable(somavr_injector
     src/injector/main.cpp
@@ -114,7 +124,10 @@ if(BUILD_TESTING)
 endif()
 
 if(SOMAVR_ENABLE_OPENXR)
-    target_sources(somavr PRIVATE src/dll/OpenXRHelpers.cpp)
+    target_sources(somavr PRIVATE
+        src/dll/OpenXRHelpers.cpp
+        src/dll/OpenXRInput.cpp
+    )
     target_compile_definitions(somavr PRIVATE
         SOMAVR_ENABLE_OPENXR=1
         XR_USE_PLATFORM_WIN32

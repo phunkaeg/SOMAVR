@@ -79,7 +79,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         somavr::Logger::LevelName(g_config->Get().logLevel));
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "hook_config frameSummaryInterval=%d matrixSampleLimitPerFrame=%d uniformNameLogLimit=%d uniformMatrixLogLimit=%d uniformMatrixProjectionOnly=%d matrixCapture=%d matrixCaptureFrames=%d matrixCaptureStackDepth=%d matrixCaptureMaxSites=%d matrixCaptureSamplesPerUniform=%d renderDiagnosticCapture=%d renderDiagnosticFrames=%d renderDiagnosticMaxPrograms=%d renderDiagnosticMaxDraws=%d hplCameraBridge=%d hplLifecycleShutdown=%d hplProjectionCenterControl=%d hplProjectionCenteredDefault=%d hplRoomscaleControl=%d hplRoomscaleEnabledDefault=%d hplReflectionFadeControl=%d hplCameraLogInterval=%d hplStereoAfr=%d hplWorldScale=%.4f hplRenderStageProbe=%d hplAudioListenerProbe=%d hplAudioListenerCorrection=%d hplPostEffectControl=%d hplPostEffectBypassDefault=%d hplShadowJitterControl=%d hplShadowJitterSuppressedDefault=%d hplCompatibilityLogInterval=%d openxrProbe=%d openxrSessionProbe=%d openxrReleaseAfterProbe=%d openxrBootstrapFrame=%d openxrHoldFrames=%d openxrManualStart=%d openxrFrameSubmit=%d openxrMirrorBackbuffer=%d openxrResolutionScalePercent=%d",
+        "hook_config frameSummaryInterval=%d matrixSampleLimitPerFrame=%d uniformNameLogLimit=%d uniformMatrixLogLimit=%d uniformMatrixProjectionOnly=%d matrixCapture=%d matrixCaptureFrames=%d matrixCaptureStackDepth=%d matrixCaptureMaxSites=%d matrixCaptureSamplesPerUniform=%d renderDiagnosticCapture=%d renderDiagnosticFrames=%d renderDiagnosticMaxPrograms=%d renderDiagnosticMaxDraws=%d hplCameraBridge=%d hplLifecycleShutdown=%d hplProjectionCenterControl=%d hplProjectionCenteredDefault=%d hplRoomscaleControl=%d hplRoomscaleEnabledDefault=%d hplRoomscaleVertical=%d hplEyeHeightOffsetMeters=%.4f hplReflectionFadeControl=%d hplCameraLogInterval=%d hplStereoAfr=%d hplWorldScale=%.4f hplRenderStageProbe=%d hplAudioListenerProbe=%d hplAudioListenerCorrection=%d hplPostEffectControl=%d hplPostEffectBypassDefault=%d hplShadowJitterControl=%d hplShadowJitterSuppressedDefault=%d hplCompatibilityLogInterval=%d openxrProbe=%d openxrSessionProbe=%d openxrReleaseAfterProbe=%d openxrBootstrapFrame=%d openxrHoldFrames=%d openxrManualStart=%d openxrFrameSubmit=%d openxrMirrorBackbuffer=%d openxrResolutionScalePercent=%d openxrInputEnabled=%d openxrInputLogInterval=%d",
         g_config->Get().frameSummaryInterval,
         g_config->Get().matrixSampleLimitPerFrame,
         g_config->Get().uniformNameLogLimit,
@@ -100,6 +100,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplProjectionCenteredDefault ? 1 : 0,
         g_config->Get().hplRoomscaleControl ? 1 : 0,
         g_config->Get().hplRoomscaleEnabledDefault ? 1 : 0,
+        g_config->Get().hplRoomscaleVertical ? 1 : 0,
+        g_config->Get().hplEyeHeightOffsetMeters,
         g_config->Get().hplReflectionFadeControl ? 1 : 0,
         g_config->Get().hplCameraLogInterval,
         g_config->Get().hplStereoAfr ? 1 : 0,
@@ -120,7 +122,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrManualStart ? 1 : 0,
         g_config->Get().openxrFrameSubmit ? 1 : 0,
         g_config->Get().openxrMirrorBackbuffer ? 1 : 0,
-        g_config->Get().openxrResolutionScalePercent);
+        g_config->Get().openxrResolutionScalePercent,
+        g_config->Get().openxrInputEnabled ? 1 : 0,
+        g_config->Get().openxrInputLogInterval);
 
     g_openxr = std::make_unique<somavr::OpenXRRuntime>();
     g_openxr->Configure(
@@ -132,7 +136,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrManualStart,
         g_config->Get().openxrFrameSubmit,
         g_config->Get().openxrMirrorBackbuffer,
-        g_config->Get().openxrResolutionScalePercent);
+        g_config->Get().openxrResolutionScalePercent,
+        g_config->Get().openxrInputEnabled,
+        g_config->Get().openxrInputLogInterval);
 
     if (!somavr::InstallOpenGLHooks(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "opengl_hooks install_failed");

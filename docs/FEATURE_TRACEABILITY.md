@@ -17,10 +17,11 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.CLEAN_SHUTDOWN` | PROVEN | `HPLLifecycle`, `OpenXRRuntime` | `0x1403b16e0`, `0x1403b1803` | `RUNTIME_ANALYSIS_0.5.6.md`, `GHIDRA_SYNC.md` | Preserve clean exit across runtime/session-loss paths |
 | `FEATURE.VR_MODE_CONTROL` | EXPERIMENTAL | `HPLCameraBridge`, `OpenXRRuntime` | F10 pending activation, F8/F11 diagnostics | `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | One F10 reaches tracking, stereo, and full centering from a loaded save |
 | `FEATURE.RECENTER` | BUILT | `HPLCameraBridge`, `HPLCameraMath` | F2, stable neutral-pose latch | `BUILD_HISTORY.md`, `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | Live test confirms F2 recenters without stereo/session reset or height drift |
+| `FEATURE.XR_INPUT` | BUILT | `OpenXRInput`, `OpenXRRuntime` | OpenXR action set, Simple/Touch/Index/Motion bindings, grip/aim action spaces | `BUILD_HISTORY.md`, `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | Live log confirms active bindings, both tracked controllers, and stable predicted poses |
 | `FEATURE.HEAD_TRACKING` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | `0x140271b80`, `0x140270230` | `CURRENT_STATE.md`, `VR_COMPATIBILITY_RE.md` | Remain correct through every authored camera state |
 | `FEATURE.AFR_STEREO` | PROVEN | `HPLCameraBridge`, `OpenXRRuntime`, `OpenXRGLBridge` | F11, per-eye cache and submitted render pose | `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.1.md` | Preserve stability while shader/temporal compatibility is classified |
 | `FEATURE.DUAL_RENDER` | RE_REQUIRED | `HPLCompatibilityProbe`, future native render bridge | `0x140298850`, `0x140298630`, `0x1401f9790` | `VR_COMPATIBILITY_RE.md` | Live stage/FBO telemetry proves a side-effect-safe per-eye boundary |
-| `FEATURE.LOCOMOTION` | DESIGNED | future OpenXR input bridge | `0x1402375f0`, `0x140155290` | `FUTURE_SYSTEMS_RE.md` | Semantic move and snap-turn probe without capsule desync |
+| `FEATURE.LOCOMOTION` | EXPERIMENTAL | `OpenXRInput`, future native action bridge | `0x1402375f0`, `0x140155290` | `FUTURE_SYSTEMS_RE.md` | Feed observed move/turn actions into a signature-guarded semantic probe without capsule desync |
 | `FEATURE.AUTHORED_CAMERA` | RE_REQUIRED | `HPLCameraBridge`, future state adapter | player state, camera mode/parent, body camera ownership | `VR_COMPATIBILITY_RE.md` | Sit, ladder, conversation, animation, death test matrix passes |
 | `FEATURE.INTERACTION_RAY` | DESIGNED | future input/interaction bridge | `Utility_PickBasics`, native `CanInteract` | `VR_COMPATIBILITY_RE.md` | Controller ray selects same entities/ranges as native camera ray |
 | `FEATURE.PHYSICS_HANDS` | DESIGNED | future pose bridge | native grab/rotate PID force and torque states | `VR_COMPATIBILITY_RE.md` | Stable grab, rotate, release, and throw with native collision |
@@ -31,7 +32,8 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.REFLECTION_STABILITY` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | fully centered projection, program `985` redirect | `VR_COMPATIBILITY_RE.md`, `RUNTIME_ANALYSIS_0.5.6.md` | Regression-test additional reflective materials and levels |
 | `FEATURE.AUDIO_LISTENER` | EXPERIMENTAL | `HPLCompatibilityProbe`, `HPLCameraMath` | `0x140289340`, `0x14061d188`, `0x14048b2d4` | `VR_COMPATIBILITY_RE.md`, `RUNTIME_ANALYSIS_0.5.2.md` | Directional-source test confirms head-relative orientation without world-lock errors |
 | `FEATURE.LOADING_VIDEO` | RE_REQUIRED | future presentation bridge | load-screen registrations, `CreateVideo`, `DestroyVideo` | `VR_COMPATIBILITY_RE.md` | Loading/menu/video remain stable while OpenXR pacing continues |
-| `FEATURE.COMFORT_POLICY` | DESIGNED | state adapter, post policy, input | authored roll/bob/shake/FOV, turn modes | both future RE documents | Standing/seated comfort matrix and emergency fallback pass |
+| `FEATURE.COMFORT_POLICY` | EXPERIMENTAL | `HPLCameraBridge`, state adapter, post policy, input | authored roll/bob/shake/FOV, vertical roomscale, eye-height offset, turn modes | both future RE documents | Live-test eye-height/vertical policy, then add standing/seated profiles and authored-motion controls |
+| `FEATURE.BUILD_IDENTITY` | BUILT | CMake build manifest | version, flavor, OpenXR bit, DLL SHA-256 | `BUILD_HISTORY.md` | Verify packaged builds reproduce identity and integrity metadata |
 | `FEATURE.TELEMETRY` | PROVEN | `OpenGLHooks`, `OpenGLMatrixAnalysis`, `HPLCompatibilityProbe`, logger, config | Swap/FBO/matrix/runtime/stage/audio bounded logs | all current docs | Classify live stage and listener results, then add player-state transitions |
 
 ## Dependency Edges
@@ -47,6 +49,8 @@ FEATURE.VR_MODE_CONTROL requires FEATURE.XR_GL_SUBMISSION
 FEATURE.VR_MODE_CONTROL requires FEATURE.AFR_STEREO
 FEATURE.RECENTER requires FEATURE.VR_MODE_CONTROL
 FEATURE.RECENTER requires FEATURE.HEAD_TRACKING
+FEATURE.XR_INPUT requires FEATURE.XR_BOOTSTRAP
+FEATURE.LOCOMOTION requires FEATURE.XR_INPUT
 FEATURE.HEAD_TRACKING requires FEATURE.XR_BOOTSTRAP
 FEATURE.AFR_STEREO requires FEATURE.HEAD_TRACKING
 FEATURE.AFR_STEREO requires FEATURE.XR_GL_SUBMISSION
@@ -72,6 +76,7 @@ HPLCameraBridge requires HPLCameraMath
 HPLCompatibilityProbe requires HPLCameraMath
 OpenGLHooks requires OpenGLMatrixAnalysis
 OpenXRRuntime requires OpenXRHelpers
+OpenXRRuntime requires OpenXRInput
 ```
 
 ## Runtime Flow

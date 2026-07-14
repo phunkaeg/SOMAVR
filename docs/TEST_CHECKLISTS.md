@@ -1,5 +1,41 @@
 # Test Checklists
 
+## 0.6.0 Input, Pose, And Calibration Foundation
+
+1. Close any running SOMA process and launch:
+
+```powershell
+& "D:\Dev Debug\SOMAVR\build-openxr-input-foundation\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
+```
+
+2. Confirm `version=0.6.0-input-foundation buildOpenXR=1`,
+   `openxr_config ... input=1`, and `hpl_camera_bridge install_ok` reports
+   `verticalRoomscale=1 eyeHeightOffsetMeters=0.0000`.
+3. Load a save and press F10 once. The known-good rigid world, stereo, full
+   projection centering, room-scale motion, shadows, and reflections must remain
+   unchanged from `0.5.11`.
+4. Expect `openxr_input initialized actions=8 profiles=4`, successful binding rows, and
+   `openxr_input session_attached attached=1` before `openxr_session_begin ok`.
+5. Move both controllers through a broad range. Periodic `openxr_input state`
+   rows should report `gripValid=1,1 aimValid=1,1` while tracked.
+6. Move the left and right sticks independently. Confirm `move=x,y` changes only
+   for the left stick and `turn=x,y` only for the right stick.
+7. Exercise triggers, face-button/select, grips/squeeze, and the left menu button. Confirm the
+   matching telemetry changes. SOMA must not move or interact from these inputs;
+   this build intentionally exposes snapshots without a native gameplay bridge.
+8. Confirm `hpl_stereo` reports `poseAgeFrames` near zero during normal rendering.
+   Brief runtime focus loss may increase it, but refocus must resume fresh samples.
+9. Press F2 and confirm recenter still applies after eight stable tracked frames.
+   F10 exit/re-entry and normal keyboard/mouse controls must still work.
+10. Inspect `somavr_build_manifest.txt` beside the DLL and verify its SHA-256 with:
+
+```powershell
+Get-FileHash -Algorithm SHA256 "D:\Dev Debug\SOMAVR\build-openxr-input-foundation\Release\somavr.dll"
+```
+
+11. Exit normally and confirm the pre-graphics OpenXR shutdown rows and clean
+    process exit.
+
 ## 0.5.11 In-Session Recenter
 
 1. Close any running SOMA process and launch:

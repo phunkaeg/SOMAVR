@@ -95,6 +95,38 @@ std::array<float, 16> TranslationMatrix(const Vector3& translation)
     };
 }
 
+Vector3 ResolveTrackedEyeOffset(
+    const Vector3& eyePosition,
+    const Vector3& headCenter,
+    const Vector3& neutralPosition,
+    const Quaternion& neutralOrientation,
+    bool roomscaleEnabled,
+    bool verticalRoomscale,
+    float worldScale,
+    float eyeHeightOffsetMeters)
+{
+    Vector3 referenceOffset = roomscaleEnabled
+        ? Vector3{
+            eyePosition.x - neutralPosition.x,
+            eyePosition.y - neutralPosition.y,
+            eyePosition.z - neutralPosition.z,
+        }
+        : Vector3{
+            eyePosition.x - headCenter.x,
+            eyePosition.y - headCenter.y,
+            eyePosition.z - headCenter.z,
+        };
+    if (!verticalRoomscale) {
+        referenceOffset.y = eyePosition.y - headCenter.y;
+    }
+
+    Vector3 result = RotateVector(Conjugate(neutralOrientation), referenceOffset);
+    result.x *= worldScale;
+    result.y = result.y * worldScale + eyeHeightOffsetMeters * worldScale;
+    result.z *= worldScale;
+    return result;
+}
+
 PoseStabilityUpdate UpdatePoseStability(
     PoseStabilityState& state,
     uint64_t gameFrame,

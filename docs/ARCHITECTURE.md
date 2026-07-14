@@ -21,6 +21,7 @@ HPLCameraBridge
 
 OpenXRRuntime
   -> OpenXRHelpers
+  -> OpenXRInput
   -> OpenXRGLBridge
 
 HPLCompatibilityProbe / HPLLifecycle
@@ -39,6 +40,7 @@ lifecycle.
 | `OpenGLHooks` | Hook registration, GL/WGL interception, frame-boundary dispatch | New gameplay systems or OpenXR session policy |
 | `OpenGLMatrixAnalysis` | Pure matrix classification and formatting | GL state, logging lifecycle, hooks |
 | `OpenXRRuntime` | Instance/system/session state, frame pacing, view snapshots, layer submission | HPL camera transforms or gameplay input semantics |
+| `OpenXRInput` | OpenXR action set, suggested bindings, action synchronization, grip/aim spaces, immutable input snapshots | SOMA movement, interaction, hand placement, or camera policy |
 | `OpenXRHelpers` | OpenXR names, format strings, pose/view conversion | Handles, session lifetime, swapchain ownership |
 | `OpenXRGLBridge` | OpenGL swapchain images, FBOs, eye caches, backbuffer transfer | OpenXR event/session policy |
 | `HPLCameraBridge` | Signature-guarded player-camera interception and VR mode state | Generic quaternion/projection algorithms |
@@ -64,12 +66,14 @@ lifecycle.
 
 ## Current Refactor Baseline
 
-The first maintenance pass made three behavior-preserving extractions:
+The maintenance passes now include four focused extractions:
 
 - `HPLCameraMath` owns quaternion/matrix operations, OpenXR projection creation,
   and the fully centered FOV policy proven by the `0.5.7` runtime result.
 - `OpenGLMatrixAnalysis` owns matrix classification and telemetry formatting.
 - `OpenXRHelpers` owns OpenXR enum/format names and view/pose conversions.
+- `OpenXRInput` owns controller actions and predicted grip/aim acquisition while
+  `OpenXRRuntime` remains the lifecycle and frame-submission facade.
 
 `somavr_render_math_tests` now protects symmetric tangent-span preservation,
 zero projection offsets, projection construction, pose/matrix basics, and OpenGL
@@ -83,9 +87,9 @@ These are ordered by value and runtime risk:
    `OpenGLHooks.cpp` into `OpenGLDiagnostics` behind a narrow event API.
 2. Extract MinHook/WGL extension registration into `OpenGLHookRegistry`, leaving
    `OpenGLHooks` as frame and callback dispatch.
-3. After the `0.5.8-onekey` live test, split `OpenXRRuntime::Impl` into bootstrap,
-   session lifecycle, and frame-composition owners while preserving one public
-   facade and one lock policy.
+3. Continue splitting `OpenXRRuntime::Impl` into bootstrap, session lifecycle,
+   and frame-composition owners while preserving one public facade and one lock
+   policy. Controller action ownership has already moved to `OpenXRInput`.
 4. Split authored-camera state policy from the HPL frustum adapter when the first
    state telemetry is live; avoid inventing that boundary before the native owner
    is observed.

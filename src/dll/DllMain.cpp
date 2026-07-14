@@ -6,6 +6,7 @@
 #include "HPLInteractionBridge.h"
 #include "HPLHandsBridge.h"
 #include "HPLHudBridge.h"
+#include "HPLMenuBridge.h"
 #include "HPLNativeLocomotion.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
@@ -142,7 +143,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrTrackingRecoveryBlackoutFrames);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f nativeLocomotion=%d turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d flashlight=%d inventory=%d menu=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d suppressAuthoredCamera=%d interactionRay=%d interactionRayOriginTolerance=%.3f handTrackingProbe=%d comfortBlackoutFrames=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
+        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f nativeLocomotion=%d turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d flashlight=%d inventory=%d menu=%d menuPointer=%d menuPointerFov=%.1f,%.1f menuPointerSmoothing=%.3f recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d suppressAuthoredCamera=%d interactionRay=%d interactionRayOriginTolerance=%.3f handTrackingProbe=%d handControllerRoot=%d handRootOffset=%.4f,%.4f,%.4f handRootRotationDegrees=%.2f,%.2f,%.2f comfortBlackoutFrames=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
         g_config->Get().hplControllerInput ? 1 : 0,
         g_config->Get().hplControllerMoveDeadzone,
         g_config->Get().hplControllerMoveReleaseDeadzone,
@@ -160,6 +161,10 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplControllerFlashlight ? 1 : 0,
         g_config->Get().hplControllerInventory ? 1 : 0,
         g_config->Get().hplControllerMenu ? 1 : 0,
+        g_config->Get().hplControllerMenuPointer ? 1 : 0,
+        g_config->Get().hplControllerMenuPointerHorizontalDegrees,
+        g_config->Get().hplControllerMenuPointerVerticalDegrees,
+        g_config->Get().hplControllerMenuPointerSmoothing,
         g_config->Get().hplControllerRecenterChord ? 1 : 0,
         g_config->Get().hplControllerHaptics ? 1 : 0,
         g_config->Get().hplControllerHapticAmplitude,
@@ -171,6 +176,13 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplControllerInteractionRay ? 1 : 0,
         g_config->Get().hplControllerInteractionRayOriginTolerance,
         g_config->Get().hplHandTrackingProbe ? 1 : 0,
+        g_config->Get().hplHandControllerRoot ? 1 : 0,
+        g_config->Get().hplHandRootOffsetX,
+        g_config->Get().hplHandRootOffsetY,
+        g_config->Get().hplHandRootOffsetZ,
+        g_config->Get().hplHandRootPitchDegrees,
+        g_config->Get().hplHandRootYawDegrees,
+        g_config->Get().hplHandRootRollDegrees,
         g_config->Get().hplControllerComfortBlackoutFrames,
         g_config->Get().hplControllerRecenterHoldMs,
         g_config->Get().hplControllerMaxInputAgeFrames,
@@ -224,6 +236,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     if (!somavr::InstallHPLNativeLocomotion(g_config->Get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_native_locomotion install_failed");
     }
+    if (!somavr::InstallHPLMenuBridge(g_config->Get())) {
+        somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_menu_bridge install_failed");
+    }
     if (!somavr::InstallHPLInputBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_input_bridge install_failed");
     }
@@ -274,6 +289,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::LogHPLCameraBridgeSummary();
     somavr::LogHPLInputBridgeSummary();
     somavr::RemoveHPLInputBridge();
+    somavr::LogHPLMenuBridgeSummary();
+    somavr::RemoveHPLMenuBridge();
     somavr::LogHPLNativeLocomotionSummary();
     somavr::RemoveHPLNativeLocomotion();
     somavr::LogHPLPlayerStateSummary();

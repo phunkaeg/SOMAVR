@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.15.0-hud-layer`, layered on the
+The active build candidate is `0.16.0-controller-hands`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
@@ -45,15 +45,22 @@ compatibility probes:
   authored-camera gates restore the original gaze query on any mismatch.
 - SOMA still owns interaction ray length, LOS, `CanInteract`, distance policy,
   focus state, player-state transitions, physics, and map callbacks.
-- The exact runtime `PlayerHands_*` entity is now recognized through confirmed
-  `cLuxProp` GetName and SetMatrix registrations. Its original root matrix is
-  left untouched while bounded logs correlate scale/basis/translation with the
-  native camera, dominant grip pose, and authored player state.
+- The exact runtime `PlayerHands_*` entity is recognized through confirmed
+  `cLuxProp` GetName and SetMatrix registrations. `HandControllerRoot=1`
+  replaces only uniform quarter-scale Normal/Normal matrices with a dominant
+  tracked-grip root reconstructed from SOMA's native `rotateY(pi)` convention.
+  Position and model-space XYZ rotation are configurable. Full-scale, authored,
+  non-normal, stale, lost-tracking, and malformed states remain native.
 - Ordinary unpaused gameplay now receives radial-deadzone analog movement
   through the registered character-body Move wrapper and exact-degree snap or
   smooth body yaw through AddYaw. A signature-guarded game-pause getter plus
-  Normal/Normal ownership gates prevent direct input behind menus or in special
-  states; those states automatically keep the reversible semantic input path.
+  Normal/Normal ownership gates prevent direct input in special states. A pause
+  result now suppresses the semantic W/A/S/D/mouse fallback too, closing the
+  previous possibility of controller input continuing behind menus.
+- While paused, the dominant controller aim is projected relative to the HMD
+  into SOMA's native client rectangle. Trigger/select uses the existing left
+  mouse path, with a release latch preventing an accidental world interaction
+  when the menu closes. Invalid pose/window/pause state fails closed.
 - In two-controller play, the support-hand primary/secondary buttons now route
   through SOMA's existing flashlight and inventory actions. Dominant-hand role
   changes move those actions with the support hand; one-hand recenter is preserved.
@@ -343,9 +350,10 @@ A docs-only static RE pass now maps future locomotion, hands/tools, HUD, and ful
 A second compatibility pass in `docs\VR_COMPATIBILITY_RE.md` maps controller ownership onto SOMA's existing pick and PID physics, inventories authored camera states, identifies the FMOD listener commit, classifies loading/video presentation, and narrows the same-frame stereo boundary. `docs\FEATURE_TRACEABILITY.md` assigns stable `FEATURE.*` IDs and acceptance gates, and the local Graphify graph indexes these documents with the implementation. This remains documentation/tooling work only; the `0.5.0-afrstereo` binary is unchanged.
 
 The shared `Soma_NoSteam.exe` Ghidra database was synchronized again on
-2026-07-13. The engine setup destructor was named and commented, and lifecycle
-and runtime-hang bookmarks record the exact pre-SDL shutdown boundary and dump
-evidence. The complete ledger is in `docs\GHIDRA_SYNC.md`.
+2026-07-15. In addition to lifecycle evidence, the exact hand SetMatrix and
+game-pause functions now carry the `0.16.0` controller-root and complete
+pause/menu-input ownership contracts. The complete ledger is in
+`docs\GHIDRA_SYNC.md`.
 
 The OpenXR build now asks for:
 
@@ -365,7 +373,7 @@ The OpenXR build now asks for:
 & "D:\Dev Debug\SOMAVR\build-openxr-controller\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.15.0-hud-layer`, six compatibility render-stage hooks,
+2. Confirm `version=0.16.0-controller-hands`, six compatibility render-stage hooks,
    `hpl_hud_bridge installed ... layer=1`,
    `hpl_interaction_bridge install_ok`, `hpl_hands_bridge install_ok`,
    `referenceSpace=local`, `recovery=1`, and controller haptics enabled.
@@ -409,11 +417,16 @@ The OpenXR build now asks for:
 19. Confirm haptic pulses for discrete actions, then briefly remove runtime
     focus while holding movement and verify immediate release plus one loss and
     restoration transition in the log.
-20. Exercise visible normal and authored hand/tool states. Attach
-    `hpl_hands_identity` and `hpl_hands_pose` rows with quarter/full scale,
-    camera distance, grip distance, and player-state transitions.
-21. Confirm `somavr_build_manifest.txt` reports version
-    `0.15.0-hud-layer`, flavor `openxr`, and a DLL SHA-256.
-22. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
+20. Exercise visible normal and authored hand/tool states. Normal quarter-scale
+    rows should report `rootOverridden=1` and follow the dominant grip. Full-scale,
+    authored, non-normal, and tracking-loss rows must keep the native matrix and
+    increase the matching fallback counter.
+21. Open the pause menu while holding movement and trigger. Confirm
+    `paused=1 gameplaySuppressed=1`, no queued movement on resume, and
+    `hpl_menu_pointer applied` while dominant aim moves the native cursor. Close
+    the menu with trigger held and verify no world click until release.
+22. Confirm `somavr_build_manifest.txt` reports version
+    `0.16.0-controller-hands`, flavor `openxr`, and a DLL SHA-256.
+23. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
     `complete`, then check that `Soma_NoSteam.exe` disappears. If it remains,
     capture it with the dumper before manually terminating it.

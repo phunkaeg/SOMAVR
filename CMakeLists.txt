@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.15.0-hud-layer")
+set(SOMAVR_BUILD_VERSION "0.16.0-controller-hands")
 
 include(FetchContent)
 
@@ -62,8 +62,10 @@ target_link_libraries(somavr_common PUBLIC shlwapi)
 
 add_library(somavr_render_math STATIC
     src/dll/HPLCameraMath.cpp
+    src/dll/HPLHandsMath.cpp
     src/dll/HPLHudMath.cpp
     src/dll/HPLInputMath.cpp
+    src/dll/HPLMenuMath.cpp
     src/dll/OpenGLMatrixAnalysis.cpp
 )
 target_include_directories(somavr_render_math PUBLIC src/dll)
@@ -76,6 +78,7 @@ add_library(somavr SHARED
     src/dll/HPLHudBridge.cpp
     src/dll/HPLLifecycle.cpp
     src/dll/HPLInputBridge.cpp
+    src/dll/HPLMenuBridge.cpp
     src/dll/HPLNativeLocomotion.cpp
     src/dll/HPLInteractionBridge.cpp
     src/dll/HPLHandsBridge.cpp

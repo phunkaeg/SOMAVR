@@ -1,5 +1,43 @@
 # Future Systems Reverse Engineering
 
+## 0.16.0 Controller Hands And Paused Menu Findings
+
+The shipped `PlayerHandsHandler.hps` closes the default transform equation:
+
+```text
+scale = fullScale ? 1.0 : 0.25
+root = cameraRotation * rotateY(pi) * scale
+position = cameraPosition + (0, -0.3, 0) * scale + reduced head bob
+```
+
+HPL's `cMath::MatrixUnitVectors` confirms that right/up/forward are matrix
+columns and translation occupies `[3,7,11]`. `HPLHandsMath` therefore builds a
+proper HPL basis from tracked grip forward/up, applies the same two-axis sign
+flip represented by `rotateY(pi)`, preserves the incoming uniform quarter scale,
+and applies configurable controller-local position plus model-space XYZ rotation
+calibration. This also corrects the older probe's row-labelled basis telemetry.
+
+`HPLHandsBridge` substitutes that matrix only for exact `PlayerHands_*` identity,
+Normal player state `0`, Normal move state `0`, non-authored camera ownership,
+uniform quarter scale, and a fresh fully tracked dominant grip. Full-scale hand
+animations, ladders/crawl/special states, custom/authored matrices, tracking
+loss, stale input, malformed bases, and signature failure remain byte-for-byte
+native. The mesh, skeleton, animation state, `R_Hand` socket, attached tool, and
+script callbacks are never replaced.
+
+The confirmed `cLux_GetGamePaused` wrapper now serves the whole controller input
+policy instead of only direct body calls. A true pause releases movement, turn,
+sprint, and gameplay interaction before any semantic W/A/S/D or mouse fallback
+can run. `HPLMenuMath` projects dominant aim relative to the HMD onto a
+configurable virtual menu FOV; `HPLMenuBridge` maps the result into SOMA's native
+client rectangle. Trigger/select remains a native left click, and a release
+latch prevents the closing click from becoming an immediate world interaction.
+
+Live acceptance must tune root calibration against the visible hand/tool, verify
+native fallback across authored/full-scale states, and confirm cursor behavior in
+windowed, borderless, and exclusive-fullscreen modes. Per-tool root profiles and
+non-pausing ImGui surfaces remain future classification work.
+
 ## 0.14.0 Native Locomotion And Turn Findings
 
 The registered body wrappers now form a useful split ownership path rather than
@@ -306,7 +344,9 @@ The preferred long-term path is full-scale geometry at a physically plausible co
 
 1. **Classification probe:** camera-attachment ownership is now detected natively in `0.7.2` through camera `+0x6c` and body `+0x1e8`. Hands entity, attached tool, active animation, full-scale, and custom-transform fields remain.
 2. **Stereo preservation:** verify the existing camera-follow hands render once per eye with correct IPD and depth.
-3. **Controller pose:** override only the default `PostUpdate` hand matrix and retain animation/socket updates.
+3. **Controller pose:** built in `0.16.0`; only exact normal quarter-scale
+   `PostUpdate` roots are replaced, retaining animation/socket/tool updates and
+   falling back immediately for authored/full-scale/tracking-loss states.
 4. **Interaction ray:** source focus/pick checks from the dominant controller while leaving native interaction callbacks intact.
 5. **Two-hand and physics interaction:** add support for doors, wheels, levers, grabbed bodies, Omnitool insertion, ladders, and carried objects.
 
@@ -379,7 +419,9 @@ Use that state to select feedback at the controller ray hit:
 1. **GUI target probe:** built in `0.7.2` and moved into `HPLHudBridge` in `0.15.0`; exact matches preserve virtual metrics, GL state, and draw deltas.
 2. **HUD-only framebuffer:** built in `0.15.0`; exact GameHudSet draws into a transparent target while the per-eye scene and nonmatching sets remain untouched.
 3. **OpenXR quad layer:** gameplay HUD submission in VIEW space is built in `0.15.0`; ImGui/menu/subtitle classification remains.
-4. **Controller pointer:** map ray intersection to SOMA's virtual GUI coordinates and existing menu actions.
+4. **Controller pointer:** paused native-window pointer and click routing are
+   built in `0.16.0`; direct virtual-GUI coordinates and non-pausing ImGui
+   surfaces still need identity/presentation classification.
 5. **Reticle split:** suppress the native centered crosshair and render interaction feedback at world depth.
 
 ## Full-Screen Effects

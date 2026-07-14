@@ -2,6 +2,30 @@
 
 ## 2026-07-15
 
+### 0.16.0-controller-hands
+
+- Promoted the exact `PlayerHands_*` SetMatrix probe into a guarded controller
+  root path. `HPLHandsMath` reconstructs SOMA's default
+  `camera * rotateY(pi) * scale` basis from the dominant tracked grip while
+  preserving native quarter scale, skeletal animation, sockets, and tools.
+- Added configurable controller-local root position and model-space XYZ
+  rotation calibration. The active test profile uses SOMA's native
+  `-0.3 * 0.25 = -0.075` vertical root offset.
+- Root substitution is restricted to exact identity, uniform quarter scale,
+  Normal/Normal player ownership, active VR tracking, and a fresh fully tracked
+  grip. Full-scale/custom/authored states and every failure forward the original
+  matrix unchanged with bounded reason counters.
+- Corrected hand telemetry to interpret HPL transform basis vectors as matrix
+  columns, matching `cMath::MatrixUnitVectors` and the shipped hand script.
+- Closed the paused-input fallback hole: a confirmed `cLux_GetGamePaused`
+  result now suppresses both direct native locomotion and synthetic gameplay
+  keys/buttons instead of allowing the semantic fallback behind menus.
+- Added `HPLMenuBridge` and tested head-relative pointer projection. While
+  paused, dominant aim moves SOMA's native client cursor and trigger/select
+  clicks; held clicks are latched until release after returning to gameplay.
+- Built and tested default and OpenXR x64 Release flavors. OpenXR SHA-256:
+  `9FD03BD662E31A3CF8BF96297573933558DF41606231285CBF5F2EF52C9CCE96`.
+
 ### 0.15.0-hud-layer
 
 - Extracted permanent GUI ownership from `HPLCompatibilityProbe` into a

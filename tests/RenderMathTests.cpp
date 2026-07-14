@@ -1,6 +1,8 @@
 #include "HPLCameraMath.h"
+#include "HPLHandsMath.h"
 #include "HPLHudMath.h"
 #include "HPLInputMath.h"
+#include "HPLMenuMath.h"
 #include "OpenGLMatrixAnalysis.h"
 
 #include <array>
@@ -65,6 +67,64 @@ int main()
     failures += Check(
         !hud_math::BuildHeadLockedQuadPose({}, {}, 0.0f, 0.0f, 1.0f, 1.0f, hudPose),
         "head-locked HUD rejects invalid distance");
+
+    std::array<float, 16> handMatrix{};
+    const hands_math::HandRootCalibration handCalibration{
+        {0.1f, -0.075f, 0.2f},
+        {},
+    };
+    failures += Check(
+        hands_math::BuildControllerHandMatrix(
+            {1.0f, 2.0f, 3.0f},
+            {0.0f, 0.0f, -1.0f},
+            {0.0f, 1.0f, 0.0f},
+            0.25f,
+            handCalibration,
+            handMatrix),
+        "controller hand root builds from tracked basis");
+    failures += Check(
+        Near(handMatrix[0], -0.25f)
+            && Near(handMatrix[5], 0.25f)
+            && Near(handMatrix[10], -0.25f)
+            && Near(handMatrix[15], 1.0f),
+        "controller hand root preserves SOMA rotateY(pi) basis and scale");
+    failures += Check(
+        Near(handMatrix[3], 1.1f)
+            && Near(handMatrix[7], 1.925f)
+            && Near(handMatrix[11], 2.8f),
+        "controller hand root applies controller-local position calibration");
+    failures += Check(
+        !hands_math::BuildControllerHandMatrix(
+            {},
+            {0.0f, 1.0f, 0.0f},
+            {0.0f, 1.0f, 0.0f},
+            0.25f,
+            {},
+            handMatrix),
+        "controller hand root rejects collinear tracking basis");
+
+    menu_math::MenuPointerPosition menuPointer;
+    failures += Check(
+        menu_math::ProjectAimToMenu({}, {}, 70.0f, 50.0f, menuPointer)
+            && Near(menuPointer.x, 0.5f)
+            && Near(menuPointer.y, 0.5f),
+        "head-relative menu aim projects to center");
+    failures += Check(
+        !menu_math::ProjectAimToMenu(
+            {},
+            {0.0f, 1.0f, 0.0f, 0.0f},
+            70.0f,
+            50.0f,
+            menuPointer),
+        "menu aim rejects controller pointing behind head");
+    failures += Check(
+        !menu_math::ProjectAimToMenu(
+            {},
+            {0.0f, 0.0f, 0.0f, 0.0f},
+            70.0f,
+            50.0f,
+            menuPointer),
+        "menu aim rejects malformed orientation");
 
     OpenXREyeView asymmetricEye;
     asymmetricEye.valid = true;

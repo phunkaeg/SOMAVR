@@ -190,6 +190,15 @@ bool ApplyHPLNativeTurn(const HPLPlayerStateSnapshot& player, float radians)
     return true;
 }
 
+bool GetHPLGamePausedState(bool& paused)
+{
+    paused = false;
+    if (g_getGamePaused == nullptr)
+        return false;
+    paused = g_getGamePaused();
+    return true;
+}
+
 void LogHPLNativeLocomotionSummary()
 {
     Logger::Instance().Write(

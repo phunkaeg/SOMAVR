@@ -60,6 +60,12 @@ With `HudLayer=1`, the exact gameplay HUD set is removed from the eye render and
 submitted once as a transparent, compositor head-locked OpenXR quad. Menus,
 ImGui, subtitles not owned by that set, and diegetic terminal GUIs remain on
 their native paths until separately classified.
+With `HandControllerRoot=1`, F10 also enables a guarded controller-owned root
+for the exact `PlayerHands_*` entity. Only uniform quarter-scale hands in the
+normal player/move state are replaced; full-scale/authored animations, stale or
+lost tracking, and every identity/signature mismatch retain SOMA's matrix.
+Paused menus suppress all gameplay injection. The dominant controller aim moves
+the native menu cursor and trigger/select clicks when `MenuPointer=1`.
 
 ## Current Goal
 
@@ -73,6 +79,8 @@ This is not yet a simultaneous dual-eye renderer. OpenXR transport, native head 
 - deferred reconstruction UBO attribution and eye-invariant shadow/reflection state,
 - selective post-effect classification using active object/vtable inventories and reversible per-effect isolation,
 - gameplay HUD extraction into a configurable OpenXR quad layer,
+- controller-owned native hands with calibration and authored-state fallback,
+- paused-menu aim pointer and hard gameplay-input suppression,
 - same-frame dual rendering after callback and temporal ownership are proven.
 
 The active `somavr.ini` is currently set up for the OpenXR probe build:
@@ -146,6 +154,10 @@ SmoothTurnDegreesPerSecond=120
 NativeTurnSign=-1
 Flashlight=1
 Inventory=1
+MenuPointer=1
+MenuPointerHorizontalDegrees=70
+MenuPointerVerticalDegrees=50
+MenuPointerSmoothing=0.35
 Haptics=1
 HapticAmplitude=0.35
 HapticDurationMs=30
@@ -156,6 +168,13 @@ SuppressDuringAuthoredCamera=1
 InteractionRay=1
 InteractionRayOriginTolerance=0.75
 HandTrackingProbe=1
+HandControllerRoot=1
+HandRootOffsetX=0.0
+HandRootOffsetY=-0.075
+HandRootOffsetZ=0.0
+HandRootPitchDegrees=0.0
+HandRootYawDegrees=0.0
+HandRootRollDegrees=0.0
 ComfortBlackoutFrames=2
 ```
 

@@ -1,6 +1,7 @@
 #include "HPLHandsBridge.h"
 
 #include "HPLCameraBridge.h"
+#include "HPLHandsMath.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
 
@@ -39,6 +40,11 @@ constexpr size_t kNativeStringInlineCapacity = 15;
 constexpr size_t kMaxNativeNameLength = 127;
 constexpr size_t kMaxIdentityCache = 4096;
 constexpr size_t kMaxIdentityLogs = 16;
+constexpr int kNormalPlayerState = 0;
+constexpr int kNormalMoveState = 0;
+constexpr float kQuarterScale = 0.25f;
+constexpr float kQuarterScaleTolerance = 0.04f;
+constexpr float kUniformScaleTolerance = 0.04f;
 
 using LuxEntitySetMatrixFn = void (*)(void* entity, const float* matrix);
 using LuxEntityGetNameFn = const void* (*)(void* entity);
@@ -74,6 +80,14 @@ std::atomic<uint64_t> g_fullScaleSamples = 0;
 std::atomic<uint64_t> g_otherScaleSamples = 0;
 std::atomic<uint64_t> g_trackedGripSamples = 0;
 std::atomic<uint64_t> g_authoredCameraSamples = 0;
+std::atomic<uint64_t> g_rootOverrideAttempts = 0;
+std::atomic<uint64_t> g_rootOverrides = 0;
+std::atomic<uint64_t> g_rootScaleFallbacks = 0;
+std::atomic<uint64_t> g_rootStateFallbacks = 0;
+std::atomic<uint64_t> g_rootAuthoredFallbacks = 0;
+std::atomic<uint64_t> g_rootPoseFallbacks = 0;
+std::atomic<uint64_t> g_rootStaleFallbacks = 0;
+std::atomic<uint64_t> g_rootMathFallbacks = 0;
 
 bool IsInsideImage(HMODULE module, uintptr_t rva, size_t bytes)
 {
@@ -167,13 +181,12 @@ EntityIdentity ResolveIdentity(void* entity)
     return identity;
 }
 
-float RowLength(const std::array<float, 16>& matrix, size_t row)
+float ColumnLength(const std::array<float, 16>& matrix, size_t column)
 {
-    const size_t offset = row * 4;
     return std::sqrt(
-        matrix[offset] * matrix[offset]
-        + matrix[offset + 1] * matrix[offset + 1]
-        + matrix[offset + 2] * matrix[offset + 2]);
+        matrix[column] * matrix[column]
+        + matrix[column + 4] * matrix[column + 4]
+        + matrix[column + 8] * matrix[column + 8]);
 }
 
 const OpenXRHandInput* SelectDominantHand(const OpenXRInputSnapshot& input, uint32_t& handIndex)
@@ -191,18 +204,20 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
 {
     const uint64_t call = g_calls.fetch_add(1, std::memory_order_relaxed) + 1;
     const EntityIdentity identity = ResolveIdentity(entity);
+    const float* submittedMatrix = matrixPointer;
+    std::array<float, 16> controllerMatrix{};
     if (identity.playerHands) {
         const uint64_t handCall = g_playerHandsCalls.fetch_add(1, std::memory_order_relaxed) + 1;
         std::array<float, 16> matrix{};
         if (!ReadMemory(matrixPointer, matrix.data(), sizeof(matrix))) {
             g_matrixReadFailures.fetch_add(1, std::memory_order_relaxed);
         } else {
-            const float scaleX = RowLength(matrix, 0);
-            const float scaleY = RowLength(matrix, 1);
-            const float scaleZ = RowLength(matrix, 2);
+            const float scaleX = ColumnLength(matrix, 0);
+            const float scaleY = ColumnLength(matrix, 1);
+            const float scaleZ = ColumnLength(matrix, 2);
             const float averageScale = (scaleX + scaleY + scaleZ) / 3.0f;
             const char* scaleMode = "other";
-            if (std::fabs(averageScale - 0.25f) <= 0.04f) {
+            if (std::fabs(averageScale - kQuarterScale) <= kQuarterScaleTolerance) {
                 scaleMode = "quarter";
                 g_quarterScaleSamples.fetch_add(1, std::memory_order_relaxed);
             } else if (std::fabs(averageScale - 1.0f) <= 0.1f) {
@@ -213,7 +228,7 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
             }
 
             HPLPlayerStateSnapshot player;
-            GetHPLPlayerStateSnapshot(player);
+            const bool playerSnapshotValid = GetHPLPlayerStateSnapshot(player);
             if (player.authoredCameraActive) {
                 g_authoredCameraSamples.fetch_add(1, std::memory_order_relaxed);
             }
@@ -223,6 +238,7 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
             HPLTrackedPoseWorld worldGrip;
             uint32_t handIndex = 1;
             bool gripValid = false;
+            uint64_t inputAge = UINT64_MAX;
             if (g_openxr != nullptr
                 && g_openxr->GetLatestInput(input)
                 && input.active) {
@@ -232,6 +248,11 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                     && ResolveHPLTrackedPoseWorld(hand->gripPose, input.gameFrame, worldGrip)
                     && worldGrip.orientationTracked
                     && worldGrip.positionTracked;
+                if (player.frame != 0 && input.gameFrame != 0) {
+                    inputAge = player.frame >= input.gameFrame
+                        ? player.frame - input.gameFrame
+                        : 0;
+                }
             }
             if (gripValid) g_trackedGripSamples.fetch_add(1, std::memory_order_relaxed);
 
@@ -252,11 +273,60 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
             const float gripDistance = gripValid
                 ? std::sqrt(gripDx * gripDx + gripDy * gripDy + gripDz * gripDz) : -1.0f;
 
+            bool rootOverridden = false;
+            const bool uniformScale = std::fabs(scaleX - averageScale) <= kUniformScaleTolerance
+                && std::fabs(scaleY - averageScale) <= kUniformScaleTolerance
+                && std::fabs(scaleZ - averageScale) <= kUniformScaleTolerance;
+            if (g_config.hplHandControllerRoot) {
+                g_rootOverrideAttempts.fetch_add(1, std::memory_order_relaxed);
+                if (!uniformScale
+                    || std::fabs(averageScale - kQuarterScale) > kQuarterScaleTolerance) {
+                    g_rootScaleFallbacks.fetch_add(1, std::memory_order_relaxed);
+                } else if (player.authoredCameraActive) {
+                    g_rootAuthoredFallbacks.fetch_add(1, std::memory_order_relaxed);
+                } else if (!playerSnapshotValid
+                    || !player.playerValid
+                    || player.playerStateId != kNormalPlayerState
+                    || player.moveStateId != kNormalMoveState) {
+                    g_rootStateFallbacks.fetch_add(1, std::memory_order_relaxed);
+                } else if (!gripValid || !camera.trackingEnabled) {
+                    g_rootPoseFallbacks.fetch_add(1, std::memory_order_relaxed);
+                } else if (inputAge > static_cast<uint64_t>(g_config.hplControllerMaxInputAgeFrames)) {
+                    g_rootStaleFallbacks.fetch_add(1, std::memory_order_relaxed);
+                } else {
+                    const hands_math::HandRootCalibration calibration{
+                        {
+                            g_config.hplHandRootOffsetX,
+                            g_config.hplHandRootOffsetY,
+                            g_config.hplHandRootOffsetZ,
+                        },
+                        {
+                            g_config.hplHandRootPitchDegrees,
+                            g_config.hplHandRootYawDegrees,
+                            g_config.hplHandRootRollDegrees,
+                        },
+                    };
+                    rootOverridden = hands_math::BuildControllerHandMatrix(
+                        {worldGrip.positionX, worldGrip.positionY, worldGrip.positionZ},
+                        {worldGrip.forwardX, worldGrip.forwardY, worldGrip.forwardZ},
+                        {worldGrip.upX, worldGrip.upY, worldGrip.upZ},
+                        averageScale,
+                        calibration,
+                        controllerMatrix);
+                    if (rootOverridden) {
+                        submittedMatrix = controllerMatrix.data();
+                        g_rootOverrides.fetch_add(1, std::memory_order_relaxed);
+                    } else {
+                        g_rootMathFallbacks.fetch_add(1, std::memory_order_relaxed);
+                    }
+                }
+            }
+
             const uint64_t interval = static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1));
             if (handCall <= 12 || handCall % interval == 0) {
                 Logger::Instance().Write(
                     LogLevel::Info,
-                    "hpl_hands_pose call=%llu totalCall=%llu entity=%p name=%s matrix=%p pos=%.4f,%.4f,%.4f scale=%.4f,%.4f,%.4f scaleMode=%s right=%.5f,%.5f,%.5f up=%.5f,%.5f,%.5f forward=%.5f,%.5f,%.5f cameraValid=%d cameraDistance=%.4f gripValid=%d gripHand=%s gripPos=%.4f,%.4f,%.4f gripForward=%.5f,%.5f,%.5f gripDistance=%.4f authoredCamera=%d playerState=%d moveState=%d",
+                    "hpl_hands_pose call=%llu totalCall=%llu entity=%p name=%s matrix=%p pos=%.4f,%.4f,%.4f scale=%.4f,%.4f,%.4f scaleMode=%s right=%.5f,%.5f,%.5f up=%.5f,%.5f,%.5f forward=%.5f,%.5f,%.5f cameraValid=%d cameraDistance=%.4f gripValid=%d gripHand=%s gripPos=%.4f,%.4f,%.4f gripForward=%.5f,%.5f,%.5f gripDistance=%.4f inputAge=%llu rootRequested=%d rootOverridden=%d rootPos=%.4f,%.4f,%.4f authoredCamera=%d playerState=%d moveState=%d",
                     static_cast<unsigned long long>(handCall),
                     static_cast<unsigned long long>(call),
                     entity,
@@ -265,9 +335,9 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                     positionX, positionY, positionZ,
                     scaleX, scaleY, scaleZ,
                     scaleMode,
-                    matrix[0], matrix[1], matrix[2],
-                    matrix[4], matrix[5], matrix[6],
-                    matrix[8], matrix[9], matrix[10],
+                    matrix[0], matrix[4], matrix[8],
+                    matrix[1], matrix[5], matrix[9],
+                    matrix[2], matrix[6], matrix[10],
                     camera.cameraWorldPositionValid ? 1 : 0,
                     cameraDistance,
                     gripValid ? 1 : 0,
@@ -275,6 +345,12 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                     worldGrip.positionX, worldGrip.positionY, worldGrip.positionZ,
                     worldGrip.forwardX, worldGrip.forwardY, worldGrip.forwardZ,
                     gripDistance,
+                    static_cast<unsigned long long>(inputAge),
+                    g_config.hplHandControllerRoot ? 1 : 0,
+                    rootOverridden ? 1 : 0,
+                    rootOverridden ? controllerMatrix[3] : positionX,
+                    rootOverridden ? controllerMatrix[7] : positionY,
+                    rootOverridden ? controllerMatrix[11] : positionZ,
                     player.authoredCameraActive ? 1 : 0,
                     player.playerStateId,
                     player.moveStateId);
@@ -282,7 +358,7 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
         }
     }
 
-    g_originalSetMatrix(entity, matrixPointer);
+    g_originalSetMatrix(entity, submittedMatrix);
 }
 
 } // namespace
@@ -292,7 +368,7 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
     std::lock_guard lock(g_installMutex);
     g_config = config;
     g_openxr = openxr;
-    if (!config.hplHandTrackingProbe) {
+    if (!config.hplHandTrackingProbe && !config.hplHandControllerRoot) {
         Logger::Instance().Write(LogLevel::Info, "hpl_hands_bridge disabled config=0");
         return true;
     }
@@ -341,9 +417,17 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
     g_setMatrixTarget = setMatrixTarget;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_hands_bridge install_ok setMatrixRva=0x%llx getNameRva=0x%llx policy=identity_and_pose_probe_only cacheLimit=%llu identityLogLimit=%llu",
+        "hpl_hands_bridge install_ok setMatrixRva=0x%llx getNameRva=0x%llx probe=%d controllerRoot=%d offset=%.4f,%.4f,%.4f rotationDegrees=%.2f,%.2f,%.2f policy=exact_identity_quarter_scale_normal_state_tracked_grip cacheLimit=%llu identityLogLimit=%llu",
         static_cast<unsigned long long>(kLuxEntitySetMatrixRva),
         static_cast<unsigned long long>(kLuxEntityGetNameRva),
+        config.hplHandTrackingProbe ? 1 : 0,
+        config.hplHandControllerRoot ? 1 : 0,
+        config.hplHandRootOffsetX,
+        config.hplHandRootOffsetY,
+        config.hplHandRootOffsetZ,
+        config.hplHandRootPitchDegrees,
+        config.hplHandRootYawDegrees,
+        config.hplHandRootRollDegrees,
         static_cast<unsigned long long>(kMaxIdentityCache),
         static_cast<unsigned long long>(kMaxIdentityLogs));
     return true;
@@ -376,7 +460,7 @@ void LogHPLHandsBridgeSummary()
     }
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_hands_bridge_summary installed=%d calls=%llu cachedIdentities=%llu identityReads=%llu identityReadFailures=%llu playerHandsIdentities=%llu playerHandsCalls=%llu matrixReadFailures=%llu quarterScaleSamples=%llu fullScaleSamples=%llu otherScaleSamples=%llu trackedGripSamples=%llu authoredCameraSamples=%llu",
+        "hpl_hands_bridge_summary installed=%d calls=%llu cachedIdentities=%llu identityReads=%llu identityReadFailures=%llu playerHandsIdentities=%llu playerHandsCalls=%llu matrixReadFailures=%llu quarterScaleSamples=%llu fullScaleSamples=%llu otherScaleSamples=%llu trackedGripSamples=%llu authoredCameraSamples=%llu rootOverrideAttempts=%llu rootOverrides=%llu rootScaleFallbacks=%llu rootStateFallbacks=%llu rootAuthoredFallbacks=%llu rootPoseFallbacks=%llu rootStaleFallbacks=%llu rootMathFallbacks=%llu",
         g_setMatrixTarget != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_calls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(cachedIdentities),
@@ -389,7 +473,15 @@ void LogHPLHandsBridgeSummary()
         static_cast<unsigned long long>(g_fullScaleSamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_otherScaleSamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_trackedGripSamples.load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_authoredCameraSamples.load(std::memory_order_relaxed)));
+        static_cast<unsigned long long>(g_authoredCameraSamples.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_rootOverrideAttempts.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_rootOverrides.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_rootScaleFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_rootStateFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_rootAuthoredFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_rootPoseFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_rootStaleFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_rootMathFallbacks.load(std::memory_order_relaxed)));
 }
 
 } // namespace somavr

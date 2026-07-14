@@ -58,6 +58,10 @@ struct Config {
     bool hplControllerFlashlight = true;
     bool hplControllerInventory = true;
     bool hplControllerMenu = true;
+    bool hplControllerMenuPointer = true;
+    float hplControllerMenuPointerHorizontalDegrees = 70.0f;
+    float hplControllerMenuPointerVerticalDegrees = 50.0f;
+    float hplControllerMenuPointerSmoothing = 0.35f;
     bool hplControllerRecenterChord = true;
     bool hplControllerHaptics = true;
     float hplControllerHapticAmplitude = 0.35f;
@@ -69,6 +73,13 @@ struct Config {
     bool hplControllerInteractionRay = false;
     float hplControllerInteractionRayOriginTolerance = 0.75f;
     bool hplHandTrackingProbe = false;
+    bool hplHandControllerRoot = false;
+    float hplHandRootOffsetX = 0.0f;
+    float hplHandRootOffsetY = -0.075f;
+    float hplHandRootOffsetZ = 0.0f;
+    float hplHandRootPitchDegrees = 0.0f;
+    float hplHandRootYawDegrees = 0.0f;
+    float hplHandRootRollDegrees = 0.0f;
     int hplControllerComfortBlackoutFrames = 2;
     int hplControllerRecenterHoldMs = 900;
     int hplControllerMaxInputAgeFrames = 8;

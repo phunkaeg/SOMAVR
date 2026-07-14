@@ -25,6 +25,7 @@ HPLInputBridge
   -> HPLPlayerState snapshot
   -> HPLCameraBridge recenter/status
   -> HPLNativeLocomotion guarded normal-state fast path
+  -> HPLMenuBridge paused pointer and click policy
 
 HPLNativeLocomotion
   -> signature-guarded iCharacterBody Move/AddYaw and game-pause getter
@@ -40,6 +41,11 @@ HPLHandsBridge
   -> signature-guarded cLuxProp identity and SetMatrix boundaries
   -> HPLPlayerState authored-camera snapshot
   -> HPLCameraBridge controller world-pose conversion
+  -> HPLHandsMath tested controller-root reconstruction
+
+HPLMenuBridge
+  -> HPLMenuMath tested head-relative aim projection
+  -> native SOMA window cursor only while the pause getter is true
 
 HPLHudBridge
   -> exact gameplay-HUD identity and cGuiSet render boundary
@@ -76,10 +82,13 @@ lifecycle.
 | `HPLCameraMath` | Pure pose, matrix, FOV centering, projection construction | HPL pointers, hotkeys, logging, OpenXR handles |
 | `HPLInputMath` | Pure radial stick deadzone and angle conversion used by native locomotion | Native pointers, action state, logging, or input injection |
 | `HPLPlayerState` | Signature-guarded player/camera/body discovery, player/move IDs, camera ownership classification, immutable snapshots | Controller injection, camera transforms, OpenXR actions |
-| `HPLInputBridge` | Reversible SOMA input-path controls and authored-camera suppression policy | Native player discovery, OpenXR action ownership, camera math |
-| `HPLNativeLocomotion` | Guarded analog Move and exact-radian AddYaw calls only in unpaused normal player/move state; reports whether semantic fallback is required | Player discovery, special-state input semantics, direct capsule transforms, or bypassing pause ownership |
+| `HPLInputBridge` | Reversible SOMA input-path controls plus authored-camera and hard-pause suppression policy | Native player discovery, OpenXR action ownership, camera math |
+| `HPLNativeLocomotion` | Guarded analog Move and exact-radian AddYaw calls only in unpaused normal player/move state; exposes the confirmed pause state to input policy | Player discovery, special-state input semantics, direct capsule transforms, or bypassing pause ownership |
+| `HPLMenuBridge` | Paused-only head-relative controller aim to native client cursor routing | GUI rendering/capture, pause ownership, OpenXR actions, or gameplay clicks |
+| `HPLMenuMath` | Pure HMD/controller orientation projection into normalized menu coordinates | HWND state, cursor mutation, native pointers, or logging |
 | `HPLInteractionBridge` | Signature-guarded native closest-entity query substitution; changes only the query start/direction under strict controller/camera/state gates | `CanInteract`, distance policy, focus callbacks, object physics, or controller action ownership |
-| `HPLHandsBridge` | Exact `PlayerHands_*` identity, root-matrix/scale telemetry, and controller-grip correlation at the script SetMatrix boundary | Transform mutation before model-space offsets, scale modes, and authored animation ownership are proven |
+| `HPLHandsBridge` | Exact `PlayerHands_*` identity and guarded normal-state quarter-scale controller-root substitution at the script SetMatrix boundary | Skeletal/tool animation, sockets, full-scale/custom/authored transforms, or untracked pose ownership |
+| `HPLHandsMath` | Pure HPL basis reconstruction, scale preservation, and configurable root calibration | Native pointers, entity identity, tracking policy, or logging |
 | `HPLHudBridge` | Signature-guarded exact GameHudSet identity, per-set telemetry, and reversible begin/render/end capture routing | OpenXR swapchain/session ownership, ImGui/menu capture, or diegetic GUI policy |
 | `HPLHudMath` | Pure quad pose, size, and aspect validation | GL state, OpenXR handles, native pointers, or logging |
 | `HPLCompatibilityProbe` | Bounded render/audio/post-effect telemetry and temporary probes; shared pose math comes from `HPLCameraMath` | Permanent GUI/HUD feature policy or unrelated gameplay systems |
@@ -103,7 +112,7 @@ lifecycle.
 
 ## Current Refactor Baseline
 
-The maintenance passes now include seven focused extractions:
+The maintenance passes now include ten focused extractions:
 
 - `HPLCameraMath` owns quaternion/matrix operations, OpenXR projection creation,
   and the fully centered FOV policy proven by the `0.5.7` runtime result.
@@ -118,11 +127,15 @@ The maintenance passes now include seven focused extractions:
   removing permanent HUD behavior from `HPLCompatibilityProbe`.
 - `HPLHudMath` owns testable VIEW-space quad placement and sizing while
   `OpenXRGLBridge` owns only GL/swapchain resources.
+- `HPLHandsMath` owns testable controller-grip to HPL root reconstruction while
+  `HPLHandsBridge` owns exact identity and native-state policy.
+- `HPLMenuMath` owns head-relative aim projection and `HPLMenuBridge` owns only
+  the paused native-window cursor lifecycle.
 
 `somavr_render_math_tests` now protects symmetric tangent-span preservation,
 zero projection offsets, projection construction, pose/matrix basics, HUD quad
-placement/aspect validation, radial
-stick scaling, turn-angle conversion, and OpenGL projection classification in
+placement/aspect validation, controller-hand basis/calibration, paused-menu aim
+projection, radial stick scaling, turn-angle conversion, and OpenGL projection classification in
 both build flavors.
 
 ## Next Structural Splits

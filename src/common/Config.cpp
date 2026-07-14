@@ -196,6 +196,10 @@ void ConfigManager::WriteDefaultConfig() const
         << "Flashlight=1\n"
         << "Inventory=1\n"
         << "Menu=1\n"
+        << "MenuPointer=1\n"
+        << "MenuPointerHorizontalDegrees=70\n"
+        << "MenuPointerVerticalDegrees=50\n"
+        << "MenuPointerSmoothing=0.35\n"
         << "RecenterChord=1\n"
         << "Haptics=1\n"
         << "HapticAmplitude=0.35\n"
@@ -207,6 +211,13 @@ void ConfigManager::WriteDefaultConfig() const
         << "InteractionRay=0\n"
         << "InteractionRayOriginTolerance=0.75\n"
         << "HandTrackingProbe=0\n"
+        << "HandControllerRoot=0\n"
+        << "HandRootOffsetX=0.0\n"
+        << "HandRootOffsetY=-0.075\n"
+        << "HandRootOffsetZ=0.0\n"
+        << "HandRootPitchDegrees=0.0\n"
+        << "HandRootYawDegrees=0.0\n"
+        << "HandRootRollDegrees=0.0\n"
         << "ComfortBlackoutFrames=2\n"
         << "RecenterHoldMs=900\n"
         << "MaxInputAgeFrames=8\n"
@@ -376,6 +387,10 @@ void ConfigManager::LoadFromFile()
             else if (key == "flashlight") config_.hplControllerFlashlight = ParseBool(value, config_.hplControllerFlashlight);
             else if (key == "inventory") config_.hplControllerInventory = ParseBool(value, config_.hplControllerInventory);
             else if (key == "menu") config_.hplControllerMenu = ParseBool(value, config_.hplControllerMenu);
+            else if (key == "menupointer") config_.hplControllerMenuPointer = ParseBool(value, config_.hplControllerMenuPointer);
+            else if (key == "menupointerhorizontaldegrees") config_.hplControllerMenuPointerHorizontalDegrees = ParseFloat(value, config_.hplControllerMenuPointerHorizontalDegrees, 10.0f, 170.0f);
+            else if (key == "menupointerverticaldegrees") config_.hplControllerMenuPointerVerticalDegrees = ParseFloat(value, config_.hplControllerMenuPointerVerticalDegrees, 10.0f, 170.0f);
+            else if (key == "menupointersmoothing") config_.hplControllerMenuPointerSmoothing = ParseFloat(value, config_.hplControllerMenuPointerSmoothing, 0.01f, 1.0f);
             else if (key == "recenterchord") config_.hplControllerRecenterChord = ParseBool(value, config_.hplControllerRecenterChord);
             else if (key == "haptics") config_.hplControllerHaptics = ParseBool(value, config_.hplControllerHaptics);
             else if (key == "hapticamplitude") config_.hplControllerHapticAmplitude = ParseFloat(value, config_.hplControllerHapticAmplitude, 0.0f, 1.0f);
@@ -390,6 +405,13 @@ void ConfigManager::LoadFromFile()
             else if (key == "interactionray") config_.hplControllerInteractionRay = ParseBool(value, config_.hplControllerInteractionRay);
             else if (key == "interactionrayorigintolerance") config_.hplControllerInteractionRayOriginTolerance = ParseFloat(value, config_.hplControllerInteractionRayOriginTolerance, 0.05f, 10.0f);
             else if (key == "handtrackingprobe") config_.hplHandTrackingProbe = ParseBool(value, config_.hplHandTrackingProbe);
+            else if (key == "handcontrollerroot") config_.hplHandControllerRoot = ParseBool(value, config_.hplHandControllerRoot);
+            else if (key == "handrootoffsetx") config_.hplHandRootOffsetX = ParseFloat(value, config_.hplHandRootOffsetX, -5.0f, 5.0f);
+            else if (key == "handrootoffsety") config_.hplHandRootOffsetY = ParseFloat(value, config_.hplHandRootOffsetY, -5.0f, 5.0f);
+            else if (key == "handrootoffsetz") config_.hplHandRootOffsetZ = ParseFloat(value, config_.hplHandRootOffsetZ, -5.0f, 5.0f);
+            else if (key == "handrootpitchdegrees") config_.hplHandRootPitchDegrees = ParseFloat(value, config_.hplHandRootPitchDegrees, -180.0f, 180.0f);
+            else if (key == "handrootyawdegrees") config_.hplHandRootYawDegrees = ParseFloat(value, config_.hplHandRootYawDegrees, -180.0f, 180.0f);
+            else if (key == "handrootrolldegrees") config_.hplHandRootRollDegrees = ParseFloat(value, config_.hplHandRootRollDegrees, -180.0f, 180.0f);
             else if (key == "comfortblackoutframes") config_.hplControllerComfortBlackoutFrames = ParseInt(value, config_.hplControllerComfortBlackoutFrames, 0, 120);
             else if (key == "recenterholdms") config_.hplControllerRecenterHoldMs = ParseInt(value, config_.hplControllerRecenterHoldMs, 250, 5000);
             else if (key == "maxinputageframes") config_.hplControllerMaxInputAgeFrames = ParseInt(value, config_.hplControllerMaxInputAgeFrames, 1, 300);

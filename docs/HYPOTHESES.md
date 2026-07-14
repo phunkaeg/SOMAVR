@@ -174,7 +174,7 @@ Redirects if SOMA's action dispatcher performs required work before `Move`; hook
 
 ## S7 - SOMA's hands can become controller-owned without replacing the content
 
-Status: STATICALLY SUPPORTED
+Status: GUARDED BUILD READY (`0.16.0-controller-hands`)
 
 Hypothesis: the existing hands mesh, animations, `R_Hand` tool attachments, and callbacks can be retained while replacing the default camera-follow matrix with a dominant-controller pose.
 
@@ -185,13 +185,13 @@ Evidence:
 - Custom position, custom rotation, full-scale, and camera-attachment states are already explicit script flags.
 - `0x14000fb60` returns the registered Lux entity name at `+0x120`, while
   `0x1400bcd90` receives the shared script SetMatrix object and matrix pointers.
-- `0.13.0` filters exact `PlayerHands_*` identities and correlates their root
-  basis/scale/translation with the tracked dominant grip and authored state
-  without mutating the matrix.
+- The shipped script proves `cameraRotation * rotateY(pi) * scale`, and HPL2
+  source proves basis columns plus translation `[3,7,11]`.
+- `0.16.0` filters exact `PlayerHands_*` identity and substitutes a configurable
+  tracked-grip root only for uniform quarter-scale Normal/Normal ownership.
 
-Confirms if the live probe shows stable normal-state model correction and clear
-quarter/full/authored classifications, then controller-pose replacement preserves
-animations, attached tools, and interaction callbacks in both eyes.
+Confirms if live output shows correct root calibration, native animation/socket
+preservation, and automatic fallback for full-scale/authored/tracking-loss states.
 
 Redirects if the scaled mesh or authored animations cannot tolerate physical scale; add per-tool pose/scale profiles or a dedicated viewmodel projection path.
 
@@ -451,3 +451,26 @@ planes if the projection logs show `0,0` and artifacts remain unchanged.
 
 Live result: fully centering both projection axes fixed all reported shadow,
 ceiling-lighting, window, oven, and reflection artifacts in the tested level.
+
+## S20 - The confirmed pause getter can own controller menu routing
+
+Status: GUARDED BUILD READY (`0.16.0-controller-hands`)
+
+Hypothesis: `SOMA_GetGamePaused` is a sufficiently narrow authority to stop
+every gameplay injection route and reinterpret dominant controller aim/trigger
+as native menu cursor/click input without changing SOMA's GUI callbacks.
+
+Evidence:
+
+- the wrapper directly returns the game subsystem's paused byte;
+- native locomotion already uses it successfully as a fail-closed body-input gate;
+- OpenXR exposes head and dominant aim orientations in one reference space;
+- SOMA's existing menu remains responsible for hit testing and button actions.
+
+The build confirms if windowed, borderless, and exclusive-fullscreen menus track
+the native cursor, all gameplay inputs remain released while paused, and the
+trigger-release latch prevents a closing click from leaking into world interaction.
+
+Redirects if SOMA consumes a separate virtual cursor in any window mode. In that
+case retain hard pause suppression, hook the native ImGui pointer setter, and
+feed it the already-tested normalized `HPLMenuMath` coordinates.

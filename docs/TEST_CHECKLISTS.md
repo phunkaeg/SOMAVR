@@ -1,5 +1,39 @@
 # Test Checklists
 
+## 0.16.0 Controller Hands, Pause Safety, And Menu Pointer
+
+1. Launch the OpenXR Release build, load a normal gameplay save, and press F10
+   once. Confirm `version=0.16.0-controller-hands`,
+   `hpl_hands_bridge install_ok ... controllerRoot=1`,
+   `hpl_menu_bridge install_ok enabled=1`, and `pauseSignature=1`.
+2. Trigger a normal quarter-scale hand or equipped-tool animation. The visible
+   hands/tool should follow dominant grip translation, yaw, pitch, and roll while
+   native mesh animation and `R_Hand` attachments continue. Expect
+   `rootRequested=1 rootOverridden=1`, finite `rootPos`, and increasing
+   `rootOverrides`.
+3. Check orientation and root placement with the default calibration. If needed,
+   change only `HandRootOffsetX/Y/Z` or `HandRootPitch/Yaw/RollDegrees`, relaunch,
+   and record the useful values. Do not compensate through world scale or IPD.
+4. Exercise a ladder/crawl/special interaction, full-scale hand animation,
+   authored camera, and brief controller tracking loss. Each must immediately
+   restore SOMA's original hand matrix; fallback counters should identify scale,
+   state, authored, pose, or stale ownership. Returning to Normal/Normal with a
+   fresh grip should resume controller ownership automatically.
+5. Open the pause menu while holding movement, turn, sprint, and trigger. The
+   player must remain still and must not queue movement or interaction for menu
+   exit. Periodic rows should report `paused=1 gameplaySuppressed=1` with no held
+   W/A/S/D or sprint state.
+6. While paused, point the dominant controller around the menu. SOMA's native
+   cursor should follow the aim smoothly; trigger/select should click existing
+   buttons and pulse once. Expect `hpl_menu_pointer applied` rows and nonzero
+   `menuPointerFrames`.
+7. Close the menu while still holding trigger. No world interaction may fire
+   until trigger is released and pressed again. Set `MenuPointer=0` only if the
+   native cursor path is incompatible with the current window mode.
+8. Regression-test HUD alpha, rigid stereo, shadows/reflections, interaction ray,
+   snap turn, recenter, save/load, and shutdown. Attach the log and final build
+   manifest.
+
 ## 0.15.0 Gameplay HUD OpenXR Quad
 
 1. Launch the OpenXR Release build, load a gameplay save, and press F10 once.
@@ -46,8 +80,8 @@
    independent at `SmoothTurnDegreesPerSecond=120`. Restore snap turn after the
    test unless smooth turn is preferred.
 5. Open the pause menu while holding movement and turn. The player must not
-   accumulate motion or jump on resume. Route telemetry may switch to
-   `semantic_keys` / `semantic_mouse`, and `pausedFallbacks` must increase.
+   accumulate motion or jump on resume. In `0.16.0+`, both native and semantic
+   gameplay routes are explicitly suppressed and `pausedFrames` must increase.
 6. Exercise at least one ladder, grab/push/door interaction, terminal/read
    state, and authored camera sequence. These states must retain native SOMA
    behavior through the semantic fallback; normal state must automatically

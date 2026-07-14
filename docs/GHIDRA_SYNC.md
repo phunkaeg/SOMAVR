@@ -1,5 +1,20 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Controller Hands And Menu Policy Sync
+
+`SOMA_iLuxEntity_SetMatrix` at `0x1400bcd90` now records the `0.16.0`
+controller-root contract, including the shipped hand script's
+`cameraRotation * rotateY(pi) * scale` convention, exact `PlayerHands_*`
+identity, quarter-scale/Normal-state gates, and original-matrix fallback.
+It carries `Hands`, `Viewmodel`, `ControllerPose`, `ControlHook`, `Confirmed`,
+and `SOMAVR` tags.
+
+`SOMA_GetGamePaused` at `0x1400ccc90` now records complete gameplay-input
+ownership: a true pause releases direct and synthetic gameplay routes and
+permits only native menu cursor/click routing. It carries `Pause`, `Menu`,
+`InputPolicy`, `ControlGate`, `Confirmed`, and `SOMAVR` tags. The explicitly
+selected `Soma_NoSteam.exe` program was saved after both updates.
+
 ## 2026-07-15 Gameplay HUD Capture Sync
 
 The `0.15.0` HUD transaction is now recorded on all three native anchors:
@@ -23,7 +38,7 @@ The `0.14.0` normal-state native input contract is now explicit in
 | --- | --- | --- |
 | `0x1402375f0` | `HPL3_Script_iCharacterBody_Move` | Registered `Move(eCharDir,float)` wrapper; typed object/direction/amount ABI, Forward `0`, Right `1`. |
 | `0x140237460` | `HPL3_Script_iCharacterBody_AddYaw` | Renamed and typed registered `AddYaw(float)` wrapper; adds radians at body `+0xd4`. |
-| `0x1400ccc90` | `SOMA_GetGamePaused` | Created and typed registered `GetGamePaused()` wrapper; reads subsystem `+0x2d4`. |
+| `0x1400ccc90` | `SOMA_GetGamePaused` | Created and typed registered `GetGamePaused()` wrapper; reads subsystem `+0x2d4`. `0.16.0` now uses it as the hard gameplay-input/menu-pointer ownership gate. |
 
 All three have control-policy comments and SOMAVR/locomotion evidence tags.
 They are signature-guarded together so direct body input cannot run behind a
@@ -37,7 +52,7 @@ The `cLuxProp` registration chain used by `PlayerHandsHandler` is now explicit:
 | Address | Ghidra name | Evidence/use |
 | --- | --- | --- |
 | `0x14000fb60` | `SOMA_iLuxEntity_GetName` | Created and typed compact accessor; returns entity `+0x120`, registered as inherited `const tString& GetName()` for `cLuxProp`. |
-| `0x1400bcd90` | `SOMA_iLuxEntity_SetMatrix` | Existing promotion updated with the confirmed `RDX` matrix ABI and `0.13.0` exact-name probe policy. |
+| `0x1400bcd90` | `SOMA_iLuxEntity_SetMatrix` | Confirmed `RDX` matrix ABI; `0.16.0` applies exact-name, quarter-scale, normal-state tracked-grip root substitution with native passthrough on every failed gate. |
 | `0x14016ebe0` | `SOMA_Script_Register_cLuxProp` | Renamed registration owner from the exact `cLuxProp` class string and GetName/SetMatrix registrations. |
 
 All three received PlayerHands/cLuxProp/identity/transform evidence comments and
@@ -52,7 +67,7 @@ and saved in `Soma_NoSteam.exe`:
 | Address | Ghidra name | Evidence/use |
 | --- | --- | --- |
 | `0x1400cd750` | `SOMA_GetClosestEntity` | Registered global closest-entity query used by `Utility_PickBasics`; `0.12.0` substitutes controller start/direction only. |
-| `0x1400bcd90` | `SOMA_iLuxEntity_SetMatrix` | Shared Lux entity SetMatrix target used by the `PlayerHands_*` script path; bounded identity probe is pending before mutation. |
+| `0x1400bcd90` | `SOMA_iLuxEntity_SetMatrix` | Shared Lux entity SetMatrix target used by the `PlayerHands_*` script path; bounded controller-root mutation is built for exact normal quarter-scale states. |
 
 The interaction prototype records start, direction, ray length, interaction type,
 LOS, and output arguments. The transform prototype records object-first entity and

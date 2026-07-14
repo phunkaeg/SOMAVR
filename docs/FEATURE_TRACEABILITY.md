@@ -22,14 +22,15 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.TRACKING_RESILIENCE` | BUILT | `OpenXRRuntime`, `HPLCameraBridge` | pose-age bound, last-valid eye cache, zero-layer loss path, recovery blackout | `BUILD_HISTORY.md`, `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | Live-test brief and extended HMD tracking loss without stale-eye corruption, stereo teardown, or a visible recovery flash |
 | `FEATURE.CONTROLLER_HAPTICS` | BUILT | `OpenXRInput`, `OpenXRRuntime`, `HPLInputBridge` | vibration output action, per-hand output paths, focused-session guard | `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Confirm discrete pulses across active controller profiles |
 | `FEATURE.CONTROLLER_ACCESSIBILITY` | BUILT | `OpenXRInput`, `HPLInputBridge`, config | per-hand primary/secondary actions, dominant-hand roles, stick swap, one-hand fallback, support-hand flashlight/inventory | `BUILD_HISTORY.md`, `FUTURE_SYSTEMS_RE.md`, `TEST_CHECKLISTS.md` | Live-test role-aware jump/crouch/flashlight/inventory, swapped-stick, and each one-controller path on Touch/Index; define missing Simple/Motion bindings |
+| `FEATURE.MENU_POINTER` | BUILT | `HPLMenuBridge`, `HPLMenuMath`, `HPLInputBridge`, `HPLNativeLocomotion` | `0x1400ccc90`, HMD/aim orientations, native SOMA client cursor and left-click path | `BUILD_HISTORY.md`, `FUTURE_SYSTEMS_RE.md`, `TEST_CHECKLISTS.md` | Live-test window modes, native cursor mapping, click-release latch, and non-pause ImGui surfaces; then couple pointer coordinates to future menu-layer presentation |
 | `FEATURE.HEAD_TRACKING` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | `0x140271b80`, `0x140270230` | `CURRENT_STATE.md`, `VR_COMPATIBILITY_RE.md` | Remain correct through every authored camera state |
 | `FEATURE.AFR_STEREO` | PROVEN | `HPLCameraBridge`, `OpenXRRuntime`, `OpenXRGLBridge` | F11, per-eye cache and submitted render pose | `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.1.md` | Preserve stability while shader/temporal compatibility is classified |
 | `FEATURE.DUAL_RENDER` | RE_REQUIRED | `HPLCompatibilityProbe`, future native render bridge | `0x140298850`, `0x140298630`, `0x1401f9790` | `VR_COMPATIBILITY_RE.md` | Live stage/FBO telemetry proves a side-effect-safe per-eye boundary |
-| `FEATURE.LOCOMOTION` | BUILT | `OpenXRInput`, `HPLInputBridge`, `HPLNativeLocomotion`, `HPLPlayerState` | SOMA semantic fallback, `0x1402375f0`, `0x140237460`, `0x1400ccc90`, player/move ownership | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test analog magnitude, exact turn direction, pause safety, and automatic semantic fallback across ladder/grab/terminal/authored states |
+| `FEATURE.LOCOMOTION` | BUILT | `OpenXRInput`, `HPLInputBridge`, `HPLNativeLocomotion`, `HPLPlayerState` | SOMA semantic fallback, `0x1402375f0`, `0x140237460`, `0x1400ccc90`, player/move ownership | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test analog magnitude, exact turn direction, hard pause suppression, and automatic semantic fallback across ladder/grab/terminal/authored states |
 | `FEATURE.AUTHORED_CAMERA` | EXPERIMENTAL | `HPLPlayerState`, `HPLInputBridge`, `HPLCameraBridge` | camera rotate mode `+0x6c`, body camera ownership `+0x1e8`, player/move state | `VR_COMPATIBILITY_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Confirm transition detection/input suppression across sit, ladder, conversation, animation, and death states, then add pose-composition policy |
 | `FEATURE.INTERACTION_RAY` | BUILT | `HPLInteractionBridge`, `HPLCameraBridge`, `HPLInputBridge` | `0x1400cd750`, world aim pose, `Utility_PickBasics`, native `CanInteract` | `VR_COMPATIBILITY_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test controller-directed focus at several distances and states; verify gaze no longer selects while the controller ray is valid and every fallback restores native behavior |
 | `FEATURE.PHYSICS_HANDS` | DESIGNED | future pose bridge | native grab/rotate PID force and torque states | `VR_COMPATIBILITY_RE.md` | Stable grab, rotate, release, and throw with native collision |
-| `FEATURE.VIEWMODEL` | EXPERIMENTAL | `HPLHandsBridge`, `HPLCameraBridge`, `HPLInputBridge` | world grip pose, `PlayerHandsHandler`, `0x14000fb60`, `0x1400bcd90`, `R_Hand`, tool `HudObject` | `FUTURE_SYSTEMS_RE.md`, `TEST_CHECKLISTS.md` | Live probe confirms exact identity, matrix scale/orientation, root-to-grip correction, and authored/full-scale modes; then enable a configurable default-state root override |
+| `FEATURE.VIEWMODEL` | BUILT | `HPLHandsBridge`, `HPLHandsMath`, `HPLCameraBridge`, `HPLInputBridge` | world grip pose, `PlayerHandsHandler`, `0x14000fb60`, `0x1400bcd90`, `R_Hand`, tool `HudObject` | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test root placement/orientation calibration, tool sockets, and automatic native fallback across full-scale, custom, authored, and tracking-loss states; then add per-tool profiles |
 | `FEATURE.HUD_LAYER` | BUILT | `HPLHudBridge`, `HPLHudMath`, `OpenXRGLBridge`, `OpenXRRuntime` | `0x1400cc9b0`, `0x140213970`, transparent GL capture FBO, VIEW space, `XrCompositionLayerQuad` | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test alpha, scale, text/crosshair placement, native fallback, and classification coverage; then add ImGui/menu/subtitle policy |
 | `FEATURE.POST_EFFECT_POLICY` | BUILT | `HPLCompatibilityProbe`, `OpenGLHooks` | `0x14033b8f0`, `0x14033bd80`, priority tree `+0x328`, named vtables, active byte `+0x31` | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.2.md` | Live-test default suppression of ImageTrail, ChromaticAberration, and RadialBlur while fades/tone mapping remain intact |
 | `FEATURE.SHADOW_STABILITY` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | fully centered projection, programs `942/944` | `VR_COMPATIBILITY_RE.md`, `RUNTIME_ANALYSIS_0.5.6.md` | Regression-test additional levels and light types |
@@ -62,6 +63,7 @@ FEATURE.RECENTER requires FEATURE.XR_REFERENCE_SPACE
 FEATURE.CONTROLLER_HAPTICS requires FEATURE.XR_INPUT
 FEATURE.CONTROLLER_ACCESSIBILITY requires FEATURE.XR_INPUT
 FEATURE.CONTROLLER_ACCESSIBILITY constrains FEATURE.LOCOMOTION
+FEATURE.MENU_POINTER requires FEATURE.XR_INPUT
 FEATURE.LOCOMOTION requires FEATURE.XR_INPUT
 FEATURE.HEAD_TRACKING requires FEATURE.XR_BOOTSTRAP
 FEATURE.AFR_STEREO requires FEATURE.HEAD_TRACKING
@@ -96,7 +98,10 @@ HPLInputBridge requires HPLCameraBridge
 HPLInputBridge requires HPLPlayerState
 HPLCompatibilityProbe consumes OpenGLHooks telemetry
 HPLInputBridge requires HPLNativeLocomotion
+HPLInputBridge requires HPLMenuBridge
 HPLNativeLocomotion requires HPLPlayerState
+HPLMenuBridge requires HPLMenuMath
+HPLHandsBridge requires HPLHandsMath
 HPLHudBridge requires OpenXRRuntime
 OpenXRRuntime requires HPLHudMath
 ```
@@ -132,6 +137,7 @@ Gameplay ownership flow:
 OpenXR actions
   -> FEATURE.LOCOMOTION -> native player/action state -> iCharacterBody
   -> FEATURE.INTERACTION_RAY -> native pick/CanInteract -> interaction state
+  -> FEATURE.MENU_POINTER -> native paused menu cursor/click path
   -> controller pose -> FEATURE.PHYSICS_HANDS -> native PID force/torque
 ```
 

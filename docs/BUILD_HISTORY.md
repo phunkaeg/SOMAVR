@@ -2,6 +2,30 @@
 
 ## 2026-07-15
 
+### 0.24.0-roomscale-safety
+
+- Added collision-aware room-scale head translation at the confirmed shipped
+  `CheckLineOfSight` script wrapper. The active profile ray-tests the calibrated
+  camera origin to the physical HMD offset against static world geometry, then
+  uses a bounded binary search and configurable clearance to stop the head at
+  the last safe point.
+- The clamped physical-head component is shared by both eyes, HMD/controller
+  world poses, interaction, hands, and flashlight placement. IPD, configured eye
+  height, authored camera motion, controller-relative offsets, and native player
+  capsule ownership remain unchanged.
+- The control is signature-guarded and fail-closed at install. Invalid world
+  state, malformed poses, unavailable native queries, and a rejected baseline
+  retain the prior unmodified translation. Generated configs default off; the
+  active test profile enables static-only safety with `0.12 m` clearance and six
+  search iterations.
+- Added deterministic clearance-factor and tracked-offset decomposition tests,
+  explicit cache invalidation across activation/recenter/camera changes, bounded
+  collision telemetry, and a static-wall smoke-test gate. Built and tested both
+  default and OpenXR x64 Release flavors. OpenXR SHA-256:
+  `1DDDCD231723EA857D377E3AE9478AA28188F72EC3D59B2B8527974813E6EA58`.
+  Package SHA-256:
+  `A0AB03ACF9CE0A92CF1A57906B318B8B47C2F0D6D22257BD036B9D5BD772A8A4`.
+
 ### 0.23.0-controller-flashlight
 
 - Promoted the shipped flashlight transform to dominant-controller aim. Exact

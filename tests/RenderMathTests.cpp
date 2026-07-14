@@ -38,6 +38,25 @@ int main()
 
     int failures = 0;
     failures += Check(camera_math::ValidateStereoProjectionMath(), "projection self-test");
+    failures += Check(
+        Near(camera_math::ComputeRoomscaleSafetyFactor(0.75f, 1.0f, 0.10f), 0.65f),
+        "room-scale safety retracts collision fraction by clearance");
+    failures += Check(
+        Near(camera_math::ComputeRoomscaleSafetyFactor(0.05f, 1.0f, 0.10f), 0.0f),
+        "room-scale safety clearance clamps before nearby geometry");
+    failures += Check(
+        Near(camera_math::ComputeRoomscaleSafetyFactor(2.0f, 1.0f, 0.0f), 1.0f)
+            && Near(camera_math::ComputeRoomscaleSafetyFactor(0.5f, 0.0f, 0.1f), 1.0f),
+        "room-scale safety bounds fractions and preserves invalid zero-distance input");
+    const camera_math::Vector3 safeEyeOffset = camera_math::ReplaceTrackedHeadTranslation(
+        {0.34f, 0.12f, -0.20f},
+        {0.30f, 0.10f, -0.20f},
+        {0.15f, 0.05f, -0.10f});
+    failures += Check(
+        Near(safeEyeOffset.x, 0.19f)
+            && Near(safeEyeOffset.y, 0.07f)
+            && Near(safeEyeOffset.z, -0.10f),
+        "room-scale safety replaces shared head motion while preserving eye-relative offset");
 
     failures += Check(
         comfort_math::ShouldSuppressCameraAdd(1, true, true, true),

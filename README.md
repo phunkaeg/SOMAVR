@@ -78,6 +78,11 @@ With `ControllerFlashlightAim=1`, the exact scripted `Flashlight` spotlight
 follows the dominant controller aim pose. Independent local offset and rotation
 calibration align different controller profiles; stale/lost tracking and
 authored cameras automatically retain SOMA's camera-mounted transform.
+With `HPLRoomscaleSafety=1`, physical HMD translation is checked against SOMA's
+static world before it is applied. Blocked movement is shortened by a bounded
+search plus `HPLRoomscaleSafetyClearanceMeters`; both eyes, controller poses,
+hands, interaction, and flashlight reuse the same result. This first pass treats
+the head as a point and does not yet collide with moving geometry.
 Paused menus suppress all gameplay injection. The dominant controller aim moves
 the native menu cursor and trigger/select clicks when `MenuPointer=1`.
 With the opt-in `MovementReference=head`, movement follows calibrated HMD yaw
@@ -137,6 +142,10 @@ HPLProjectionCenterControl=1
 HPLProjectionCenteredDefault=1
 HPLRoomscaleControl=1
 HPLRoomscaleEnabledDefault=1
+HPLRoomscaleVertical=1
+HPLRoomscaleSafety=1
+HPLRoomscaleSafetyClearanceMeters=0.12
+HPLRoomscaleSafetyIterations=6
 HPLReflectionFadeControl=1
 HPLComfortCameraAddControl=1
 HPLComfortSuppressHeadBob=1

@@ -127,6 +127,38 @@ Vector3 ResolveTrackedEyeOffset(
     return result;
 }
 
+float ComputeRoomscaleSafetyFactor(
+    float unobstructedFraction,
+    float translationDistance,
+    float clearanceDistance)
+{
+    if (!std::isfinite(unobstructedFraction)
+        || !std::isfinite(translationDistance)
+        || !std::isfinite(clearanceDistance)
+        || translationDistance <= 1.0e-6f) {
+        return 1.0f;
+    }
+
+    const float fraction = std::clamp(unobstructedFraction, 0.0f, 1.0f);
+    const float clearance = std::max(clearanceDistance, 0.0f);
+    return std::clamp(
+        fraction - clearance / translationDistance,
+        0.0f,
+        1.0f);
+}
+
+Vector3 ReplaceTrackedHeadTranslation(
+    const Vector3& rawTrackedOffset,
+    const Vector3& rawHeadTranslation,
+    const Vector3& safeHeadTranslation)
+{
+    return {
+        rawTrackedOffset.x - rawHeadTranslation.x + safeHeadTranslation.x,
+        rawTrackedOffset.y - rawHeadTranslation.y + safeHeadTranslation.y,
+        rawTrackedOffset.z - rawHeadTranslation.z + safeHeadTranslation.z,
+    };
+}
+
 PoseStabilityUpdate UpdatePoseStability(
     PoseStabilityState& state,
     uint64_t gameFrame,

@@ -57,6 +57,16 @@ Vector3 ResolveTrackedEyeOffset(
     float worldScale,
     float eyeHeightOffsetMeters);
 
+float ComputeRoomscaleSafetyFactor(
+    float unobstructedFraction,
+    float translationDistance,
+    float clearanceDistance);
+
+Vector3 ReplaceTrackedHeadTranslation(
+    const Vector3& rawTrackedOffset,
+    const Vector3& rawHeadTranslation,
+    const Vector3& safeHeadTranslation);
+
 PoseStabilityUpdate UpdatePoseStability(
     PoseStabilityState& state,
     uint64_t gameFrame,

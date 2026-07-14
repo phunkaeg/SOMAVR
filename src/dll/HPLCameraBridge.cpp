@@ -23,12 +23,14 @@ namespace {
 using camera_math::BuildOpenXRProjection;
 using camera_math::CenterProjectionFov;
 using camera_math::Conjugate;
+using camera_math::ComputeRoomscaleSafetyFactor;
 using camera_math::MatrixMultiply;
 using camera_math::Multiply;
 using camera_math::Normalize;
 using camera_math::PoseStabilityState;
 using camera_math::PoseStabilityUpdate;
 using camera_math::Quaternion;
+using camera_math::ReplaceTrackedHeadTranslation;
 using camera_math::RotateVector;
 using camera_math::RotationMatrix;
 using camera_math::ResolveTrackedEyeOffset;
@@ -39,6 +41,7 @@ using camera_math::Vector3;
 
 constexpr uintptr_t kCameraGetFrustumRva = 0x271b80;
 constexpr uintptr_t kSetupPerspectiveFrustumRva = 0x270230;
+constexpr uintptr_t kCheckLineOfSightRva = 0x0cd710;
 constexpr uintptr_t kRenderViewportGetFrustumReturnRva = 0x298697;
 constexpr uint32_t kActivationStablePoseFrames = 8;
 constexpr float kActivationMaxPositionStepMeters = 0.25f;
@@ -65,6 +68,11 @@ constexpr size_t kCameraBaseFrustumDirtyOffset = 0x70c;
 constexpr size_t kCameraSecondaryFrustumDirtyOffset = 0x70d;
 
 using CameraGetFrustumFn = void* (*)(void* camera, bool projectionFlag);
+using CheckLineOfSightFn = bool (*)(
+    const float* start,
+    const float* end,
+    bool checkOnlyShadowCasters,
+    bool checkOnlyStatic);
 using SetupPerspectiveFrustumFn = void (*)(
     void* frustum,
     const float* projection,
@@ -86,6 +94,13 @@ struct FrustumParameters {
     std::array<float, 3> origin{};
     bool infiniteFar = false;
     int projectionType = -1;
+};
+
+struct RoomscaleSafetyResult {
+    Vector3 translation{};
+    float factor = 1.0f;
+    bool queried = false;
+    bool clamped = false;
 };
 
 struct BridgeState {
@@ -113,12 +128,19 @@ struct BridgeState {
     std::array<float, 16> baseProjection{};
     std::array<float, 16> baseView{};
     FrustumParameters parameters{};
+    bool roomscaleSafetyCacheValid = false;
+    bool roomscaleSafetyWasClamped = false;
+    uint64_t roomscaleSafetyFrame = 0;
+    Vector3 roomscaleSafetyInput{};
+    std::array<float, 3> roomscaleSafetyOrigin{};
+    RoomscaleSafetyResult roomscaleSafetyResult{};
 };
 
 Config g_config;
 OpenXRRuntime* g_openxr = nullptr;
 CameraGetFrustumFn g_originalCameraGetFrustum = nullptr;
 SetupPerspectiveFrustumFn g_setupPerspectiveFrustum = nullptr;
+CheckLineOfSightFn g_checkLineOfSight = nullptr;
 void* g_cameraGetFrustumTarget = nullptr;
 uintptr_t g_executableBase = 0;
 std::mutex g_stateMutex;
@@ -134,6 +156,11 @@ std::atomic<uint64_t> g_trackingFallbackFrames = 0;
 std::atomic<uint64_t> g_trackingRecoveryEvents = 0;
 std::atomic<uint64_t> g_nativeRollObservedCalls = 0;
 std::atomic<uint64_t> g_nativeRollSuppressedCalls = 0;
+std::atomic<uint64_t> g_roomscaleSafetySamples = 0;
+std::atomic<uint64_t> g_roomscaleSafetyQueries = 0;
+std::atomic<uint64_t> g_roomscaleSafetyBlocked = 0;
+std::atomic<uint64_t> g_roomscaleSafetyClamped = 0;
+std::atomic<uint64_t> g_roomscaleSafetyFallbacks = 0;
 std::atomic<bool> g_projectionCenterF5Down = false;
 std::atomic<bool> g_projectionCentered = false;
 std::atomic<bool> g_roomscaleF4Down = false;
@@ -164,6 +191,177 @@ Vector3 TransformLocalOffsetToWorld(const Vector3& local, const std::array<float
         baseView[1] * local.x + baseView[5] * local.y + baseView[9] * local.z,
         baseView[2] * local.x + baseView[6] * local.y + baseView[10] * local.z,
     };
+}
+
+bool Near(float left, float right, float epsilon = 1.0e-5f)
+{
+    return std::isfinite(left) && std::isfinite(right) && std::fabs(left - right) <= epsilon;
+}
+
+bool IsFinite(const Vector3& value)
+{
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+void InvalidateRoomscaleSafetyCache()
+{
+    g_state.roomscaleSafetyCacheValid = false;
+    g_state.roomscaleSafetyWasClamped = false;
+    g_state.roomscaleSafetyResult = RoomscaleSafetyResult{};
+}
+
+RoomscaleSafetyResult ClampRoomscaleHeadTranslation(
+    const Vector3& translation,
+    uint64_t poseFrame)
+{
+    RoomscaleSafetyResult result;
+    result.translation = translation;
+    if (!g_config.hplRoomscaleSafety
+        || !g_roomscaleEnabled.load(std::memory_order_relaxed)
+        || g_checkLineOfSight == nullptr
+        || !g_state.baseMatricesValid
+        || !IsFinite(translation)) {
+        return result;
+    }
+
+    const float distance = std::sqrt(
+        translation.x * translation.x
+        + translation.y * translation.y
+        + translation.z * translation.z);
+    if (!std::isfinite(distance) || distance <= 0.001f) {
+        return result;
+    }
+
+    const bool cacheMatch = g_state.roomscaleSafetyCacheValid
+        && g_state.roomscaleSafetyFrame == poseFrame
+        && Near(g_state.roomscaleSafetyInput.x, translation.x)
+        && Near(g_state.roomscaleSafetyInput.y, translation.y)
+        && Near(g_state.roomscaleSafetyInput.z, translation.z)
+        && Near(g_state.roomscaleSafetyOrigin[0], g_state.parameters.origin[0])
+        && Near(g_state.roomscaleSafetyOrigin[1], g_state.parameters.origin[1])
+        && Near(g_state.roomscaleSafetyOrigin[2], g_state.parameters.origin[2]);
+    if (cacheMatch) {
+        return g_state.roomscaleSafetyResult;
+    }
+
+    g_roomscaleSafetySamples.fetch_add(1, std::memory_order_relaxed);
+    const Vector3 worldTranslation = TransformLocalOffsetToWorld(translation, g_state.baseView);
+    const std::array<float, 3> start = g_state.parameters.origin;
+    const std::array<float, 3> end = {
+        start[0] + worldTranslation.x,
+        start[1] + worldTranslation.y,
+        start[2] + worldTranslation.z,
+    };
+    if (!IsFinite(worldTranslation)
+        || !std::isfinite(start[0]) || !std::isfinite(start[1]) || !std::isfinite(start[2])) {
+        g_roomscaleSafetyFallbacks.fetch_add(1, std::memory_order_relaxed);
+    } else {
+        result.queried = true;
+        g_roomscaleSafetyQueries.fetch_add(1, std::memory_order_relaxed);
+        const bool fullSegmentClear = g_checkLineOfSight(start.data(), end.data(), false, true);
+        if (!fullSegmentClear) {
+            g_roomscaleSafetyBlocked.fetch_add(1, std::memory_order_relaxed);
+            g_roomscaleSafetyQueries.fetch_add(1, std::memory_order_relaxed);
+            const bool baselineValid = g_checkLineOfSight(start.data(), start.data(), false, true);
+            if (!baselineValid) {
+                g_roomscaleSafetyFallbacks.fetch_add(1, std::memory_order_relaxed);
+                result.queried = false;
+            } else {
+                float clearFraction = 0.0f;
+                float blockedFraction = 1.0f;
+                for (int index = 0; index < g_config.hplRoomscaleSafetyIterations; ++index) {
+                    const float candidateFraction = (clearFraction + blockedFraction) * 0.5f;
+                    const std::array<float, 3> candidate = {
+                        start[0] + worldTranslation.x * candidateFraction,
+                        start[1] + worldTranslation.y * candidateFraction,
+                        start[2] + worldTranslation.z * candidateFraction,
+                    };
+                    g_roomscaleSafetyQueries.fetch_add(1, std::memory_order_relaxed);
+                    if (g_checkLineOfSight(start.data(), candidate.data(), false, true)) {
+                        clearFraction = candidateFraction;
+                    } else {
+                        blockedFraction = candidateFraction;
+                    }
+                }
+
+                const float clearance = std::max(g_config.hplRoomscaleSafetyClearanceMeters, 0.0f)
+                    * std::max(g_config.hplWorldScale, 0.001f);
+                result.factor = ComputeRoomscaleSafetyFactor(clearFraction, distance, clearance);
+                result.translation = {
+                    translation.x * result.factor,
+                    translation.y * result.factor,
+                    translation.z * result.factor,
+                };
+                result.clamped = result.factor < 0.999f;
+                if (result.clamped) {
+                    g_roomscaleSafetyClamped.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        }
+    }
+
+    const bool transition = result.clamped != g_state.roomscaleSafetyWasClamped;
+    const uint64_t sample = g_roomscaleSafetySamples.load(std::memory_order_relaxed);
+    const uint64_t interval = static_cast<uint64_t>(std::max(g_config.hplCameraLogInterval, 1));
+    if (transition || sample <= 4 || sample % interval == 0) {
+        Logger::Instance().Write(
+            result.clamped ? LogLevel::Warn : LogLevel::Info,
+            "hpl_roomscale_safety sample=%llu poseFrame=%llu queried=%d clamped=%d transition=%d factor=%.5f raw=%.5f,%.5f,%.5f safe=%.5f,%.5f,%.5f distance=%.5f clearanceMeters=%.3f iterations=%d staticOnly=1",
+            static_cast<unsigned long long>(sample),
+            static_cast<unsigned long long>(poseFrame),
+            result.queried ? 1 : 0,
+            result.clamped ? 1 : 0,
+            transition ? 1 : 0,
+            result.factor,
+            translation.x, translation.y, translation.z,
+            result.translation.x, result.translation.y, result.translation.z,
+            distance,
+            g_config.hplRoomscaleSafetyClearanceMeters,
+            g_config.hplRoomscaleSafetyIterations);
+    }
+
+    g_state.roomscaleSafetyCacheValid = true;
+    g_state.roomscaleSafetyWasClamped = result.clamped;
+    g_state.roomscaleSafetyFrame = poseFrame;
+    g_state.roomscaleSafetyInput = translation;
+    g_state.roomscaleSafetyOrigin = g_state.parameters.origin;
+    g_state.roomscaleSafetyResult = result;
+    return result;
+}
+
+Vector3 ResolveSafeTrackedOffset(
+    const Vector3& trackedPosition,
+    const Vector3& headCenter,
+    uint64_t poseFrame,
+    float eyeHeightOffsetMeters)
+{
+    const bool roomscaleEnabled = g_roomscaleEnabled.load(std::memory_order_relaxed);
+    const Vector3 rawOffset = ResolveTrackedEyeOffset(
+        trackedPosition,
+        headCenter,
+        g_state.neutralPosition,
+        g_state.neutralOrientation,
+        roomscaleEnabled,
+        g_config.hplRoomscaleVertical,
+        g_config.hplWorldScale,
+        eyeHeightOffsetMeters);
+    if (!roomscaleEnabled || !g_config.hplRoomscaleSafety) {
+        return rawOffset;
+    }
+
+    const Vector3 rawHeadTranslation = ResolveTrackedEyeOffset(
+        headCenter,
+        headCenter,
+        g_state.neutralPosition,
+        g_state.neutralOrientation,
+        true,
+        g_config.hplRoomscaleVertical,
+        g_config.hplWorldScale,
+        0.0f);
+    const RoomscaleSafetyResult safety = ClampRoomscaleHeadTranslation(
+        rawHeadTranslation,
+        poseFrame);
+    return ReplaceTrackedHeadTranslation(rawOffset, rawHeadTranslation, safety.translation);
 }
 
 template <typename T>
@@ -381,14 +579,10 @@ bool ApplyStereoEye(
         (views.eyes[0].positionZ + views.eyes[1].positionZ) * 0.5f,
     };
     const bool roomscaleEnabled = g_roomscaleEnabled.load(std::memory_order_relaxed);
-    const Vector3 relativeEyePosition = ResolveTrackedEyeOffset(
+    const Vector3 relativeEyePosition = ResolveSafeTrackedOffset(
         {eye.positionX, eye.positionY, eye.positionZ},
         currentHeadCenter,
-        g_state.neutralPosition,
-        g_state.neutralOrientation,
-        roomscaleEnabled,
-        g_config.hplRoomscaleVertical,
-        g_config.hplWorldScale,
+        eye.gameFrame,
         g_config.hplEyeHeightOffsetMeters);
 
     const std::array<float, 16> inverseEyeTranslation = TranslationMatrix({
@@ -550,6 +744,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
         if (f4Down && !wasF4Down) {
             const bool enabled = !g_roomscaleEnabled.load(std::memory_order_relaxed);
             g_roomscaleEnabled.store(enabled, std::memory_order_relaxed);
+            InvalidateRoomscaleSafetyCache();
             Logger::Instance().Write(
                 LogLevel::Warn,
                 "hpl_roomscale enabled=%d key=F4 policy=retain_ipd_and_orientation stereo=%d",
@@ -632,6 +827,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
         g_state.activeCamera = camera;
         g_state.activeFrustum = frustum;
         g_state.baseMatricesValid = false;
+        InvalidateRoomscaleSafetyCache();
         Logger::Instance().Write(
             LogLevel::Warn,
             "hpl_vr_mode requested key=F10 runtimeRequested=%d camera=%p frustum=%p policy=openxr_tracking_stereo_fullcenter",
@@ -721,6 +917,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
         g_state.neutralPosition = position;
         ++g_state.calibrationGeneration;
         g_state.baseMatricesValid = false;
+        InvalidateRoomscaleSafetyCache();
         if (g_config.hplStereoAfr) {
             g_state.stereoEnabled = true;
             g_state.nextEyeIndex = 0;
@@ -772,6 +969,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
             g_state.recenterPending = true;
             g_state.recenterTrackingWaitLogs = 0;
             g_state.recenterPoseStability = PoseStabilityState{};
+            InvalidateRoomscaleSafetyCache();
             Logger::Instance().Write(
                 LogLevel::Warn,
                 "hpl_recenter requested key=F2 camera=%p frustum=%p stereo=%d roomscale=%d",
@@ -914,6 +1112,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
             g_state.currentEyeIndex = -1;
             g_state.currentEyePoseFrame = 0;
             g_state.nextEyeIndex = 0;
+            InvalidateRoomscaleSafetyCache();
             if (g_openxr != nullptr && g_config.hplControllerComfortBlackoutFrames > 0) {
                 g_openxr->RequestComfortBlackout(
                     static_cast<uint32_t>(g_config.hplControllerComfortBlackoutFrames),
@@ -1050,6 +1249,9 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
     auto* base = reinterpret_cast<std::byte*>(executable);
     void* cameraTarget = base + kCameraGetFrustumRva;
     void* setupTarget = base + kSetupPerspectiveFrustumRva;
+    void* lineOfSightTarget = IsInsideImage(executable, kCheckLineOfSightRva, 32)
+        ? base + kCheckLineOfSightRva
+        : nullptr;
     static constexpr uint8_t kCameraSignature[] = {
         0x40, 0x55, 0x56, 0x41, 0x54, 0x48, 0x8d, 0x6c, 0x24,
         0x90, 0x48, 0x81, 0xec, 0x70, 0x01, 0x00, 0x00,
@@ -1057,6 +1259,14 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
     static constexpr uint8_t kSetupSignature[] = {
         0x48, 0x83, 0xec, 0x48, 0xf3, 0x0f, 0x10, 0x44, 0x24,
         0x78, 0x0f, 0xb6, 0x84, 0x24, 0xa0, 0x00, 0x00, 0x00,
+    };
+    static constexpr uint8_t kCheckLineOfSightSignature[] = {
+        0x48, 0x83, 0xec, 0x38,
+        0x48, 0xc7, 0x44, 0x24, 0x28, 0x00, 0x00, 0x00, 0x00,
+        0x44, 0x88, 0x4c, 0x24, 0x20,
+        0x45, 0x0f, 0xb6, 0xc8,
+        0x4c, 0x8b, 0xc2,
+        0x48, 0x8b, 0xd1,
     };
     if (!MatchBytes(cameraTarget, kCameraSignature, sizeof(kCameraSignature))
         || !MatchBytes(setupTarget, kSetupSignature, sizeof(kSetupSignature))) {
@@ -1070,6 +1280,17 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
     }
 
     g_config = config;
+    const bool lineOfSightAvailable = MatchBytes(
+        lineOfSightTarget,
+        kCheckLineOfSightSignature,
+        sizeof(kCheckLineOfSightSignature));
+    if (g_config.hplRoomscaleSafety && !lineOfSightAvailable) {
+        g_config.hplRoomscaleSafety = false;
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_roomscale_safety disabled reason=line_of_sight_signature_mismatch rva=0x%llx",
+            static_cast<unsigned long long>(kCheckLineOfSightRva));
+    }
     g_projectionCentered.store(config.hplProjectionCenteredDefault, std::memory_order_relaxed);
     g_roomscaleEnabled.store(config.hplRoomscaleEnabledDefault, std::memory_order_relaxed);
     if (g_config.hplStereoAfr && !ValidateStereoProjectionMath()) {
@@ -1080,6 +1301,9 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
     }
     g_openxr = openxr;
     g_setupPerspectiveFrustum = reinterpret_cast<SetupPerspectiveFrustumFn>(setupTarget);
+    g_checkLineOfSight = lineOfSightAvailable
+        ? reinterpret_cast<CheckLineOfSightFn>(lineOfSightTarget)
+        : nullptr;
     g_cameraGetFrustumTarget = cameraTarget;
     g_executableBase = reinterpret_cast<uintptr_t>(executable);
     {
@@ -1096,6 +1320,11 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
     g_stereoEyeCalls[1].store(0, std::memory_order_relaxed);
     g_nativeRollObservedCalls.store(0, std::memory_order_relaxed);
     g_nativeRollSuppressedCalls.store(0, std::memory_order_relaxed);
+    g_roomscaleSafetySamples.store(0, std::memory_order_relaxed);
+    g_roomscaleSafetyQueries.store(0, std::memory_order_relaxed);
+    g_roomscaleSafetyBlocked.store(0, std::memory_order_relaxed);
+    g_roomscaleSafetyClamped.store(0, std::memory_order_relaxed);
+    g_roomscaleSafetyFallbacks.store(0, std::memory_order_relaxed);
 
     MH_STATUS status = MH_CreateHook(
         cameraTarget,
@@ -1122,17 +1351,21 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         LogLevel::Warn,
-        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 recenterKey=F2 projectionKey=F5 roomscaleKey=F4 recenterControl=%d stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d verticalRoomscale=%d eyeHeightOffsetMeters=%.4f nativeRollSuppression=%d nativeRollOffsets=0x%zx,0x%zx worldScale=%.4f activationStableFrames=%u activationMaxPositionStep=%.3f activationMaxOrientationStepDeg=%.1f logInterval=%d",
+        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx lineOfSightRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 recenterKey=F2 projectionKey=F5 roomscaleKey=F4 recenterControl=%d stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d verticalRoomscale=%d roomscaleSafety=%d roomscaleClearanceMeters=%.3f roomscaleIterations=%d roomscaleStaticOnly=1 eyeHeightOffsetMeters=%.4f nativeRollSuppression=%d nativeRollOffsets=0x%zx,0x%zx worldScale=%.4f activationStableFrames=%u activationMaxPositionStep=%.3f activationMaxOrientationStepDeg=%.1f logInterval=%d",
         ModulePath(executable).c_str(),
         executable,
         static_cast<unsigned long long>(kCameraGetFrustumRva),
         static_cast<unsigned long long>(kSetupPerspectiveFrustumRva),
+        static_cast<unsigned long long>(kCheckLineOfSightRva),
         static_cast<unsigned long long>(kRenderViewportGetFrustumReturnRva),
         g_config.hplRecenterControl ? 1 : 0,
         g_config.hplStereoAfr ? 1 : 0,
         g_projectionCentered.load(std::memory_order_relaxed) ? 1 : 0,
         g_roomscaleEnabled.load(std::memory_order_relaxed) ? 1 : 0,
         g_config.hplRoomscaleVertical ? 1 : 0,
+        g_config.hplRoomscaleSafety ? 1 : 0,
+        g_config.hplRoomscaleSafetyClearanceMeters,
+        g_config.hplRoomscaleSafetyIterations,
         g_config.hplEyeHeightOffsetMeters,
         g_config.hplNativeCameraRollSuppression ? 1 : 0,
         kCameraBaseRollOffset,
@@ -1150,7 +1383,7 @@ void LogHPLCameraBridgeSummary()
     std::lock_guard lock(g_stateMutex);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu",
+        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu",
         static_cast<unsigned long long>(g_getFrustumCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_candidateCalls.load(std::memory_order_relaxed)),
         g_state.activationPending ? 1 : 0,
@@ -1169,7 +1402,12 @@ void LogHPLCameraBridgeSummary()
         static_cast<unsigned long long>(g_trackingFallbackFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_trackingRecoveryEvents.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_nativeRollObservedCalls.load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_nativeRollSuppressedCalls.load(std::memory_order_relaxed)));
+        static_cast<unsigned long long>(g_nativeRollSuppressedCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_roomscaleSafetySamples.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_roomscaleSafetyQueries.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_roomscaleSafetyBlocked.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_roomscaleSafetyClamped.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_roomscaleSafetyFallbacks.load(std::memory_order_relaxed)));
 }
 
 HPLCameraBridgeStatus GetHPLCameraBridgeStatus()
@@ -1212,14 +1450,10 @@ HPLCameraBridgeStatus GetHPLCameraBridgeStatus()
             status.headWorldRotationW = headWorldRotation.w;
 
             if (g_state.baseMatricesValid) {
-                const Vector3 localOffset = ResolveTrackedEyeOffset(
+                const Vector3 localOffset = ResolveSafeTrackedOffset(
                     currentPosition,
                     currentPosition,
-                    g_state.neutralPosition,
-                    g_state.neutralOrientation,
-                    g_roomscaleEnabled.load(std::memory_order_relaxed),
-                    g_config.hplRoomscaleVertical,
-                    g_config.hplWorldScale,
+                    poseFrame,
                     g_config.hplEyeHeightOffsetMeters);
                 const Vector3 worldOffset = TransformLocalOffsetToWorld(localOffset, g_state.baseView);
                 if (std::isfinite(worldOffset.x)
@@ -1260,14 +1494,10 @@ bool ResolveHPLTrackedPoseWorld(
         return false;
     }
 
-    const Vector3 localOffset = ResolveTrackedEyeOffset(
+    const Vector3 localOffset = ResolveSafeTrackedOffset(
         {pose.positionX, pose.positionY, pose.positionZ},
         headPosition,
-        g_state.neutralPosition,
-        g_state.neutralOrientation,
-        g_roomscaleEnabled.load(std::memory_order_relaxed),
-        g_config.hplRoomscaleVertical,
-        g_config.hplWorldScale,
+        gameFrame != 0 ? gameFrame : headFrame,
         g_config.hplEyeHeightOffsetMeters);
     const Vector3 worldOffset = TransformLocalOffsetToWorld(localOffset, g_state.baseView);
 
@@ -1356,6 +1586,7 @@ bool RequestHPLRecenter(const char* source)
     g_state.recenterPending = true;
     g_state.recenterTrackingWaitLogs = 0;
     g_state.recenterPoseStability = PoseStabilityState{};
+    InvalidateRoomscaleSafetyCache();
     Logger::Instance().Write(
         LogLevel::Warn,
         "hpl_recenter requested source=%s camera=%p frustum=%p stereo=%d roomscale=%d",
@@ -1395,6 +1626,7 @@ void NotifyHPLPlayerCameraChanged(void* previousCamera, void* currentCamera)
     g_state.nextEyeIndex = 0;
     g_state.currentEyeIndex = -1;
     g_state.currentEyePoseFrame = 0;
+    InvalidateRoomscaleSafetyCache();
     Logger::Instance().Write(
         LogLevel::Warn,
         "hpl_vr_mode camera_replaced previous=%p current=%p stereoWas=%d policy=cache_invalidate_and_rearm",
@@ -1417,6 +1649,7 @@ void RemoveHPLCameraBridge()
     g_executableBase = 0;
     g_originalCameraGetFrustum = nullptr;
     g_setupPerspectiveFrustum = nullptr;
+    g_checkLineOfSight = nullptr;
     g_openxr = nullptr;
     g_state = BridgeState{};
     g_projectionCentered.store(false, std::memory_order_relaxed);

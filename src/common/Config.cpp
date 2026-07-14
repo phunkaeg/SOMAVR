@@ -133,6 +133,9 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLRoomscaleControl=0\n"
         << "HPLRoomscaleEnabledDefault=1\n"
         << "HPLRoomscaleVertical=1\n"
+        << "HPLRoomscaleSafety=0\n"
+        << "HPLRoomscaleSafetyClearanceMeters=0.12\n"
+        << "HPLRoomscaleSafetyIterations=6\n"
         << "HPLEyeHeightOffsetMeters=0.0\n"
         << "HPLRecenterControl=0\n"
         << "HPLReflectionFadeControl=0\n"
@@ -342,6 +345,9 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplroomscalecontrol") config_.hplRoomscaleControl = ParseBool(value, config_.hplRoomscaleControl);
             else if (key == "hplroomscaleenableddefault") config_.hplRoomscaleEnabledDefault = ParseBool(value, config_.hplRoomscaleEnabledDefault);
             else if (key == "hplroomscalevertical") config_.hplRoomscaleVertical = ParseBool(value, config_.hplRoomscaleVertical);
+            else if (key == "hplroomscalesafety") config_.hplRoomscaleSafety = ParseBool(value, config_.hplRoomscaleSafety);
+            else if (key == "hplroomscalesafetyclearancemeters") config_.hplRoomscaleSafetyClearanceMeters = ParseFloat(value, config_.hplRoomscaleSafetyClearanceMeters, 0.0f, 1.0f);
+            else if (key == "hplroomscalesafetyiterations") config_.hplRoomscaleSafetyIterations = ParseInt(value, config_.hplRoomscaleSafetyIterations, 1, 12);
             else if (key == "hpleyeheightoffsetmeters") config_.hplEyeHeightOffsetMeters = ParseFloat(value, config_.hplEyeHeightOffsetMeters, -2.0f, 2.0f);
             else if (key == "hplrecentercontrol") config_.hplRecenterControl = ParseBool(value, config_.hplRecenterControl);
             else if (key == "hplreflectionfadecontrol") config_.hplReflectionFadeControl = ParseBool(value, config_.hplReflectionFadeControl);

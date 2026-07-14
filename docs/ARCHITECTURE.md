@@ -105,8 +105,8 @@ lifecycle.
 | `OpenXRInput` | OpenXR action set, suggested bindings, action synchronization, grip/aim spaces, immutable input snapshots | SOMA movement, interaction, hand placement, or camera policy |
 | `OpenXRHelpers` | OpenXR names, format strings, pose/view conversion | Handles, session lifetime, swapchain ownership |
 | `OpenXRGLBridge` | OpenGL projection/HUD/reticle swapchain images, FBOs, invalidatable eye caches, transparent HUD capture, reticle drawing, and image transfer | OpenXR event/session or HPL GUI/interaction identity policy |
-| `HPLCameraBridge` | Signature-guarded player-camera interception and VR mode state | Generic quaternion/projection algorithms |
-| `HPLCameraMath` | Pure pose, matrix, FOV centering, projection construction | HPL pointers, hotkeys, logging, OpenXR handles |
+| `HPLCameraBridge` | Signature-guarded player-camera interception, VR mode state, and cached static-world room-scale query orchestration | Generic quaternion/projection/collision-fraction algorithms |
+| `HPLCameraMath` | Pure pose, matrix, FOV centering, projection construction, room-scale clearance and tracked-component decomposition | HPL pointers, hotkeys, logging, OpenXR handles, or native collision calls |
 | `HPLInputMath` | Pure radial stick deadzone and angle conversion used by native locomotion | Native pointers, action state, logging, or input injection |
 | `HPLPhysicalCrouchMath` | Pure standing-height calibration and crouch hysteresis | Native input injection, OpenXR handles, player state, or logging |
 | `HPLPlayerState` | Signature-guarded player/camera/body discovery, player/move IDs, camera ownership classification, immutable snapshots | Controller injection, camera transforms, OpenXR actions |

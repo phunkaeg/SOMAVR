@@ -1,5 +1,37 @@
 # Future Systems Reverse Engineering
 
+## 0.24.0 Room-Scale Safety Result
+
+The shipped global script surface registers:
+
+```text
+bool CheckLineOfSight(const cVector3f&in avStart,
+                      const cVector3f&in avEnd,
+                      bool abCheckOnlyShadowCasters,
+                      bool abCheckOnlyStatic,
+                      iLuxEntity@ apSkipEntity=null)
+```
+
+The compact wrapper at `0x1400cd710` has a directly callable four-argument x64
+ABI and supplies the null skip entity itself. It forwards to the recovered world
+query at `0x140143650`, which resolves the active world and calls the physics-ray
+callback at vtable `+0x148`. A clear segment returns true; missing world state or
+an obstruction returns false.
+
+`0.24.0` uses this boundary without a detour. It queries from the native camera
+origin to the calibrated physical-head translation with `shadowOnly=false` and
+`staticOnly=true`. A blocked segment is bisected for a bounded number of
+iterations, then retracted by the configured clearance. The safe physical-head
+component replaces only the raw physical-head component in eye/controller poses,
+so IPD, eye-height calibration, authored camera movement, and relative hand aim
+remain coherent.
+
+The current query models the head as a point and intentionally ignores dynamic
+objects. Next stages are: validate world-unit clearance across maps, identify a
+dynamic-inclusive policy that does not jitter against moving doors, and replace
+the point segment with multiple rays or a confirmed shape/capsule sweep. Native
+player capsule movement remains entirely owned by SOMA.
+
 ## 0.23.0 Controller Flashlight Result
 
 Shipped `script/player/Player.hps` creates one `cLightSpot` named exactly

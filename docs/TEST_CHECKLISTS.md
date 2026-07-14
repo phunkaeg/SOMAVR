@@ -1,5 +1,33 @@
 # Test Checklists
 
+## 0.24.0 Room-Scale Safety
+
+1. Launch the OpenXR Release build and confirm
+   `version=0.24.0-roomscale-safety` plus
+   `hpl_camera_bridge install_ok ... roomscaleSafety=1 ... staticOnly=1`.
+2. Load a save, press F10 once, and wait for stable activation. Do not press F4;
+   the active profile should report `roomscale=1`.
+3. In open floor space, translate in all axes. The view, both hands, flashlight,
+   reticle, and interaction ray must remain coherent; safety rows should normally
+   report `queried=1 clamped=0 factor=1.00000`.
+4. Slowly lean toward flat static walls, corners, ceiling geometry, and a low
+   obstacle. The view must stop before clipping and emit bounded
+   `hpl_roomscale_safety ... clamped=1` rows without stereo divergence or jitter.
+5. Rotate the HMD while clamped and move the controllers independently. The world
+   must remain rigid, IPD unchanged, and controller-relative hand/flashlight aim
+   stable. Step back and confirm full translation resumes immediately.
+6. Press F2 while clear, repeat a wall approach, then load another save. Recenter
+   and camera replacement must invalidate the cached result; no stale wall plane
+   may constrain the new origin.
+7. Approach a moving door separately. Record behavior, but do not fail this build
+   because `staticOnly=1` deliberately excludes dynamic geometry.
+8. Press F4 to disable room scale and confirm physical translation ceases. Restore
+   it and ensure safety resumes without a jump. Exit normally and preserve the
+   final safety query/block/clamp/fallback counters.
+
+Stop immediately for a crash, world skew, eye mismatch, height regression,
+clamp persisting in open space, or hands/flashlight separating from the HMD.
+
 ## 0.23.0 Controller Flashlight
 
 1. Launch `build-openxr\Release`, load a save, and press F10. Confirm

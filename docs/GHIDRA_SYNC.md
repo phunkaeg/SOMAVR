@@ -1,5 +1,16 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Room-Scale Safety Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1400cd710` | `SOMA_CheckLineOfSight` | Renamed and typed as the registered four-argument fastcall wrapper; plate comment records null skip-entity forwarding and the SOMAVR static-world safety use. |
+| `0x140143650` | `SOMA_PhysicsRay_CheckLineOfSight` | Renamed and typed as the six-argument underlying physics/world query; plate comment records active-world resolution, filter ownership, callback dispatch, and clear-segment return semantics. |
+
+Both functions are tagged `SOMAVR`, `VR-Roomscale`, and `Collision`; the wrapper
+also retains its AngelScript-wrapper identity. Exact wrapper bytes are enforced
+by the DLL before the optional control is enabled.
+
 ## 2026-07-15 Controller Flashlight Sync
 
 | Address | Ghidra name | Evidence/use |

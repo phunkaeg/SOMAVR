@@ -152,6 +152,9 @@ struct Config {
     bool hplRoomscaleControl = false;
     bool hplRoomscaleEnabledDefault = true;
     bool hplRoomscaleVertical = true;
+    bool hplRoomscaleSafety = false;
+    float hplRoomscaleSafetyClearanceMeters = 0.12f;
+    int hplRoomscaleSafetyIterations = 6;
     float hplEyeHeightOffsetMeters = 0.0f;
     bool hplRecenterControl = false;
     bool hplReflectionFadeControl = false;

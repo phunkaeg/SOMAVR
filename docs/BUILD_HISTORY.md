@@ -2,6 +2,24 @@
 
 ## 2026-07-15
 
+### 0.19.0-comfort-focus
+
+- Added a signature-guarded hook at the registered `cLuxPlayer::SetCameraPosAdd`
+  wrapper `0x140159360`. While F10 VR tracking is active it semantically zeros
+  only the shipped Bob, Shake, and optional Sway channels; crouch, climb,
+  terminal, script, death, lean, crawl, and conversation remain native.
+- Added independent generated-config-off controls and bounded per-channel
+  telemetry. The active development profile enables Bob, Shake, and Sway for
+  direct comfort acceptance.
+- Promoted `cLuxClosestEntityData` from a hit boolean to a validated immutable
+  controller-focus snapshot. Confirmed output offsets expose entity `+0x18`,
+  body `+0x20`, and distance `+0x28`; the bridge now derives the exact world hit
+  point for the future depth reticle without changing native pick policy.
+- Named and documented `SetCameraPosAdd`, `SetCameraRoll`, and closest-entity
+  result ownership in Ghidra. Added pure camera-add policy tests and built/tested
+  default and OpenXR x64 Release flavors. OpenXR SHA-256:
+  `F746AB81B0D1F69CC96AEA7D133D4EB762DA7FBB06CF44C472ED09FA4FF04105`.
+
 ### 0.18.0-interaction-polish
 
 - Promoted the Grab torque probe into an opt-in controller rotation path. A

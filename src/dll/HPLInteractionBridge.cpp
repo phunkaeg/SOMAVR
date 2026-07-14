@@ -50,6 +50,9 @@ std::atomic<uint64_t> g_fallbackCamera = 0;
 std::atomic<uint64_t> g_fallbackInput = 0;
 std::atomic<uint64_t> g_fallbackTracking = 0;
 std::atomic<uint64_t> g_fallbackOrigin = 0;
+std::atomic<uint64_t> g_hitSnapshots = 0;
+std::mutex g_hitMutex;
+HPLInteractionHitSnapshot g_latestHit;
 
 bool IsInsideImage(HMODULE module, uintptr_t rva, size_t bytes)
 {
@@ -69,6 +72,64 @@ bool IsFiniteVector(const float* value)
         && std::isfinite(value[0])
         && std::isfinite(value[1])
         && std::isfinite(value[2]);
+}
+
+void ClearHitSnapshot()
+{
+    std::lock_guard lock(g_hitMutex);
+    g_latestHit.valid = false;
+}
+
+bool PublishHitSnapshot(
+    void* output,
+    uint64_t gameFrame,
+    uint32_t handIndex,
+    const float* start,
+    const float* direction,
+    float rayLength)
+{
+    if (output == nullptr || !IsFiniteVector(start) || !IsFiniteVector(direction)) {
+        ClearHitSnapshot();
+        return false;
+    }
+
+    // Confirmed cLuxClosestEntityData payload: entity +0x18, body +0x20, distance +0x28.
+    const auto* bytes = static_cast<const std::byte*>(output);
+    void* entity = nullptr;
+    void* body = nullptr;
+    float distance = 0.0f;
+    std::memcpy(&entity, bytes + 0x18, sizeof(entity));
+    std::memcpy(&body, bytes + 0x20, sizeof(body));
+    std::memcpy(&distance, bytes + 0x28, sizeof(distance));
+
+    const float directionLength = std::sqrt(
+        direction[0] * direction[0]
+        + direction[1] * direction[1]
+        + direction[2] * direction[2]);
+    if (!std::isfinite(distance)
+        || distance < 0.0f
+        || distance > std::max(rayLength, 0.0f) + 0.01f
+        || !std::isfinite(directionLength)
+        || directionLength < 1.0e-5f) {
+        ClearHitSnapshot();
+        return false;
+    }
+
+    const float inverseDirectionLength = 1.0f / directionLength;
+    HPLInteractionHitSnapshot snapshot;
+    snapshot.valid = true;
+    snapshot.sequence = g_hitSnapshots.fetch_add(1, std::memory_order_relaxed) + 1;
+    snapshot.gameFrame = gameFrame;
+    snapshot.handIndex = handIndex;
+    snapshot.distance = distance;
+    snapshot.worldX = start[0] + direction[0] * inverseDirectionLength * distance;
+    snapshot.worldY = start[1] + direction[1] * inverseDirectionLength * distance;
+    snapshot.worldZ = start[2] + direction[2] * inverseDirectionLength * distance;
+    snapshot.entity = entity;
+    snapshot.body = body;
+    std::lock_guard lock(g_hitMutex);
+    g_latestHit = snapshot;
+    return true;
 }
 
 const OpenXRHandInput* SelectDominantHand(const OpenXRInputSnapshot& input, uint32_t& handIndex)
@@ -94,10 +155,16 @@ bool HookGetClosestEntity(
     const uint64_t call = g_calls.fetch_add(1, std::memory_order_relaxed) + 1;
     if (!g_config.hplControllerInteractionRay || !g_config.hplControllerInput) {
         g_fallbackDisabled.fetch_add(1, std::memory_order_relaxed);
+        ClearHitSnapshot();
         return g_originalGetClosestEntity(start, direction, rayLength, interactType, checkLineOfSight, output);
     }
-    if (interactType != 0 || !IsFiniteVector(start) || !IsFiniteVector(direction)) {
+    if (interactType != 0) {
         g_fallbackQueryType.fetch_add(1, std::memory_order_relaxed);
+        return g_originalGetClosestEntity(start, direction, rayLength, interactType, checkLineOfSight, output);
+    }
+    if (!IsFiniteVector(start) || !IsFiniteVector(direction)) {
+        g_fallbackQueryType.fetch_add(1, std::memory_order_relaxed);
+        ClearHitSnapshot();
         return g_originalGetClosestEntity(start, direction, rayLength, interactType, checkLineOfSight, output);
     }
 
@@ -106,6 +173,7 @@ bool HookGetClosestEntity(
         && g_config.hplControllerSuppressDuringAuthoredCamera
         && player.authoredCameraActive) {
         g_fallbackAuthoredCamera.fetch_add(1, std::memory_order_relaxed);
+        ClearHitSnapshot();
         return g_originalGetClosestEntity(start, direction, rayLength, interactType, checkLineOfSight, output);
     }
 
@@ -114,6 +182,7 @@ bool HookGetClosestEntity(
         || !camera.cameraWorldPositionValid
         || !camera.headWorldRotationValid) {
         g_fallbackCamera.fetch_add(1, std::memory_order_relaxed);
+        ClearHitSnapshot();
         return g_originalGetClosestEntity(start, direction, rayLength, interactType, checkLineOfSight, output);
     }
 
@@ -128,6 +197,7 @@ bool HookGetClosestEntity(
                 > static_cast<uint64_t>(g_config.hplControllerMaxInputAgeFrames))
         || (hand = SelectDominantHand(input, handIndex)) == nullptr) {
         g_fallbackInput.fetch_add(1, std::memory_order_relaxed);
+        ClearHitSnapshot();
         return g_originalGetClosestEntity(start, direction, rayLength, interactType, checkLineOfSight, output);
     }
 
@@ -139,6 +209,7 @@ bool HookGetClosestEntity(
         || !worldAim.orientationTracked
         || !worldAim.positionTracked) {
         g_fallbackTracking.fetch_add(1, std::memory_order_relaxed);
+        ClearHitSnapshot();
         return g_originalGetClosestEntity(start, direction, rayLength, interactType, checkLineOfSight, output);
     }
 
@@ -160,6 +231,7 @@ bool HookGetClosestEntity(
                 g_config.hplControllerInteractionRayOriginTolerance,
                 interactType);
         }
+        ClearHitSnapshot();
         return g_originalGetClosestEntity(start, direction, rayLength, interactType, checkLineOfSight, output);
     }
 
@@ -174,19 +246,32 @@ bool HookGetClosestEntity(
         output);
     const uint64_t substitution = g_substitutions.fetch_add(1, std::memory_order_relaxed) + 1;
     if (hit) g_substitutionHits.fetch_add(1, std::memory_order_relaxed);
+    const bool hitSnapshot = hit
+        ? PublishHitSnapshot(output, input.gameFrame, handIndex, controllerStart, controllerDirection, rayLength)
+        : (ClearHitSnapshot(), false);
+
+    HPLInteractionHitSnapshot snapshot;
+    if (hitSnapshot) {
+        GetHPLInteractionHitSnapshot(snapshot);
+    }
 
     if (substitution <= 8
         || substitution % static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1)) == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_interaction_ray call=%llu inputFrame=%llu applied=1 hit=%d hand=%s nativeStart=%.4f,%.4f,%.4f controllerStart=%.4f,%.4f,%.4f controllerDir=%.5f,%.5f,%.5f originDelta=%.4f rayLength=%.4f type=%d los=%d",
+            "hpl_interaction_ray call=%llu inputFrame=%llu applied=1 hit=%d hitSnapshot=%d hand=%s nativeStart=%.4f,%.4f,%.4f controllerStart=%.4f,%.4f,%.4f controllerDir=%.5f,%.5f,%.5f hitDistance=%.4f hitWorld=%.4f,%.4f,%.4f entity=%p body=%p originDelta=%.4f rayLength=%.4f type=%d los=%d",
             static_cast<unsigned long long>(call),
             static_cast<unsigned long long>(input.gameFrame),
             hit ? 1 : 0,
+            hitSnapshot ? 1 : 0,
             handIndex == 0 ? "left" : "right",
             start[0], start[1], start[2],
             controllerStart[0], controllerStart[1], controllerStart[2],
             controllerDirection[0], controllerDirection[1], controllerDirection[2],
+            snapshot.distance,
+            snapshot.worldX, snapshot.worldY, snapshot.worldZ,
+            snapshot.entity,
+            snapshot.body,
             originDelta,
             rayLength,
             interactType,
@@ -264,6 +349,7 @@ void RemoveHPLInteractionBridge()
     g_getClosestEntityTarget = nullptr;
     g_originalGetClosestEntity = nullptr;
     g_openxr = nullptr;
+    ClearHitSnapshot();
     Logger::Instance().Write(LogLevel::Info, "hpl_interaction_bridge removed");
 }
 
@@ -271,11 +357,12 @@ void LogHPLInteractionBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_interaction_bridge_summary installed=%d calls=%llu substitutions=%llu hits=%llu fallbackDisabled=%llu fallbackQueryType=%llu fallbackAuthoredCamera=%llu fallbackCamera=%llu fallbackInput=%llu fallbackTracking=%llu fallbackOrigin=%llu",
+        "hpl_interaction_bridge_summary installed=%d calls=%llu substitutions=%llu hits=%llu hitSnapshots=%llu fallbackDisabled=%llu fallbackQueryType=%llu fallbackAuthoredCamera=%llu fallbackCamera=%llu fallbackInput=%llu fallbackTracking=%llu fallbackOrigin=%llu",
         g_getClosestEntityTarget != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_calls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_substitutions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_substitutionHits.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hitSnapshots.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_fallbackDisabled.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_fallbackQueryType.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_fallbackAuthoredCamera.load(std::memory_order_relaxed)),
@@ -283,6 +370,13 @@ void LogHPLInteractionBridgeSummary()
         static_cast<unsigned long long>(g_fallbackInput.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_fallbackTracking.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_fallbackOrigin.load(std::memory_order_relaxed)));
+}
+
+bool GetHPLInteractionHitSnapshot(HPLInteractionHitSnapshot& snapshot)
+{
+    std::lock_guard lock(g_hitMutex);
+    snapshot = g_latestHit;
+    return snapshot.valid;
 }
 
 } // namespace somavr

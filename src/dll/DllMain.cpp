@@ -1,5 +1,6 @@
 #include "Config.h"
 #include "HPLCameraBridge.h"
+#include "HPLComfortBridge.h"
 #include "HPLCompatibilityProbe.h"
 #include "HPLLifecycle.h"
 #include "HPLInputBridge.h"
@@ -216,6 +217,14 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrHudMaxAgeFrames,
         g_config->Get().openxrHudSuppressCenterCrosshair ? 1 : 0,
         g_config->Get().openxrHudCrosshairClearRadiusPixels);
+    somavr::Logger::Instance().Write(
+        somavr::LogLevel::Info,
+        "comfort_config cameraAddControl=%d suppressHeadBob=%d suppressCameraShake=%d suppressSway=%d logInterval=%d",
+        g_config->Get().hplComfortCameraAddControl ? 1 : 0,
+        g_config->Get().hplComfortSuppressHeadBob ? 1 : 0,
+        g_config->Get().hplComfortSuppressCameraShake ? 1 : 0,
+        g_config->Get().hplComfortSuppressSway ? 1 : 0,
+        g_config->Get().hplComfortLogInterval);
 
     g_openxr = std::make_unique<somavr::OpenXRRuntime>();
     g_openxr->Configure(
@@ -253,6 +262,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     }
     if (!somavr::InstallHPLPlayerState(g_config->Get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_player_state install_failed");
+    }
+    if (!somavr::InstallHPLComfortBridge(g_config->Get())) {
+        somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_comfort_bridge install_failed");
     }
     if (!somavr::InstallHPLNativeLocomotion(g_config->Get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_native_locomotion install_failed");
@@ -312,6 +324,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::RemoveHPLGrabBridge();
     somavr::LogHPLInteractionBridgeSummary();
     somavr::RemoveHPLInteractionBridge();
+    somavr::LogHPLComfortBridgeSummary();
+    somavr::RemoveHPLComfortBridge();
     somavr::LogHPLCameraBridgeSummary();
     somavr::LogHPLInputBridgeSummary();
     somavr::RemoveHPLInputBridge();

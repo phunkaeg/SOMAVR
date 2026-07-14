@@ -1,5 +1,29 @@
 # Hypotheses
 
+## S21 - Semantic camera-add filtering removes VR motion without breaking authored states
+
+Status: GUARDED BUILD READY (`0.19.0-comfort-focus`)
+
+Hypothesis: zeroing only native camera-add Bob, Shake, and Sway at the registered
+setter while VR tracking is active removes artificial head motion without
+interfering with crouch, climb, terminals, scripts, death, lean, crawl, or
+conversation camera ownership.
+
+Evidence:
+
+- The shipped `Player_Types.hps` gives stable IDs for all eleven channels.
+- Registration string and decompilation confirm wrapper `0x140159360` with type
+  in EDX and vector in R8; the build guards its exact first 18 bytes.
+- The hook calls the original setter with zero, clearing current/goal state rather
+  than bypassing native lifecycle.
+- Suppression is gated by active F10 tracking and independently configurable per
+  comfort channel.
+
+Confirms if locomotion and impacts lose artificial camera motion while all
+authored state transitions remain intact and logs show only IDs `1/2/9` changed.
+Redirects to per-state policy if a selected channel is intentionally reused by a
+special sequence.
+
 ## S13 - Native torque and impulse boundaries can support physical VR manipulation
 
 Status: GUARDED BUILD READY (`0.18.0-interaction-polish`)

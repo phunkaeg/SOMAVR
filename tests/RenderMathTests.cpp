@@ -1,4 +1,5 @@
 #include "HPLCameraMath.h"
+#include "HPLComfortMath.h"
 #include "HPLHandsMath.h"
 #include "HPLGrabMath.h"
 #include "HPLHudMath.h"
@@ -36,6 +37,26 @@ int main()
 
     int failures = 0;
     failures += Check(camera_math::ValidateStereoProjectionMath(), "projection self-test");
+
+    failures += Check(
+        comfort_math::ShouldSuppressCameraAdd(1, true, true, true),
+        "comfort policy suppresses head bob");
+    failures += Check(
+        comfort_math::ShouldSuppressCameraAdd(2, true, true, true),
+        "comfort policy suppresses camera shake");
+    failures += Check(
+        comfort_math::ShouldSuppressCameraAdd(9, true, true, true),
+        "comfort policy suppresses sway");
+    failures += Check(
+        !comfort_math::ShouldSuppressCameraAdd(5, true, true, true)
+            && !comfort_math::ShouldSuppressCameraAdd(7, true, true, true)
+            && !comfort_math::ShouldSuppressCameraAdd(10, true, true, true),
+        "comfort policy preserves script lean and conversation channels");
+    failures += Check(
+        !comfort_math::ShouldSuppressCameraAdd(1, false, true, true)
+            && !comfort_math::ShouldSuppressCameraAdd(2, true, false, true)
+            && !comfort_math::ShouldSuppressCameraAdd(9, true, true, false),
+        "comfort policy honors independent channel switches");
 
     const input_math::Axis2 centeredStick = input_math::ApplyRadialDeadzone(0.2f, 0.1f, 0.35f);
     failures += Check(Near(centeredStick.x, 0.0f) && Near(centeredStick.y, 0.0f), "radial deadzone center");

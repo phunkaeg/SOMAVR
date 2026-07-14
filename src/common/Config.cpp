@@ -137,6 +137,11 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLRecenterControl=0\n"
         << "HPLReflectionFadeControl=0\n"
         << "HPLNativeCameraRollSuppression=0\n"
+        << "HPLComfortCameraAddControl=0\n"
+        << "HPLComfortSuppressHeadBob=1\n"
+        << "HPLComfortSuppressCameraShake=1\n"
+        << "HPLComfortSuppressSway=0\n"
+        << "HPLComfortLogInterval=120\n"
         << "HPLCameraLogInterval=120\n"
         << "HPLStereoAFR=0\n"
         << "HPLWorldScale=1.0\n"
@@ -314,6 +319,11 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplrecentercontrol") config_.hplRecenterControl = ParseBool(value, config_.hplRecenterControl);
             else if (key == "hplreflectionfadecontrol") config_.hplReflectionFadeControl = ParseBool(value, config_.hplReflectionFadeControl);
             else if (key == "hplnativecamerarollsuppression") config_.hplNativeCameraRollSuppression = ParseBool(value, config_.hplNativeCameraRollSuppression);
+            else if (key == "hplcomfortcameraaddcontrol") config_.hplComfortCameraAddControl = ParseBool(value, config_.hplComfortCameraAddControl);
+            else if (key == "hplcomfortsuppressheadbob") config_.hplComfortSuppressHeadBob = ParseBool(value, config_.hplComfortSuppressHeadBob);
+            else if (key == "hplcomfortsuppresscamerashake") config_.hplComfortSuppressCameraShake = ParseBool(value, config_.hplComfortSuppressCameraShake);
+            else if (key == "hplcomfortsuppresssway") config_.hplComfortSuppressSway = ParseBool(value, config_.hplComfortSuppressSway);
+            else if (key == "hplcomfortloginterval") config_.hplComfortLogInterval = ParseInt(value, config_.hplComfortLogInterval, 1, 100000);
             else if (key == "hplcameraloginterval") config_.hplCameraLogInterval = ParseInt(value, config_.hplCameraLogInterval, 1, 100000);
             else if (key == "hplstereoafr") config_.hplStereoAfr = ParseBool(value, config_.hplStereoAfr);
             else if (key == "hplworldscale") config_.hplWorldScale = ParseFloat(value, config_.hplWorldScale, 0.1f, 10.0f);

@@ -1,5 +1,18 @@
 # Future Systems Reverse Engineering
 
+## 0.19.0 Semantic Comfort And Focus Result
+
+The shipped player enum and registered `SetCameraPosAdd` wrapper now provide a
+narrow comfort boundary: `HPLComfortBridge` can zero Bob `1`, Shake `2`, and Sway
+`9` only while VR tracking is active, preserving every authored state channel.
+This replaces the previous broad "map bob/shake ownership" task with a live
+acceptance task. See `COMFORT_AND_FOCUS_RE.md` for the ABI and enum ledger.
+
+The native closest-entity output is also decoded after SOMA finalizes it. Entity
+`+0x18`, body `+0x20`, and distance `+0x28` feed an immutable frame/hand/world-hit
+snapshot. A world-depth reticle no longer needs to reconstruct depth from GL;
+remaining work is semantic icon ownership and a proven render/layer boundary.
+
 ## 0.18.0 Grab Rotation, Throw, And Reticle Policy
 
 The shipped Grab state's torque PID (`40/0/0.4`, underwater `D=0.1`) now has a

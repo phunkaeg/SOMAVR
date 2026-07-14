@@ -114,6 +114,22 @@ Bounded `hpl_interaction_ray` telemetry reports substitutions, hits, controller
 origin/direction, and each fallback class. Live focus behavior remains the gate
 before the feature is considered proven.
 
+`0.19.0` also decodes the finalized native result rather than inventing a second
+focus test. The wrapper writes entity `+0x18`, body `+0x20`, and distance `+0x28`;
+the bridge validates distance against native ray length and publishes the HPL
+world hit point with frame and hand identity. This is the correct source for a
+depth reticle once SOMA's crosshair icon/state owner and a world-overlay boundary
+are confirmed. No-hit and invalid results clear snapshot validity.
+
+### Semantic camera comfort
+
+SOMA's shipped player enum separates camera adds for crouch, Bob, Shake, climb,
+terminal, script, death, lean, crawl, Sway, and conversation. `0.19.0` hooks the
+registered setter at `0x140159360` and, only while VR tracking is active, can pass
+zero for Bob `1`, Shake `2`, and Sway `9`. All state-bearing channels remain
+native. This is narrower than suppressing a final camera matrix and can be
+accepted independently for locomotion, impacts, and authored sequences.
+
 ### Grab and throw
 
 The grab state already solves object movement using native mass-aware PID force

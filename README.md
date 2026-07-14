@@ -73,8 +73,10 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
   mass, collision, constraints, gravity, and callbacks. `GrabRotation=1` extends
   that contract through SOMA's torque PID, while `ThrowRedirect=1` redirects one
   native Grab impulse along tracked release velocity. The compositor HUD can
-  suppress the fixed gaze crosshair with `HudSuppressCenterCrosshair=1`. These
-  0.18 prototypes
+  suppress the fixed gaze crosshair with `HudSuppressCenterCrosshair=1`.
+  `HPLComfortCameraAddControl=1` now removes semantic Bob, Shake, and optional
+  Sway only while F10 tracking is active, and the interaction bridge publishes
+  native hit depth/world position for the future controller reticle. These 0.19 prototypes
   remain live-acceptance features rather than generated-config defaults.
 
 ## Current Goal
@@ -116,6 +118,11 @@ HPLProjectionCenteredDefault=1
 HPLRoomscaleControl=1
 HPLRoomscaleEnabledDefault=1
 HPLReflectionFadeControl=1
+HPLComfortCameraAddControl=1
+HPLComfortSuppressHeadBob=1
+HPLComfortSuppressCameraShake=1
+HPLComfortSuppressSway=1
+HPLComfortLogInterval=120
 HPLCameraLogInterval=120
 HPLStereoAFR=1
 HPLWorldScale=1.0
@@ -184,6 +191,14 @@ InteractionRayOriginTolerance=0.75
 GrabTranslation=1
 GrabTranslationScale=1.0
 GrabMaxOffsetMeters=0.75
+GrabRotation=1
+GrabRotationGain=100.0
+GrabRotationSign=1.0
+GrabMaxAngularSpeed=6.0
+ThrowRedirect=1
+ThrowVelocityScale=1
+ThrowVelocityThreshold=0.35
+ThrowVelocityReference=2.0
 ManipulationMappings=1
 HandTrackingProbe=1
 HandControllerRoot=1

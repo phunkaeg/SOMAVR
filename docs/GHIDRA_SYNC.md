@@ -1,5 +1,18 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Native Comfort And Interaction Result Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x140159360` | `HPL3_Script_cLuxPlayer_SetCameraPosAdd` | Registered setter with type in EDX and vector in R8. `0.19.0` zeros only semantic Bob/Shake/optional Sway while VR is active. |
+| `0x140156f00` | `HPL3_Script_cLuxPlayer_SetCameraRoll` | Confirmed roll-current/goal array setter; documented as a future policy anchor and deliberately unhooked. |
+| `0x1400cd750` | `SOMA_GetClosestEntity` | Plate comment now records finalized output payload entity `+0x18`, body `+0x20`, distance `+0x28`, and the `0.19.0` world-hit snapshot. |
+
+The two player wrappers were renamed and tagged `SOMAVR`, `VR-comfort`, and
+`AngelScript-wrapper`; the existing picker received interaction/result tags and
+an updated control contract. The explicitly selected `Soma_NoSteam.exe` program
+was saved after synchronization.
+
 ## 2026-07-15 AddImpulse And Physics Registration Sync
 
 | Address | Ghidra name | Evidence/use |

@@ -1,5 +1,28 @@
 # Test Checklists
 
+## 0.19.0 Native Comfort And Focus Snapshot
+
+1. Launch the OpenXR Release DLL, load a save, and press F10. Confirm
+   `version=0.19.0-comfort-focus`, `hpl_comfort_bridge install_ok` reports
+   `bob=1 shake=1 sway=1`, and no signature mismatch is present.
+2. Walk, sprint, stop, turn, crouch, and take a safe impact. HMD motion must stay
+   rigid while native walking bob, camera shake, and sway are absent. Crouch
+   height and body movement must still work normally.
+3. Exercise a ladder, crawl space, terminal, scripted camera, conversation, and
+   death/load transition where practical. Their authored camera offsets must be
+   preserved. Logs should suppress only types `1`, `2`, and `9`.
+4. Aim the dominant controller at several interactive and noninteractive targets
+   at different distances. `hpl_interaction_ray` should report `hitSnapshot=1`,
+   finite `hitDistance`, a stable `hitWorld`, and sensible non-null entity/body
+   ownership where SOMA supplies it. No hit must report `hitSnapshot=0`.
+5. Briefly lose tracking and toggle F10 off/on. Native camera adds must pass
+   through while tracking is inactive, then suppression must resume without a
+   stale offset or camera jump. Interaction snapshots must not survive no-hit or
+   invalid-pose periods.
+6. Regress shadows/reflections, stereo rigidity, HUD alpha/crosshair clear,
+   controller hands, grab/rotate/throw, menu pointer, authored cameras, save/load,
+   and clean shutdown. Preserve comfort and interaction summary rows.
+
 ## 0.18.0 Grab Rotation, Physical Throw, And Crosshair Filter
 
 1. Launch the OpenXR Release DLL, load a save, and press F10. Confirm

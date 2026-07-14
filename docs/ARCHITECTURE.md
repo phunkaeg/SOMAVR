@@ -45,6 +45,12 @@ HPLInteractionBridge
   -> OpenXRInput snapshots through OpenXRRuntime
   -> HPLPlayerState authored-camera snapshot
   -> HPLCameraBridge world-pose conversion and camera origin
+  -> immutable native entity/body/distance/world-hit snapshot
+
+HPLComfortBridge
+  -> signature-guarded cLuxPlayer SetCameraPosAdd wrapper
+  -> HPLCameraBridge active-tracking ownership
+  -> HPLComfortMath semantic channel policy
 
 HPLHandsBridge
   -> signature-guarded cLuxProp identity and SetMatrix boundaries
@@ -96,7 +102,9 @@ lifecycle.
 | `HPLNativeLocomotion` | Guarded analog Move and exact-radian AddYaw calls only in unpaused normal player/move state; exposes the confirmed pause state to input policy | Player discovery, special-state input semantics, direct capsule transforms, or bypassing pause ownership |
 | `HPLMenuBridge` | Paused-only head-relative controller aim to native client cursor routing | GUI rendering/capture, pause ownership, OpenXR actions, or gameplay clicks |
 | `HPLMenuMath` | Pure HMD/controller orientation projection into normalized menu coordinates | HWND state, cursor mutation, native pointers, or logging |
-| `HPLInteractionBridge` | Signature-guarded native closest-entity query substitution; changes only the query start/direction under strict controller/camera/state gates | `CanInteract`, distance policy, focus callbacks, object physics, or controller action ownership |
+| `HPLInteractionBridge` | Signature-guarded native closest-entity query substitution plus immutable finalized hit snapshot with entity, body, distance, and world point | `CanInteract`, distance policy, focus callbacks, object physics, reticle rendering, or controller action ownership |
+| `HPLComfortBridge` | VR-active semantic zeroing of configured camera-add Bob, Shake, and Sway channels at the registered player wrapper | Authored crouch/climb/script/death/lean/crawl/conversation offsets, lower-level camera transforms, or post effects |
+| `HPLComfortMath` | Pure camera-add enum classification and independent suppression policy | Native pointers, hook lifecycle, tracking state, or logging |
 | `HPLGrabBridge` | Exact Grab force/torque PID identity, controller-relative target substitution, and one-shot AddImpulse throw redirection | PID tuning, object mass/collision/joints, persistent physics replacement, or script callbacks |
 | `HPLGrabMath` | Pure shortest-arc quaternion delta to bounded angular target velocity | Native pointers, PID identity, hooks, tracking policy, or logging |
 | `HPLHandsBridge` | Exact `PlayerHands_*` identity and guarded normal-state quarter-scale controller-root substitution at the script SetMatrix boundary | Skeletal/tool animation, sockets, full-scale/custom/authored transforms, or untracked pose ownership |

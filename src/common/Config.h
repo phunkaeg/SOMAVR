@@ -129,6 +129,11 @@ struct Config {
     bool hplRecenterControl = false;
     bool hplReflectionFadeControl = false;
     bool hplNativeCameraRollSuppression = false;
+    bool hplComfortCameraAddControl = false;
+    bool hplComfortSuppressHeadBob = true;
+    bool hplComfortSuppressCameraShake = true;
+    bool hplComfortSuppressSway = false;
+    int hplComfortLogInterval = 120;
     int hplCameraLogInterval = 120;
     bool hplStereoAfr = false;
     float hplWorldScale = 1.0f;

@@ -1315,6 +1315,38 @@ bool ResolveHPLTrackedPoseWorld(
     return true;
 }
 
+bool ResolveHPLReferenceVectorWorld(
+    float x,
+    float y,
+    float z,
+    bool applyWorldScale,
+    float& worldX,
+    float& worldY,
+    float& worldZ)
+{
+    std::lock_guard lock(g_stateMutex);
+    if (!g_state.trackingEnabled || !g_state.baseMatricesValid
+        || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+        return false;
+    }
+
+    Vector3 local = RotateVector(Conjugate(g_state.neutralOrientation), {x, y, z});
+    if (applyWorldScale) {
+        const float scale = std::max(g_config.hplWorldScale, 0.001f);
+        local.x *= scale;
+        local.y *= scale;
+        local.z *= scale;
+    }
+    const Vector3 world = TransformLocalDirectionToWorld(local, g_state.baseView);
+    if (!std::isfinite(world.x) || !std::isfinite(world.y) || !std::isfinite(world.z)) {
+        return false;
+    }
+    worldX = world.x;
+    worldY = world.y;
+    worldZ = world.z;
+    return true;
+}
+
 bool RequestHPLRecenter(const char* source)
 {
     std::lock_guard lock(g_stateMutex);

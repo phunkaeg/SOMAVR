@@ -2,6 +2,25 @@
 
 ## 2026-07-15
 
+### 0.18.0-interaction-polish
+
+- Promoted the Grab torque probe into an opt-in controller rotation path. A
+  shortest-arc grip quaternion delta augments only the exact `40/0/0.4|0.1`
+  torque-PID error while SOMA retains angular velocity feedback, inertia
+  transformation, the native speed/torque caps, collision, and callbacks.
+- Added a signature-guarded patch at AngelScript `iPhysicsBody::AddImpulse`
+  wrapper `0x14049c720`. A 350 ms one-shot intent armed by the existing native
+  Grab throw action redirects the authored impulse along controller velocity,
+  falling back to grip-forward aim; optional bounded velocity scaling preserves
+  SOMA's mass-adjusted impulse as the baseline.
+- Added opt-in center-crosshair removal to the compositor HUD capture. Only a
+  configurable center rectangle is cleared to transparent; the GL transaction
+  now restores framebuffer bindings, buffers, viewport, scissor box/enable,
+  clear color, and color mask exactly.
+- Added pure grab-rotation math and quaternion equivalence/cap tests. Built and
+  tested default and OpenXR x64 Release flavors. OpenXR SHA-256:
+  `EA470277AD71B0B29E11345E803C813AA51EE2E3A4AAB40B1E68E3310788B544`.
+
 ### 0.17.0-physics-input
 
 - Added configurable head-relative locomotion using calibrated HMD yaw only;

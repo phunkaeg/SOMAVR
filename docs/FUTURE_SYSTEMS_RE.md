@@ -1,5 +1,27 @@
 # Future Systems Reverse Engineering
 
+## 0.18.0 Grab Rotation, Throw, And Reticle Policy
+
+The shipped Grab state's torque PID (`40/0/0.4`, underwater `D=0.1`) now has a
+guarded controller target. `HPLGrabMath` resolves the shortest quaternion arc
+from the pickup grip orientation, applies SOMA's authored `angle * 100` gain and
+`6` speed cap, transforms that reference-space vector into HPL world space, and
+adds it to the native torque error. SOMA still subtracts body angular velocity,
+applies the PID, transforms through inertia, and caps torque at `1000`.
+
+The registered AddImpulse script wrapper is the nine-byte thunk at
+`0x14049c720`: `mov rax,[rcx]; jmp [rax+0x130]`. A normal MinHook trampoline is
+not reliable at that size, so `0.18.0` guards the thunk plus three INT3 bytes and
+uses a reversible absolute jump. Only a one-shot intent armed immediately before
+the native Grab right-click may redirect the impulse; all other calls dispatch
+straight to the concrete body virtual method. The native impulse magnitude,
+including SOMA's object-mass multiplier, remains the baseline.
+
+The fixed center crosshair is now optionally removed after exact GameHudSet
+capture by clearing a small center rectangle to transparent. This is a bounded
+interim policy, not the final reticle: actual world-depth feedback still needs
+safe decoding of `cLuxClosestEntityData.mfDistance` from the native pick result.
+
 ## 0.17.0 Physics Input And Native Grab Findings
 
 SOMA's shipped `PlayerState_Interact_Grab.hps` configures its position PID as

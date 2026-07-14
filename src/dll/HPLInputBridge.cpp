@@ -1,6 +1,7 @@
 #include "HPLInputBridge.h"
 
 #include "HPLCameraBridge.h"
+#include "HPLGrabBridge.h"
 #include "HPLInputMath.h"
 #include "HPLMenuBridge.h"
 #include "HPLNativeLocomotion.h"
@@ -475,6 +476,9 @@ void ApplyGameplayActions(
     if (g_config.hplControllerManipulationMappings && throwState
         && !recenterChord && dominant.primary && dominant.primaryChanged) {
         SetMouseButton(g_state.interact, false);
+        if (player.playerStateId == kGrabPlayerState) {
+            ArmHPLControllerThrow(dominant.gripPose, input.gameFrame);
+        }
         TapMouseButton(MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP);
         g_state.menuClickLatchedUntilRelease = true;
         PulseHaptic(roles.dominantHand, "native_throw");

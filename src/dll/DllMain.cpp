@@ -144,7 +144,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrTrackingRecoveryBlackoutFrames);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d flashlight=%d inventory=%d menu=%d menuPointer=%d menuPointerFov=%.1f,%.1f menuPointerSmoothing=%.3f recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d suppressAuthoredCamera=%d interactionRay=%d interactionRayOriginTolerance=%.3f grabTranslation=%d grabTranslationScale=%.3f grabMaxOffsetMeters=%.3f manipulationMappings=%d handTrackingProbe=%d handControllerRoot=%d handRootOffset=%.4f,%.4f,%.4f handRootRotationDegrees=%.2f,%.2f,%.2f comfortBlackoutFrames=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
+        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d flashlight=%d inventory=%d menu=%d menuPointer=%d menuPointerFov=%.1f,%.1f menuPointerSmoothing=%.3f recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d suppressAuthoredCamera=%d interactionRay=%d interactionRayOriginTolerance=%.3f grabTranslation=%d grabTranslationScale=%.3f grabMaxOffsetMeters=%.3f grabRotation=%d grabRotationGain=%.2f grabRotationSign=%.1f grabMaxAngularSpeed=%.2f throwRedirect=%d throwVelocityScale=%d throwVelocityThreshold=%.3f throwVelocityReference=%.3f manipulationMappings=%d handTrackingProbe=%d handControllerRoot=%d handRootOffset=%.4f,%.4f,%.4f handRootRotationDegrees=%.2f,%.2f,%.2f comfortBlackoutFrames=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
         g_config->Get().hplControllerInput ? 1 : 0,
         g_config->Get().hplControllerMoveDeadzone,
         g_config->Get().hplControllerMoveReleaseDeadzone,
@@ -183,6 +183,14 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplControllerGrabTranslation ? 1 : 0,
         g_config->Get().hplControllerGrabTranslationScale,
         g_config->Get().hplControllerGrabMaxOffsetMeters,
+        g_config->Get().hplControllerGrabRotation ? 1 : 0,
+        g_config->Get().hplControllerGrabRotationGain,
+        g_config->Get().hplControllerGrabRotationSign,
+        g_config->Get().hplControllerGrabMaxAngularSpeed,
+        g_config->Get().hplControllerThrowRedirect ? 1 : 0,
+        g_config->Get().hplControllerThrowVelocityScale ? 1 : 0,
+        g_config->Get().hplControllerThrowVelocityThreshold,
+        g_config->Get().hplControllerThrowVelocityReference,
         g_config->Get().hplControllerManipulationMappings ? 1 : 0,
         g_config->Get().hplHandTrackingProbe ? 1 : 0,
         g_config->Get().hplHandControllerRoot ? 1 : 0,
@@ -198,14 +206,16 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplControllerLogInterval);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "hud_config enabled=%d size=%dx%d distanceMeters=%.3f widthMeters=%.3f verticalOffsetMeters=%.3f maxAgeFrames=%d",
+        "hud_config enabled=%d size=%dx%d distanceMeters=%.3f widthMeters=%.3f verticalOffsetMeters=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d",
         g_config->Get().openxrHudLayer ? 1 : 0,
         g_config->Get().openxrHudWidthPixels,
         g_config->Get().openxrHudHeightPixels,
         g_config->Get().openxrHudDistanceMeters,
         g_config->Get().openxrHudWidthMeters,
         g_config->Get().openxrHudVerticalOffsetMeters,
-        g_config->Get().openxrHudMaxAgeFrames);
+        g_config->Get().openxrHudMaxAgeFrames,
+        g_config->Get().openxrHudSuppressCenterCrosshair ? 1 : 0,
+        g_config->Get().openxrHudCrosshairClearRadiusPixels);
 
     g_openxr = std::make_unique<somavr::OpenXRRuntime>();
     g_openxr->Configure(
@@ -231,7 +241,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrHudDistanceMeters,
         g_config->Get().openxrHudWidthMeters,
         g_config->Get().openxrHudVerticalOffsetMeters,
-        g_config->Get().openxrHudMaxAgeFrames);
+        g_config->Get().openxrHudMaxAgeFrames,
+        g_config->Get().openxrHudSuppressCenterCrosshair,
+        g_config->Get().openxrHudCrosshairClearRadiusPixels);
 
     if (!somavr::InstallOpenGLHooks(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "opengl_hooks install_failed");

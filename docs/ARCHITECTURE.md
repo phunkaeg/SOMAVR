@@ -30,6 +30,8 @@ HPLInputBridge
 
 HPLGrabBridge
   -> signature-guarded vector PID output
+  -> signature-guarded iPhysicsBody AddImpulse thunk
+  -> HPLGrabMath shortest-arc angular target
   -> HPLPlayerState Grab ownership snapshot
   -> HPLCameraBridge world-pose conversion and camera origin
   -> OpenXRInput dominant grip pose/velocity snapshot
@@ -95,7 +97,8 @@ lifecycle.
 | `HPLMenuBridge` | Paused-only head-relative controller aim to native client cursor routing | GUI rendering/capture, pause ownership, OpenXR actions, or gameplay clicks |
 | `HPLMenuMath` | Pure HMD/controller orientation projection into normalized menu coordinates | HWND state, cursor mutation, native pointers, or logging |
 | `HPLInteractionBridge` | Signature-guarded native closest-entity query substitution; changes only the query start/direction under strict controller/camera/state gates | `CanInteract`, distance policy, focus callbacks, object physics, or controller action ownership |
-| `HPLGrabBridge` | Exact Grab force-PID identity and guarded controller-relative position-error substitution | PID tuning, object mass/collision/joints, rotational error without live correlation, or script callbacks |
+| `HPLGrabBridge` | Exact Grab force/torque PID identity, controller-relative target substitution, and one-shot AddImpulse throw redirection | PID tuning, object mass/collision/joints, persistent physics replacement, or script callbacks |
+| `HPLGrabMath` | Pure shortest-arc quaternion delta to bounded angular target velocity | Native pointers, PID identity, hooks, tracking policy, or logging |
 | `HPLHandsBridge` | Exact `PlayerHands_*` identity and guarded normal-state quarter-scale controller-root substitution at the script SetMatrix boundary | Skeletal/tool animation, sockets, full-scale/custom/authored transforms, or untracked pose ownership |
 | `HPLHandsMath` | Pure HPL basis reconstruction, scale preservation, and configurable root calibration | Native pointers, entity identity, tracking policy, or logging |
 | `HPLHudBridge` | Signature-guarded exact GameHudSet identity, per-set telemetry, and reversible begin/render/end capture routing | OpenXR swapchain/session ownership, ImGui/menu capture, or diegetic GUI policy |

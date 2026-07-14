@@ -1,5 +1,16 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 AddImpulse And Physics Registration Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x14049c720` | `HPL3_Script_iPhysicsBody_AddImpulse` | Created as a nine-byte function. It loads the body vtable and dispatches slot `+0x130`; `0.18.0` uses a reversible, signature-guarded 12-byte jump patch for controller-armed Grab throws. |
+| `0x1404a0480` | `HPL3_Script_Register_iPhysicsBody` | Renamed registration owner for AddForce/AddTorque/AddImpulse and related physics-body script methods. |
+
+Both anchors now have SOMAVR/physics/script tags and control-policy comments;
+the AddImpulse thunk also has a patch-site bookmark with the exact signature.
+The explicitly selected `Soma_NoSteam.exe` program was saved after synchronization.
+
 ## 2026-07-15 Native Grab PID And Camera Getter Sync
 
 | Address | Ghidra name | Evidence/use |

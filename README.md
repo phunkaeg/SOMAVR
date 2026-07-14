@@ -70,8 +70,12 @@ With the opt-in `MovementReference=head`, movement follows calibrated HMD yaw
 without inheriting pitch/roll. `PhysicalCrouch=1` drives SOMA's native crouch
 toggle from tracked height with hysteresis. `GrabTranslation=1` augments only
 the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
-mass, collision, constraints, gravity, and callbacks. These 0.17 prototypes
-remain live-acceptance features rather than generated-config defaults.
+  mass, collision, constraints, gravity, and callbacks. `GrabRotation=1` extends
+  that contract through SOMA's torque PID, while `ThrowRedirect=1` redirects one
+  native Grab impulse along tracked release velocity. The compositor HUD can
+  suppress the fixed gaze crosshair with `HudSuppressCenterCrosshair=1`. These
+  0.18 prototypes
+  remain live-acceptance features rather than generated-config defaults.
 
 ## Current Goal
 

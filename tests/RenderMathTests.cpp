@@ -1,5 +1,6 @@
 #include "HPLCameraMath.h"
 #include "HPLHandsMath.h"
+#include "HPLGrabMath.h"
 #include "HPLHudMath.h"
 #include "HPLInputMath.h"
 #include "HPLMenuMath.h"
@@ -136,6 +137,32 @@ int main()
             {},
             handMatrix),
         "controller hand root rejects collinear tracking basis");
+
+    using grab_math::ResolveAngularTargetVelocity;
+    const camera_math::Vector3 noGrabRotation = ResolveAngularTargetVelocity({}, {}, 100.0f, 1.0f, 6.0f);
+    failures += Check(
+        Near(noGrabRotation.x, 0.0f) && Near(noGrabRotation.y, 0.0f) && Near(noGrabRotation.z, 0.0f),
+        "grab rotation identity delta");
+    const camera_math::Vector3 yawGrabRotation = ResolveAngularTargetVelocity(
+        {},
+        {0.0f, kHalfSqrtTwo, 0.0f, kHalfSqrtTwo},
+        100.0f,
+        1.0f,
+        6.0f);
+    failures += Check(
+        Near(yawGrabRotation.x, 0.0f) && Near(yawGrabRotation.y, 6.0f) && Near(yawGrabRotation.z, 0.0f),
+        "grab rotation follows shortest yaw arc and speed cap");
+    const camera_math::Vector3 equivalentGrabRotation = ResolveAngularTargetVelocity(
+        {},
+        {0.0f, 0.0f, 0.0f, -1.0f},
+        100.0f,
+        1.0f,
+        6.0f);
+    failures += Check(
+        Near(equivalentGrabRotation.x, 0.0f)
+            && Near(equivalentGrabRotation.y, 0.0f)
+            && Near(equivalentGrabRotation.z, 0.0f),
+        "grab rotation treats negated quaternion as equivalent");
 
     menu_math::MenuPointerPosition menuPointer;
     failures += Check(

@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.17.0-physics-input`, layered on the
+The active build candidate is `0.18.0-interaction-polish`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
@@ -33,9 +33,13 @@ compatibility probes:
   position PID error with dominant-controller translation. The first pickup
   sample and every unsafe state remain native, and SOMA still owns object mass,
   gravity, force limits, collision, joints, and callbacks.
-- Support squeeze exposes SOMA's existing InteractRotate modifier and dominant
-  primary requests its native Grab/Push throw action. OpenXR grip velocities and
-  native torque-PID errors are logged for the next rotation/throw implementation.
+- Grab rotation now adds the dominant grip's shortest-arc orientation target to
+  SOMA's exact torque-PID error. Dominant primary still requests the native throw,
+  but the exact AddImpulse wrapper can redirect that one authored impulse along
+  tracked controller velocity or grip-forward aim with bounded velocity scaling.
+- The compositor HUD can clear only a configurable center rectangle after the
+  exact GameHudSet render, suppressing the native gaze crosshair without touching
+  the eye images or other HUD regions.
 
 - The working stereo transform now also resolves HMD and controller poses into
   HPL world coordinates. Periodic controller rows report dominant aim/grip
@@ -122,8 +126,8 @@ compatibility probes:
   effects are inventoried by object/vtable/flags, and `Ctrl+F12` can isolate one
   active effect at a time without persisting mutations.
 - This remains a guarded feature build: physical crouch toggle synchronization,
-  grab scale/stability, rotate mapping, and native throw behavior require live
-  acceptance before defaults can be enabled globally.
+  grab translation/rotation stability, throw direction/scale, and center-clear
+  HUD coverage require live acceptance before defaults can be enabled globally.
 
 - `somavr_injector.exe`: launch-suspended or attach-by-PID/process-name DLL injector.
 - `somavr.dll`: MinHook-based OpenGL/WGL telemetry DLL.
@@ -385,9 +389,10 @@ The OpenXR build now asks for:
 & "D:\Dev Debug\SOMAVR\build-openxr-controller\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.16.0-controller-hands`, six compatibility render-stage hooks,
+2. Confirm `version=0.18.0-interaction-polish`, six compatibility render-stage hooks,
    `hpl_hud_bridge installed ... layer=1`,
-   `hpl_interaction_bridge install_ok`, `hpl_hands_bridge install_ok`,
+   `hpl_interaction_bridge install_ok`, `hpl_hands_bridge install_ok`, and
+   `hpl_grab_bridge install_ok ... rotation=1 throwRedirect=1`,
    `referenceSpace=local`, `recovery=1`, and controller haptics enabled.
 3. Load a save game, face forward, and press F10 once.
 4. Confirm `hpl_vr_mode requested`, API-attributed `openxr_manual_start triggered`,

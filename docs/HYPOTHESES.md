@@ -1,8 +1,33 @@
 # Hypotheses
 
+## S13 - Native torque and impulse boundaries can support physical VR manipulation
+
+Status: GUARDED BUILD READY (`0.18.0-interaction-polish`)
+
+Hypothesis: controller orientation can steer SOMA's existing Grab torque target,
+and a controller-armed native AddImpulse call can provide physical throw direction,
+without replacing solver, inertia, collision, mass, or callback ownership.
+
+Evidence:
+
+- The shipped script uses torque PID `40/0/0.4|0.1`, `angle * 100`, speed cap `6`,
+  body angular-velocity feedback, inertia transformation, and torque cap `1000`.
+- `HPLGrabBridge` changes only that exact torque error in Grab state and retains
+  the native pipeline after a shortest-arc controller quaternion target.
+- AddImpulse wrapper `0x14049c720` is an exact virtual thunk to vtable `+0x130`.
+  The reversible patch is one-shot, expires after 350 ms, and requires Grab state.
+- Throw direction uses release velocity above a threshold and grip forward below;
+  native impulse magnitude is preserved before optional `0.5..1.5` scaling.
+
+Confirms if objects settle to controller orientation without persistent spin and
+each deliberate throw produces exactly one correctly directed impulse across light
+and heavy bodies. Redirects to sign/axis calibration or earlier goal-matrix
+ownership if rotation fights the native target; disable speed scaling if authored
+object classes need fixed strength.
+
 ## S12 - Controller translation can steer SOMA's native Grab PID safely
 
-Status: GUARDED BUILD READY (`0.17.0-physics-input`)
+Status: SUPERSEDED BY S13; TRANSLATION ACCEPTANCE STILL PENDING
 
 Hypothesis: adding camera-relative dominant-grip displacement to the existing
 Grab position error, while retaining SOMA's exact PID and physics response, will
@@ -17,8 +42,8 @@ Evidence:
   ownership, fresh fully tracked grip, and a matching camera/player anchor.
 - The pickup sample is unchanged; invalid or changing ownership resets the
   anchor and forwards the original error.
-- The same output's torque tuple `40/0/0.4|0.1` is probe-only until axis and
-  quaternion-delta correlation is observed live.
+- The same output's torque tuple is now controlled under S13; live axis and
+  stability acceptance remain pending.
 
 Confirms if held objects follow controller translation without pickup jumps,
 oscillation, runaway force, broken collision, or joint/callback regressions, and

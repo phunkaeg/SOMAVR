@@ -123,7 +123,9 @@ struct OpenXRRuntime::Impl {
         float hudDistanceMeters,
         float hudWidthMeters,
         float hudVerticalOffsetMeters,
-        int hudMaxAgeFrames)
+        int hudMaxAgeFrames,
+        bool hudSuppressCenterCrosshair,
+        int hudCrosshairClearRadiusPixels)
     {
         std::lock_guard lock(mutex_);
         enabled_ = enabled;
@@ -149,6 +151,8 @@ struct OpenXRRuntime::Impl {
         hudWidthMeters_ = std::clamp(hudWidthMeters, 0.25f, 10.0f);
         hudVerticalOffsetMeters_ = std::clamp(hudVerticalOffsetMeters, -5.0f, 5.0f);
         hudMaxAgeFrames_ = std::clamp(hudMaxAgeFrames, 0, 30);
+        hudSuppressCenterCrosshair_ = hudSuppressCenterCrosshair;
+        hudCrosshairClearRadiusPixels_ = std::clamp(hudCrosshairClearRadiusPixels, 4, 256);
         hudSubmissionSuspended_ = false;
         hudConsecutiveFailures_ = 0;
         manualStartArmed_ = false;
@@ -158,7 +162,7 @@ struct OpenXRRuntime::Impl {
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d}",
+            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -181,7 +185,9 @@ struct OpenXRRuntime::Impl {
             hudDistanceMeters_,
             hudWidthMeters_,
             hudVerticalOffsetMeters_,
-            hudMaxAgeFrames_);
+            hudMaxAgeFrames_,
+            hudSuppressCenterCrosshair_ ? 1 : 0,
+            hudCrosshairClearRadiusPixels_);
 
         if (frameSubmitEnabled_ && !sessionProbeEnabled_) {
             Logger::Instance().Write(
@@ -1302,7 +1308,9 @@ private:
                 resolutionScalePercent_,
                 createHudResources,
                 hudWidthPixels_,
-                hudHeightPixels_)) {
+                hudHeightPixels_,
+                hudSuppressCenterCrosshair_,
+                hudCrosshairClearRadiusPixels_)) {
             xrDestroySpace(appSpace_);
             appSpace_ = XR_NULL_HANDLE;
             if (viewSpace_ != XR_NULL_HANDLE) {
@@ -1904,6 +1912,8 @@ private:
     float hudWidthMeters_ = 1.6f;
     float hudVerticalOffsetMeters_ = 0.0f;
     int hudMaxAgeFrames_ = 2;
+    bool hudSuppressCenterCrosshair_ = false;
+    int hudCrosshairClearRadiusPixels_ = 48;
     bool trackingDegraded_ = false;
     bool trackingLost_ = false;
     uint64_t retryFrame_ = 0;
@@ -1992,7 +2002,9 @@ struct OpenXRRuntime::Impl {
         float hudDistanceMeters,
         float hudWidthMeters,
         float hudVerticalOffsetMeters,
-        int hudMaxAgeFrames)
+        int hudMaxAgeFrames,
+        bool hudSuppressCenterCrosshair,
+        int hudCrosshairClearRadiusPixels)
     {
         std::lock_guard lock(mutex_);
         enabled_ = enabled;
@@ -2016,7 +2028,7 @@ struct OpenXRRuntime::Impl {
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d}",
+            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -2039,7 +2051,9 @@ struct OpenXRRuntime::Impl {
             hudDistanceMeters,
             hudWidthMeters,
             hudVerticalOffsetMeters,
-            hudMaxAgeFrames);
+            hudMaxAgeFrames,
+            hudSuppressCenterCrosshair ? 1 : 0,
+            hudCrosshairClearRadiusPixels);
     }
 
     void OnOpenGLContext(HDC deviceContext, HGLRC glContext)
@@ -2203,7 +2217,9 @@ void OpenXRRuntime::Configure(
     float hudDistanceMeters,
     float hudWidthMeters,
     float hudVerticalOffsetMeters,
-    int hudMaxAgeFrames)
+    int hudMaxAgeFrames,
+    bool hudSuppressCenterCrosshair,
+    int hudCrosshairClearRadiusPixels)
 {
     impl_->Configure(
         enabled,
@@ -2228,7 +2244,9 @@ void OpenXRRuntime::Configure(
         hudDistanceMeters,
         hudWidthMeters,
         hudVerticalOffsetMeters,
-        hudMaxAgeFrames);
+        hudMaxAgeFrames,
+        hudSuppressCenterCrosshair,
+        hudCrosshairClearRadiusPixels);
 }
 
 void OpenXRRuntime::OnOpenGLContext(HDC deviceContext, HGLRC glContext)

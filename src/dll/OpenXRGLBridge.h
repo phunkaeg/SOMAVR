@@ -47,7 +47,9 @@ public:
         int resolutionScalePercent,
         bool hudLayerEnabled,
         int hudWidth,
-        int hudHeight);
+        int hudHeight,
+        bool suppressCenterCrosshair,
+        int crosshairClearRadiusPixels);
     void Shutdown();
 
     bool CopyBackbufferToEye(uint32_t eyeIndex);
@@ -96,8 +98,12 @@ private:
         int32_t viewport[4] = {};
         float clearColor[4] = {};
         unsigned char colorMask[4] = {};
+        int32_t scissorBox[4] = {};
         bool scissorEnabled = false;
     } hudCaptureState_;
+
+    bool suppressCenterCrosshair_ = false;
+    int crosshairClearRadiusPixels_ = 48;
 
     using GlGenFramebuffersFn = void(APIENTRY*)(int32_t, uint32_t*);
     using GlDeleteFramebuffersFn = void(APIENTRY*)(int32_t, const uint32_t*);

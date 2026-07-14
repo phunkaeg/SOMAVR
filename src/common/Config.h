@@ -41,6 +41,8 @@ struct Config {
     float openxrHudWidthMeters = 1.6f;
     float openxrHudVerticalOffsetMeters = 0.0f;
     int openxrHudMaxAgeFrames = 2;
+    bool openxrHudSuppressCenterCrosshair = false;
+    int openxrHudCrosshairClearRadiusPixels = 48;
     bool hplControllerInput = false;
     float hplControllerMoveDeadzone = 0.35f;
     float hplControllerMoveReleaseDeadzone = 0.25f;
@@ -79,6 +81,14 @@ struct Config {
     bool hplControllerGrabTranslation = false;
     float hplControllerGrabTranslationScale = 1.0f;
     float hplControllerGrabMaxOffsetMeters = 0.75f;
+    bool hplControllerGrabRotation = false;
+    float hplControllerGrabRotationGain = 100.0f;
+    float hplControllerGrabRotationSign = 1.0f;
+    float hplControllerGrabMaxAngularSpeed = 6.0f;
+    bool hplControllerThrowRedirect = false;
+    bool hplControllerThrowVelocityScale = false;
+    float hplControllerThrowVelocityThreshold = 0.35f;
+    float hplControllerThrowVelocityReference = 2.0f;
     bool hplControllerManipulationMappings = true;
     bool hplHandTrackingProbe = false;
     bool hplHandControllerRoot = false;

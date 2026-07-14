@@ -127,7 +127,9 @@ public:
         float hudDistanceMeters,
         float hudWidthMeters,
         float hudVerticalOffsetMeters,
-        int hudMaxAgeFrames);
+        int hudMaxAgeFrames,
+        bool hudSuppressCenterCrosshair,
+        int hudCrosshairClearRadiusPixels);
     void OnOpenGLContext(HDC deviceContext, HGLRC glContext);
     void OnFrameBoundary(HDC deviceContext, HGLRC glContext, uint64_t frameIndex);
     bool RequestManualStart();

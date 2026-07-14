@@ -50,9 +50,9 @@ Created: 2026-07-09. Status: early reverse-engineering notes. Keep confirmed add
 
 | Candidate | Confidence | Purpose | Evidence |
 | --- | --- | --- | --- |
-| `Soma_NoSteam.exe+0x238750` | Static confirmed, guarded control built | Add dominant-controller translation to native Grab target error | Shipped Grab script uses exact position PID `400/0/40`; `0.17.0` changes only that tuple in player state `1` and preserves native solver ownership. |
-| Same PID output, tuple `40/0/0.4|0.1` | Probe built | Correlate controller quaternion delta with native rotational error | Grab script configures torque PID separately; `0.17.0` logs error plus OpenXR angular velocity without mutation. |
-| OpenXR `XrSpaceVelocity` on grip spaces | Build ready | Measure release linear/angular velocity | Predicted-time grip velocities are now captured and logged with native throw requests; impulse scaling remains unmodified pending live evidence. |
+| `Soma_NoSteam.exe+0x238750` | Static confirmed, guarded control built | Add dominant-controller translation and rotation to native Grab target errors | `0.18.0` gates exact position `400/0/40` and torque `40/0/0.4|0.1` tuples and preserves native solver ownership. |
+| `Soma_NoSteam.exe+0x49c720` | Static confirmed, guarded control patch built | Redirect one native Grab AddImpulse along controller release velocity | Exact virtual thunk uses body vtable `+0x130`; a short controller-armed window prevents unrelated impulses from being changed. |
+| OpenXR `XrSpaceVelocity` on grip spaces | Build ready | Direct and optionally scale release impulse | Predicted-time velocity chooses throw direction above a threshold; scale remains bounded `0.5..1.5` around a configurable reference speed. |
 | Native Middle/Right Mouse interaction actions | Build ready | Reuse SOMA rotate and throw/cancel state routes | Support squeeze holds InteractRotate; dominant primary invokes native Grab/Push right-click action under manipulation-state gates. |
 
 ## Likely Next Runtime Hooks

@@ -59,6 +59,14 @@ bool ResolveHPLTrackedPoseWorld(
     const OpenXRControllerPose& pose,
     uint64_t gameFrame,
     HPLTrackedPoseWorld& worldPose);
+bool ResolveHPLReferenceVectorWorld(
+    float x,
+    float y,
+    float z,
+    bool applyWorldScale,
+    float& worldX,
+    float& worldY,
+    float& worldZ);
 bool RequestHPLRecenter(const char* source);
 void NotifyHPLPlayerCameraChanged(void* previousCamera, void* currentCamera);
 

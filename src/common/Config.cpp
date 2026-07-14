@@ -177,7 +177,9 @@ void ConfigManager::WriteDefaultConfig() const
         << "HudDistanceMeters=1.5\n"
         << "HudWidthMeters=1.6\n"
         << "HudVerticalOffsetMeters=0.0\n"
-        << "HudMaxAgeFrames=2\n\n"
+        << "HudMaxAgeFrames=2\n"
+        << "HudSuppressCenterCrosshair=0\n"
+        << "HudCrosshairClearRadiusPixels=48\n\n"
         << "[Controller]\n"
         << "Enabled=0\n"
         << "MoveDeadzone=0.35\n"
@@ -217,6 +219,14 @@ void ConfigManager::WriteDefaultConfig() const
         << "GrabTranslation=0\n"
         << "GrabTranslationScale=1.0\n"
         << "GrabMaxOffsetMeters=0.75\n"
+        << "GrabRotation=0\n"
+        << "GrabRotationGain=100.0\n"
+        << "GrabRotationSign=1.0\n"
+        << "GrabMaxAngularSpeed=6.0\n"
+        << "ThrowRedirect=0\n"
+        << "ThrowVelocityScale=0\n"
+        << "ThrowVelocityThreshold=0.35\n"
+        << "ThrowVelocityReference=2.0\n"
         << "ManipulationMappings=1\n"
         << "HandTrackingProbe=0\n"
         << "HandControllerRoot=0\n"
@@ -373,6 +383,10 @@ void ConfigManager::LoadFromFile()
                 config_.openxrHudVerticalOffsetMeters = ParseFloat(value, config_.openxrHudVerticalOffsetMeters, -5.0f, 5.0f);
             } else if (key == "hudmaxageframes") {
                 config_.openxrHudMaxAgeFrames = ParseInt(value, config_.openxrHudMaxAgeFrames, 0, 30);
+            } else if (key == "hudsuppresscentercrosshair") {
+                config_.openxrHudSuppressCenterCrosshair = ParseBool(value, config_.openxrHudSuppressCenterCrosshair);
+            } else if (key == "hudcrosshairclearradiuspixels") {
+                config_.openxrHudCrosshairClearRadiusPixels = ParseInt(value, config_.openxrHudCrosshairClearRadiusPixels, 4, 256);
             }
             continue;
         }
@@ -422,6 +436,14 @@ void ConfigManager::LoadFromFile()
             else if (key == "grabtranslation") config_.hplControllerGrabTranslation = ParseBool(value, config_.hplControllerGrabTranslation);
             else if (key == "grabtranslationscale") config_.hplControllerGrabTranslationScale = ParseFloat(value, config_.hplControllerGrabTranslationScale, 0.1f, 3.0f);
             else if (key == "grabmaxoffsetmeters") config_.hplControllerGrabMaxOffsetMeters = ParseFloat(value, config_.hplControllerGrabMaxOffsetMeters, 0.05f, 3.0f);
+            else if (key == "grabrotation") config_.hplControllerGrabRotation = ParseBool(value, config_.hplControllerGrabRotation);
+            else if (key == "grabrotationgain") config_.hplControllerGrabRotationGain = ParseFloat(value, config_.hplControllerGrabRotationGain, 0.1f, 200.0f);
+            else if (key == "grabrotationsign") config_.hplControllerGrabRotationSign = ParseFloat(value, config_.hplControllerGrabRotationSign, -1.0f, 1.0f);
+            else if (key == "grabmaxangularspeed") config_.hplControllerGrabMaxAngularSpeed = ParseFloat(value, config_.hplControllerGrabMaxAngularSpeed, 0.1f, 20.0f);
+            else if (key == "throwredirect") config_.hplControllerThrowRedirect = ParseBool(value, config_.hplControllerThrowRedirect);
+            else if (key == "throwvelocityscale") config_.hplControllerThrowVelocityScale = ParseBool(value, config_.hplControllerThrowVelocityScale);
+            else if (key == "throwvelocitythreshold") config_.hplControllerThrowVelocityThreshold = ParseFloat(value, config_.hplControllerThrowVelocityThreshold, 0.0f, 5.0f);
+            else if (key == "throwvelocityreference") config_.hplControllerThrowVelocityReference = ParseFloat(value, config_.hplControllerThrowVelocityReference, 0.1f, 10.0f);
             else if (key == "manipulationmappings") config_.hplControllerManipulationMappings = ParseBool(value, config_.hplControllerManipulationMappings);
             else if (key == "handtrackingprobe") config_.hplHandTrackingProbe = ParseBool(value, config_.hplHandTrackingProbe);
             else if (key == "handcontrollerroot") config_.hplHandControllerRoot = ParseBool(value, config_.hplHandControllerRoot);

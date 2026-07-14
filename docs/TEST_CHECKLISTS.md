@@ -1,5 +1,33 @@
 # Test Checklists
 
+## 0.18.0 Grab Rotation, Physical Throw, And Crosshair Filter
+
+1. Launch the OpenXR Release DLL, load a save, and press F10. Confirm
+   `version=0.18.0-interaction-polish`, `hpl_grab_bridge install_ok` reports
+   `rotation=1 throwRedirect=1`, and the AddImpulse signature patch succeeds.
+2. Pick up several light and heavy bodies. Rotate the dominant controller slowly
+   through yaw, pitch, roll, and mixed axes. The object should settle to the same
+   relative orientation without continuous spinning, axis swaps, pickup jumps,
+   violent torque, or losing native collision. Expect increasing
+   `rotationSubstitutions` and bounded `hpl_grab_rotation` rows.
+3. Briefly lose controller tracking and leave/re-enter Grab. Native behavior must
+   resume immediately; reacquisition must create a fresh anchor without a snap.
+   If every axis is inverted together, set `GrabRotationSign=-1` and rerun.
+4. Throw a held body with dominant primary at slow and fast controller speeds in
+   several directions. Expect one `hpl_controller_throw applied=1` per Grab throw,
+   `source=velocity` above threshold and `source=grip_forward` below it. Push-state
+   cancel/throw and unrelated impulses must remain native.
+5. Compare slow/fast distance with `ThrowVelocityScale=1`; scaling is clamped to
+   `0.5..1.5` around `ThrowVelocityReference`. Set it to `0` if direction is correct
+   but authored object classes need their original fixed throw strength.
+6. Trigger every crosshair icon and central interaction prompt. The gaze crosshair
+   should be absent from the OpenXR HUD while descriptions, status effects, and
+   noncentral HUD remain intact. If useful content is clipped, reduce
+   `HudCrosshairClearRadiusPixels` or disable `HudSuppressCenterCrosshair`.
+7. Regress HUD alpha, menus, hands, interaction ray, stereo rigidity,
+   shadows/reflections, authored cameras, save/load, and clean shutdown. Preserve
+   the final grab, HUD, OpenXR, and lifecycle summary rows.
+
 ## 0.17.0 Physics Input And Native Grab
 
 1. Launch the OpenXR Release DLL and press F10 after loading a save. Confirm

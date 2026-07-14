@@ -64,7 +64,9 @@ and `docs\VR_COMPATIBILITY_RE.md`. Stable graph nodes and acceptance gates are i
 
 | Candidate | Confidence | Purpose | Notes |
 | --- | --- | --- | --- |
-| `Soma_NoSteam.exe+0x2375f0` | Static confirmed | Observe semantic `iCharacterBody::Move` input | Prefer this/action-layer ownership over keyboard emulation or direct capsule movement. |
+| `Soma_NoSteam.exe+0x2375f0` | Guarded control built | Native analog `iCharacterBody::Move` in unpaused Normal/Normal ownership | Forward `0` and Right `1`; special states automatically retain semantic key input. |
+| `Soma_NoSteam.exe+0x237460` | Guarded control built | Exact-radian body `AddYaw` for snap/smooth turn | Normal-state only; semantic mouse path remains the special-state/signature fallback. |
+| `Soma_NoSteam.exe+0x0ccc90` | Guarded policy built | Prevent direct body input while SOMA is paused or in menu ownership | Registered getter reads game subsystem paused byte `+0x2d4`. |
 | `Soma_NoSteam.exe+0x155290` | Static confirmed | Resolve the active player's character body | Registered by the `cLuxPlayer` AngelScript API at `+0x15ca10`. |
 | `Soma_NoSteam.exe+0x2328f0` | Static confirmed | Attribute script lifecycle callbacks | Callback id `2` queues `OnDraw`; id `3` is `OnPostRender`. |
 | `Soma_NoSteam.exe+0x298850` | Static confirmed | Whole-frame viewport render boundary | Main loop calls this between script `OnDraw` and `OnPostRender`. |

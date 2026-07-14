@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.13.0-hands-identity")
+set(SOMAVR_BUILD_VERSION "0.14.0-native-locomotion")
 
 include(FetchContent)
 
@@ -62,6 +62,7 @@ target_link_libraries(somavr_common PUBLIC shlwapi)
 
 add_library(somavr_render_math STATIC
     src/dll/HPLCameraMath.cpp
+    src/dll/HPLInputMath.cpp
     src/dll/OpenGLMatrixAnalysis.cpp
 )
 target_include_directories(somavr_render_math PUBLIC src/dll)
@@ -73,6 +74,7 @@ add_library(somavr SHARED
     src/dll/HPLCameraBridge.cpp
     src/dll/HPLLifecycle.cpp
     src/dll/HPLInputBridge.cpp
+    src/dll/HPLNativeLocomotion.cpp
     src/dll/HPLInteractionBridge.cpp
     src/dll/HPLHandsBridge.cpp
     src/dll/HPLPlayerState.cpp

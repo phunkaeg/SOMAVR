@@ -1,5 +1,21 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Native Locomotion And Pause Policy Sync
+
+The `0.14.0` normal-state native input contract is now explicit in
+`Soma_NoSteam.exe`:
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1402375f0` | `HPL3_Script_iCharacterBody_Move` | Registered `Move(eCharDir,float)` wrapper; typed object/direction/amount ABI, Forward `0`, Right `1`. |
+| `0x140237460` | `HPL3_Script_iCharacterBody_AddYaw` | Renamed and typed registered `AddYaw(float)` wrapper; adds radians at body `+0xd4`. |
+| `0x1400ccc90` | `SOMA_GetGamePaused` | Created and typed registered `GetGamePaused()` wrapper; reads subsystem `+0x2d4`. |
+
+All three have control-policy comments and SOMAVR/locomotion evidence tags.
+They are signature-guarded together so direct body input cannot run behind a
+pause menu or outside normal player/move ownership. The program was saved after
+the new function, prototypes, names, comments, and tags were applied.
+
 ## 2026-07-15 Hands Identity And Root Transform Sync
 
 The `cLuxProp` registration chain used by `PlayerHandsHandler` is now explicit:

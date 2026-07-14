@@ -1,5 +1,27 @@
 # Future Systems Reverse Engineering
 
+## 0.14.0 Native Locomotion And Turn Findings
+
+The registered body wrappers now form a useful split ownership path rather than
+an all-or-nothing replacement for SOMA's input system. `iCharacterBody::Move` at
+`0x1402375f0` accepts Forward `0` and Right `1` analog accumulators;
+`iCharacterBody::AddYaw` at `0x140237460` accepts radians. The registered
+`cLux_GetGamePaused` wrapper at `0x1400ccc90` provides the missing menu/pause
+gate.
+
+`HPLNativeLocomotion` calls these native body functions only when all signatures
+match, the pause getter returns false, the current player/body is valid, and
+both player state and move state are Normal (`0`). In that narrow state the
+controller receives radial-deadzone analog movement and exact-angle body yaw.
+Every ladder, grab, push, terminal, read, sit, conversation, authored-camera,
+climb/dead move state, pause, invalid pointer, and signature failure returns to
+the existing W/A/S/D and mouse path so SOMA's script handlers remain authoritative.
+
+This closes the normal-locomotion fidelity gap without pretending the direct
+body wrapper is a universal semantic dispatcher. Live acceptance now needs
+speed magnitude, run/crouch/collision/audio behavior, exact turn direction,
+pause safety, and transitions into and out of special states.
+
 ## 0.13.0 Hands Identity And Root-Pose Findings
 
 SOMA's `cLuxProp` registration owner at `0x14016ebe0` connects the hand script to
@@ -220,7 +242,10 @@ Body turn should be a separate action:
 
 1. **Passive probe:** built in `0.7.0`; logs current player state, move state, character-body pointer, camera pointer, and active-camera ownership.
 2. **Input-path prototype:** built in `0.7.0` and expanded in `0.7.1`; maps move, turn, interact, menu, recenter, run, crouch, and jump with stale-input release and config gates.
-3. **Native action bridge:** replace digital movement and pixel-calibrated turn with analog state-aware move/turn calls; then add lean, interaction cancel/rotate, and inventory.
+3. **Native action bridge:** built for unpaused Normal/Normal ownership in
+   `0.14.0`; uses analog body Move and exact-radian AddYaw, with automatic
+   semantic key/mouse fallback for every other state. A higher semantic analog
+   dispatcher is still preferable for special-state analog fidelity.
 4. **State adapters:** first ownership adapter built in `0.7.2`; matrix camera mode or disabled body camera updates suppress injected gameplay input while preserving menu/recenter. Normal, ladder, sit, climb ledge, crawl, interaction, conversation, and death still need live classification.
 5. **Physical movement:** optional physical crouch and collision-aware room-scale body catch-up.
 
@@ -395,13 +420,14 @@ Same-frame dual rendering can later restore more effects, but temporal effects s
 
 ### Native Movement Boundary Result
 
-`HPL3_Script_iCharacterBody_Move` at `0x1402375f0` is confirmed but intentionally
-not wired as the default controller path. It directly accumulates movement on the
-character body and bypasses SOMA's `Player::OnAnalogInput` state handling.
-SOMA's scripts route move/gamepad analog input through player and move states
-before calling the body, preserving crawl, ladder, authored, and constrained
-behavior. The current reversible W/A/S/D route therefore remains safer until the
-higher semantic AngelScript analog dispatch boundary is mapped.
+`HPL3_Script_iCharacterBody_Move` at `0x1402375f0` and
+`HPL3_Script_iCharacterBody_AddYaw` at `0x140237460` are now wired only for the
+unpaused Normal player plus Normal move state. This is the one state where the
+base player script ultimately forwards analog movement to those same body
+accumulators. All special states continue through reversible W/A/S/D and mouse
+input because their script handlers may reinterpret move/look as ladder motion,
+object manipulation, menu control, or authored-camera steering. The split route
+gains analog ordinary locomotion without bypassing known special-state policy.
 
 These probes are ordered to minimize runtime risk and maximize reusable information:
 
@@ -410,7 +436,8 @@ These probes are ordered to minimize runtime risk and maximize reusable informat
 3. Hands/tool entity classification and matrix telemetry.
 4. Post-effect active list, priorities, framebuffer flow, and eye attribution. **Named identity, priority lookup, isolation, temporary comfort policy, and GL flow are built; texture dimensions and per-eye history ownership remain.**
 5. GUI-set final target and alpha behavior. **GL state/flow probe built; transparent-target redirection remains.**
-6. OpenXR controller action set and semantic input bridge. **Built as a reversible input-path prototype.**
+6. OpenXR controller action set and semantic input bridge. **Built; `0.14.0`
+   adds a guarded native normal-state fast path with semantic fallback.**
 7. HUD quad-layer extraction.
 8. Controller-driven hands and interaction ray.
 
@@ -432,7 +459,9 @@ Useful edge labels: `owns`, `adds_to`, `dispatches`, `renders_before`, `renders_
 - Does the current AFR cache include the GUI pass, or is it captured before `0x1402981e0`?
 - Does SOMA allocate one temporal history packet per viewport or globally?
 - Can the default hands entity be identified reliably by model/resource pointer without script modification?
-- Which native function converts `eAnalogType_Move` into `iCharacterBody::Move` for all player states?
+- Which native/script VM boundary can receive `eAnalogType_Move` for all player
+  states without constructing AngelScript objects manually? This is now an
+  optional special-state fidelity improvement, not a blocker for normal analog movement.
 - Are subtitles drawn by the game HUD set, ImGui, or a separate engine GUI set in gameplay?
 - Do terminal GUI entities render before or after the scene post chain?
 - Which authored sequences require camera-to-hand socket attachment, and can their world motion be separated from their camera rotation?

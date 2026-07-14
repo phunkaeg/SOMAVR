@@ -24,6 +24,12 @@ HPLInputBridge
   -> OpenXRInput snapshots through OpenXRRuntime
   -> HPLPlayerState snapshot
   -> HPLCameraBridge recenter/status
+  -> HPLNativeLocomotion guarded normal-state fast path
+
+HPLNativeLocomotion
+  -> signature-guarded iCharacterBody Move/AddYaw and game-pause getter
+  -> HPLPlayerState immutable ownership snapshot
+  -> HPLInputMath radial deadzone and angle conversion
 
 HPLInteractionBridge
   -> OpenXRInput snapshots through OpenXRRuntime
@@ -61,8 +67,10 @@ lifecycle.
 | `OpenXRGLBridge` | OpenGL swapchain images, FBOs, invalidatable eye caches, backbuffer transfer | OpenXR event/session policy |
 | `HPLCameraBridge` | Signature-guarded player-camera interception and VR mode state | Generic quaternion/projection algorithms |
 | `HPLCameraMath` | Pure pose, matrix, FOV centering, projection construction | HPL pointers, hotkeys, logging, OpenXR handles |
+| `HPLInputMath` | Pure radial stick deadzone and angle conversion used by native locomotion | Native pointers, action state, logging, or input injection |
 | `HPLPlayerState` | Signature-guarded player/camera/body discovery, player/move IDs, camera ownership classification, immutable snapshots | Controller injection, camera transforms, OpenXR actions |
 | `HPLInputBridge` | Reversible SOMA input-path controls and authored-camera suppression policy | Native player discovery, OpenXR action ownership, camera math |
+| `HPLNativeLocomotion` | Guarded analog Move and exact-radian AddYaw calls only in unpaused normal player/move state; reports whether semantic fallback is required | Player discovery, special-state input semantics, direct capsule transforms, or bypassing pause ownership |
 | `HPLInteractionBridge` | Signature-guarded native closest-entity query substitution; changes only the query start/direction under strict controller/camera/state gates | `CanInteract`, distance policy, focus callbacks, object physics, or controller action ownership |
 | `HPLHandsBridge` | Exact `PlayerHands_*` identity, root-matrix/scale telemetry, and controller-grip correlation at the script SetMatrix boundary | Transform mutation before model-space offsets, scale modes, and authored animation ownership are proven |
 | `HPLCompatibilityProbe` | Bounded render/audio/post-effect telemetry and temporary probes; shared pose math comes from `HPLCameraMath` | Permanent feature policy unrelated to a probe |
@@ -99,8 +107,9 @@ The maintenance passes now include five focused extractions:
   guarded source instead of duplicating executable offsets.
 
 `somavr_render_math_tests` now protects symmetric tangent-span preservation,
-zero projection offsets, projection construction, pose/matrix basics, and OpenGL
-projection classification in both build flavors.
+zero projection offsets, projection construction, pose/matrix basics, radial
+stick scaling, turn-angle conversion, and OpenGL projection classification in
+both build flavors.
 
 ## Next Structural Splits
 

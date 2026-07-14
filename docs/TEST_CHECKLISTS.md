@@ -1,5 +1,36 @@
 # Test Checklists
 
+## 0.14.0 Native Analog Locomotion And Exact-Angle Turn
+
+1. Launch the OpenXR Release build, load a gameplay save, and press F10 once.
+   Confirm `version=0.14.0-native-locomotion` and
+   `hpl_native_locomotion install_complete ... moveSignature=1 ... addYawSignature=1 ... pauseSignature=1`.
+2. In ordinary gameplay, slowly sweep the movement stick from center to full
+   travel in cardinal and diagonal directions. Speed must vary continuously,
+   diagonal motion must not receive a boost, and periodic controller rows must
+   report `movementRoute=native_analog` with no held W/A/S/D keys.
+3. Snap-turn in both directions. Each step should be exactly 30 degrees by
+   default, preserve the rigid visual baseline, and report
+   `turnRoute=native_radians`. If direction is reversed, set
+   `NativeTurnSign=1`; do not change mouse sensitivity.
+4. Set `SnapTurn=0`, relaunch, and verify smooth turning is frame-rate
+   independent at `SmoothTurnDegreesPerSecond=120`. Restore snap turn after the
+   test unless smooth turn is preferred.
+5. Open the pause menu while holding movement and turn. The player must not
+   accumulate motion or jump on resume. Route telemetry may switch to
+   `semantic_keys` / `semantic_mouse`, and `pausedFallbacks` must increase.
+6. Exercise at least one ladder, grab/push/door interaction, terminal/read
+   state, and authored camera sequence. These states must retain native SOMA
+   behavior through the semantic fallback; normal state must automatically
+   return to native analog without a key press or reactivation.
+7. Test walk/run, crouch/crawl, collision, stairs, and movement sounds. Attach
+   the log; the final summary should show nonzero `moveFrames`, `moveCalls`, and
+   `turnCalls`, with fallback counts corresponding to the exercised states.
+8. In two-controller play, press support-hand primary and secondary. Default
+   left X must toggle the flashlight and left Y must open inventory, with one
+   haptic pulse each. Repeat with `DominantHand=left`; the actions must move to
+   right A/B. One-hand primary+secondary must remain the recenter chord instead.
+
 ## 0.13.0 Player Hands Identity And Root-Pose Probe
 
 1. Launch the OpenXR Release build, load a gameplay save, and press F10 once.

@@ -152,7 +152,7 @@ defects are now tracked under S9 rather than as failure of native stereo geometr
 
 ## S6 - OpenXR locomotion should enter through semantic player movement
 
-Status: PROBE BUILT
+Status: GUARDED CONTROL BUILT, LIVE ACCEPTANCE PENDING
 
 Hypothesis: feeding controller axes into SOMA's action/move-state path or the registered `iCharacterBody::Move(eCharDir, float)` wrapper will preserve speed modifiers, crouch/run/jump state, AI sound, breathing, and interaction restrictions better than keyboard synthesis or direct capsule movement.
 
@@ -162,8 +162,13 @@ Evidence:
 - `MoveState_Normal.hps` applies the gameplay speed and state policy before native movement.
 - `0x1404a5030` registers the native character-body API and maps `Move` to `0x1402375f0`.
 - Released HPL2 source shows `Move` accumulates directional input for the physics update.
+- `0.14.0` signature-guards `Move`, `AddYaw`, and `GetGamePaused`, then uses
+  direct analog/radian calls only in unpaused Normal/Normal ownership. All other
+  states retain semantic key/mouse input.
 
-Confirms if a passive hook sees keyboard/gamepad movement reach `0x1402375f0` with signed forward/right multipliers and an OpenXR-fed call produces normal animation, audio, collision, and state behavior.
+Confirms if analog magnitude, diagonal speed, run/crouch, collision, movement
+audio, pause safety, and exact turn direction remain correct, while special
+states automatically report and behave through the semantic fallback.
 
 Redirects if SOMA's action dispatcher performs required work before `Move`; hook the higher semantic action path instead.
 

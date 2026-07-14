@@ -1,4 +1,5 @@
 #include "HPLCameraMath.h"
+#include "HPLInputMath.h"
 #include "OpenGLMatrixAnalysis.h"
 
 #include <array>
@@ -30,6 +31,16 @@ int main()
 
     int failures = 0;
     failures += Check(camera_math::ValidateStereoProjectionMath(), "projection self-test");
+
+    const input_math::Axis2 centeredStick = input_math::ApplyRadialDeadzone(0.2f, 0.1f, 0.35f);
+    failures += Check(Near(centeredStick.x, 0.0f) && Near(centeredStick.y, 0.0f), "radial deadzone center");
+    const input_math::Axis2 fullDiagonal = input_math::ApplyRadialDeadzone(0.70710678f, 0.70710678f, 0.35f);
+    failures += Check(
+        Near(std::sqrt(fullDiagonal.x * fullDiagonal.x + fullDiagonal.y * fullDiagonal.y), 1.0f),
+        "radial deadzone preserves full diagonal magnitude");
+    const input_math::Axis2 halfStick = input_math::ApplyRadialDeadzone(0.0f, 0.675f, 0.35f);
+    failures += Check(Near(halfStick.x, 0.0f) && Near(halfStick.y, 0.5f), "radial deadzone rescales magnitude");
+    failures += Check(Near(input_math::DegreesToRadians(30.0f), 0.5235988f), "snap-turn degree conversion");
 
     OpenXREyeView asymmetricEye;
     asymmetricEye.valid = true;

@@ -2,6 +2,26 @@
 
 ## 2026-07-15
 
+### 0.14.0-native-locomotion
+
+- Added `HPLNativeLocomotion`, signature-guarding the registered
+  `iCharacterBody::Move`, `iCharacterBody::AddYaw`, and `cLux_GetGamePaused`
+  wrappers before any direct native input is possible.
+- Normal, unpaused player/move state now receives radial-deadzone analog
+  forward/right magnitudes. Paused play, menus, ladders, grabs, terminals,
+  authored cameras, non-normal move states, invalid bodies, and signature
+  mismatches automatically retain the existing semantic W/A/S/D route.
+- Snap turn now uses an exact configurable degree increment and smooth turn uses
+  configurable degrees per second through the native body-yaw accumulator.
+  The existing pixel/mouse path remains the automatic special-state fallback.
+- Added bounded route and summary telemetry distinguishing `native_analog` /
+  `native_radians` from `semantic_keys` / `semantic_mouse`.
+- Added role-aware support-hand face actions: default left X toggles SOMA's
+  flashlight through `F`, and left Y opens inventory through `Tab`. Left-dominant
+  mode moves these actions to the right support hand; one-hand recenter remains unchanged.
+- Built and tested default and OpenXR x64 Release flavors. OpenXR SHA-256:
+  `7FCD71F56214E30028964CD3721F614C46BF429A56DC6CE4B852CDE65B27527A`.
+
 ### 0.13.0-hands-identity
 
 - Added signature-guarded `HPLHandsBridge` ownership around the shared Lux

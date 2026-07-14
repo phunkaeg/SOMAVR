@@ -127,6 +127,13 @@ TrackingRecoveryBlackoutFrames=2
 
 [Controller]
 Enabled=1
+NativeLocomotion=1
+NativeTurn=1
+SnapTurnDegrees=30
+SmoothTurnDegreesPerSecond=120
+NativeTurnSign=-1
+Flashlight=1
+Inventory=1
 Haptics=1
 HapticAmplitude=0.35
 HapticDurationMs=30

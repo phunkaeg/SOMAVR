@@ -175,12 +175,19 @@ void ConfigManager::WriteDefaultConfig() const
         << "Enabled=0\n"
         << "MoveDeadzone=0.35\n"
         << "MoveReleaseDeadzone=0.25\n"
+        << "NativeLocomotion=1\n"
         << "SnapTurn=1\n"
         << "TurnDeadzone=0.65\n"
         << "TurnReleaseDeadzone=0.35\n"
         << "SnapTurnPixels=420\n"
         << "SmoothTurnPixelsPerSecond=900\n"
+        << "NativeTurn=1\n"
+        << "SnapTurnDegrees=30\n"
+        << "SmoothTurnDegreesPerSecond=120\n"
+        << "NativeTurnSign=-1\n"
         << "Interaction=1\n"
+        << "Flashlight=1\n"
+        << "Inventory=1\n"
         << "Menu=1\n"
         << "RecenterChord=1\n"
         << "Haptics=1\n"
@@ -334,12 +341,19 @@ void ConfigManager::LoadFromFile()
             if (key == "enabled") config_.hplControllerInput = ParseBool(value, config_.hplControllerInput);
             else if (key == "movedeadzone") config_.hplControllerMoveDeadzone = ParseFloat(value, config_.hplControllerMoveDeadzone, 0.05f, 0.95f);
             else if (key == "movereleasedeadzone") config_.hplControllerMoveReleaseDeadzone = ParseFloat(value, config_.hplControllerMoveReleaseDeadzone, 0.0f, 0.9f);
+            else if (key == "nativelocomotion") config_.hplControllerNativeLocomotion = ParseBool(value, config_.hplControllerNativeLocomotion);
             else if (key == "snapturn") config_.hplControllerSnapTurn = ParseBool(value, config_.hplControllerSnapTurn);
             else if (key == "turndeadzone") config_.hplControllerTurnDeadzone = ParseFloat(value, config_.hplControllerTurnDeadzone, 0.05f, 0.95f);
             else if (key == "turnreleasedeadzone") config_.hplControllerTurnReleaseDeadzone = ParseFloat(value, config_.hplControllerTurnReleaseDeadzone, 0.0f, 0.9f);
             else if (key == "snapturnpixels") config_.hplControllerSnapTurnPixels = ParseInt(value, config_.hplControllerSnapTurnPixels, 1, 4000);
             else if (key == "smoothturnpixelspersecond") config_.hplControllerSmoothTurnPixelsPerSecond = ParseFloat(value, config_.hplControllerSmoothTurnPixelsPerSecond, 1.0f, 5000.0f);
+            else if (key == "nativeturn") config_.hplControllerNativeTurn = ParseBool(value, config_.hplControllerNativeTurn);
+            else if (key == "snapturndegrees") config_.hplControllerSnapTurnDegrees = ParseFloat(value, config_.hplControllerSnapTurnDegrees, 1.0f, 180.0f);
+            else if (key == "smoothturndegreespersecond") config_.hplControllerSmoothTurnDegreesPerSecond = ParseFloat(value, config_.hplControllerSmoothTurnDegreesPerSecond, 1.0f, 720.0f);
+            else if (key == "nativeturnsign") config_.hplControllerNativeTurnSign = ParseFloat(value, config_.hplControllerNativeTurnSign, -1.0f, 1.0f);
             else if (key == "interaction") config_.hplControllerInteraction = ParseBool(value, config_.hplControllerInteraction);
+            else if (key == "flashlight") config_.hplControllerFlashlight = ParseBool(value, config_.hplControllerFlashlight);
+            else if (key == "inventory") config_.hplControllerInventory = ParseBool(value, config_.hplControllerInventory);
             else if (key == "menu") config_.hplControllerMenu = ParseBool(value, config_.hplControllerMenu);
             else if (key == "recenterchord") config_.hplControllerRecenterChord = ParseBool(value, config_.hplControllerRecenterChord);
             else if (key == "haptics") config_.hplControllerHaptics = ParseBool(value, config_.hplControllerHaptics);

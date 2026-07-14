@@ -1,6 +1,8 @@
 #include "HPLInputBridge.h"
 
 #include "HPLCameraBridge.h"
+#include "HPLInputMath.h"
+#include "HPLNativeLocomotion.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
 
@@ -35,6 +37,8 @@ struct BridgeState {
     double smoothTurnRemainder = 0.0;
     bool authoredCameraSuppressed = false;
     bool oneHandFallbackActive = false;
+    bool nativeMovementActive = false;
+    bool nativeTurnActive = false;
 };
 
 struct ControllerRoles {
@@ -63,6 +67,11 @@ std::atomic<uint64_t> g_hapticApplied = 0;
 std::atomic<uint64_t> g_oneHandFallbackFrames = 0;
 std::atomic<uint64_t> g_worldAimPoseSamples = 0;
 std::atomic<uint64_t> g_worldGripPoseSamples = 0;
+std::atomic<uint64_t> g_nativeMovementFrames = 0;
+std::atomic<uint64_t> g_nativeTurnEvents = 0;
+std::atomic<uint64_t> g_semanticMovementFallbackFrames = 0;
+std::atomic<uint64_t> g_flashlightActions = 0;
+std::atomic<uint64_t> g_inventoryActions = 0;
 
 uint64_t TickMs()
 {
@@ -127,12 +136,17 @@ bool UpdateAxisButton(ButtonState& state, float value, float pressThreshold, flo
     return state.down ? value > releaseThreshold : value > pressThreshold;
 }
 
-void ReleaseGameplayInputs()
+void ReleaseMovementInputs()
 {
     SetKey(g_state.forward, 'W', false);
     SetKey(g_state.backward, 'S', false);
     SetKey(g_state.left, 'A', false);
     SetKey(g_state.right, 'D', false);
+}
+
+void ReleaseGameplayInputs()
+{
+    ReleaseMovementInputs();
     SetMouseButton(g_state.interact, false);
     SetKey(g_state.sprint, VK_LSHIFT, false);
     g_state.snapLatched = false;
@@ -194,17 +208,28 @@ void ReleaseAll()
     g_state.recenterLatched = false;
 }
 
-void ApplyLocomotion(const ControllerRoles& roles)
+bool ApplyLocomotion(const ControllerRoles& roles, const HPLPlayerStateSnapshot& player)
 {
+    const input_math::Axis2 nativeMove = input_math::ApplyRadialDeadzone(
+        roles.moveX, roles.moveY, g_config.hplControllerMoveDeadzone);
+    if (ApplyHPLNativeMovement(player, nativeMove.x, nativeMove.y))
+    {
+        ReleaseMovementInputs();
+        g_nativeMovementFrames.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
+
+    g_semanticMovementFallbackFrames.fetch_add(1, std::memory_order_relaxed);
     const float press = g_config.hplControllerMoveDeadzone;
     const float release = std::min(g_config.hplControllerMoveReleaseDeadzone, press);
     SetKey(g_state.forward, 'W', UpdateAxisButton(g_state.forward, roles.moveY, press, release));
     SetKey(g_state.backward, 'S', UpdateAxisButton(g_state.backward, -roles.moveY, press, release));
     SetKey(g_state.right, 'D', UpdateAxisButton(g_state.right, roles.moveX, press, release));
     SetKey(g_state.left, 'A', UpdateAxisButton(g_state.left, -roles.moveX, press, release));
+    return false;
 }
 
-void ApplyTurn(const ControllerRoles& roles, uint64_t nowMs)
+bool ApplyTurn(const ControllerRoles& roles, const HPLPlayerStateSnapshot& player, uint64_t nowMs)
 {
     const float turn = roles.turnX;
     if (g_config.hplControllerSnapTurn) {
@@ -212,7 +237,14 @@ void ApplyTurn(const ControllerRoles& roles, uint64_t nowMs)
             g_config.hplControllerTurnReleaseDeadzone,
             g_config.hplControllerTurnDeadzone);
         if (!g_state.snapLatched && std::fabs(turn) >= g_config.hplControllerTurnDeadzone) {
-            SendMouseMove(turn > 0.0f ? g_config.hplControllerSnapTurnPixels : -g_config.hplControllerSnapTurnPixels);
+            const float direction = turn > 0.0f ? 1.0f : -1.0f;
+            const float radians = input_math::DegreesToRadians(
+                direction * g_config.hplControllerSnapTurnDegrees * g_config.hplControllerNativeTurnSign);
+            const bool nativeTurn = ApplyHPLNativeTurn(player, radians);
+            if (!nativeTurn)
+                SendMouseMove(turn > 0.0f ? g_config.hplControllerSnapTurnPixels : -g_config.hplControllerSnapTurnPixels);
+            else
+                g_nativeTurnEvents.fetch_add(1, std::memory_order_relaxed);
             PulseHaptic(roles.turnHand, "snap_turn");
             if (g_openxr != nullptr && g_config.hplControllerComfortBlackoutFrames > 0) {
                 g_openxr->RequestComfortBlackout(
@@ -220,20 +252,32 @@ void ApplyTurn(const ControllerRoles& roles, uint64_t nowMs)
                     "snap_turn");
             }
             g_state.snapLatched = true;
+            return nativeTurn;
         } else if (g_state.snapLatched && std::fabs(turn) <= releaseThreshold) {
             g_state.snapLatched = false;
         }
-        return;
+        return CanApplyHPLNativeTurn(player);
     }
 
     const uint64_t elapsedMs = g_state.lastTickMs == 0 ? 0 : std::min<uint64_t>(nowMs - g_state.lastTickMs, 100);
-    if (std::fabs(turn) < g_config.hplControllerTurnDeadzone || elapsedMs == 0) return;
+    if (std::fabs(turn) < g_config.hplControllerTurnDeadzone || elapsedMs == 0)
+        return CanApplyHPLNativeTurn(player);
+    const float radians = input_math::DegreesToRadians(
+        turn * g_config.hplControllerSmoothTurnDegreesPerSecond
+        * static_cast<float>(elapsedMs) / 1000.0f * g_config.hplControllerNativeTurnSign);
+    if (ApplyHPLNativeTurn(player, radians))
+    {
+        g_state.smoothTurnRemainder = 0.0;
+        g_nativeTurnEvents.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
     g_state.smoothTurnRemainder += static_cast<double>(turn)
         * static_cast<double>(g_config.hplControllerSmoothTurnPixelsPerSecond)
         * static_cast<double>(elapsedMs) / 1000.0;
     const int pixels = static_cast<int>(std::trunc(g_state.smoothTurnRemainder));
     g_state.smoothTurnRemainder -= pixels;
     SendMouseMove(pixels);
+    return false;
 }
 
 void ApplySystemActions(const OpenXRInputSnapshot& input, const ControllerRoles& roles, uint64_t nowMs)
@@ -277,6 +321,16 @@ void ApplyGameplayActions(const OpenXRInputSnapshot& input, const ControllerRole
         TapKey(VK_LCONTROL);
         PulseHaptic(roles.dominantHand, "crouch");
     }
+    if (!roles.oneHand && g_config.hplControllerFlashlight && support.primary && support.primaryChanged) {
+        TapKey('F');
+        PulseHaptic(roles.supportHand, "flashlight");
+        g_flashlightActions.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (!roles.oneHand && g_config.hplControllerInventory && support.secondary && support.secondaryChanged) {
+        TapKey(VK_TAB);
+        PulseHaptic(roles.supportHand, "inventory");
+        g_inventoryActions.fetch_add(1, std::memory_order_relaxed);
+    }
     if (g_config.hplControllerInteraction) {
         const bool interact = dominant.select || dominant.trigger >= 0.75f;
         if (interact && !g_state.interact.down) {
@@ -295,12 +349,19 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
     g_openxr = openxr;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f turnMode=%s turnDeadzone=%.2f interaction=%d menu=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d suppressAuthoredCamera=%d comfortBlackoutFrames=%d maxInputAgeFrames=%d",
+        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f nativeLocomotion=%d turnMode=%s turnDeadzone=%.2f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d flashlight=%d inventory=%d menu=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d suppressAuthoredCamera=%d comfortBlackoutFrames=%d maxInputAgeFrames=%d",
         config.hplControllerInput ? 1 : 0,
         config.hplControllerMoveDeadzone,
+        config.hplControllerNativeLocomotion ? 1 : 0,
         config.hplControllerSnapTurn ? "snap" : "smooth",
         config.hplControllerTurnDeadzone,
+        config.hplControllerNativeTurn ? 1 : 0,
+        config.hplControllerSnapTurnDegrees,
+        config.hplControllerSmoothTurnDegreesPerSecond,
+        config.hplControllerNativeTurnSign,
         config.hplControllerInteraction ? 1 : 0,
+        config.hplControllerFlashlight ? 1 : 0,
+        config.hplControllerInventory ? 1 : 0,
         config.hplControllerMenu ? 1 : 0,
         config.hplControllerRecenterChord ? 1 : 0,
         config.hplControllerHaptics ? 1 : 0,
@@ -354,9 +415,23 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
         && player.authoredCameraActive;
     if (suppressGameplay) {
         ReleaseGameplayInputs();
+        g_state.nativeMovementActive = false;
+        g_state.nativeTurnActive = false;
     } else {
-        ApplyLocomotion(roles);
-        ApplyTurn(roles, nowMs);
+        const bool nativeMovement = ApplyLocomotion(roles, player);
+        const bool nativeTurn = ApplyTurn(roles, player, nowMs);
+        if (nativeMovement != g_state.nativeMovementActive || nativeTurn != g_state.nativeTurnActive)
+        {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_controller_native_route frame=%llu movement=%s turn=%s playerState=%d moveState=%d body=%p",
+                static_cast<unsigned long long>(frameIndex),
+                nativeMovement ? "native_analog" : "semantic_keys",
+                nativeTurn ? "native_radians" : "semantic_mouse",
+                player.playerStateId, player.moveStateId, player.characterBody);
+        }
+        g_state.nativeMovementActive = nativeMovement;
+        g_state.nativeTurnActive = nativeTurn;
         ApplyGameplayActions(input, roles);
     }
     ApplySystemActions(input, roles, nowMs);
@@ -386,17 +461,19 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
         if (gripValid) g_worldGripPoseSamples.fetch_add(1, std::memory_order_relaxed);
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_controller frame=%llu inputFrame=%llu age=%llu dominant=%s oneHand=%d move=%.3f,%.3f keys=%d%d%d%d run=%d jump=%d crouch=%d turn=%.3f mode=%s interact=%d menu=%d recenterChord=%d playerState=%d moveState=%d authoredCamera=%d gameplaySuppressed=%d worldAim={valid=%d tracked=%d%d pos=%.4f,%.4f,%.4f forward=%.5f,%.5f,%.5f} worldGrip={valid=%d tracked=%d%d pos=%.4f,%.4f,%.4f forward=%.5f,%.5f,%.5f}",
+            "hpl_controller frame=%llu inputFrame=%llu age=%llu dominant=%s oneHand=%d move=%.3f,%.3f movementRoute=%s keys=%d%d%d%d run=%d jump=%d crouch=%d turn=%.3f mode=%s turnRoute=%s interact=%d menu=%d recenterChord=%d playerState=%d moveState=%d authoredCamera=%d gameplaySuppressed=%d worldAim={valid=%d tracked=%d%d pos=%.4f,%.4f,%.4f forward=%.5f,%.5f,%.5f} worldGrip={valid=%d tracked=%d%d pos=%.4f,%.4f,%.4f forward=%.5f,%.5f,%.5f}",
             static_cast<unsigned long long>(frameIndex),
             static_cast<unsigned long long>(input.gameFrame),
             static_cast<unsigned long long>(age),
             roles.dominantHand == 0 ? "left" : "right",
             roles.oneHand ? 1 : 0,
             roles.moveX, roles.moveY,
+            g_state.nativeMovementActive ? "native_analog" : "semantic_keys",
             g_state.forward.down ? 1 : 0, g_state.backward.down ? 1 : 0,
             g_state.left.down ? 1 : 0, g_state.right.down ? 1 : 0,
             g_state.sprint.down ? 1 : 0, input.jump ? 1 : 0, input.crouch ? 1 : 0,
             roles.turnX, g_config.hplControllerSnapTurn ? "snap" : "smooth",
+            g_state.nativeTurnActive ? "native_radians" : "semantic_mouse",
             g_state.interact.down ? 1 : 0, input.menu ? 1 : 0,
             g_state.recenterStartMs != 0 ? 1 : 0,
             player.playerStateId, player.moveStateId,
@@ -430,7 +507,7 @@ void LogHPLInputBridgeSummary()
     GetHPLPlayerStateSnapshot(player);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu worldAimPoseSamples=%llu worldGripPoseSamples=%llu authoredCameraSuppress=%d player=%p camera=%p body=%p playerState=%d moveState=%d",
+        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu worldAimPoseSamples=%llu worldGripPoseSamples=%llu nativeMovementFrames=%llu nativeTurnEvents=%llu semanticMovementFallbackFrames=%llu flashlightActions=%llu inventoryActions=%llu authoredCameraSuppress=%d player=%p camera=%p body=%p playerState=%d moveState=%d",
         g_openxr != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_updates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_activeUpdates.load(std::memory_order_relaxed)),
@@ -443,6 +520,11 @@ void LogHPLInputBridgeSummary()
         static_cast<unsigned long long>(g_oneHandFallbackFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_worldAimPoseSamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_worldGripPoseSamples.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_nativeMovementFrames.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_nativeTurnEvents.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_semanticMovementFallbackFrames.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_flashlightActions.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_inventoryActions.load(std::memory_order_relaxed)),
         g_state.authoredCameraSuppressed ? 1 : 0,
         player.player, player.camera, player.characterBody,
         player.playerStateId, player.moveStateId);

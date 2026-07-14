@@ -56,7 +56,9 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x14000fb60` | Confirmed, probe built | Compact inherited `iLuxEntity.GetName` accessor registered for `cLuxProp`; returns native `tString` at entity `+0x120`. `0.13.0` signature-guards it and recognizes only exact `PlayerHands_*` prefixes before matrix sampling. Ghidra: `SOMA_iLuxEntity_GetName`. |
 | `0x14016ebe0` | Confirmed | `cLuxProp` AngelScript registration owner. Registers inherited GetName through `0x14000fb60` and SetMatrix through `0x1400bcd90`. Ghidra: `SOMA_Script_Register_cLuxProp`. |
 | `0x1404a5030` | Confirmed | Registers the AngelScript `iCharacterBody` API, including `Move`, `SetMoveSpeed`, `AddYaw`, and `SetYaw`. |
-| `0x1402375f0` | Confirmed by registration | Native wrapper registered for `iCharacterBody::Move(eCharDir, float)`. Candidate semantic locomotion probe. |
+| `0x1402375f0` | Confirmed, control built | Native wrapper registered for `iCharacterBody::Move(eCharDir, float)`. `0.14.0` calls Forward `0` and Right `1` only while the unpaused normal player/move state owns the body. Ghidra: `HPL3_Script_iCharacterBody_Move`. |
+| `0x140237460` | Confirmed, control built | Native wrapper registered for `iCharacterBody::AddYaw(float)`. Adds radians to body `+0xd4`; `0.14.0` uses it for exact-degree snap/smooth turning under the same normal-state gate. Ghidra: `HPL3_Script_iCharacterBody_AddYaw`. |
+| `0x1400ccc90` | Confirmed, control built | Registered `cLux_GetGamePaused()` wrapper. Reads game subsystem `gameContext+0xc8`, paused byte `+0x2d4`; direct body input fails closed unless this getter matches and returns false. Ghidra: `SOMA_GetGamePaused`. |
 | `0x14015ca10` | Confirmed | Registers the AngelScript `cLuxPlayer` API. Maps `GetCamera` to `0x140125ef0` and `GetCharacterBody` to `0x140155290`. |
 | `0x1400cc860` | Confirmed by registration and decompilation | Global `GetPlayer()` wrapper. Returns the current `cLuxPlayer*` from game context `+0x140`. Signature-guarded probe anchor in `0.7.0`. Ghidra: `SOMA_GetPlayer`. |
 | `0x140125ef0` | Confirmed by registration and decompilation | `cLuxPlayer::GetCamera()`. Returns player `+0x168`. Ghidra: `SOMA_cLuxPlayer_GetCamera`. |

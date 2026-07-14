@@ -1,5 +1,23 @@
 # Future Systems Reverse Engineering
 
+## 0.21.0 Semantic Reticle And Native Artwork Result
+
+The shipped script layer closes the main interaction-feedback ambiguity left by
+`0.20.0`. `PlayerState_Normal` performs native pick validation, asks the active
+entity for its icon ID, and routes the result through global callback
+`LuxPlayer::_Global_SetCrosshairState`. Confirmed wrappers at `0x140484ea0` and
+`0x1404851d0` now provide a signature-guarded observer without replacing script
+policy. The VR reticle consumes exact enum state plus the existing native hit
+depth and dominant aim pose.
+
+All 34 assets named in shipped `Player.hps` are unpacked under `graphics/hud`.
+`0.21.0` decodes and aspect-fits those uncompressed TGAs directly into the
+application-space OpenXR quad, with intent color and focus-haptic profiles plus
+the old procedural cross as fallback. Remaining work is empirical: verify every
+state, determine whether the ambiguous default cursor should remain depth-locked,
+and add an occlusion rule only if the compositor quad visibly leaks through
+foreground geometry.
+
 ## 0.20.0 Depth Reticle And Focus Feedback Result
 
 The native closest-entity aim pose and finalized distance now feed a dedicated

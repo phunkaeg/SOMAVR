@@ -2,6 +2,7 @@
 #include "HPLCameraBridge.h"
 #include "HPLComfortBridge.h"
 #include "HPLCompatibilityProbe.h"
+#include "HPLCrosshairBridge.h"
 #include "HPLLifecycle.h"
 #include "HPLInputBridge.h"
 #include "HPLInteractionBridge.h"
@@ -219,8 +220,10 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrHudCrosshairClearRadiusPixels);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "interaction_reticle_config enabled=%d pixels=%d angularSizeDegrees=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d focusHaptics=%d focusHapticAmplitude=%.3f focusHapticDurationMs=%d focusHapticCooldownFrames=%d",
+        "interaction_reticle_config enabled=%d semantic=%d nativeIcons=%d pixels=%d angularSizeDegrees=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d focusHaptics=%d focusHapticAmplitude=%.3f focusHapticDurationMs=%d focusHapticCooldownFrames=%d",
         g_config->Get().openxrInteractionReticle ? 1 : 0,
+        g_config->Get().openxrInteractionReticleSemantic ? 1 : 0,
+        g_config->Get().openxrInteractionReticleNativeIcons ? 1 : 0,
         g_config->Get().openxrInteractionReticleSizePixels,
         g_config->Get().openxrInteractionReticleAngularSizeDegrees,
         g_config->Get().openxrInteractionReticleMinSizeMeters,
@@ -269,6 +272,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrHudSuppressCenterCrosshair,
         g_config->Get().openxrHudCrosshairClearRadiusPixels,
         g_config->Get().openxrInteractionReticle,
+        g_config->Get().openxrInteractionReticleSemantic,
+        g_config->Get().openxrInteractionReticleNativeIcons,
         g_config->Get().openxrInteractionReticleSizePixels,
         g_config->Get().openxrInteractionReticleAngularSizeDegrees,
         g_config->Get().openxrInteractionReticleMinSizeMeters,
@@ -300,6 +305,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     }
     if (!somavr::InstallHPLInteractionBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_interaction_bridge install_failed");
+    }
+    if (!somavr::InstallHPLCrosshairBridge(g_config->Get())) {
+        somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_crosshair_bridge install_failed");
     }
     if (!somavr::InstallHPLGrabBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_grab_bridge install_failed");
@@ -345,6 +353,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::RemoveHPLHandsBridge();
     somavr::LogHPLGrabBridgeSummary();
     somavr::RemoveHPLGrabBridge();
+    somavr::LogHPLCrosshairBridgeSummary();
+    somavr::RemoveHPLCrosshairBridge();
     somavr::LogHPLInteractionBridgeSummary();
     somavr::RemoveHPLInteractionBridge();
     somavr::LogHPLComfortBridgeSummary();

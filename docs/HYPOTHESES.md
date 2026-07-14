@@ -579,3 +579,30 @@ trigger-release latch prevents a closing click from leaking into world interacti
 Redirects if SOMA consumes a separate virtual cursor in any window mode. In that
 case retain hard pause suppression, hook the native ImGui pointer setter, and
 feed it the already-tested normalized `HPLMenuMath` coordinates.
+
+## S21 - Global crosshair callback is the stable semantic interaction boundary
+
+Status: GUARDED BUILD READY (`0.21.0-semantic-reticle`)
+
+Hypothesis: observing `LuxPlayer::_Global_SetCrosshairState` after SOMA's native
+pick, `CanInteract`, distance, and icon decisions provides a stable enum that can
+drive controller-depth artwork and focus feedback without duplicating gameplay
+interaction policy.
+
+Evidence:
+
+- shipped `PlayerState_Normal.hps` routes its resolved icon through
+  `Player_SetCrossHairState`;
+- shipped `Player.hps` consumes global argument zero as the exact 35-state enum
+  and names all 34 non-null TGA assets;
+- Ghidra confirms registered dispatch/get/set wrappers at `0x140484ea0`,
+  `0x1404851d0`, and `0x140485810`;
+- all 34 referenced assets exist as bounded uncompressed 32-bit TGAs in the
+  installed game.
+
+The build confirms if logged state names match the flat game's visible icon,
+native artwork remains legible and aspect-correct at depth, and semantic focus
+pulses occur only on usable state transitions. Redirect if the default state
+frequently masks a usable target or callbacks occur before range validation; in
+that case add a narrow observer around the script-visible `CanInteract` result
+instead of weakening the existing guard.

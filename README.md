@@ -77,9 +77,13 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
   `HPLComfortCameraAddControl=1` now removes semantic Bob, Shake, and optional
   Sway only while F10 tracking is active, and the interaction bridge publishes
   native hit depth/world position. `InteractionReticle=1` presents that exact
-  controller hit as an application-space OpenXR quad, while `FocusHaptics=1`
-  adds a bounded pulse when native entity/body focus changes. These 0.20
-  prototypes remain live-acceptance features rather than generated-config defaults.
+  controller hit as an application-space OpenXR quad. With
+  `InteractionReticleSemantic=1`, SOMA's own crosshair callback chooses semantic
+  state after native interaction policy; `InteractionReticleNativeIcons=1`
+  aspect-fits the matching shipped artwork with a procedural fallback.
+  `FocusHaptics=1` adds a bounded intent-scaled pulse when confirmed entity/body
+  focus changes. These prototypes remain opt-in live-acceptance features rather
+  than generated-config defaults.
 
 ## Current Goal
 
@@ -164,6 +168,8 @@ HudWidthMeters=1.6
 HudVerticalOffsetMeters=0.0
 HudMaxAgeFrames=2
 InteractionReticle=1
+InteractionReticleSemantic=1
+InteractionReticleNativeIcons=1
 InteractionReticleSizePixels=64
 InteractionReticleAngularSizeDegrees=0.75
 InteractionReticleMinSizeMeters=0.008

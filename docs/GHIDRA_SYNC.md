@@ -1,5 +1,17 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Semantic Crosshair Dispatch Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x140484ea0` | `HPL3_Script_RunGlobalFunc` | Registered global script dispatcher. `0.21.0` observes only exact `LuxPlayer::_Global_SetCrosshairState` native strings after guarding the complete 21-byte thunk. |
+| `0x1404851d0` | `HPL3_Script_GetGlobalArgInt` | Registered integer argument reader. Prototype corrected to `int (int index)`; its tail jump returns the parsed value in EAX. |
+| `0x140485810` | `HPL3_Script_SetGlobalArgInt` | Registered integer argument writer used by shipped `Player_SetCrossHairState` before dispatch. |
+
+All three functions now have explicit prototypes and plate comments plus
+`SOMAVR` and `VR-interaction` tags. The explicitly selected
+`Soma_NoSteam.exe` program was saved after synchronization.
+
 ## 2026-07-15 Native Comfort And Interaction Result Sync
 
 | Address | Ghidra name | Evidence/use |

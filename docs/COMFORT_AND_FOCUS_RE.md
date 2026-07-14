@@ -1,7 +1,41 @@
 # Native Comfort And Interaction Focus RE
 
 Date: 2026-07-15
-Build: `0.20.0-depth-reticle`
+Build: `0.21.0-semantic-reticle`
+
+## Native Crosshair Semantic Boundary
+
+Shipped `PlayerState_Normal.hps` runs `mPickBasics.UpdatePickCheck`, applies
+`GetInteractionDisabled`, `CanInteract`, range, and icon policy, then calls
+`Player_SetCrossHairState`. That helper writes global argument zero and dispatches
+`LuxPlayer::_Global_SetCrosshairState`; `Player.hps` copies the integer into
+`meCrossHairState` and selects one of 34 named `graphics/hud/crosshair_*.tga`
+assets. This is the narrowest confirmed native semantic owner after the raw pick.
+
+`HPLCrosshairBridge` signature-guards registered dispatch thunk `0x140484ea0`
+and integer argument reader `0x1404851d0`. It safely decodes the three native
+MSVC strings, observes only the exact callback above, calls the original first,
+and publishes states `0..34` only when the callback succeeds. The bridge does not
+replace script state, `CanInteract`, range, focus, callbacks, or GUI drawing.
+
+The enum groups used only for VR feedback are:
+
+| States | Intent | VR feedback |
+| --- | --- | --- |
+| `2,3,14` | Carry/pickup | Green native icon; light pulse |
+| `4..13,32` | Push/pull/rotate/button | Amber native icon; firmer pulse |
+| `15..18,22,28,29,33` | Tool/info/action | Blue native icon; neutral pulse |
+| `19,23..25` | Traversal/transition | White native icon; longer pulse |
+| `20,21` | Social/consume | Purple native icon; soft pulse |
+| `30,31` | Unavailable/busy | Red native icon; reduced pulse |
+| `1` | Ambiguous default cursor | Native/default reticle; no focus pulse |
+| `34` | Simple/no-hints cursor | Native icon; short soft pulse |
+
+The OpenXR renderer loads the exact enum-to-file table from shipped `Player.hps`,
+decodes only bounded uncompressed 24/32-bit TGA data, aspect-fits it into the
+reticle swapchain, and preserves the procedural cross as a fail-closed fallback.
+`InteractionReticleSemantic` and `InteractionReticleNativeIcons` are separate
+rollback controls.
 
 ## Semantic Camera Add Boundary
 

@@ -20,7 +20,7 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.XR_INPUT` | BUILT | `OpenXRInput`, `OpenXRRuntime` | OpenXR action set, Simple/Touch/Index/Motion bindings, grip/aim action spaces | `BUILD_HISTORY.md`, `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | Live log confirms active bindings, both tracked controllers, and stable predicted poses |
 | `FEATURE.XR_REFERENCE_SPACE` | BUILT | `OpenXRRuntime`, config | `XR_REFERENCE_SPACE_TYPE_LOCAL`, optional `STAGE`, runtime fallback | `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Compare seated/local and standing/stage calibration, eye height, recenter, and map transitions |
 | `FEATURE.TRACKING_RESILIENCE` | BUILT | `OpenXRRuntime`, `HPLCameraBridge` | pose-age bound, last-valid eye cache, zero-layer loss path, recovery blackout | `BUILD_HISTORY.md`, `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | Live-test brief and extended HMD tracking loss without stale-eye corruption, stereo teardown, or a visible recovery flash |
-| `FEATURE.CONTROLLER_HAPTICS` | BUILT | `OpenXRInput`, `OpenXRRuntime`, `HPLInputBridge`, `HPLInteractionBridge` | vibration output action, per-hand output paths, focused-session guard, native focus identity transitions | `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Confirm discrete and focus-change pulses across active controller profiles without edge chatter |
+| `FEATURE.CONTROLLER_HAPTICS` | BUILT | `OpenXRInput`, `OpenXRRuntime`, `HPLInputBridge`, `HPLInteractionBridge`, `HPLHudMath` | vibration output action, per-hand output paths, focused-session guard, native focus identity plus semantic intent profiles | `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Confirm discrete and semantic focus pulses across active controller profiles without edge chatter or default-cursor buzz |
 | `FEATURE.CONTROLLER_ACCESSIBILITY` | BUILT | `OpenXRInput`, `HPLInputBridge`, config | per-hand primary/secondary actions, dominant-hand roles, stick swap, one-hand fallback, support-hand flashlight/inventory | `BUILD_HISTORY.md`, `FUTURE_SYSTEMS_RE.md`, `TEST_CHECKLISTS.md` | Live-test role-aware jump/crouch/flashlight/inventory, swapped-stick, and each one-controller path on Touch/Index; define missing Simple/Motion bindings |
 | `FEATURE.MENU_POINTER` | BUILT | `HPLMenuBridge`, `HPLMenuMath`, `HPLInputBridge`, `HPLNativeLocomotion` | `0x1400ccc90`, HMD/aim orientations, native SOMA client cursor and left-click path | `BUILD_HISTORY.md`, `FUTURE_SYSTEMS_RE.md`, `TEST_CHECKLISTS.md` | Live-test window modes, native cursor mapping, click-release latch, and non-pause ImGui surfaces; then couple pointer coordinates to future menu-layer presentation |
 | `FEATURE.HEAD_TRACKING` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | `0x140271b80`, `0x140270230` | `CURRENT_STATE.md`, `VR_COMPATIBILITY_RE.md` | Remain correct through every authored camera state |
@@ -29,7 +29,7 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.LOCOMOTION` | BUILT | `OpenXRInput`, `HPLInputBridge`, `HPLNativeLocomotion`, `HPLPhysicalCrouchMath`, `HPLPlayerState` | SOMA semantic fallback, `0x1402375f0`, `0x140237460`, `0x1400ccc90`, calibrated HMD yaw/height, player/move ownership | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test head-relative direction, analog magnitude, physical-crouch toggle synchronization, pause safety, and special-state fallback |
 | `FEATURE.AUTHORED_CAMERA` | EXPERIMENTAL | `HPLPlayerState`, `HPLInputBridge`, `HPLCameraBridge` | camera rotate mode `+0x6c`, body camera ownership `+0x1e8`, player/move state | `VR_COMPATIBILITY_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Confirm transition detection/input suppression across sit, ladder, conversation, animation, and death states, then add pose-composition policy |
 | `FEATURE.INTERACTION_RAY` | BUILT | `HPLInteractionBridge`, `HPLCameraBridge`, `HPLInputBridge` | `0x1400cd750`, `cLuxClosestEntityData +0x18/+0x20/+0x28`, world aim/hit snapshots, native `CanInteract` | `COMFORT_AND_FOCUS_RE.md`, `VR_COMPATIBILITY_RE.md`, `TEST_CHECKLISTS.md` | Live-test controller-directed focus and decoded distance/world hit across targets and states; verify no-hit/fallback clears validity and correlate native semantic states |
-| `FEATURE.INTERACTION_RETICLE` | BUILT | `HPLInteractionBridge`, `HPLHudMath`, `OpenXRRuntime`, `OpenXRGLBridge` | native pick aim/distance, application-space alpha quad, angular size and age bounds | `COMFORT_AND_FOCUS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test convergence, apparent size, clearing, haptic cadence, and mismatch cases before adding semantic icon and occlusion policy |
+| `FEATURE.INTERACTION_RETICLE` | BUILT | `HPLInteractionBridge`, `HPLCrosshairBridge`, `HPLHudMath`, `OpenXRRuntime`, `OpenXRGLBridge` | native pick aim/distance, `0x140484ea0` script dispatch, exact 35-state enum, 34 shipped TGA icons, application-space alpha quad | `COMFORT_AND_FOCUS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test native icon identity/aspect, semantic clearing, convergence, intent colors/haptics, then determine whether geometry occlusion is needed |
 | `FEATURE.PHYSICS_HANDS` | BUILT | `HPLGrabBridge`, `HPLGrabMath`, `HPLInputBridge`, `OpenXRInput` | PID output `0x140238750`, AddImpulse thunk `0x14049c720`, Grab state `1`, exact force/torque tuples, controller pose/velocity | `VR_COMPATIBILITY_RE.md`, `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test translation and shortest-arc rotation stability, per-axis sign, one-shot velocity-directed throws, velocity scaling across object masses, and all native fallbacks |
 | `FEATURE.VIEWMODEL` | BUILT | `HPLHandsBridge`, `HPLHandsMath`, `HPLCameraBridge`, `HPLInputBridge` | world grip pose, `PlayerHandsHandler`, `0x14000fb60`, `0x1400bcd90`, `R_Hand`, tool `HudObject` | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test root placement/orientation calibration, tool sockets, and automatic native fallback across full-scale, custom, authored, and tracking-loss states; then add per-tool profiles |
 | `FEATURE.HUD_LAYER` | BUILT | `HPLHudBridge`, `HPLHudMath`, `OpenXRGLBridge`, `OpenXRRuntime` | `0x1400cc9b0`, `0x140213970`, transparent GL capture FBO, center crosshair clear, VIEW-space quad | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test alpha/scale, center-clear coverage, text placement, and native fallback; then add subtitle policy |
@@ -109,6 +109,9 @@ HPLHandsBridge requires HPLHandsMath
 HPLHudBridge requires OpenXRRuntime
 OpenXRRuntime requires HPLHudMath
 HPLInteractionBridge feeds FEATURE.INTERACTION_RETICLE
+HPLCrosshairBridge feeds FEATURE.INTERACTION_RETICLE
+HPLCrosshairBridge requires HPLInteractionBridge
+OpenXRGLBridge consumes SOMA native crosshair assets
 ```
 
 ## Runtime Flow
@@ -141,7 +144,7 @@ Gameplay ownership flow:
 ```text
 OpenXR actions
   -> FEATURE.LOCOMOTION -> native player/action state -> iCharacterBody
-  -> FEATURE.INTERACTION_RAY -> native pick/CanInteract -> interaction state
+  -> FEATURE.INTERACTION_RAY -> native pick/CanInteract -> HPLCrosshairBridge semantic state -> native depth icon
   -> FEATURE.MENU_POINTER -> native paused menu cursor/click path
   -> controller pose -> FEATURE.PHYSICS_HANDS -> native PID force/torque
 ```

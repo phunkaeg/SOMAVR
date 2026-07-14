@@ -48,6 +48,11 @@ HPLInteractionBridge
   -> immutable native entity/body/distance/world-hit snapshot
   -> narrow OpenXR interaction-reticle and focus-haptic updates
 
+HPLCrosshairBridge
+  -> signature-guarded global script dispatch and argument reader
+  -> exact LuxPlayer crosshair callback identity
+  -> HPLInteractionBridge semantic publication only after native callback succeeds
+
 HPLComfortBridge
   -> signature-guarded cLuxPlayer SetCameraPosAdd wrapper
   -> HPLCameraBridge active-tracking ownership
@@ -68,12 +73,18 @@ HPLHudBridge
   -> OpenXRRuntime narrow begin/end capture API
 
 HPLHudMath
-  -> tested head/aim-locked quad pose, aspect, and angular-size calculation
+  -> tested head/aim-locked quad pose, aspect, angular-size, semantic color,
+     and semantic haptic-profile calculation
 
 OpenXRRuntime
   -> OpenXRHelpers
   -> OpenXRInput
   -> OpenXRGLBridge
+
+OpenXRGLBridge
+  -> OpenXR swapchain/FBO ownership
+  -> guarded uncompressed TGA decode/cache for SOMA's shipped crosshair artwork
+  -> procedural reticle fallback when native artwork cannot be used
 
 HPLCompatibilityProbe / HPLLifecycle
   -> signature-guarded native HPL boundaries

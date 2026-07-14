@@ -44,6 +44,8 @@ struct Config {
     bool openxrHudSuppressCenterCrosshair = false;
     int openxrHudCrosshairClearRadiusPixels = 48;
     bool openxrInteractionReticle = false;
+    bool openxrInteractionReticleSemantic = false;
+    bool openxrInteractionReticleNativeIcons = false;
     int openxrInteractionReticleSizePixels = 64;
     float openxrInteractionReticleAngularSizeDegrees = 0.75f;
     float openxrInteractionReticleMinSizeMeters = 0.008f;

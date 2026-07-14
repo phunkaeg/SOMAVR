@@ -186,6 +186,8 @@ void ConfigManager::WriteDefaultConfig() const
         << "HudSuppressCenterCrosshair=0\n"
         << "HudCrosshairClearRadiusPixels=48\n\n"
         << "InteractionReticle=0\n"
+        << "InteractionReticleSemantic=0\n"
+        << "InteractionReticleNativeIcons=0\n"
         << "InteractionReticleSizePixels=64\n"
         << "InteractionReticleAngularSizeDegrees=0.75\n"
         << "InteractionReticleMinSizeMeters=0.008\n"
@@ -411,6 +413,10 @@ void ConfigManager::LoadFromFile()
                 config_.openxrHudCrosshairClearRadiusPixels = ParseInt(value, config_.openxrHudCrosshairClearRadiusPixels, 4, 256);
             } else if (key == "interactionreticle") {
                 config_.openxrInteractionReticle = ParseBool(value, config_.openxrInteractionReticle);
+            } else if (key == "interactionreticlesemantic") {
+                config_.openxrInteractionReticleSemantic = ParseBool(value, config_.openxrInteractionReticleSemantic);
+            } else if (key == "interactionreticlenativeicons") {
+                config_.openxrInteractionReticleNativeIcons = ParseBool(value, config_.openxrInteractionReticleNativeIcons);
             } else if (key == "interactionreticlesizepixels") {
                 config_.openxrInteractionReticleSizePixels = ParseInt(value, config_.openxrInteractionReticleSizePixels, 32, 512);
             } else if (key == "interactionreticleangularsizedegrees") {

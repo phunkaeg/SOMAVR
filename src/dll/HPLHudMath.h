@@ -11,6 +11,13 @@ struct HudQuadPose {
     float heightMeters = 0.0f;
 };
 
+struct InteractionReticleColor {
+    float red = 0.30f;
+    float green = 0.95f;
+    float blue = 1.0f;
+    float alpha = 0.95f;
+};
+
 bool BuildHeadLockedQuadPose(
     const camera_math::Vector3& headPosition,
     const camera_math::Quaternion& headOrientation,
@@ -26,5 +33,12 @@ bool ComputeAngularQuadSize(
     float minSizeMeters,
     float maxSizeMeters,
     float& sizeMeters);
+
+bool ComputeInteractionReticleColor(int crosshairState, InteractionReticleColor& color);
+
+bool ComputeInteractionHapticProfile(
+    int crosshairState,
+    float& amplitudeScale,
+    float& durationScale);
 
 } // namespace somavr::hud_math

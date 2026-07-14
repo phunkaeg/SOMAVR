@@ -1,5 +1,30 @@
 # Test Checklists
 
+## 0.21.0 Native Semantic Reticle And Focus Profiles
+
+1. Launch the OpenXR Release DLL, load a save, and press F10. Confirm
+   `version=0.21.0-semantic-reticle`, `hpl_crosshair_bridge install_ok`,
+   `openxr_interaction_reticle native_assets_loaded count=34`, and no script,
+   asset, reticle, or OpenXR signature/resource failure.
+2. Aim at pickup, carry, push/pull/rotate, button, terminal, read/examine,
+   traversal, conversation, recharge, unavailable, and no-hints targets where
+   practical. The depth reticle should use SOMA's matching native artwork and
+   change broad intent color without stretching the source aspect.
+3. Compare each icon with the flat native HUD before and after F10. Logs should
+   report the same `hpl_crosshair_semantic ... state=N name=...`; a missing or
+   malformed icon must show the procedural cross rather than a blank layer.
+4. Sweep across usable, busy/unavailable, ambiguous default, and noninteractive
+   geometry. Semantic icons must clear within the configured age bound. Focus
+   haptics must fire once per new confirmed target, remain silent for the default
+   cursor, and feel subtly distinct for pickup versus manipulation/unavailable.
+5. Set `InteractionReticleNativeIcons=0` and repeat one target to confirm the
+   procedural colored cross fallback. Set `InteractionReticleSemantic=0` only
+   for diagnosis to recover the `0.20.0` raw-pick behavior, then restore both.
+6. Regress shadows/reflections, world rigidity, HUD alpha, hands, grab/throw,
+   menu pointer, comfort blackouts, authored cameras, save/load, tracking loss,
+   and clean shutdown. Preserve `hpl_crosshair_bridge_summary`,
+   `hpl_interaction_bridge_summary`, and `openxr_summary` rows.
+
 ## 0.20.0 Controller Depth Reticle And Focus Haptics
 
 1. Launch the OpenXR Release DLL, load a save, and press F10. Confirm

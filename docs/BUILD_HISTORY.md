@@ -2,6 +2,31 @@
 
 ## 2026-07-15
 
+### 0.21.0-semantic-reticle
+
+- Added `HPLCrosshairBridge`, a signature-guarded observer on registered global
+  script dispatch `0x140484ea0`. It recognizes only
+  `LuxPlayer::_Global_SetCrosshairState`, reads argument zero through confirmed
+  `cScript_GetGlobalArgInt` wrapper `0x1404851d0`, then leaves SOMA's callback
+  and interaction policy authoritative.
+- Promoted the controller depth reticle from raw pick feedback to SOMA's exact
+  35-state `eCrossHairState` vocabulary. The application-space layer now follows
+  the native icon decision made after the shipped interaction/range checks and
+  reports bounded semantic acceptance/rejection telemetry.
+- Loaded and aspect-fitted all 34 crosshair assets named by shipped `Player.hps`
+  directly from `graphics/hud`. Native artwork is intent-tinted and uploaded to
+  the acquired OpenXR swapchain image; missing or malformed uncompressed TGA
+  assets fall back to the prior procedural cross. `InteractionReticleNativeIcons`
+  and `InteractionReticleSemantic` independently permit rollback.
+- Added state-aware focus feedback. Pickup, manipulation, traversal, social,
+  unavailable, and simple-hint states receive bounded amplitude/duration
+  profiles; the ambiguous default cursor does not trigger haptics.
+- Added deterministic semantic color and haptic-profile tests, validated all 36
+  installed crosshair TGAs as uncompressed 24/32-bit assets, updated Ghidra with
+  prototypes/comments/tags for the three script-global wrappers, and built/tested
+  default plus OpenXR x64 Release flavors. OpenXR SHA-256:
+  `0674E44B6C7C7151088627211F53104BC3A1AF4E3D53E22422CA50F350A8066C`.
+
 ### 0.20.0-depth-reticle
 
 - Added an opt-in controller interaction reticle as a source-alpha OpenXR quad

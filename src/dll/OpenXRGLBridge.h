@@ -8,6 +8,7 @@
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -60,6 +61,7 @@ public:
         bool suppressCenterCrosshair,
         int crosshairClearRadiusPixels,
         bool interactionReticleEnabled,
+        bool interactionReticleNativeIconsEnabled,
         int interactionReticleSizePixels);
     void Shutdown();
 
@@ -79,7 +81,12 @@ public:
     bool HudReady() const;
     bool HudCaptureFresh(uint64_t frameIndex, uint64_t maxAgeFrames) const;
     const HudSwapchain& Hud() const;
-    bool DrawInteractionReticleToSwapchain();
+    bool DrawInteractionReticleToSwapchain(
+        int crosshairState,
+        float red,
+        float green,
+        float blue,
+        float alpha);
     bool InteractionReticleReady() const;
     const ReticleSwapchain& InteractionReticle() const;
 
@@ -97,7 +104,14 @@ private:
     bool CreateHudCaptureTarget();
     bool CopyHudCaptureToImage(uint32_t imageIndex);
     bool CreateInteractionReticleSwapchain(XrSession session, int sizePixels);
-    bool DrawInteractionReticleToImage(uint32_t imageIndex);
+    void LoadInteractionReticleAssets();
+    bool DrawInteractionReticleToImage(
+        uint32_t imageIndex,
+        int crosshairState,
+        float red,
+        float green,
+        float blue,
+        float alpha);
     void RestoreHudCaptureState();
 
     XrSession session_ = XR_NULL_HANDLE;
@@ -105,6 +119,15 @@ private:
     std::vector<EyeSwapchain> eyes_;
     HudSwapchain hud_;
     ReticleSwapchain interactionReticle_;
+
+    struct ReticleAsset {
+        std::vector<uint8_t> pixels;
+        bool loaded = false;
+    };
+    std::array<ReticleAsset, 35> interactionReticleAssets_;
+    std::vector<uint8_t> interactionReticleUploadPixels_;
+    bool interactionReticleNativeIconsEnabled_ = false;
+    uint32_t interactionReticleAssetsLoaded_ = 0;
 
     struct HudCaptureState {
         bool active = false;

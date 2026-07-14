@@ -24,5 +24,6 @@ bool InstallHPLInteractionBridge(const Config& config, OpenXRRuntime* openxr);
 void RemoveHPLInteractionBridge();
 void LogHPLInteractionBridgeSummary();
 bool GetHPLInteractionHitSnapshot(HPLInteractionHitSnapshot& snapshot);
+void PublishHPLInteractionCrosshairState(int crosshairState);
 
 } // namespace somavr

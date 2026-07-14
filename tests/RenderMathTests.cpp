@@ -446,6 +446,45 @@ int main()
         gl_matrix::MatrixValuesText(perspective).find(',') != std::string::npos,
         "matrix value formatting");
 
+    hud_math::InteractionReticleColor reticleColor;
+    failures += Check(
+        !hud_math::ComputeInteractionReticleColor(0, reticleColor)
+            && !hud_math::ComputeInteractionReticleColor(35, reticleColor),
+        "semantic reticle rejects none and sentinel states");
+    failures += Check(
+        hud_math::ComputeInteractionReticleColor(14, reticleColor)
+            && Near(reticleColor.red, 0.25f)
+            && Near(reticleColor.green, 1.0f)
+            && Near(reticleColor.blue, 0.55f),
+        "semantic reticle classifies pickup state");
+    failures += Check(
+        hud_math::ComputeInteractionReticleColor(4, reticleColor)
+            && Near(reticleColor.red, 1.0f)
+            && Near(reticleColor.green, 0.72f)
+            && Near(reticleColor.blue, 0.20f),
+        "semantic reticle classifies manipulation state");
+    failures += Check(
+        hud_math::ComputeInteractionReticleColor(30, reticleColor)
+            && Near(reticleColor.red, 1.0f)
+            && Near(reticleColor.green, 0.30f)
+            && Near(reticleColor.blue, 0.25f),
+        "semantic reticle classifies unavailable state");
+    float hapticAmplitudeScale = 0.0f;
+    float hapticDurationScale = 0.0f;
+    failures += Check(
+        !hud_math::ComputeInteractionHapticProfile(1, hapticAmplitudeScale, hapticDurationScale),
+        "semantic focus haptics ignore default cursor");
+    failures += Check(
+        hud_math::ComputeInteractionHapticProfile(14, hapticAmplitudeScale, hapticDurationScale)
+            && Near(hapticAmplitudeScale, 0.75f)
+            && Near(hapticDurationScale, 0.80f),
+        "semantic focus haptics classify pickup state");
+    failures += Check(
+        hud_math::ComputeInteractionHapticProfile(4, hapticAmplitudeScale, hapticDurationScale)
+            && Near(hapticAmplitudeScale, 1.15f)
+            && Near(hapticDurationScale, 1.25f),
+        "semantic focus haptics classify manipulation state");
+
     if (failures == 0) {
         std::cout << "Render math tests passed\n";
     }

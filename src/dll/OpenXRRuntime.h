@@ -78,6 +78,8 @@ struct OpenXRInputSnapshot {
 
 struct OpenXRInteractionReticleState {
     bool valid = false;
+    bool semanticValid = false;
+    int semanticState = 0;
     uint64_t gameFrame = 0;
     uint32_t handIndex = 1;
     float distanceMeters = 0.0f;
@@ -139,6 +141,8 @@ public:
         bool hudSuppressCenterCrosshair,
         int hudCrosshairClearRadiusPixels,
         bool interactionReticleEnabled,
+        bool interactionReticleSemanticEnabled,
+        bool interactionReticleNativeIconsEnabled,
         int interactionReticleSizePixels,
         float interactionReticleAngularSizeDegrees,
         float interactionReticleMinSizeMeters,
@@ -164,6 +168,7 @@ public:
     bool BeginHudCapture(uint64_t frameIndex);
     bool EndHudCapture(uint64_t frameIndex);
     void SetInteractionReticle(const OpenXRInteractionReticleState& state);
+    void SetInteractionReticleSemantic(int crosshairState);
     void ClearInteractionReticle();
 
 private:

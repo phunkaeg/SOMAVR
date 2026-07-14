@@ -10,7 +10,10 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <limits>
+#include <string>
 
 namespace somavr {
 namespace {
@@ -34,6 +37,7 @@ constexpr uint32_t kGlScissorBox = 0x0C10;
 constexpr uint32_t kGlColorClearValue = 0x0C22;
 constexpr uint32_t kGlColorWriteMask = 0x0C23;
 constexpr uint32_t kGlColorBufferBit = 0x00004000;
+constexpr uint32_t kGlUnpackAlignment = 0x0CF5;
 constexpr uint32_t kGlLinear = 0x2601;
 constexpr int64_t kGlSrgb8Alpha8 = 0x8C43;
 constexpr int64_t kGlRgba8 = 0x8058;
@@ -79,6 +83,7 @@ bool OpenXRGLBridge::Initialize(
     bool suppressCenterCrosshair,
     int crosshairClearRadiusPixels,
     bool interactionReticleEnabled,
+    bool interactionReticleNativeIconsEnabled,
     int interactionReticleSizePixels)
 {
     Shutdown();
@@ -117,6 +122,7 @@ bool OpenXRGLBridge::Initialize(
     session_ = session;
     suppressCenterCrosshair_ = suppressCenterCrosshair;
     crosshairClearRadiusPixels_ = std::clamp(crosshairClearRadiusPixels, 4, 256);
+    interactionReticleNativeIconsEnabled_ = interactionReticleNativeIconsEnabled;
     eyes_.reserve(2);
     for (uint32_t eyeIndex = 0; eyeIndex < 2; ++eyeIndex) {
         if (!CreateEyeSwapchain(session, views[eyeIndex], eyeIndex, resolutionScalePercent)) {
@@ -138,10 +144,13 @@ bool OpenXRGLBridge::Initialize(
             "openxr_interaction_reticle disabled reason=swapchain_creation_failed requestedSize=%d",
             interactionReticleSizePixels);
     }
+    if (InteractionReticleReady() && interactionReticleNativeIconsEnabled_) {
+        LoadInteractionReticleAssets();
+    }
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "openxr_gl_bridge ready eyes=%zu format=0x%llx(%s) resolutionScalePercent=%d hudReady=%d hudSize=%dx%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d interactionReticleReady=%d reticleSize=%dx%d",
+        "openxr_gl_bridge ready eyes=%zu format=0x%llx(%s) resolutionScalePercent=%d hudReady=%d hudSize=%dx%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d interactionReticleReady=%d reticleSize=%dx%d nativeReticleIcons=%u",
         eyes_.size(),
         static_cast<unsigned long long>(colorFormat_),
         GlFormatName(colorFormat_),
@@ -153,7 +162,8 @@ bool OpenXRGLBridge::Initialize(
         crosshairClearRadiusPixels_,
         InteractionReticleReady() ? 1 : 0,
         interactionReticle_.width,
-        interactionReticle_.height);
+        interactionReticle_.height,
+        interactionReticleAssetsLoaded_);
     return true;
 }
 
@@ -207,6 +217,10 @@ void OpenXRGLBridge::Shutdown()
         xrDestroySwapchain(interactionReticle_.handle);
     }
     interactionReticle_ = {};
+    interactionReticleAssets_ = {};
+    interactionReticleUploadPixels_.clear();
+    interactionReticleNativeIconsEnabled_ = false;
+    interactionReticleAssetsLoaded_ = 0;
     hudCaptureState_ = {};
     session_ = XR_NULL_HANDLE;
     colorFormat_ = 0;
@@ -539,7 +553,12 @@ const OpenXRGLBridge::HudSwapchain& OpenXRGLBridge::Hud() const
     return hud_;
 }
 
-bool OpenXRGLBridge::DrawInteractionReticleToSwapchain()
+bool OpenXRGLBridge::DrawInteractionReticleToSwapchain(
+    int crosshairState,
+    float red,
+    float green,
+    float blue,
+    float alpha)
 {
     if (!InteractionReticleReady()) {
         return false;
@@ -567,7 +586,13 @@ bool OpenXRGLBridge::DrawInteractionReticleToSwapchain()
         return false;
     }
 
-    const bool drawn = DrawInteractionReticleToImage(imageIndex);
+    const bool drawn = DrawInteractionReticleToImage(
+        imageIndex,
+        crosshairState,
+        red,
+        green,
+        blue,
+        alpha);
     glFlush();
     XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
     result = xrReleaseSwapchainImage(interactionReticle_.handle, &releaseInfo);
@@ -995,10 +1020,185 @@ bool OpenXRGLBridge::CreateInteractionReticleSwapchain(XrSession session, int si
     return true;
 }
 
-bool OpenXRGLBridge::DrawInteractionReticleToImage(uint32_t imageIndex)
+void OpenXRGLBridge::LoadInteractionReticleAssets()
+{
+    static constexpr std::array<const wchar_t*, 35> kAssetNames = {
+        nullptr,
+        L"crosshair_default.tga",
+        L"crosshair_carry_one_handed.tga",
+        L"crosshair_carry_two_handed.tga",
+        L"crosshair_push.tga",
+        L"crosshair_pull_lever.tga",
+        L"crosshair_pull_lever_small.tga",
+        L"crosshair_pull_sideways.tga",
+        L"crosshair_pull_out.tga",
+        L"crosshair_pull_door.tga",
+        L"crosshair_pull_door_hatch.tga",
+        L"crosshair_rotate.tga",
+        L"crosshair_rotate_one_handed.tga",
+        L"crosshair_push_button.tga",
+        L"crosshair_pick_up.tga",
+        L"crosshair_use_tool_insert.tga",
+        L"crosshair_use_tool_action.tga",
+        L"crosshair_terminal.tga",
+        L"crosshair_datamine.tga",
+        L"crosshair_climb_ladder.tga",
+        L"crosshair_talk.tga",
+        L"crosshair_eat.tga",
+        L"crosshair_read.tga",
+        L"crosshair_exit_level.tga",
+        L"crosshair_climb_ledge.tga",
+        L"crosshair_sit_down.tga",
+        L"crosshair_default_large.tga",
+        L"crosshair_default_large_clear.tga",
+        L"crosshair_magnify.tga",
+        L"crosshair_recharge.tga",
+        L"crosshair_recharge_bad.tga",
+        L"crosshair_talk_busy.tga",
+        L"crosshair_pull_vertical.tga",
+        L"crosshair_shock.tga",
+        L"crosshair_nohints.tga",
+    };
+
+    wchar_t executablePath[32768] = {};
+    const DWORD pathLength = GetModuleFileNameW(
+        nullptr,
+        executablePath,
+        static_cast<DWORD>(std::size(executablePath)));
+    if (pathLength == 0 || pathLength >= std::size(executablePath)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_interaction_reticle native_assets_failed reason=executable_path");
+        return;
+    }
+    const std::filesystem::path assetRoot = std::filesystem::path(
+        std::wstring(executablePath, pathLength)).parent_path() / L"graphics" / L"hud";
+    const int canvasSize = interactionReticle_.width;
+    const int drawableSize = std::max(canvasSize - std::max(canvasSize / 10, 4), 1);
+    interactionReticleAssetsLoaded_ = 0;
+
+    for (size_t state = 1; state < kAssetNames.size(); ++state) {
+        std::ifstream stream(assetRoot / kAssetNames[state], std::ios::binary | std::ios::ate);
+        if (!stream) continue;
+        const std::streamsize fileSize = stream.tellg();
+        if (fileSize < 18 || fileSize > 16 * 1024 * 1024) continue;
+        stream.seekg(0, std::ios::beg);
+        std::vector<uint8_t> file(static_cast<size_t>(fileSize));
+        if (!stream.read(reinterpret_cast<char*>(file.data()), fileSize)) continue;
+
+        const uint8_t idLength = file[0];
+        const uint8_t colorMapType = file[1];
+        const uint8_t imageType = file[2];
+        const uint16_t sourceWidth = static_cast<uint16_t>(file[12] | (file[13] << 8));
+        const uint16_t sourceHeight = static_cast<uint16_t>(file[14] | (file[15] << 8));
+        const uint8_t bitsPerPixel = file[16];
+        const size_t bytesPerPixel = bitsPerPixel / 8;
+        const size_t sourceOffset = 18 + idLength;
+        const size_t sourceBytes = static_cast<size_t>(sourceWidth) * sourceHeight * bytesPerPixel;
+        if (colorMapType != 0
+            || imageType != 2
+            || (bitsPerPixel != 24 && bitsPerPixel != 32)
+            || sourceWidth == 0
+            || sourceHeight == 0
+            || sourceOffset > file.size()
+            || sourceBytes > file.size() - sourceOffset) {
+            continue;
+        }
+
+        const float scale = std::min(
+            static_cast<float>(drawableSize) / sourceWidth,
+            static_cast<float>(drawableSize) / sourceHeight);
+        const int targetWidth = std::max(1, static_cast<int>(std::lround(sourceWidth * scale)));
+        const int targetHeight = std::max(1, static_cast<int>(std::lround(sourceHeight * scale)));
+        const int targetX = (canvasSize - targetWidth) / 2;
+        const int targetY = (canvasSize - targetHeight) / 2;
+        ReticleAsset& asset = interactionReticleAssets_[state];
+        asset.pixels.assign(static_cast<size_t>(canvasSize) * canvasSize * 4, 0);
+        const bool topOrigin = (file[17] & 0x20) != 0;
+        const bool rightOrigin = (file[17] & 0x10) != 0;
+        for (int y = 0; y < targetHeight; ++y) {
+            uint32_t sourceY = std::min<uint32_t>(
+                static_cast<uint32_t>(y * sourceHeight / targetHeight),
+                sourceHeight - 1);
+            if (topOrigin) sourceY = sourceHeight - 1 - sourceY;
+            for (int x = 0; x < targetWidth; ++x) {
+                uint32_t sourceX = std::min<uint32_t>(
+                    static_cast<uint32_t>(x * sourceWidth / targetWidth),
+                    sourceWidth - 1);
+                if (rightOrigin) sourceX = sourceWidth - 1 - sourceX;
+                const size_t sourcePixel = sourceOffset
+                    + (static_cast<size_t>(sourceY) * sourceWidth + sourceX) * bytesPerPixel;
+                const size_t targetPixel = (static_cast<size_t>(targetY + y) * canvasSize
+                    + static_cast<size_t>(targetX + x)) * 4;
+                asset.pixels[targetPixel + 0] = file[sourcePixel + 2];
+                asset.pixels[targetPixel + 1] = file[sourcePixel + 1];
+                asset.pixels[targetPixel + 2] = file[sourcePixel + 0];
+                asset.pixels[targetPixel + 3] = bitsPerPixel == 32 ? file[sourcePixel + 3] : 255;
+            }
+        }
+        asset.loaded = true;
+        ++interactionReticleAssetsLoaded_;
+    }
+
+    Logger::Instance().Write(
+        interactionReticleAssetsLoaded_ == 34 ? LogLevel::Info : LogLevel::Warn,
+        "openxr_interaction_reticle native_assets_loaded count=%u expected=34 root=%ls",
+        interactionReticleAssetsLoaded_,
+        assetRoot.c_str());
+}
+
+bool OpenXRGLBridge::DrawInteractionReticleToImage(
+    uint32_t imageIndex,
+    int crosshairState,
+    float red,
+    float green,
+    float blue,
+    float alpha)
 {
     if (!InteractionReticleReady() || imageIndex >= interactionReticle_.framebuffers.size()) {
         return false;
+    }
+
+    if (interactionReticleNativeIconsEnabled_
+        && crosshairState > 0
+        && crosshairState < static_cast<int>(interactionReticleAssets_.size())
+        && interactionReticleAssets_[crosshairState].loaded) {
+        const ReticleAsset& asset = interactionReticleAssets_[crosshairState];
+        interactionReticleUploadPixels_.resize(asset.pixels.size());
+        const float colorRed = std::clamp(red, 0.0f, 1.0f);
+        const float colorGreen = std::clamp(green, 0.0f, 1.0f);
+        const float colorBlue = std::clamp(blue, 0.0f, 1.0f);
+        const float colorAlpha = std::clamp(alpha, 0.0f, 1.0f);
+        for (size_t pixel = 0; pixel < asset.pixels.size(); pixel += 4) {
+            interactionReticleUploadPixels_[pixel + 0] = static_cast<uint8_t>(
+                std::lround(asset.pixels[pixel + 0] * colorRed));
+            interactionReticleUploadPixels_[pixel + 1] = static_cast<uint8_t>(
+                std::lround(asset.pixels[pixel + 1] * colorGreen));
+            interactionReticleUploadPixels_[pixel + 2] = static_cast<uint8_t>(
+                std::lround(asset.pixels[pixel + 2] * colorBlue));
+            interactionReticleUploadPixels_[pixel + 3] = static_cast<uint8_t>(
+                std::lround(asset.pixels[pixel + 3] * colorAlpha));
+        }
+
+        int32_t savedTexture = 0;
+        int32_t savedUnpackAlignment = 0;
+        glGetIntegerv(kGlTextureBinding2D, &savedTexture);
+        glGetIntegerv(kGlUnpackAlignment, &savedUnpackAlignment);
+        glBindTexture(kGlTexture2D, interactionReticle_.images[imageIndex].image);
+        glPixelStorei(kGlUnpackAlignment, 1);
+        glTexSubImage2D(
+            kGlTexture2D,
+            0,
+            0,
+            0,
+            interactionReticle_.width,
+            interactionReticle_.height,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            interactionReticleUploadPixels_.data());
+        glPixelStorei(kGlUnpackAlignment, savedUnpackAlignment);
+        glBindTexture(kGlTexture2D, static_cast<uint32_t>(savedTexture));
+        return true;
     }
 
     int32_t savedReadFramebuffer = 0;
@@ -1047,7 +1247,12 @@ bool OpenXRGLBridge::DrawInteractionReticleToImage(uint32_t imageIndex)
         glClear(kGlColorBufferBit);
     };
     drawSegments(shadowThickness, 0.0f, 0.0f, 0.0f, 0.75f);
-    drawSegments(lineThickness, 0.30f, 0.95f, 1.0f, 0.95f);
+    drawSegments(
+        lineThickness,
+        std::clamp(red, 0.0f, 1.0f),
+        std::clamp(green, 0.0f, 1.0f),
+        std::clamp(blue, 0.0f, 1.0f),
+        std::clamp(alpha, 0.0f, 1.0f));
 
     glBindFramebuffer_(kGlReadFramebuffer, static_cast<uint32_t>(savedReadFramebuffer));
     glReadBuffer(static_cast<uint32_t>(savedReadBuffer));

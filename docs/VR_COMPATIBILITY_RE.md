@@ -120,7 +120,15 @@ the bridge validates distance against native ray length and publishes the HPL
 world hit point with frame and hand identity. `0.20.0` submits that exact aim and
 distance as a generic application-space OpenXR reticle, with age/tracking/range
 guards and optional focus-change haptics. No-hit and invalid results clear both
-snapshot and layer validity. Crosshair icon semantics and world occlusion remain.
+snapshot and layer validity.
+
+`0.21.0` observes the post-policy crosshair callback through registered global
+script dispatch `0x140484ea0` and argument reader `0x1404851d0`. The exact
+`eCrossHairState` selects the 34 native TGA assets named by `Player.hps`, broad
+intent color, and a bounded focus-haptic profile while SOMA keeps all interaction
+authority. The default cursor remains semantically ambiguous and deliberately
+does not pulse. World occlusion remains a live-test question rather than a new
+geometry query in this build.
 
 ### Semantic camera comfort
 

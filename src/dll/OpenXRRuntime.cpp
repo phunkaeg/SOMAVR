@@ -127,6 +127,8 @@ struct OpenXRRuntime::Impl {
         bool hudSuppressCenterCrosshair,
         int hudCrosshairClearRadiusPixels,
         bool interactionReticleEnabled,
+        bool interactionReticleSemanticEnabled,
+        bool interactionReticleNativeIconsEnabled,
         int interactionReticleSizePixels,
         float interactionReticleAngularSizeDegrees,
         float interactionReticleMinSizeMeters,
@@ -162,6 +164,8 @@ struct OpenXRRuntime::Impl {
         hudSuppressCenterCrosshair_ = hudSuppressCenterCrosshair;
         hudCrosshairClearRadiusPixels_ = std::clamp(hudCrosshairClearRadiusPixels, 4, 256);
         interactionReticleEnabled_ = interactionReticleEnabled;
+        interactionReticleSemanticEnabled_ = interactionReticleSemanticEnabled;
+        interactionReticleNativeIconsEnabled_ = interactionReticleNativeIconsEnabled;
         interactionReticleSizePixels_ = std::clamp(interactionReticleSizePixels, 32, 512);
         interactionReticleAngularSizeDegrees_ = std::clamp(interactionReticleAngularSizeDegrees, 0.1f, 5.0f);
         interactionReticleMinSizeMeters_ = std::clamp(interactionReticleMinSizeMeters, 0.001f, 0.5f);
@@ -187,7 +191,7 @@ struct OpenXRRuntime::Impl {
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
+            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -214,6 +218,8 @@ struct OpenXRRuntime::Impl {
             hudSuppressCenterCrosshair_ ? 1 : 0,
             hudCrosshairClearRadiusPixels_,
             interactionReticleEnabled_ ? 1 : 0,
+            interactionReticleSemanticEnabled_ ? 1 : 0,
+            interactionReticleNativeIconsEnabled_ ? 1 : 0,
             interactionReticleSizePixels_,
             interactionReticleAngularSizeDegrees_,
             interactionReticleMinSizeMeters_,
@@ -400,10 +406,16 @@ struct OpenXRRuntime::Impl {
             << " openxrHudSubmittedFrames=" << static_cast<unsigned long long>(hudSubmittedFrames_)
             << " openxrHudSubmissionFailures=" << static_cast<unsigned long long>(hudSubmissionFailures_)
             << " openxrInteractionReticle=" << (interactionReticleEnabled_ ? 1 : 0)
+            << " openxrInteractionReticleSemantic=" << (interactionReticleSemanticEnabled_ ? 1 : 0)
+            << " openxrInteractionReticleNativeIcons=" << (interactionReticleNativeIconsEnabled_ ? 1 : 0)
             << " openxrInteractionReticleReady=" << (glBridge_.InteractionReticleReady() ? 1 : 0)
             << " openxrInteractionReticleValid=" << (interactionReticleState_.valid ? 1 : 0)
+            << " openxrInteractionReticleSemanticValid=" << (interactionReticleState_.semanticValid ? 1 : 0)
+            << " openxrInteractionReticleSemanticState=" << interactionReticleState_.semanticState
             << " openxrInteractionReticleSuspended=" << (interactionReticleSubmissionSuspended_ ? 1 : 0)
             << " openxrInteractionReticleUpdates=" << static_cast<unsigned long long>(interactionReticleUpdates_)
+            << " openxrInteractionReticleSemanticUpdates=" << static_cast<unsigned long long>(interactionReticleSemanticUpdates_)
+            << " openxrInteractionReticleSemanticRejects=" << static_cast<unsigned long long>(interactionReticleSemanticRejects_)
             << " openxrInteractionReticleClears=" << static_cast<unsigned long long>(interactionReticleClears_)
             << " openxrInteractionReticleExpired=" << static_cast<unsigned long long>(interactionReticleExpired_)
             << " openxrInteractionReticleSubmittedFrames=" << static_cast<unsigned long long>(interactionReticleSubmittedFrames_)
@@ -533,7 +545,31 @@ struct OpenXRRuntime::Impl {
             return;
         }
         interactionReticleState_ = state;
+        interactionReticleState_.semanticValid = !interactionReticleSemanticEnabled_;
+        interactionReticleState_.semanticState = interactionReticleSemanticEnabled_ ? 0 : 1;
         ++interactionReticleUpdates_;
+    }
+
+    void SetInteractionReticleSemantic(int crosshairState)
+    {
+        std::lock_guard lock(mutex_);
+        if (!interactionReticleEnabled_ || !interactionReticleSemanticEnabled_) {
+            return;
+        }
+        if (!interactionReticleState_.valid || crosshairState <= 0 || crosshairState >= 35) {
+            if (interactionReticleState_.valid && crosshairState == 0) {
+                interactionReticleState_ = {};
+                ++interactionReticleClears_;
+            } else if (interactionReticleState_.valid) {
+                interactionReticleState_.semanticValid = false;
+                interactionReticleState_.semanticState = 0;
+            }
+            ++interactionReticleSemanticRejects_;
+            return;
+        }
+        interactionReticleState_.semanticValid = true;
+        interactionReticleState_.semanticState = crosshairState;
+        ++interactionReticleSemanticUpdates_;
     }
 
     void ClearInteractionReticle()
@@ -1388,6 +1424,7 @@ private:
                 hudSuppressCenterCrosshair_,
                 hudCrosshairClearRadiusPixels_,
                 interactionReticleEnabled_,
+                interactionReticleNativeIconsEnabled_,
                 interactionReticleSizePixels_)) {
             xrDestroySpace(appSpace_);
             appSpace_ = XR_NULL_HANDLE;
@@ -1818,6 +1855,7 @@ private:
             && stereoSubmissionEnabled_
             && appSpace_ != XR_NULL_HANDLE
             && interactionReticleFresh
+            && interactionReticleState_.semanticValid
             && glBridge_.InteractionReticleReady()) {
             const float distanceMeters = interactionReticleState_.distanceMeters;
             float reticleSizeMeters = 0.0f;
@@ -1828,8 +1866,12 @@ private:
                 interactionReticleMaxSizeMeters_,
                 reticleSizeMeters);
             const OpenXRControllerPose& aim = interactionReticleState_.aimPose;
+            hud_math::InteractionReticleColor reticleColor;
+            const bool colorValid = hud_math::ComputeInteractionReticleColor(
+                interactionReticleState_.semanticState,
+                reticleColor);
             hud_math::HudQuadPose reticlePose;
-            const bool poseValid = sizeValid && hud_math::BuildHeadLockedQuadPose(
+            const bool poseValid = sizeValid && colorValid && hud_math::BuildHeadLockedQuadPose(
                 {aim.positionX, aim.positionY, aim.positionZ},
                 {aim.orientationX, aim.orientationY, aim.orientationZ, aim.orientationW},
                 distanceMeters,
@@ -1837,7 +1879,12 @@ private:
                 reticleSizeMeters,
                 1.0f,
                 reticlePose);
-            if (poseValid && glBridge_.DrawInteractionReticleToSwapchain()) {
+            if (poseValid && glBridge_.DrawInteractionReticleToSwapchain(
+                    interactionReticleState_.semanticState,
+                    reticleColor.red,
+                    reticleColor.green,
+                    reticleColor.blue,
+                    reticleColor.alpha)) {
                 interactionReticleLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
                 interactionReticleLayer.space = appSpace_;
                 interactionReticleLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
@@ -2078,6 +2125,8 @@ private:
     bool hudSuppressCenterCrosshair_ = false;
     int hudCrosshairClearRadiusPixels_ = 48;
     bool interactionReticleEnabled_ = false;
+    bool interactionReticleSemanticEnabled_ = false;
+    bool interactionReticleNativeIconsEnabled_ = false;
     bool interactionReticleSubmissionSuspended_ = false;
     int interactionReticleSizePixels_ = 64;
     float interactionReticleAngularSizeDegrees_ = 0.75f;
@@ -2110,6 +2159,8 @@ private:
     uint64_t hudSubmissionFailures_ = 0;
     uint32_t interactionReticleConsecutiveFailures_ = 0;
     uint64_t interactionReticleUpdates_ = 0;
+    uint64_t interactionReticleSemanticUpdates_ = 0;
+    uint64_t interactionReticleSemanticRejects_ = 0;
     uint64_t interactionReticleClears_ = 0;
     uint64_t interactionReticleExpired_ = 0;
     uint64_t interactionReticleSubmittedFrames_ = 0;
@@ -2185,6 +2236,8 @@ struct OpenXRRuntime::Impl {
         bool hudSuppressCenterCrosshair,
         int hudCrosshairClearRadiusPixels,
         bool interactionReticleEnabled,
+        bool interactionReticleSemanticEnabled,
+        bool interactionReticleNativeIconsEnabled,
         int interactionReticleSizePixels,
         float interactionReticleAngularSizeDegrees,
         float interactionReticleMinSizeMeters,
@@ -2215,7 +2268,7 @@ struct OpenXRRuntime::Impl {
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
+            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -2242,6 +2295,8 @@ struct OpenXRRuntime::Impl {
             hudSuppressCenterCrosshair ? 1 : 0,
             hudCrosshairClearRadiusPixels,
             interactionReticleEnabled ? 1 : 0,
+            interactionReticleSemanticEnabled ? 1 : 0,
+            interactionReticleNativeIconsEnabled ? 1 : 0,
             interactionReticleSizePixels,
             interactionReticleAngularSizeDegrees,
             interactionReticleMinSizeMeters,
@@ -2341,6 +2396,7 @@ struct OpenXRRuntime::Impl {
 
     bool RequestHapticPulse(uint32_t, float, int, const char*) { return false; }
     void SetInteractionReticle(const OpenXRInteractionReticleState&) {}
+    void SetInteractionReticleSemantic(int) {}
     void ClearInteractionReticle() {}
 
     void SetStereoSubmissionEnabled(bool) {}
@@ -2418,6 +2474,8 @@ void OpenXRRuntime::Configure(
     bool hudSuppressCenterCrosshair,
     int hudCrosshairClearRadiusPixels,
     bool interactionReticleEnabled,
+    bool interactionReticleSemanticEnabled,
+    bool interactionReticleNativeIconsEnabled,
     int interactionReticleSizePixels,
     float interactionReticleAngularSizeDegrees,
     float interactionReticleMinSizeMeters,
@@ -2453,6 +2511,8 @@ void OpenXRRuntime::Configure(
         hudSuppressCenterCrosshair,
         hudCrosshairClearRadiusPixels,
         interactionReticleEnabled,
+        interactionReticleSemanticEnabled,
+        interactionReticleNativeIconsEnabled,
         interactionReticleSizePixels,
         interactionReticleAngularSizeDegrees,
         interactionReticleMinSizeMeters,
@@ -2510,6 +2570,11 @@ bool OpenXRRuntime::GetLatestInput(OpenXRInputSnapshot& input) const
 void OpenXRRuntime::SetInteractionReticle(const OpenXRInteractionReticleState& state)
 {
     impl_->SetInteractionReticle(state);
+}
+
+void OpenXRRuntime::SetInteractionReticleSemantic(int crosshairState)
+{
+    impl_->SetInteractionReticleSemantic(crosshairState);
 }
 
 void OpenXRRuntime::ClearInteractionReticle()

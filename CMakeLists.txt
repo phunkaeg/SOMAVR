@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.20.0-depth-reticle")
+set(SOMAVR_BUILD_VERSION "0.21.0-semantic-reticle")
 
 include(FetchContent)
 
@@ -85,6 +85,7 @@ add_library(somavr SHARED
     src/dll/HPLMenuBridge.cpp
     src/dll/HPLNativeLocomotion.cpp
     src/dll/HPLInteractionBridge.cpp
+    src/dll/HPLCrosshairBridge.cpp
     src/dll/HPLHandsBridge.cpp
     src/dll/HPLGrabBridge.cpp
     src/dll/HPLPlayerState.cpp

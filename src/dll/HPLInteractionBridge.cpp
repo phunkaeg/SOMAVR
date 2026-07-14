@@ -1,6 +1,7 @@
 #include "HPLInteractionBridge.h"
 
 #include "HPLCameraBridge.h"
+#include "HPLHudMath.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
 
@@ -52,6 +53,8 @@ std::atomic<uint64_t> g_fallbackTracking = 0;
 std::atomic<uint64_t> g_fallbackOrigin = 0;
 std::atomic<uint64_t> g_hitSnapshots = 0;
 std::atomic<uint64_t> g_reticleUpdates = 0;
+std::atomic<uint64_t> g_semanticStates = 0;
+std::atomic<uint64_t> g_semanticAccepted = 0;
 std::atomic<uint64_t> g_focusHapticRequests = 0;
 std::atomic<uint64_t> g_focusHapticApplied = 0;
 std::atomic<uintptr_t> g_lastFocusTarget = 0;
@@ -155,27 +158,6 @@ bool PublishHitSnapshot(
         g_reticleUpdates.fetch_add(1, std::memory_order_relaxed);
     }
 
-    void* focusTarget = entity != nullptr ? entity : body;
-    const uintptr_t targetValue = reinterpret_cast<uintptr_t>(focusTarget);
-    const uintptr_t previousTarget = g_lastFocusTarget.exchange(targetValue, std::memory_order_relaxed);
-    const uint64_t lastHapticFrame = g_lastFocusHapticFrame.load(std::memory_order_relaxed);
-    const uint64_t cooldown = static_cast<uint64_t>(g_config.hplControllerFocusHapticCooldownFrames);
-    if (g_config.hplControllerHaptics
-        && g_config.hplControllerFocusHaptics
-        && g_openxr != nullptr
-        && targetValue != 0
-        && targetValue != previousTarget
-        && (lastHapticFrame == 0 || gameFrame >= lastHapticFrame + cooldown)) {
-        g_focusHapticRequests.fetch_add(1, std::memory_order_relaxed);
-        g_lastFocusHapticFrame.store(gameFrame, std::memory_order_relaxed);
-        if (g_openxr->RequestHapticPulse(
-                handIndex,
-                g_config.hplControllerFocusHapticAmplitude,
-                g_config.hplControllerFocusHapticDurationMs,
-                "interaction_focus_changed")) {
-            g_focusHapticApplied.fetch_add(1, std::memory_order_relaxed);
-        }
-    }
     return true;
 }
 
@@ -411,13 +393,15 @@ void LogHPLInteractionBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_interaction_bridge_summary installed=%d calls=%llu substitutions=%llu hits=%llu hitSnapshots=%llu reticleUpdates=%llu focusHapticRequests=%llu focusHapticApplied=%llu fallbackDisabled=%llu fallbackQueryType=%llu fallbackAuthoredCamera=%llu fallbackCamera=%llu fallbackInput=%llu fallbackTracking=%llu fallbackOrigin=%llu",
+        "hpl_interaction_bridge_summary installed=%d calls=%llu substitutions=%llu hits=%llu hitSnapshots=%llu reticleUpdates=%llu semanticStates=%llu semanticAccepted=%llu focusHapticRequests=%llu focusHapticApplied=%llu fallbackDisabled=%llu fallbackQueryType=%llu fallbackAuthoredCamera=%llu fallbackCamera=%llu fallbackInput=%llu fallbackTracking=%llu fallbackOrigin=%llu",
         g_getClosestEntityTarget != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_calls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_substitutions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_substitutionHits.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hitSnapshots.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_reticleUpdates.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_semanticStates.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_semanticAccepted.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_focusHapticRequests.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_focusHapticApplied.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_fallbackDisabled.load(std::memory_order_relaxed)),
@@ -434,6 +418,59 @@ bool GetHPLInteractionHitSnapshot(HPLInteractionHitSnapshot& snapshot)
     std::lock_guard lock(g_hitMutex);
     snapshot = g_latestHit;
     return snapshot.valid;
+}
+
+void PublishHPLInteractionCrosshairState(int crosshairState)
+{
+    g_semanticStates.fetch_add(1, std::memory_order_relaxed);
+    if (g_openxr != nullptr) {
+        g_openxr->SetInteractionReticleSemantic(crosshairState);
+    }
+    if (crosshairState <= 1 || crosshairState >= 35) {
+        g_lastFocusTarget.store(0, std::memory_order_relaxed);
+        return;
+    }
+
+    HPLInteractionHitSnapshot snapshot;
+    if (!GetHPLInteractionHitSnapshot(snapshot)) {
+        return;
+    }
+    g_semanticAccepted.fetch_add(1, std::memory_order_relaxed);
+
+    void* focusTarget = snapshot.entity != nullptr ? snapshot.entity : snapshot.body;
+    const uintptr_t targetValue = reinterpret_cast<uintptr_t>(focusTarget);
+    const uintptr_t previousTarget = g_lastFocusTarget.exchange(targetValue, std::memory_order_relaxed);
+    const uint64_t lastHapticFrame = g_lastFocusHapticFrame.load(std::memory_order_relaxed);
+    const uint64_t cooldown = static_cast<uint64_t>(g_config.hplControllerFocusHapticCooldownFrames);
+    float hapticAmplitudeScale = 1.0f;
+    float hapticDurationScale = 1.0f;
+    const bool hapticProfileValid = hud_math::ComputeInteractionHapticProfile(
+        crosshairState,
+        hapticAmplitudeScale,
+        hapticDurationScale);
+    if (g_config.hplControllerHaptics
+        && g_config.hplControllerFocusHaptics
+        && hapticProfileValid
+        && g_openxr != nullptr
+        && targetValue != 0
+        && targetValue != previousTarget
+        && (lastHapticFrame == 0 || snapshot.gameFrame >= lastHapticFrame + cooldown)) {
+        g_focusHapticRequests.fetch_add(1, std::memory_order_relaxed);
+        g_lastFocusHapticFrame.store(snapshot.gameFrame, std::memory_order_relaxed);
+        if (g_openxr->RequestHapticPulse(
+                snapshot.handIndex,
+                std::clamp(
+                    g_config.hplControllerFocusHapticAmplitude * hapticAmplitudeScale,
+                    0.0f,
+                    1.0f),
+                std::max(
+                    1,
+                    static_cast<int>(std::lround(
+                        g_config.hplControllerFocusHapticDurationMs * hapticDurationScale))),
+                "interaction_semantic_focus_profile")) {
+            g_focusHapticApplied.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
 }
 
 } // namespace somavr

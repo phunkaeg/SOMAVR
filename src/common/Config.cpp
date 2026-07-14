@@ -247,6 +247,12 @@ void ConfigManager::WriteDefaultConfig() const
         << "ThrowVelocityThreshold=0.35\n"
         << "ThrowVelocityReference=2.0\n"
         << "ManipulationMappings=1\n"
+        << "ManipulationMotion=0\n"
+        << "ManipulationMotionPixelsPerMeter=900\n"
+        << "ManipulationMotionDeadzoneMeters=0.0005\n"
+        << "ManipulationMotionMaxPixelsPerFrame=80\n"
+        << "ManipulationMotionHorizontalSign=1\n"
+        << "ManipulationMotionVerticalSign=-1\n"
         << "HandTrackingProbe=0\n"
         << "HandControllerRoot=0\n"
         << "HandRootOffsetX=0.0\n"
@@ -493,6 +499,12 @@ void ConfigManager::LoadFromFile()
             else if (key == "throwvelocitythreshold") config_.hplControllerThrowVelocityThreshold = ParseFloat(value, config_.hplControllerThrowVelocityThreshold, 0.0f, 5.0f);
             else if (key == "throwvelocityreference") config_.hplControllerThrowVelocityReference = ParseFloat(value, config_.hplControllerThrowVelocityReference, 0.1f, 10.0f);
             else if (key == "manipulationmappings") config_.hplControllerManipulationMappings = ParseBool(value, config_.hplControllerManipulationMappings);
+            else if (key == "manipulationmotion") config_.hplControllerManipulationMotion = ParseBool(value, config_.hplControllerManipulationMotion);
+            else if (key == "manipulationmotionpixelspermeter") config_.hplControllerManipulationMotionPixelsPerMeter = ParseFloat(value, config_.hplControllerManipulationMotionPixelsPerMeter, 10.0f, 10000.0f);
+            else if (key == "manipulationmotiondeadzonemeters") config_.hplControllerManipulationMotionDeadzoneMeters = ParseFloat(value, config_.hplControllerManipulationMotionDeadzoneMeters, 0.0f, 0.05f);
+            else if (key == "manipulationmotionmaxpixelsperframe") config_.hplControllerManipulationMotionMaxPixelsPerFrame = ParseInt(value, config_.hplControllerManipulationMotionMaxPixelsPerFrame, 1, 1000);
+            else if (key == "manipulationmotionhorizontalsign") config_.hplControllerManipulationMotionHorizontalSign = ParseFloat(value, config_.hplControllerManipulationMotionHorizontalSign, -1.0f, 1.0f);
+            else if (key == "manipulationmotionverticalsign") config_.hplControllerManipulationMotionVerticalSign = ParseFloat(value, config_.hplControllerManipulationMotionVerticalSign, -1.0f, 1.0f);
             else if (key == "handtrackingprobe") config_.hplHandTrackingProbe = ParseBool(value, config_.hplHandTrackingProbe);
             else if (key == "handcontrollerroot") config_.hplHandControllerRoot = ParseBool(value, config_.hplHandControllerRoot);
             else if (key == "handrootoffsetx") config_.hplHandRootOffsetX = ParseFloat(value, config_.hplHandRootOffsetX, -5.0f, 5.0f);

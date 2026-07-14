@@ -104,6 +104,12 @@ struct Config {
     float hplControllerThrowVelocityThreshold = 0.35f;
     float hplControllerThrowVelocityReference = 2.0f;
     bool hplControllerManipulationMappings = true;
+    bool hplControllerManipulationMotion = false;
+    float hplControllerManipulationMotionPixelsPerMeter = 900.0f;
+    float hplControllerManipulationMotionDeadzoneMeters = 0.0005f;
+    int hplControllerManipulationMotionMaxPixelsPerFrame = 80;
+    float hplControllerManipulationMotionHorizontalSign = 1.0f;
+    float hplControllerManipulationMotionVerticalSign = -1.0f;
     bool hplHandTrackingProbe = false;
     bool hplHandControllerRoot = false;
     float hplHandRootOffsetX = 0.0f;

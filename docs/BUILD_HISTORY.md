@@ -2,6 +2,27 @@
 
 ## 2026-07-15
 
+### 0.22.0-physical-manipulation
+
+- Added dominant-grip physical manipulation for shipped player states Wheel `3`,
+  Slide `4`, SwingDoor `5`, Lever `6`, and Tear `7`. Controller displacement
+  relative to the HMD is projected onto current head-right/head-up and emitted as
+  bounded relative mouse motion, preserving SOMA's native `mvMoveAdd`, joint,
+  PID, physics, callback, and map-script ownership.
+- Added state/tracking reacquisition anchors, subpixel accumulation, per-frame
+  caps, sign and sensitivity controls, generated-config-off rollback, and bounded
+  state/event/pixel telemetry. Room-scale body translation cancels before
+  projection; Grab/Push retain their dedicated pose/throw paths.
+- Added a passive ImGui identity probe to `HPLHudBridge`. Signature-guarded
+  wrappers `GetCurrentImGui` `0x1400cca70`, `GetGameHudImGui` `0x1400cca90`, and
+  `cImGui::GetSet` `0x140071f20` correlate rendered `cGuiSet` calls without
+  changing presentation, creating the next log evidence for inventory, hints,
+  menus, loading, death, wake, credits, and subtitle ownership.
+- Added deterministic manipulation projection/deadzone/cap tests, documented and
+  tagged the two newly recovered wrappers in Ghidra, and built/tested default and
+  OpenXR x64 Release flavors. OpenXR SHA-256:
+  `179AD16A2D2CF023C73CB2C8478152A36BD11B0863521F5B02BAB997AFEE1DB0`.
+
 ### 0.21.0-semantic-reticle
 
 - Added `HPLCrosshairBridge`, a signature-guarded observer on registered global

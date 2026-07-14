@@ -23,10 +23,15 @@ namespace {
 
 constexpr uintptr_t kGuiSetRenderRva = 0x213970;
 constexpr uintptr_t kGetGameHudSetRva = 0x0cc9b0;
+constexpr uintptr_t kGetCurrentImGuiRva = 0x0cca70;
+constexpr uintptr_t kGetGameHudImGuiRva = 0x0cca90;
+constexpr uintptr_t kImGuiGetSetRva = 0x071f20;
 constexpr GLenum kGlDrawFramebufferBinding = 0x8ca6;
 constexpr GLenum kGlCurrentProgram = 0x8b8d;
 
 using GuiSetRenderFn = void (*)(void*, void*);
+using GetImGuiFn = void* (*)();
+using ImGuiGetSetFn = void* (*)(void*);
 using GlGetIntegervFn = void(APIENTRY*)(GLenum, GLint*);
 
 Config g_config;
@@ -34,11 +39,18 @@ OpenXRRuntime* g_openxr = nullptr;
 GuiSetRenderFn g_originalGuiSetRender = nullptr;
 void** g_gameContextSlot = nullptr;
 GlGetIntegervFn g_glGetIntegerv = nullptr;
+GetImGuiFn g_getCurrentImGui = nullptr;
+GetImGuiFn g_getGameHudImGui = nullptr;
+ImGuiGetSetFn g_imGuiGetSet = nullptr;
 void* g_hookTarget = nullptr;
 std::mutex g_mutex;
 std::vector<void*> g_seenGuiSets;
+void* g_lastCurrentImGui = nullptr;
+void* g_lastCurrentImGuiSet = nullptr;
 std::atomic<uint64_t> g_renderCalls = 0;
 std::atomic<uint64_t> g_gameHudMatches = 0;
+std::atomic<uint64_t> g_currentImGuiSetMatches = 0;
+std::atomic<uint64_t> g_gameHudImGuiSetMatches = 0;
 std::atomic<uint64_t> g_captureAttempts = 0;
 std::atomic<uint64_t> g_captureStarts = 0;
 std::atomic<uint64_t> g_captureCompletions = 0;
@@ -112,6 +124,41 @@ bool ResolveGameHudIdentity(HMODULE executable)
     return IsReadable(g_gameContextSlot, sizeof(void*));
 }
 
+bool ResolveImGuiIdentity(HMODULE executable)
+{
+    static constexpr uint8_t kGetCurrentImGuiSignature[] = {
+        0x48, 0x8b, 0x05, 0x69, 0x5b, 0x6c, 0x00,
+        0x48, 0x8b, 0x80, 0xe8, 0x00, 0x00, 0x00,
+        0x48, 0x8b, 0x80, 0x68, 0x01, 0x00, 0x00, 0xc3,
+    };
+    static constexpr uint8_t kGetGameHudImGuiSignature[] = {
+        0x48, 0x8b, 0x05, 0x49, 0x5b, 0x6c, 0x00,
+        0x48, 0x8b, 0x80, 0xe8, 0x00, 0x00, 0x00,
+        0x48, 0x8b, 0x80, 0x60, 0x01, 0x00, 0x00, 0xc3,
+    };
+    static constexpr uint8_t kImGuiGetSetSignature[] = {
+        0x48, 0x8b, 0x41, 0x18, 0xc3,
+    };
+    if (!IsInsideImage(executable, kGetCurrentImGuiRva, sizeof(kGetCurrentImGuiSignature))
+        || !IsInsideImage(executable, kGetGameHudImGuiRva, sizeof(kGetGameHudImGuiSignature))
+        || !IsInsideImage(executable, kImGuiGetSetRva, sizeof(kImGuiGetSetSignature))) {
+        return false;
+    }
+    auto* base = reinterpret_cast<std::byte*>(executable);
+    if (std::memcmp(base + kGetCurrentImGuiRva, kGetCurrentImGuiSignature,
+            sizeof(kGetCurrentImGuiSignature)) != 0
+        || std::memcmp(base + kGetGameHudImGuiRva, kGetGameHudImGuiSignature,
+            sizeof(kGetGameHudImGuiSignature)) != 0
+        || std::memcmp(base + kImGuiGetSetRva, kImGuiGetSetSignature,
+            sizeof(kImGuiGetSetSignature)) != 0) {
+        return false;
+    }
+    g_getCurrentImGui = reinterpret_cast<GetImGuiFn>(base + kGetCurrentImGuiRva);
+    g_getGameHudImGui = reinterpret_cast<GetImGuiFn>(base + kGetGameHudImGuiRva);
+    g_imGuiGetSet = reinterpret_cast<ImGuiGetSetFn>(base + kImGuiGetSetRva);
+    return true;
+}
+
 void ReadGlIds(GLint& framebuffer, GLint& program)
 {
     framebuffer = 0;
@@ -128,6 +175,7 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     const uint64_t frame = GetOpenGLRenderFrameHint();
     void* gameContext = nullptr;
     void* gameHudSet = nullptr;
+    void* imGuiManager = nullptr;
     float hudVirtualCenterWidth = 0.0f;
     float hudVirtualCenterHeight = 0.0f;
     float hudVirtualWidth = 0.0f;
@@ -144,6 +192,7 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
         && ReadField(g_gameContextSlot, 0, gameContext)
         && gameContext != nullptr) {
         ReadField(gameContext, 0x50, gameHudSet);
+        ReadField(gameContext, 0xe8, imGuiManager);
         ReadField(gameContext, 0x58, hudVirtualCenterWidth);
         ReadField(gameContext, 0x5c, hudVirtualCenterHeight);
         ReadField(gameContext, 0x60, hudVirtualWidth);
@@ -160,6 +209,22 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     const bool isGameHud = guiSet != nullptr && guiSet == gameHudSet;
     if (isGameHud) {
         g_gameHudMatches.fetch_add(1, std::memory_order_relaxed);
+    }
+    void* currentImGui = imGuiManager != nullptr && g_getCurrentImGui != nullptr
+        ? g_getCurrentImGui() : nullptr;
+    void* gameHudImGui = imGuiManager != nullptr && g_getGameHudImGui != nullptr
+        ? g_getGameHudImGui() : nullptr;
+    void* currentImGuiSet = currentImGui != nullptr && g_imGuiGetSet != nullptr
+        ? g_imGuiGetSet(currentImGui) : nullptr;
+    void* gameHudImGuiSet = gameHudImGui != nullptr && g_imGuiGetSet != nullptr
+        ? g_imGuiGetSet(gameHudImGui) : nullptr;
+    const bool isCurrentImGuiSet = guiSet != nullptr && guiSet == currentImGuiSet;
+    const bool isGameHudImGuiSet = guiSet != nullptr && guiSet == gameHudImGuiSet;
+    if (isCurrentImGuiSet) {
+        g_currentImGuiSetMatches.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (isGameHudImGuiSet) {
+        g_gameHudImGuiSetMatches.fetch_add(1, std::memory_order_relaxed);
     }
 
     GLint framebufferBefore = 0;
@@ -195,6 +260,7 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     ReadGlIds(framebufferAfter, programAfter);
 
     bool newlySeen = false;
+    bool imGuiIdentityChanged = false;
     {
         std::lock_guard lock(g_mutex);
         if (std::find(g_seenGuiSets.begin(), g_seenGuiSets.end(), guiSet) == g_seenGuiSets.end()
@@ -202,9 +268,15 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
             g_seenGuiSets.push_back(guiSet);
             newlySeen = true;
         }
+        if (currentImGui != g_lastCurrentImGui || currentImGuiSet != g_lastCurrentImGuiSet) {
+            g_lastCurrentImGui = currentImGui;
+            g_lastCurrentImGuiSet = currentImGuiSet;
+            imGuiIdentityChanged = true;
+        }
     }
     const uint64_t interval = static_cast<uint64_t>(std::max(g_config.hplCompatibilityLogInterval, 1));
-    if (newlySeen || call <= 16 || call % interval == 0 || (isGameHud && captureStarted != captureCompleted)) {
+    if (newlySeen || imGuiIdentityChanged || call <= 16 || call % interval == 0
+        || (isGameHud && captureStarted != captureCompleted)) {
         uint8_t is3d = 0;
         uint8_t depthLayer = 0;
         float virtualWidth = 0.0f;
@@ -225,7 +297,7 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
         ReadField(guiSet, 0x188, priority);
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_gui_set frame=%llu call=%llu stage=%s set=%p target=%p gameHud=%d gameHudSet=%p is3d=%d depthLayer=%d virtualSize=%.1f,%.1f offset=%.1f,%.1f depthRange=%.3f,%.3f priority=%d hudMetrics={virtualCenterSize=%.1f,%.1f virtualSize=%.1f,%.1f virtualStart=%.1f,%.1f,%.1f centerScreenSize=%.1f,%.1f centerScreenStart=%.1f,%.1f,%.1f} hudCapture={enabled=%d started=%d completed=%d} calls={drawElements=%llu drawArrays=%llu framebuffer=%llu program=%llu} gl={fbo=%d->%d program=%d->%d}",
+            "hpl_gui_set frame=%llu call=%llu stage=%s set=%p target=%p gameHud=%d gameHudSet=%p imGui={current=%p currentSet=%p currentMatch=%d gameHud=%p gameHudSet=%p gameHudMatch=%d} is3d=%d depthLayer=%d virtualSize=%.1f,%.1f offset=%.1f,%.1f depthRange=%.3f,%.3f priority=%d hudMetrics={virtualCenterSize=%.1f,%.1f virtualSize=%.1f,%.1f virtualStart=%.1f,%.1f,%.1f centerScreenSize=%.1f,%.1f centerScreenStart=%.1f,%.1f,%.1f} hudCapture={enabled=%d started=%d completed=%d} calls={drawElements=%llu drawArrays=%llu framebuffer=%llu program=%llu} gl={fbo=%d->%d program=%d->%d}",
             static_cast<unsigned long long>(frame),
             static_cast<unsigned long long>(call),
             GetHPLRenderStageName(GetActiveHPLRenderStage()),
@@ -233,6 +305,12 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
             renderTarget,
             isGameHud ? 1 : 0,
             gameHudSet,
+            currentImGui,
+            currentImGuiSet,
+            isCurrentImGuiSet ? 1 : 0,
+            gameHudImGui,
+            gameHudImGuiSet,
+            isGameHudImGuiSet ? 1 : 0,
             is3d != 0 ? 1 : 0,
             depthLayer != 0 ? 1 : 0,
             virtualWidth,
@@ -292,6 +370,15 @@ bool InstallHPLHudBridge(const Config& config, OpenXRRuntime* openxr)
             static_cast<unsigned long long>(kGetGameHudSetRva));
         return false;
     }
+    const bool imGuiIdentityResolved = ResolveImGuiIdentity(executable);
+    if (!imGuiIdentityResolved) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "hpl_hud_bridge imgui_probe_disabled reason=signature currentRva=0x%llx gameHudRva=0x%llx getSetRva=0x%llx",
+            static_cast<unsigned long long>(kGetCurrentImGuiRva),
+            static_cast<unsigned long long>(kGetGameHudImGuiRva),
+            static_cast<unsigned long long>(kImGuiGetSetRva));
+    }
 
     const HMODULE opengl32 = GetModuleHandleW(L"opengl32.dll");
     g_glGetIntegerv = opengl32 != nullptr
@@ -334,9 +421,13 @@ bool InstallHPLHudBridge(const Config& config, OpenXRRuntime* openxr)
     g_hookTarget = target;
     Logger::Instance().Write(
         LogLevel::Warn,
-        "hpl_hud_bridge installed rva=0x%llx identityRva=0x%llx layer=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d",
+        "hpl_hud_bridge installed rva=0x%llx identityRva=0x%llx imGuiProbe=%d imGuiRvas=0x%llx,0x%llx,0x%llx layer=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d",
         static_cast<unsigned long long>(kGuiSetRenderRva),
         static_cast<unsigned long long>(kGetGameHudSetRva),
+        imGuiIdentityResolved ? 1 : 0,
+        static_cast<unsigned long long>(kGetCurrentImGuiRva),
+        static_cast<unsigned long long>(kGetGameHudImGuiRva),
+        static_cast<unsigned long long>(kImGuiGetSetRva),
         config.openxrHudLayer ? 1 : 0,
         config.openxrHudWidthPixels,
         config.openxrHudHeightPixels,
@@ -351,9 +442,11 @@ void LogHPLHudBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_hud_summary calls=%llu gameHudMatches=%llu captureAttempts=%llu captureStarts=%llu captureCompletions=%llu captureFallbacks=%llu installed=%d",
+        "hpl_hud_summary calls=%llu gameHudMatches=%llu currentImGuiSetMatches=%llu gameHudImGuiSetMatches=%llu captureAttempts=%llu captureStarts=%llu captureCompletions=%llu captureFallbacks=%llu installed=%d",
         static_cast<unsigned long long>(g_renderCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_gameHudMatches.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_currentImGuiSetMatches.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_gameHudImGuiSetMatches.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_captureAttempts.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_captureStarts.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_captureCompletions.load(std::memory_order_relaxed)),
@@ -372,8 +465,13 @@ void RemoveHPLHudBridge()
     g_originalGuiSetRender = nullptr;
     g_gameContextSlot = nullptr;
     g_glGetIntegerv = nullptr;
+    g_getCurrentImGui = nullptr;
+    g_getGameHudImGui = nullptr;
+    g_imGuiGetSet = nullptr;
     g_openxr = nullptr;
     g_seenGuiSets.clear();
+    g_lastCurrentImGui = nullptr;
+    g_lastCurrentImGuiSet = nullptr;
     Logger::Instance().Write(LogLevel::Info, "hpl_hud_bridge removed");
 }
 

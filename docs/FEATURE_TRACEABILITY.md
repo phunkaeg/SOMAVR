@@ -31,6 +31,7 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.INTERACTION_RAY` | BUILT | `HPLInteractionBridge`, `HPLCameraBridge`, `HPLInputBridge` | `0x1400cd750`, `cLuxClosestEntityData +0x18/+0x20/+0x28`, world aim/hit snapshots, native `CanInteract` | `COMFORT_AND_FOCUS_RE.md`, `VR_COMPATIBILITY_RE.md`, `TEST_CHECKLISTS.md` | Live-test controller-directed focus and decoded distance/world hit across targets and states; verify no-hit/fallback clears validity and correlate native semantic states |
 | `FEATURE.INTERACTION_RETICLE` | BUILT | `HPLInteractionBridge`, `HPLCrosshairBridge`, `HPLHudMath`, `OpenXRRuntime`, `OpenXRGLBridge` | native pick aim/distance, `0x140484ea0` script dispatch, exact 35-state enum, 34 shipped TGA icons, application-space alpha quad | `COMFORT_AND_FOCUS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test native icon identity/aspect, semantic clearing, convergence, intent colors/haptics, then determine whether geometry occlusion is needed |
 | `FEATURE.PHYSICS_HANDS` | BUILT | `HPLGrabBridge`, `HPLGrabMath`, `HPLInputBridge`, `OpenXRInput` | PID output `0x140238750`, AddImpulse thunk `0x14049c720`, Grab state `1`, exact force/torque tuples, controller pose/velocity | `VR_COMPATIBILITY_RE.md`, `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test translation and shortest-arc rotation stability, per-axis sign, one-shot velocity-directed throws, velocity scaling across object masses, and all native fallbacks |
+| `FEATURE.PHYSICAL_MANIPULATION` | BUILT | `HPLInputBridge`, `HPLInputMath`, `OpenXRInput` | shipped states Wheel `3`, Slide `4`, SwingDoor `5`, Lever `6`, Tear `7`; `RotateBase::OnAnalogInput -> mvMoveAdd`; relative grip/head pose | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test all five states, common-translation cancellation, per-axis sign/sensitivity, tracking reacquisition, and native constraints/callbacks |
 | `FEATURE.VIEWMODEL` | BUILT | `HPLHandsBridge`, `HPLHandsMath`, `HPLCameraBridge`, `HPLInputBridge` | world grip pose, `PlayerHandsHandler`, `0x14000fb60`, `0x1400bcd90`, `R_Hand`, tool `HudObject` | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test root placement/orientation calibration, tool sockets, and automatic native fallback across full-scale, custom, authored, and tracking-loss states; then add per-tool profiles |
 | `FEATURE.HUD_LAYER` | BUILT | `HPLHudBridge`, `HPLHudMath`, `OpenXRGLBridge`, `OpenXRRuntime` | `0x1400cc9b0`, `0x140213970`, transparent GL capture FBO, center crosshair clear, VIEW-space quad | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test alpha/scale, center-clear coverage, text placement, and native fallback; then add subtitle policy |
 | `FEATURE.POST_EFFECT_POLICY` | BUILT | `HPLCompatibilityProbe`, `OpenGLHooks` | `0x14033b8f0`, `0x14033bd80`, priority tree `+0x328`, named vtables, active byte `+0x31` | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.2.md` | Live-test default suppression of ImageTrail, ChromaticAberration, and RadialBlur while fades/tone mapping remain intact |
@@ -87,6 +88,9 @@ FEATURE.INTERACTION_RETICLE requires FEATURE.XR_GL_SUBMISSION
 FEATURE.INTERACTION_RETICLE constrains FEATURE.HUD_LAYER
 FEATURE.PHYSICS_HANDS requires FEATURE.INTERACTION_RAY
 FEATURE.PHYSICS_HANDS requires FEATURE.VIEWMODEL
+FEATURE.PHYSICAL_MANIPULATION requires FEATURE.XR_INPUT
+FEATURE.PHYSICAL_MANIPULATION requires FEATURE.AUTHORED_CAMERA
+FEATURE.PHYSICAL_MANIPULATION constrains FEATURE.PHYSICS_HANDS
 FEATURE.AUDIO_LISTENER requires FEATURE.AUTHORED_CAMERA
 FEATURE.LOADING_VIDEO requires FEATURE.HUD_LAYER
 FEATURE.COMFORT_POLICY constrains FEATURE.AUTHORED_CAMERA
@@ -107,6 +111,7 @@ HPLNativeLocomotion requires HPLPlayerState
 HPLMenuBridge requires HPLMenuMath
 HPLHandsBridge requires HPLHandsMath
 HPLHudBridge requires OpenXRRuntime
+HPLInputBridge feeds FEATURE.PHYSICAL_MANIPULATION
 OpenXRRuntime requires HPLHudMath
 HPLInteractionBridge feeds FEATURE.INTERACTION_RETICLE
 HPLCrosshairBridge feeds FEATURE.INTERACTION_RETICLE
@@ -147,6 +152,7 @@ OpenXR actions
   -> FEATURE.INTERACTION_RAY -> native pick/CanInteract -> HPLCrosshairBridge semantic state -> native depth icon
   -> FEATURE.MENU_POINTER -> native paused menu cursor/click path
   -> controller pose -> FEATURE.PHYSICS_HANDS -> native PID force/torque
+  -> relative grip/head motion -> FEATURE.PHYSICAL_MANIPULATION -> native mvMoveAdd/joints/PIDs
 ```
 
 ## Graphify Workflow

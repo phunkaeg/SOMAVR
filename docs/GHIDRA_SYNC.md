@@ -1,5 +1,15 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 ImGui Identity Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1400cca90` | `SOMA_GetGameHudImGui` | Registered `cImGui@ GetGameHudImGui()` getter; `gameContext +0xe8 -> +0x160`. Function, prototype, plate comment, and tags added for `0.22.0` passive render identity. |
+| `0x140071f20` | `HPL3_ImGui_GetSet` | Registered `cGuiSet@ GetSet()` wrapper; exact five-byte `mov rax,[rcx+0x18]; ret`. Function, prototype, plate comment, and tags added for `0.22.0`. |
+
+Both functions carry `SOMAVR`, `VR-HUD`, and `AngelScript-Wrapper` tags. The
+explicitly selected `Soma_NoSteam.exe` program was saved after synchronization.
+
 ## 2026-07-15 Semantic Crosshair Dispatch Sync
 
 | Address | Ghidra name | Evidence/use |

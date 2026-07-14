@@ -44,4 +44,56 @@ float DegreesToRadians(float degrees)
     return degrees * kDegreesToRadians;
 }
 
+ManipulationMouseDelta ComputeManipulationMouseDelta(
+    const camera_math::Vector3& previousHandRelativePosition,
+    const camera_math::Vector3& currentHandRelativePosition,
+    const camera_math::Quaternion& headOrientation,
+    float pixelsPerMeter,
+    float deadzoneMeters,
+    int maxPixelsPerFrame,
+    float horizontalSign,
+    float verticalSign,
+    ManipulationMotionState& state)
+{
+    ManipulationMouseDelta result;
+    const camera_math::Vector3 displacement{
+        currentHandRelativePosition.x - previousHandRelativePosition.x,
+        currentHandRelativePosition.y - previousHandRelativePosition.y,
+        currentHandRelativePosition.z - previousHandRelativePosition.z,
+    };
+    const camera_math::Vector3 headRight = camera_math::RotateVector(
+        headOrientation, {1.0f, 0.0f, 0.0f});
+    const camera_math::Vector3 headUp = camera_math::RotateVector(
+        headOrientation, {0.0f, 1.0f, 0.0f});
+    result.rightMeters = displacement.x * headRight.x
+        + displacement.y * headRight.y + displacement.z * headRight.z;
+    result.upMeters = displacement.x * headUp.x
+        + displacement.y * headUp.y + displacement.z * headUp.z;
+    const float magnitude = std::sqrt(
+        result.rightMeters * result.rightMeters + result.upMeters * result.upMeters);
+    if (!std::isfinite(magnitude) || !std::isfinite(pixelsPerMeter)
+        || !std::isfinite(horizontalSign) || !std::isfinite(verticalSign)
+        || magnitude <= std::max(deadzoneMeters, 0.0f) || pixelsPerMeter <= 0.0f
+        || maxPixelsPerFrame <= 0) {
+        return result;
+    }
+
+    const double cap = static_cast<double>(maxPixelsPerFrame);
+    const double outputX = std::clamp(
+        state.remainderX + static_cast<double>(result.rightMeters)
+            * static_cast<double>(pixelsPerMeter) * static_cast<double>(horizontalSign),
+        -cap,
+        cap);
+    const double outputY = std::clamp(
+        state.remainderY + static_cast<double>(result.upMeters)
+            * static_cast<double>(pixelsPerMeter) * static_cast<double>(verticalSign),
+        -cap,
+        cap);
+    result.x = static_cast<int>(std::trunc(outputX));
+    result.y = static_cast<int>(std::trunc(outputY));
+    state.remainderX = outputX - static_cast<double>(result.x);
+    state.remainderY = outputY - static_cast<double>(result.y);
+    return result;
+}
+
 } // namespace somavr::input_math

@@ -1,5 +1,32 @@
 # Future Systems Reverse Engineering
 
+## 0.22.0 Physical Manipulation And ImGui Identity Result
+
+Shipped `Player_Types.hps` fixes the physical state IDs as Wheel `3`, Slide `4`,
+SwingDoor `5`, Lever `6`, and Tear `7`. Their state implementations inherit
+`PlayerState_Interact_RotateBase.hps::OnAnalogInput`: analog Look accumulates a
+2D `mvMoveAdd` after the native invert-Y policy, and each derived state projects
+that accumulator through its own joint direction, hinge, PID, constraints, and
+script callbacks. This is a high-confidence controller boundary without a new
+native hook.
+
+`0.22.0` measures dominant grip position relative to HMD position, projects the
+frame displacement onto current HMD right/up, and sends bounded relative mouse
+motion only in states `3..7`. Common room-scale translation therefore cancels.
+The first sample, state changes, tracking loss, pause/authored-camera suppression,
+and VR teardown reset the anchor and subpixel accumulator. Grab `1` and Push `2`
+remain on their existing dedicated physics/throw routes. Live acceptance now
+needs examples of every state plus per-axis sign/sensitivity tuning.
+
+The screen-space path also gained a passive identity probe. Ghidra confirms
+`GetCurrentImGui` `0x1400cca70` (`gameContext +0xe8 -> +0x168`),
+`GetGameHudImGui` `0x1400cca90` (`+0xe8 -> +0x160`), and the registered
+`cImGui::GetSet` wrapper `0x140071f20` (`return this+0x18`). The existing
+`cGuiSet::Render` hook now logs exact current/game-HUD ImGui-set matches without
+capturing or suppressing them. The next broad live pass should exercise
+inventory, hints, pause/load/death/wake/credits/video and retain those rows;
+presentation changes wait for identity evidence.
+
 ## 0.21.0 Semantic Reticle And Native Artwork Result
 
 The shipped script layer closes the main interaction-feedback ambiguity left by

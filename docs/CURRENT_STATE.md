@@ -21,10 +21,20 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.21.0-semantic-reticle`, layered on the
+The active build candidate is `0.22.0-physical-manipulation`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Wheel, Slide, SwingDoor, Lever, and Tear states now accept dominant-hand
+  physical movement through SOMA's existing analog-look path. The adapter uses
+  controller position relative to HMD position, projects onto head-right/up,
+  bounds the relative mouse delta, and leaves all native constraints and scripts
+  authoritative. The active profile enables it; generated configs default off.
+- `HPLHudBridge` now passively correlates every rendered `cGuiSet` with current
+  and gameplay-HUD `cImGui` ownership through three fully signature-guarded
+  wrappers. The probe does not capture new surfaces yet; its next live log will
+  classify screen-space inventory, hint, menu, loading, and related owners.
 
 - A guarded native comfort bridge now intercepts SOMA's semantic camera-add
   setter. During active VR it zeros only Bob, Shake, and optional Sway while all
@@ -407,7 +417,7 @@ The OpenXR build now asks for:
 & "D:\Dev Debug\SOMAVR\build-openxr-controller\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.21.0-semantic-reticle`, six compatibility render-stage hooks,
+2. Confirm `version=0.22.0-physical-manipulation`, six compatibility render-stage hooks,
    `hpl_hud_bridge installed ... layer=1`,
    `hpl_interaction_bridge install_ok`, `hpl_hands_bridge install_ok`, and
    `hpl_grab_bridge install_ok ... rotation=1 throwRedirect=1`, plus
@@ -465,7 +475,7 @@ The OpenXR build now asks for:
     `hpl_menu_pointer applied` while dominant aim moves the native cursor. Close
     the menu with trigger held and verify no world click until release.
 22. Confirm `somavr_build_manifest.txt` reports version
-    `0.21.0-semantic-reticle`, flavor `openxr`, and a DLL SHA-256.
+    `0.22.0-physical-manipulation`, flavor `openxr`, and a DLL SHA-256.
 23. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
     `complete`, then check that `Soma_NoSteam.exe` disappears. If it remains,
     capture it with the dumper before manually terminating it.

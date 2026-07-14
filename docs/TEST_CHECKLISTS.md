@@ -1,5 +1,31 @@
 # Test Checklists
 
+## 0.22.0 Physical Manipulation And ImGui Identity
+
+1. Launch the OpenXR Release DLL, load a save, and press F10. Confirm
+   `version=0.22.0-physical-manipulation`, `hpl_input_bridge install_ok` reports
+   `manipulationMotion=1`, and `hpl_hud_bridge installed` lists all three ImGui
+   RVAs without an identity/signature failure.
+2. Use a wheel, slider/drawer, hinged door, lever, and tear interaction where
+   available. Hold the normal dominant interaction control and move that hand
+   left/right/up/down. Expect native object motion plus `entered state=...` and
+   bounded `hpl_manipulation_motion event=...` rows for states `3..7`.
+3. Walk or lean the HMD and controller together while holding an interaction.
+   That common translation should not drive the object. Move only the hand and
+   confirm it does. Tune axis signs and `ManipulationMotionPixelsPerMeter` if
+   direction or sensitivity needs calibration.
+4. Release/re-grab, change interaction type, briefly lose controller tracking,
+   and open a pause menu. Every reacquisition must anchor without an initial
+   jump; logs may report one tracking loss but no stale delta or stuck input.
+   Grab/Push translation, rotation, and throw behavior must be unchanged.
+5. During gameplay, inventory, hints, pause menu, load/save, death/game-over,
+   wake, credits, and video transitions, preserve representative `hpl_gui_set`
+   rows. Record `currentMatch`, `gameHudMatch`, pointer pairs, and render stage.
+6. Regress world rigidity, shadows/reflections, native reticle, HUD alpha,
+   hands, locomotion, authored cameras, save/load, tracking loss, and clean
+   shutdown. Preserve `hpl_input_bridge_summary`, `hpl_hud_summary`, and
+   `openxr_summary`.
+
 ## 0.21.0 Native Semantic Reticle And Focus Profiles
 
 1. Launch the OpenXR Release DLL, load a save, and press F10. Confirm

@@ -83,6 +83,39 @@ int main()
         Near(pitchedHeadMovement.x, 0.0f) && Near(pitchedHeadMovement.y, 1.0f),
         "head-relative movement ignores head pitch");
 
+    input_math::ManipulationMotionState manipulationState;
+    const input_math::ManipulationMouseDelta manipulationRight =
+        input_math::ComputeManipulationMouseDelta(
+            {}, {0.015625f, 0.0f, 0.0f}, {}, 1024.0f, 0.0005f, 80, 1.0f, -1.0f,
+            manipulationState);
+    failures += Check(
+        manipulationRight.x == 16 && manipulationRight.y == 0
+            && Near(manipulationRight.rightMeters, 0.015625f),
+        "physical manipulation projects head-right hand motion");
+    const input_math::ManipulationMouseDelta manipulationUp =
+        input_math::ComputeManipulationMouseDelta(
+            {}, {0.0f, 0.03125f, 0.0f}, {}, 1024.0f, 0.0005f, 80, 1.0f, -1.0f,
+            manipulationState);
+    failures += Check(
+        manipulationUp.x == 0 && manipulationUp.y == -32
+            && Near(manipulationUp.upMeters, 0.03125f),
+        "physical manipulation maps hand-up to mouse-up");
+    input_math::ManipulationMotionState cappedManipulationState;
+    const input_math::ManipulationMouseDelta cappedManipulation =
+        input_math::ComputeManipulationMouseDelta(
+            {}, {1.0f, -1.0f, 0.0f}, {}, 1000.0f, 0.0005f, 80, 1.0f, -1.0f,
+            cappedManipulationState);
+    failures += Check(
+        cappedManipulation.x == 80 && cappedManipulation.y == 80,
+        "physical manipulation caps per-frame mouse deltas without backlog");
+    const input_math::ManipulationMouseDelta deadzoneManipulation =
+        input_math::ComputeManipulationMouseDelta(
+            {}, {0.0001f, 0.0001f, 0.0f}, {}, 1000.0f, 0.0005f, 80, 1.0f, -1.0f,
+            cappedManipulationState);
+    failures += Check(
+        deadzoneManipulation.x == 0 && deadzoneManipulation.y == 0,
+        "physical manipulation ignores sub-deadzone jitter");
+
     crouch_math::PhysicalCrouchState crouchState;
     failures += Check(
         crouch_math::UpdatePhysicalCrouch(crouchState, 1.70f, true, 1, 0.35f, 0.25f)

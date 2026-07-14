@@ -1,5 +1,29 @@
 # Test Checklists
 
+## 0.28.0 Authored Comfort
+
+1. Confirm `version=0.28.0-authored-comfort`, camera roll and DoF controls are
+   enabled, `StateTransitionBlackoutFrames=2`, and VideoDistortion policy is on.
+2. Press F10 in normal gameplay. Walk, run, lean, and crouch; the world must stay
+   rigid and level while `hpl_comfort_camera_roll` classifies Move/Lean calls.
+3. Exercise a ladder and ledge climb. Confirm state IDs `11/12`, one short black
+   guard on entry/exit, native constraints, and suppressed Climb roll without a
+   persistent black frame or lost tracking.
+4. Trigger sit, interactive camera animation, conversation, and death/reload.
+   Verify state IDs `15/14/16/17`, bounded transition rows, continuous head
+   tracking, and native scripted camera/FOV behavior. Script roll should remain
+   available unless explicitly enabled for suppression.
+5. Visit a DoF-heavy or VideoDistortion sequence. Confirm suppression telemetry
+   appears only while VR is active; fades, tone mapping, menus, and loading must
+   remain visible.
+6. Exit F10 VR and repeat one roll/DoF request. Native behavior must return.
+   Verify shadows, reflections, eye height, HUD, controller input, save/load, and
+   normal shutdown preserve the proven baseline.
+
+Rollback independently with `HPLComfortCameraRollControl=0`,
+`HPLComfortDepthOfFieldControl=0`, `HPLPostEffectDisableVideoDistortion=0`, or
+`StateTransitionBlackoutFrames=0`.
+
 ## 0.27.0 Gameplay Coherence
 
 1. Confirm `version=0.27.0-gameplay-coherence`,

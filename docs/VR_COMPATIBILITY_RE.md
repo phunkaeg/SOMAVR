@@ -1,5 +1,15 @@
 # VR Compatibility Reverse-Engineering Map
 
+## 0.28.0 Authored Comfort Evidence
+
+The shipped player-state and camera-roll enums now have exact native policy
+boundaries. Active VR may suppress only Lean/Move/Climb roll while preserving
+Script roll, and may reject world DoF activation plus named VideoDistortion.
+Short compositor-black guards cover entry/exit for states `11`, `12`, `14`,
+`15`, and `17`; camera animation, constraints, FOV, and state ownership remain
+native. The next log must prove each transition, roll route, DoF request, and
+effect identity before any state-specific pose composition is promoted.
+
 ## 0.27.0 Gameplay Coherence Evidence
 
 The controller flashlight's rendered matrix and low-frequency AI/gobo physics

@@ -16,6 +16,13 @@ enum class CameraAddType : int {
     Conversation = 10,
 };
 
+enum class CameraRollType : int {
+    Script = 0,
+    Lean = 1,
+    Move = 2,
+    Climb = 3,
+};
+
 bool ShouldSuppressCameraAdd(
     int type,
     bool suppressHeadBob,
@@ -23,5 +30,16 @@ bool ShouldSuppressCameraAdd(
     bool suppressSway);
 
 const char* CameraAddTypeName(int type);
+
+bool ShouldSuppressCameraRoll(
+    int type,
+    bool suppressScript,
+    bool suppressLean,
+    bool suppressMove,
+    bool suppressClimb);
+
+const char* CameraRollTypeName(int type);
+
+bool ShouldBlackoutPlayerStateTransition(int previousState, int currentState);
 
 } // namespace somavr::comfort_math

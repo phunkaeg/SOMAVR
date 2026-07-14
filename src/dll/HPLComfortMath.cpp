@@ -38,4 +38,51 @@ const char* CameraAddTypeName(int type)
     }
 }
 
+bool ShouldSuppressCameraRoll(
+    int type,
+    bool suppressScript,
+    bool suppressLean,
+    bool suppressMove,
+    bool suppressClimb)
+{
+    switch (static_cast<CameraRollType>(type)) {
+    case CameraRollType::Script: return suppressScript;
+    case CameraRollType::Lean: return suppressLean;
+    case CameraRollType::Move: return suppressMove;
+    case CameraRollType::Climb: return suppressClimb;
+    default: return false;
+    }
+}
+
+const char* CameraRollTypeName(int type)
+{
+    switch (static_cast<CameraRollType>(type)) {
+    case CameraRollType::Script: return "script";
+    case CameraRollType::Lean: return "lean";
+    case CameraRollType::Move: return "move";
+    case CameraRollType::Climb: return "climb";
+    default: return "unknown";
+    }
+}
+
+bool ShouldBlackoutPlayerStateTransition(int previousState, int currentState)
+{
+    const auto isHighMotionState = [](int state) {
+        switch (state) {
+        case 11: // Ladder
+        case 12: // ClimbLedge
+        case 14: // InteractiveCameraAnimation
+        case 15: // Sit
+        case 17: // Dead
+            return true;
+        default:
+            return false;
+        }
+    };
+    return previousState != currentState
+        && previousState >= 0
+        && currentState >= 0
+        && (isHighMotionState(previousState) || isHighMotionState(currentState));
+}
+
 } // namespace somavr::comfort_math

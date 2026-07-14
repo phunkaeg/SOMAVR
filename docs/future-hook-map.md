@@ -95,13 +95,14 @@ and `docs\VR_COMPATIBILITY_RE.md`. Stable graph nodes and acceptance gates are i
 | OpenXR action set | Design ready | Semantic movement, turn, interaction, and menu input | Snap turn first; body yaw and HMD-local pose remain separate. |
 | `XrCompositionLayerQuad` HUD | Gameplay layer built | Head-locked gameplay HUD presentation | Exact GameHudSet capture is built; ImGui/menu/subtitle layers remain future work and terminals stay in the stereo world. |
 | `Soma_NoSteam.exe+0x159360` | Guarded comfort control built | Suppress semantic native camera Bob/Shake/Sway | Registered SetCameraPosAdd wrapper; preserve all other authored channels and activate only with VR tracking. |
-| `Soma_NoSteam.exe+0x156f00` | Static confirmed, documented | Future authored camera-roll policy | Current/goal roll arrays are mapped; leave unhooked until transition-specific acceptance requires it. |
-| Post-effect comfort policy | Source/static confirmed | Disable or attenuate VR-hostile effects | Image trail, chromatic aberration, and radial blur controls are built; semantic Bob/Shake/Sway now have a separate native owner. Lens distortion and DoF remain. |
+| `Soma_NoSteam.exe+0x156d90/+0x156f00` | Guarded comfort control built | Semantic authored camera-roll policy | Fade and direct setters independently suppress Script/Lean/Move/Climb roll; active profile preserves Script and zeros Lean/Move/Climb only during VR. |
+| `Soma_NoSteam.exe+0x071f80` | Guarded reversible patch built | Suppress world depth of field during VR | Exact seven-byte setter plus nine padding bytes; emulates the native `world+0x264` write and rejects only active requests while tracking. |
+| Post-effect comfort policy | Source/static confirmed, control built | Disable or attenuate VR-hostile effects | ImageTrail, VideoDistortion, ChromaticAberration, and RadialBlur controls are built; fades and tone mapping remain native. |
 | `Soma_NoSteam.exe+0x297670` | Runtime confirmed | World/3D overlay pass | Remains on FBO `11` after world render and is effectively free in sampled frames; exact content still needs classification. |
 | `Soma_NoSteam.exe+0x289340` | Correction build ready | Commit center-head audio orientation | `0.5.1` confirmed authored vectors ignore HMD motion; `0.5.2` temporarily rotates forward/up during FMOD commit. |
 | FMOD `set3DListenerAttributes` import | Static confirmed | Late listener-pose correction fallback | Use center-head pose, never per-eye positions; validate velocity before enabling Doppler. |
 | Native pick/grab/rotate states | Source confirmed | Route controller pose into SOMA interaction ownership | Preserve `CanInteract`, distance policy, PID force/torque, collision, and map callbacks. |
-| Player/camera state transition probe | High value | Select authored-camera compatibility adapters | Log sit, ladder, animation, conversation, camera parent, and rotation mode. |
+| Player/camera state transition policy | Bounded guard built | Select authored-camera compatibility adapters | Exact IDs are logged; ladder, climb, animation, sit, and death entry/exit can request short compositor-black frames while native state/camera ownership remains. |
 | Load/video presentation classifier | Source/static confirmed | Keep OpenXR alive and choose world versus quad-layer presentation | Load UI is ImGui; binary exposes Theora streams; gameplay screens are commonly diegetic GUI. |
 
 ## Graphify Seed

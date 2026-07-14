@@ -130,6 +130,7 @@ struct Config {
     float hplFlashlightYawDegrees = 0.0f;
     float hplFlashlightRollDegrees = 0.0f;
     int hplControllerComfortBlackoutFrames = 2;
+    int hplControllerStateTransitionBlackoutFrames = 0;
     int hplControllerRecenterHoldMs = 900;
     int hplControllerMaxInputAgeFrames = 8;
     int hplControllerLogInterval = 120;
@@ -171,6 +172,12 @@ struct Config {
     bool hplComfortSuppressHeadBob = true;
     bool hplComfortSuppressCameraShake = true;
     bool hplComfortSuppressSway = false;
+    bool hplComfortCameraRollControl = false;
+    bool hplComfortSuppressScriptRoll = false;
+    bool hplComfortSuppressLeanRoll = true;
+    bool hplComfortSuppressMoveRoll = true;
+    bool hplComfortSuppressClimbRoll = true;
+    bool hplComfortDepthOfFieldControl = false;
     int hplComfortLogInterval = 120;
     int hplCameraLogInterval = 120;
     bool hplStereoAfr = false;
@@ -185,6 +192,7 @@ struct Config {
     bool hplPostEffectControl = false;
     bool hplPostEffectBypassDefault = false;
     bool hplPostEffectDisableImageTrail = true;
+    bool hplPostEffectDisableVideoDistortion = true;
     bool hplPostEffectDisableChromaticAberration = true;
     bool hplPostEffectDisableRadialBlur = true;
     bool hplShadowJitterControl = false;

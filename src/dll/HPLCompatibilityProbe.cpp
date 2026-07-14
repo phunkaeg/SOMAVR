@@ -633,6 +633,7 @@ bool FindPostEffectPriority(void* composite, void* effect, int32_t& priority)
 bool ShouldSuppressPostEffect(const char* name)
 {
     return (g_config.hplPostEffectDisableImageTrail && std::strcmp(name, "ImageTrail") == 0)
+        || (g_config.hplPostEffectDisableVideoDistortion && std::strcmp(name, "VideoDistortion") == 0)
         || (g_config.hplPostEffectDisableChromaticAberration && std::strcmp(name, "ChromaticAberration") == 0)
         || (g_config.hplPostEffectDisableRadialBlur && std::strcmp(name, "RadialBlur") == 0);
 }
@@ -1463,7 +1464,7 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         installed > 0 ? LogLevel::Warn : LogLevel::Error,
-        "hpl_compat_probe install_complete renderStages=%d perEyeCpu=%d perEyeGpu=%d gpuQueryPairs=%d audioListener=%d audioCorrection=%d audioTranslation=%d postEffectControl=%d postEffectBypass=%d postEffectComfort={imageTrail=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
+        "hpl_compat_probe install_complete renderStages=%d perEyeCpu=%d perEyeGpu=%d gpuQueryPairs=%d audioListener=%d audioCorrection=%d audioTranslation=%d postEffectControl=%d postEffectBypass=%d postEffectComfort={imageTrail=%d videoDistortion=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
         config.hplRenderStageProbe ? 1 : 0,
         config.hplPerEyePerformanceTelemetry ? 1 : 0,
         config.hplPerEyeGpuTelemetry ? 1 : 0,
@@ -1474,6 +1475,7 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
         config.hplPostEffectControl ? 1 : 0,
         config.hplPostEffectBypassDefault ? 1 : 0,
         config.hplPostEffectDisableImageTrail ? 1 : 0,
+        config.hplPostEffectDisableVideoDistortion ? 1 : 0,
         config.hplPostEffectDisableChromaticAberration ? 1 : 0,
         config.hplPostEffectDisableRadialBlur ? 1 : 0,
         static_cast<unsigned long long>(installed),

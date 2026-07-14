@@ -103,8 +103,13 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
   that contract through SOMA's torque PID, while `ThrowRedirect=1` redirects one
   native Grab impulse along tracked release velocity. The compositor HUD can
   suppress the fixed gaze crosshair with `HudSuppressCenterCrosshair=1`.
-  `HPLComfortCameraAddControl=1` now removes semantic Bob, Shake, and optional
-  Sway only while F10 tracking is active, and the interaction bridge publishes
+  `HPLComfortCameraAddControl=1` removes semantic Bob, Shake, and optional Sway
+  only while F10 tracking is active. `HPLComfortCameraRollControl=1` separately
+  suppresses configured Script, Lean, Move, or Climb roll at the exact native
+  setters; the active profile preserves Script roll. World depth of field and
+  named VideoDistortion can also be disabled only during active VR, while short
+  transition blackouts cover ladder, climb, camera animation, sit, and death.
+  The interaction bridge publishes
   native hit depth/world position. `InteractionReticle=1` presents that exact
   controller hit as an application-space OpenXR quad. With
   `InteractionReticleSemantic=1`, SOMA's own crosshair callback chooses semantic
@@ -165,6 +170,12 @@ HPLComfortCameraAddControl=1
 HPLComfortSuppressHeadBob=1
 HPLComfortSuppressCameraShake=1
 HPLComfortSuppressSway=1
+HPLComfortCameraRollControl=1
+HPLComfortSuppressScriptRoll=0
+HPLComfortSuppressLeanRoll=1
+HPLComfortSuppressMoveRoll=1
+HPLComfortSuppressClimbRoll=1
+HPLComfortDepthOfFieldControl=1
 HPLComfortLogInterval=120
 HPLCameraLogInterval=120
 HPLStereoAFR=1
@@ -179,6 +190,7 @@ HPLAudioListenerTranslation=1
 HPLPostEffectControl=1
 HPLPostEffectBypassDefault=0
 HPLPostEffectDisableImageTrail=1
+HPLPostEffectDisableVideoDistortion=1
 HPLPostEffectDisableChromaticAberration=1
 HPLPostEffectDisableRadialBlur=1
 HPLShadowJitterControl=1
@@ -280,6 +292,7 @@ FlashlightPitchDegrees=0.0
 FlashlightYawDegrees=0.0
 FlashlightRollDegrees=0.0
 ComfortBlackoutFrames=2
+StateTransitionBlackoutFrames=2
 ```
 
 ## Known Install

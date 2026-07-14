@@ -76,7 +76,8 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x1400ccc90` | Confirmed, control built | Registered `cLux_GetGamePaused()` wrapper. Reads game subsystem `gameContext+0xc8`, paused byte `+0x2d4`; `0.16.0` uses it to suppress both direct body calls and every synthetic gameplay fallback while routing paused controller aim/clicks to the native menu. Ghidra: `SOMA_GetGamePaused`. |
 | `0x14015ca10` | Confirmed | Registers the AngelScript `cLuxPlayer` API. Maps `GetCamera` to `0x140125ef0` and `GetCharacterBody` to `0x140155290`. |
 | `0x140159360` | Confirmed, control hook built | Registered `cLuxPlayer::SetCameraPosAdd(int,const cVector3f&)` wrapper. `0.19.0` signature-guards its first 18 bytes and passes a zero vector only for configured Bob `1`, Shake `2`, and Sway `9` calls while F10 tracking is active. Ghidra: `HPL3_Script_cLuxPlayer_SetCameraPosAdd`. |
-| `0x140156f00` | Confirmed, documented only | Registered `cLuxPlayer::SetCameraRoll(int,float)`. Expands roll arrays and writes current/goal values rooted at player `+0x3a0/+0x3c0`; retained as a future authored-roll policy anchor and not hooked in `0.19.0`. Ghidra: `HPL3_Script_cLuxPlayer_SetCameraRoll`. |
+| `0x140156d90` | Confirmed, control hook built | Registered `cLuxPlayer::FadeCameraRollTo(int,float,float,float)`. `0.28.0` may zero only configured Script `0`, Lean `1`, Move `2`, or Climb `3` targets during active VR while preserving speed multiplier and maximum speed. Ghidra: `HPL3_Script_cLuxPlayer_FadeCameraRollTo`. |
+| `0x140156f00` | Confirmed, control hook built | Registered `cLuxPlayer::SetCameraRoll(int,float)`. Expands roll arrays rooted at player `+0x3a0/+0x3c0`; `0.28.0` applies the same independent semantic roll policy as the fade wrapper. Ghidra: `HPL3_Script_cLuxPlayer_SetCameraRoll`. |
 | `0x1400cc860` | Confirmed by registration and decompilation | Global `GetPlayer()` wrapper. Returns the current `cLuxPlayer*` from game context `+0x140`. Signature-guarded probe anchor in `0.7.0`. Ghidra: `SOMA_GetPlayer`. |
 | `0x140125ef0` | Confirmed by registration and decompilation | `cLuxPlayer::GetCamera()`. Returns player `+0x168`. Ghidra: `SOMA_cLuxPlayer_GetCamera`. |
 | `0x140155290` | Confirmed by registration and decompilation | `cLuxPlayer::GetCharacterBody()`. Returns player `+0x170`. Ghidra: `SOMA_cLuxPlayer_GetCharacterBody`. |
@@ -87,6 +88,7 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x1404a94f0` | Confirmed by registration and HPL2 match | `cCamera::GetRotateMode`; reads camera `+0x6c`. Euler mode is `0`, matrix mode is `1`. Ghidra: `HPL3_Camera_GetRotateMode`. |
 | `0x14049bdf0` | Confirmed by registration | `iCharacterBody::SetCameraUpdateActive`; writes body `+0x1e8`. Ghidra: `HPL3_CharacterBody_SetCameraUpdateActive`. |
 | `0x14049be00` | Confirmed by registration | `iCharacterBody::GetCameraUpdateActive`; reads body `+0x1e8`. Ghidra: `HPL3_CharacterBody_GetCameraUpdateActive`. |
+| `0x140071f80` | Confirmed, control patch built | Registered `cWorld::SetDepthOfFieldActive(bool)` wrapper. Exact seven-byte body writes `world+0x264` and is followed by nine INT3 bytes; `0.28.0` uses the complete 16-byte region for reversible active-VR DoF suppression. Ghidra: `HPL3_World_SetDepthOfFieldActive`. |
 | `0x14033c240` | Confirmed | Adds a post effect to the priority-sorted container and retained effect list. |
 | `0x14033b8f0` | Confirmed, control hook built | Tests whether the composite has any active post effects. `0.5.2` uses an exact-signature F12 detour to return false for reversible post-chain isolation. |
 | `0x1402d7a40` | Confirmed | Executes one active post effect through virtual `+0x68` and performs the final full-screen copy when appropriate. Ghidra: `HPL3_PostEffect_RenderOne`. |
@@ -179,7 +181,7 @@ Confirmed post-effect vtable RVAs used for runtime identity:
 | ToneMapping | `0x69b038` | `0x1402859b0` |
 | FXAA | `0x6ac3b8` | `0x140386170` |
 | ImageFadeFX | `0x6ac4e8` | `0x140386b20` |
-| VideoDistortion | `0x6ac688` | `0x1403878a0` |
+| VideoDistortion | `0x6ac688` | `0x1403878a0` (`0.28.0` named VR policy) |
 | ChromaticAberration | `0x6ac928` | `0x140388ee0` |
 | RadialBlur | `0x6acb78` | `0x140389ed0` |
 | ImageTrail | `0x6acd48` | `0x14038ad00` |

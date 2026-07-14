@@ -1,5 +1,27 @@
 # Future Systems Reverse Engineering
 
+## 0.28.0 Authored-State Comfort Result
+
+Shipped `Player_Types.hps` fixes roll IDs as Script `0`, Lean `1`, Move `2`,
+and Climb `3`. Ghidra confirms exact wrappers at `0x140156d90`
+(`FadeCameraRollTo`) and `0x140156f00` (`SetCameraRoll`). The new guarded policy
+zeros only configured targets during active VR; the default active profile keeps
+scripted roll and fade timing intact while suppressing lean, move, and climb
+roll. This is semantic control above the camera transform, not a global roll
+clamp.
+
+The seven-byte `cWorld::SetDepthOfFieldActive` wrapper at `0x140071f80` writes
+`world+0x264` and is followed by nine padding bytes. A reversible 16-byte patch
+therefore disables only requested world DoF while tracking. Named post-effect
+policy also includes exact type `VideoDistortion`; fades and tone mapping remain
+native.
+
+Player states Ladder `11`, ClimbLedge `12`, InteractiveCameraAnimation `14`,
+Sit `15`, and Dead `17` now request a short OpenXR black frame on entry or exit.
+This is a transition guard, not completed authored-camera composition. Live
+tests still decide which states need longer/shorter guards and whether scripted
+roll should ever be disabled per sequence.
+
 ## 0.27.0 Flashlight Gameplay And Dynamic Safety Result
 
 Shipped `Player.hps::UpdateFlashLightLOS` performs three randomized agent-gobo

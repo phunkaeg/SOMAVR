@@ -2,6 +2,26 @@
 
 ## 2026-07-15
 
+### 0.28.0-authored-comfort
+
+- Added exact semantic camera-roll control at the registered
+  `FadeCameraRollTo` and `SetCameraRoll` wrappers. Lean, locomotion, and climb
+  roll can be zeroed independently while scripted roll remains native by
+  default; fade speed and maximum speed are preserved.
+- Added a reversible world depth-of-field guard at
+  `cWorld::SetDepthOfFieldActive` and extended named post-effect policy to
+  `VideoDistortion`. Both act only while F10 VR tracking is active.
+- Mapped the shipped player-state IDs and added bounded comfort black frames on
+  entry to or exit from ladder, climb-ledge, interactive-camera, sit, and death
+  states. Native state ownership, constraints, scripts, camera motion, and FOV
+  remain untouched.
+- All native boundaries are signature checked and installed transactionally;
+  partial failure restores every prior byte/hook. Pure roll/state policy tests
+  cover the shipped IDs. Both build flavors pass. OpenXR SHA-256:
+  `35E70B5E065C4A2592070F7DFDC556732271056CCFF8351DE1566401C37D8A65`.
+  Package SHA-256:
+  `B1F52060998B37D99B2E273482B8919BD477DAA015F7A0EAB0809982F9562C1C`.
+
 ### 0.27.0-gameplay-coherence
 
 - Extended controller flashlight ownership from the rendered spotlight to the

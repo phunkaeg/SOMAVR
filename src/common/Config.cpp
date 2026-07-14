@@ -148,6 +148,12 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLComfortSuppressHeadBob=1\n"
         << "HPLComfortSuppressCameraShake=1\n"
         << "HPLComfortSuppressSway=0\n"
+        << "HPLComfortCameraRollControl=0\n"
+        << "HPLComfortSuppressScriptRoll=0\n"
+        << "HPLComfortSuppressLeanRoll=1\n"
+        << "HPLComfortSuppressMoveRoll=1\n"
+        << "HPLComfortSuppressClimbRoll=1\n"
+        << "HPLComfortDepthOfFieldControl=0\n"
         << "HPLComfortLogInterval=120\n"
         << "HPLCameraLogInterval=120\n"
         << "HPLStereoAFR=0\n"
@@ -162,6 +168,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLPostEffectControl=0\n"
         << "HPLPostEffectBypassDefault=0\n"
         << "HPLPostEffectDisableImageTrail=1\n"
+        << "HPLPostEffectDisableVideoDistortion=1\n"
         << "HPLPostEffectDisableChromaticAberration=1\n"
         << "HPLPostEffectDisableRadialBlur=1\n"
         << "HPLShadowJitterControl=0\n"
@@ -283,6 +290,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "FlashlightYawDegrees=0.0\n"
         << "FlashlightRollDegrees=0.0\n"
         << "ComfortBlackoutFrames=2\n"
+        << "StateTransitionBlackoutFrames=0\n"
         << "RecenterHoldMs=900\n"
         << "MaxInputAgeFrames=8\n"
         << "LogInterval=120\n";
@@ -371,6 +379,12 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplcomfortsuppressheadbob") config_.hplComfortSuppressHeadBob = ParseBool(value, config_.hplComfortSuppressHeadBob);
             else if (key == "hplcomfortsuppresscamerashake") config_.hplComfortSuppressCameraShake = ParseBool(value, config_.hplComfortSuppressCameraShake);
             else if (key == "hplcomfortsuppresssway") config_.hplComfortSuppressSway = ParseBool(value, config_.hplComfortSuppressSway);
+            else if (key == "hplcomfortcamerarollcontrol") config_.hplComfortCameraRollControl = ParseBool(value, config_.hplComfortCameraRollControl);
+            else if (key == "hplcomfortsuppressscriptroll") config_.hplComfortSuppressScriptRoll = ParseBool(value, config_.hplComfortSuppressScriptRoll);
+            else if (key == "hplcomfortsuppressleanroll") config_.hplComfortSuppressLeanRoll = ParseBool(value, config_.hplComfortSuppressLeanRoll);
+            else if (key == "hplcomfortsuppressmoveroll") config_.hplComfortSuppressMoveRoll = ParseBool(value, config_.hplComfortSuppressMoveRoll);
+            else if (key == "hplcomfortsuppressclimbroll") config_.hplComfortSuppressClimbRoll = ParseBool(value, config_.hplComfortSuppressClimbRoll);
+            else if (key == "hplcomfortdepthoffieldcontrol") config_.hplComfortDepthOfFieldControl = ParseBool(value, config_.hplComfortDepthOfFieldControl);
             else if (key == "hplcomfortloginterval") config_.hplComfortLogInterval = ParseInt(value, config_.hplComfortLogInterval, 1, 100000);
             else if (key == "hplcameraloginterval") config_.hplCameraLogInterval = ParseInt(value, config_.hplCameraLogInterval, 1, 100000);
             else if (key == "hplstereoafr") config_.hplStereoAfr = ParseBool(value, config_.hplStereoAfr);
@@ -385,6 +399,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplposteffectcontrol") config_.hplPostEffectControl = ParseBool(value, config_.hplPostEffectControl);
             else if (key == "hplposteffectbypassdefault") config_.hplPostEffectBypassDefault = ParseBool(value, config_.hplPostEffectBypassDefault);
             else if (key == "hplposteffectdisableimagetrail") config_.hplPostEffectDisableImageTrail = ParseBool(value, config_.hplPostEffectDisableImageTrail);
+            else if (key == "hplposteffectdisablevideodistortion") config_.hplPostEffectDisableVideoDistortion = ParseBool(value, config_.hplPostEffectDisableVideoDistortion);
             else if (key == "hplposteffectdisablechromaticaberration") config_.hplPostEffectDisableChromaticAberration = ParseBool(value, config_.hplPostEffectDisableChromaticAberration);
             else if (key == "hplposteffectdisableradialblur") config_.hplPostEffectDisableRadialBlur = ParseBool(value, config_.hplPostEffectDisableRadialBlur);
             else if (key == "hplshadowjittercontrol") config_.hplShadowJitterControl = ParseBool(value, config_.hplShadowJitterControl);
@@ -565,6 +580,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "flashlightyawdegrees") config_.hplFlashlightYawDegrees = ParseFloat(value, config_.hplFlashlightYawDegrees, -180.0f, 180.0f);
             else if (key == "flashlightrolldegrees") config_.hplFlashlightRollDegrees = ParseFloat(value, config_.hplFlashlightRollDegrees, -180.0f, 180.0f);
             else if (key == "comfortblackoutframes") config_.hplControllerComfortBlackoutFrames = ParseInt(value, config_.hplControllerComfortBlackoutFrames, 0, 120);
+            else if (key == "statetransitionblackoutframes") config_.hplControllerStateTransitionBlackoutFrames = ParseInt(value, config_.hplControllerStateTransitionBlackoutFrames, 0, 120);
             else if (key == "recenterholdms") config_.hplControllerRecenterHoldMs = ParseInt(value, config_.hplControllerRecenterHoldMs, 250, 5000);
             else if (key == "maxinputageframes") config_.hplControllerMaxInputAgeFrames = ParseInt(value, config_.hplControllerMaxInputAgeFrames, 1, 300);
             else if (key == "loginterval") config_.hplControllerLogInterval = ParseInt(value, config_.hplControllerLogInterval, 1, 100000);

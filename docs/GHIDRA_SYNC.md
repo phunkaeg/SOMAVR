@@ -1,5 +1,16 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Authored Comfort Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x140156d90` | `HPL3_Script_cLuxPlayer_FadeCameraRollTo` | Retyped to exact player/type/target/speed/max-speed ABI. Plate comment records semantic roll IDs and the `0.28.0` target-only suppression contract. |
+| `0x140156f00` | `HPL3_Script_cLuxPlayer_SetCameraRoll` | Retyped direct setter; plate comment records the same independently configurable Script/Lean/Move/Climb policy. |
+| `0x140071f80` | `HPL3_World_SetDepthOfFieldActive` | Created, named, and typed as the compact bool setter writing `world+0x264`; comment records the exact reversible function-plus-padding patch. |
+
+All three anchors carry SOMAVR/Confirmed/VR-Comfort tags. The explicitly
+selected `Soma_NoSteam.exe` database was saved after synchronization.
+
 ## 2026-07-15 Flashlight Gameplay-Ray Sync
 
 | Address | Ghidra name | Evidence/use |

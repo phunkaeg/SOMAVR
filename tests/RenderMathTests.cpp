@@ -326,6 +326,22 @@ int main()
             redirectedCone),
         "flashlight gameplay ray rejects malformed source basis");
 
+    failures += Check(
+        comfort_math::ShouldSuppressCameraRoll(1, false, true, true, true)
+            && comfort_math::ShouldSuppressCameraRoll(2, false, true, true, true)
+            && comfort_math::ShouldSuppressCameraRoll(3, false, true, true, true)
+            && !comfort_math::ShouldSuppressCameraRoll(0, false, true, true, true)
+            && !comfort_math::ShouldSuppressCameraRoll(99, true, true, true, true),
+        "semantic camera roll policy preserves script and suppresses lean move climb");
+    failures += Check(
+        comfort_math::ShouldBlackoutPlayerStateTransition(0, 11)
+            && comfort_math::ShouldBlackoutPlayerStateTransition(12, 0)
+            && comfort_math::ShouldBlackoutPlayerStateTransition(14, 15)
+            && comfort_math::ShouldBlackoutPlayerStateTransition(0, 17)
+            && !comfort_math::ShouldBlackoutPlayerStateTransition(0, 1)
+            && !comfort_math::ShouldBlackoutPlayerStateTransition(-1, 11),
+        "authored high-motion state transitions request comfort blackout");
+
     using grab_math::ResolveAngularTargetVelocity;
     const camera_math::Vector3 noGrabRotation = ResolveAngularTargetVelocity({}, {}, 100.0f, 1.0f, 6.0f);
     failures += Check(

@@ -253,11 +253,19 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplControllerFocusHapticCooldownFrames);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "comfort_config cameraAddControl=%d suppressHeadBob=%d suppressCameraShake=%d suppressSway=%d logInterval=%d",
+        "comfort_config cameraAddControl=%d suppressHeadBob=%d suppressCameraShake=%d suppressSway=%d cameraRollControl=%d suppressRoll={script=%d lean=%d move=%d climb=%d} depthOfFieldControl=%d stateTransitionBlackoutFrames=%d videoDistortion=%d logInterval=%d",
         g_config->Get().hplComfortCameraAddControl ? 1 : 0,
         g_config->Get().hplComfortSuppressHeadBob ? 1 : 0,
         g_config->Get().hplComfortSuppressCameraShake ? 1 : 0,
         g_config->Get().hplComfortSuppressSway ? 1 : 0,
+        g_config->Get().hplComfortCameraRollControl ? 1 : 0,
+        g_config->Get().hplComfortSuppressScriptRoll ? 1 : 0,
+        g_config->Get().hplComfortSuppressLeanRoll ? 1 : 0,
+        g_config->Get().hplComfortSuppressMoveRoll ? 1 : 0,
+        g_config->Get().hplComfortSuppressClimbRoll ? 1 : 0,
+        g_config->Get().hplComfortDepthOfFieldControl ? 1 : 0,
+        g_config->Get().hplControllerStateTransitionBlackoutFrames,
+        g_config->Get().hplPostEffectDisableVideoDistortion ? 1 : 0,
         g_config->Get().hplComfortLogInterval);
 
     g_openxr = std::make_unique<somavr::OpenXRRuntime>();

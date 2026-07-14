@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.27.0-gameplay-coherence`, layered on the
+The active build candidate is `0.28.0-authored-comfort`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
@@ -65,8 +65,15 @@ compatibility probes:
 
 - A guarded native comfort bridge now intercepts SOMA's semantic camera-add
   setter. During active VR it zeros only Bob, Shake, and optional Sway while all
-  authored movement/state channels remain native. The active profile enables all
-  three comfort channels; generated configs keep the control disabled.
+  authored movement/state channels remain native. It now also owns the exact
+  Set/Fade camera-roll wrappers: Lean, Move, and Climb roll are disabled in the
+  active profile while Script roll remains native. A reversible world DoF guard
+  and exact VideoDistortion post-effect policy apply only during active tracking.
+  Generated configs keep the native control boundaries disabled.
+- Exact player-state IDs now drive transition telemetry and a two-frame comfort
+  blackout around Ladder, ClimbLedge, InteractiveCameraAnimation, Sit, and Dead
+  entry/exit. This hides abrupt authored pose handoffs without replacing state,
+  constraints, animation, scripts, camera movement, or FOV.
 - Controller closest-entity results publish validated entity/body pointers,
   native hit distance, and an HPL world hit point. The same exact aim pose and
   distance drive an application-space OpenXR reticle quad with compositor-correct

@@ -54,6 +54,7 @@ struct Config {
     bool hplControllerSuppressDuringAuthoredCamera = true;
     bool hplControllerInteractionRay = false;
     float hplControllerInteractionRayOriginTolerance = 0.75f;
+    bool hplHandTrackingProbe = false;
     int hplControllerComfortBlackoutFrames = 2;
     int hplControllerRecenterHoldMs = 900;
     int hplControllerMaxInputAgeFrames = 8;

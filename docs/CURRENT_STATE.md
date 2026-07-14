@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.12.0-native-interaction`, layered on the
+The active build candidate is `0.13.0-hands-identity`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
@@ -41,6 +41,10 @@ compatibility probes:
   authored-camera gates restore the original gaze query on any mismatch.
 - SOMA still owns interaction ray length, LOS, `CanInteract`, distance policy,
   focus state, player-state transitions, physics, and map callbacks.
+- The exact runtime `PlayerHands_*` entity is now recognized through confirmed
+  `cLuxProp` GetName and SetMatrix registrations. Its original root matrix is
+  left untouched while bounded logs correlate scale/basis/translation with the
+  native camera, dominant grip pose, and authored player state.
 
 - Invalid `xrLocateViews` output can no longer overwrite the last valid eye
   cache. Tracking samples have a configurable 30-frame usability bound and
@@ -349,9 +353,9 @@ The OpenXR build now asks for:
 & "D:\Dev Debug\SOMAVR\build-openxr-controller\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.12.0-native-interaction`, seven render-stage/GUI hooks,
-   `hpl_interaction_bridge install_ok`, `referenceSpace=local`, `recovery=1`,
-   and controller haptics enabled.
+2. Confirm `version=0.13.0-hands-identity`, seven render-stage/GUI hooks,
+   `hpl_interaction_bridge install_ok`, `hpl_hands_bridge install_ok`,
+   `referenceSpace=local`, `recovery=1`, and controller haptics enabled.
 3. Load a save game, face forward, and press F10 once.
 4. Confirm `hpl_vr_mode requested`, API-attributed `openxr_manual_start triggered`,
    one or more `calibration_wait` rows, then `hpl_vr_mode activated` with
@@ -389,8 +393,11 @@ The OpenXR build now asks for:
 19. Confirm haptic pulses for discrete actions, then briefly remove runtime
     focus while holding movement and verify immediate release plus one loss and
     restoration transition in the log.
-20. Confirm `somavr_build_manifest.txt` reports version
-    `0.12.0-native-interaction`, flavor `openxr`, and a DLL SHA-256.
-21. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
+20. Exercise visible normal and authored hand/tool states. Attach
+    `hpl_hands_identity` and `hpl_hands_pose` rows with quarter/full scale,
+    camera distance, grip distance, and player-state transitions.
+21. Confirm `somavr_build_manifest.txt` reports version
+    `0.13.0-hands-identity`, flavor `openxr`, and a DLL SHA-256.
+22. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
     `complete`, then check that `Soma_NoSteam.exe` disappears. If it remains,
     capture it with the dumper before manually terminating it.

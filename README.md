@@ -136,6 +136,7 @@ OneHandFallback=1
 SuppressDuringAuthoredCamera=1
 InteractionRay=1
 InteractionRayOriginTolerance=0.75
+HandTrackingProbe=1
 ComfortBlackoutFrames=2
 ```
 

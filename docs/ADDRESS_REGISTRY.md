@@ -53,6 +53,8 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x1400cca70` | Confirmed | `SOMA_GetCurrentImGui`; follows game-context `+0xe8`, then `+0x168`. |
 | `0x1400cd750` | Confirmed, control hook built | Registered global `GetClosestEntity` wrapper used by `Utility_PickBasics`. `0.12.0` can replace only start/direction with the tracked dominant-controller world ray while preserving native length, interaction type, LOS, output, `CanInteract`, distance, focus, and callbacks. Ghidra: `SOMA_GetClosestEntity`. |
 | `0x1400bcd90` | Confirmed, probe candidate | Shared AngelScript `iLuxEntity.SetMatrix` registration target used by derived Lux entity types. `PlayerHandsHandler.PostUpdate` calls this route for `PlayerHands_*`; entity identity and transform convention must be proven before controller mutation. Ghidra: `SOMA_iLuxEntity_SetMatrix`. |
+| `0x14000fb60` | Confirmed, probe built | Compact inherited `iLuxEntity.GetName` accessor registered for `cLuxProp`; returns native `tString` at entity `+0x120`. `0.13.0` signature-guards it and recognizes only exact `PlayerHands_*` prefixes before matrix sampling. Ghidra: `SOMA_iLuxEntity_GetName`. |
+| `0x14016ebe0` | Confirmed | `cLuxProp` AngelScript registration owner. Registers inherited GetName through `0x14000fb60` and SetMatrix through `0x1400bcd90`. Ghidra: `SOMA_Script_Register_cLuxProp`. |
 | `0x1404a5030` | Confirmed | Registers the AngelScript `iCharacterBody` API, including `Move`, `SetMoveSpeed`, `AddYaw`, and `SetYaw`. |
 | `0x1402375f0` | Confirmed by registration | Native wrapper registered for `iCharacterBody::Move(eCharDir, float)`. Candidate semantic locomotion probe. |
 | `0x14015ca10` | Confirmed | Registers the AngelScript `cLuxPlayer` API. Maps `GetCamera` to `0x140125ef0` and `GetCharacterBody` to `0x140155290`. |
@@ -129,6 +131,18 @@ dispatch, not a safe semantic locomotion boundary by itself.
 | Object | Offset | Meaning |
 | --- | --- | --- |
 | `iCharacterBody` | `+0x1e8` | Camera-update ownership boolean exposed as `Get/SetCameraUpdateActive`. SOMA's hands script clears it during camera-to-bone attachment and restores it afterward. |
+
+## SOMA Lux Entity Layout
+
+| Object | Offset | Meaning |
+| --- | --- | --- |
+| `iLuxEntity` / `cLuxProp` | `+0x120` | Native MSVC `tString` name returned by registered `GetName`; `PlayerHands_*` is the exact runtime hand identity. |
+
+The native x64 string layout used here is 16 bytes of inline storage or a heap
+pointer, followed by length at `+0x10` and capacity at `+0x18`. The hands probe
+bounds length/capacity and uses `ReadProcessMemory` before accepting an identity.
+HPL `cMatrixf` translation is row-major elements `[3,7,11]`; basis/scale rows
+are `[0..2]`, `[4..6]`, and `[8..10]`.
 
 ## HPL3 Post-Effect Composite Layout
 

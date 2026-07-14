@@ -192,6 +192,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "SuppressDuringAuthoredCamera=1\n"
         << "InteractionRay=0\n"
         << "InteractionRayOriginTolerance=0.75\n"
+        << "HandTrackingProbe=0\n"
         << "ComfortBlackoutFrames=2\n"
         << "RecenterHoldMs=900\n"
         << "MaxInputAgeFrames=8\n"
@@ -353,6 +354,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "suppressduringauthoredcamera") config_.hplControllerSuppressDuringAuthoredCamera = ParseBool(value, config_.hplControllerSuppressDuringAuthoredCamera);
             else if (key == "interactionray") config_.hplControllerInteractionRay = ParseBool(value, config_.hplControllerInteractionRay);
             else if (key == "interactionrayorigintolerance") config_.hplControllerInteractionRayOriginTolerance = ParseFloat(value, config_.hplControllerInteractionRayOriginTolerance, 0.05f, 10.0f);
+            else if (key == "handtrackingprobe") config_.hplHandTrackingProbe = ParseBool(value, config_.hplHandTrackingProbe);
             else if (key == "comfortblackoutframes") config_.hplControllerComfortBlackoutFrames = ParseInt(value, config_.hplControllerComfortBlackoutFrames, 0, 120);
             else if (key == "recenterholdms") config_.hplControllerRecenterHoldMs = ParseInt(value, config_.hplControllerRecenterHoldMs, 250, 5000);
             else if (key == "maxinputageframes") config_.hplControllerMaxInputAgeFrames = ParseInt(value, config_.hplControllerMaxInputAgeFrames, 1, 300);

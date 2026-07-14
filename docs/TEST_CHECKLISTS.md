@@ -1,5 +1,29 @@
 # Test Checklists
 
+## 0.13.0 Player Hands Identity And Root-Pose Probe
+
+1. Launch the OpenXR Release build, load a gameplay save, and press F10 once.
+   Confirm `version=0.13.0-hands-identity` and
+   `hpl_hands_bridge install_ok ... policy=identity_and_pose_probe_only`.
+2. Trigger any normal hand/tool animation or state that makes SOMA's hands
+   active. Expect one `hpl_hands_identity ... name=PlayerHands_* playerHands=1`
+   row, followed by bounded `hpl_hands_pose` rows. There must be no crash and no
+   visible change to hand placement or animation.
+3. In normal tool idle/draw/holster states, capture rows with
+   `scaleMode=quarter`, `gripValid=1`, finite basis vectors, and stable
+   `cameraDistance`/`gripDistance`. Rotate and translate the controller enough to
+   reveal handedness and the fixed model-to-grip orientation correction.
+4. Exercise a full-scale hand animation, crawl/ladder/climb, custom hand
+   placement, and a camera-socket animation if available. Capture transitions to
+   `scaleMode=full`, `authoredCamera=1`, or distinct player/move states.
+5. Briefly remove dominant-controller tracking and restore it. Probe output may
+   report `gripValid=0`, but SOMA's original camera-follow hands must remain
+   intact. Recenter/load another save and confirm a replacement `PlayerHands_*`
+   identity is discovered.
+6. Exit normally and attach the log. The summary should have nonzero
+   `playerHandsIdentities`, `playerHandsCalls`, and preferably
+   `trackedGripSamples`, with zero matrix read failures.
+
 ## 0.12.0 Native Controller Interaction And HUD Metrics
 
 1. Launch the OpenXR Release build, load a normal gameplay save, and press F10

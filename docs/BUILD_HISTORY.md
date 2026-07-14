@@ -2,6 +2,20 @@
 
 ## 2026-07-15
 
+### 0.13.0-hands-identity
+
+- Added signature-guarded `HPLHandsBridge` ownership around the shared Lux
+  entity SetMatrix wrapper and confirmed inherited GetName accessor.
+- Added exact `PlayerHands_*` identification through the native bounded MSVC
+  string layout at entity `+0x120`; unrelated entities receive no pose analysis.
+- Added passive hand-root telemetry for HPL matrix translation, basis/scale,
+  quarter/full-scale mode, native-camera distance, dominant grip pose/distance,
+  and authored-camera/player-state ownership. Original matrices remain unchanged.
+- Promoted the GetName accessor and `cLuxProp` registration owner in Ghidra and
+  documented the exact measurements needed for a safe controller root override.
+- Built and tested default and OpenXR x64 Release flavors. OpenXR SHA-256:
+  `E180A16725978AB161A14C66901A2386D1554BF4E79FF6D681CF2426D49F8D05`.
+
 ### 0.12.0-native-interaction
 
 - Added a signature-guarded `HPLInteractionBridge` at confirmed native wrapper

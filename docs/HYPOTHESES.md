@@ -152,7 +152,7 @@ defects are now tracked under S9 rather than as failure of native stereo geometr
 
 ## S6 - OpenXR locomotion should enter through semantic player movement
 
-Status: STATICALLY SUPPORTED
+Status: PROBE BUILT
 
 Hypothesis: feeding controller axes into SOMA's action/move-state path or the registered `iCharacterBody::Move(eCharDir, float)` wrapper will preserve speed modifiers, crouch/run/jump state, AI sound, breathing, and interaction restrictions better than keyboard synthesis or direct capsule movement.
 
@@ -178,8 +178,15 @@ Evidence:
 - `PlayerHandsHandler.hps` constructs a world entity from `hands_human.ent` and updates one explicit matrix in `PostUpdate`.
 - Tool/HudObject entities are attached to the `R_Hand` socket and updated separately.
 - Custom position, custom rotation, full-scale, and camera-attachment states are already explicit script flags.
+- `0x14000fb60` returns the registered Lux entity name at `+0x120`, while
+  `0x1400bcd90` receives the shared script SetMatrix object and matrix pointers.
+- `0.13.0` filters exact `PlayerHands_*` identities and correlates their root
+  basis/scale/translation with the tracked dominant grip and authored state
+  without mutating the matrix.
 
-Confirms if a matrix probe identifies a stable hands entity and controller-pose replacement preserves animations, attached tools, and interaction callbacks in both eyes.
+Confirms if the live probe shows stable normal-state model correction and clear
+quarter/full/authored classifications, then controller-pose replacement preserves
+animations, attached tools, and interaction callbacks in both eyes.
 
 Redirects if the scaled mesh or authored animations cannot tolerate physical scale; add per-tool pose/scale profiles or a dedicated viewmodel projection path.
 

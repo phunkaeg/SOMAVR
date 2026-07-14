@@ -1,5 +1,19 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Hands Identity And Root Transform Sync
+
+The `cLuxProp` registration chain used by `PlayerHandsHandler` is now explicit:
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x14000fb60` | `SOMA_iLuxEntity_GetName` | Created and typed compact accessor; returns entity `+0x120`, registered as inherited `const tString& GetName()` for `cLuxProp`. |
+| `0x1400bcd90` | `SOMA_iLuxEntity_SetMatrix` | Existing promotion updated with the confirmed `RDX` matrix ABI and `0.13.0` exact-name probe policy. |
+| `0x14016ebe0` | `SOMA_Script_Register_cLuxProp` | Renamed registration owner from the exact `cLuxProp` class string and GetName/SetMatrix registrations. |
+
+All three received PlayerHands/cLuxProp/identity/transform evidence comments and
+tags where appropriate. The program was saved after the runtime probe anchors
+were synchronized.
+
 ## 2026-07-15 Native Interaction And Hands Transform Sync
 
 Two AngelScript registration targets were promoted, typed, commented, tagged,

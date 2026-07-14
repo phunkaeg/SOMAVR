@@ -1,5 +1,36 @@
 # Future Systems Reverse Engineering
 
+## 0.13.0 Hands Identity And Root-Pose Findings
+
+SOMA's `cLuxProp` registration owner at `0x14016ebe0` connects the hand script to
+two exact native boundaries. `SOMA_iLuxEntity_GetName` (`0x14000fb60`) returns
+the native `tString` at entity `+0x120`; `SOMA_iLuxEntity_SetMatrix`
+(`0x1400bcd90`) receives the script's `const cMatrixf&` in `RDX` before forwarding
+it to the entity virtual method. This proves a selective probe can identify the
+runtime hand by its authored `PlayerHands_*` prefix without resource-pointer or
+camera-distance heuristics.
+
+`HPLHandsBridge` signature-guards both functions, caches bounded entity identity,
+and passively samples only exact hands matrices. It records translation, three
+basis lengths, quarter/full/other scale mode, basis rows, distance from the
+native camera root, dominant tracked grip position/forward and root distance,
+plus authored-camera and player/move-state ownership. Every input matrix is
+forwarded unchanged.
+
+The remaining information is concrete rather than open-ended:
+
+1. Confirm the normal hand model reports quarter scale and a stable root offset.
+2. Measure the model's basis against controller grip forward/up to derive the
+   fixed model-space orientation correction.
+3. Exercise tool draw/idle/holster, crawl/ladder, full-scale animations, custom
+   position/rotation, and camera-socket attachment to classify override-safe states.
+4. Use the measured correction only in normal quarter-scale states; preserve or
+   blend authored/full-scale matrices and immediately fall back on tracking loss.
+
+This dataset is sufficient to build a configurable controller root transform in
+the next pass without replacing the mesh, skeletal animation, `R_Hand` sockets,
+attached tools, or script callbacks.
+
 ## 0.12.0 Native Interaction And Transform Findings
 
 The registered `GetClosestEntity` wrapper at `0x1400cd750` is the exact native
@@ -13,9 +44,9 @@ Lux entity types converge on shared wrapper `0x1400bcd90`. The hands script
 creates `PlayerHands_*` from `character/player/hands/hands_human.ent` and calls
 `pEntity.SetMatrix(mtxHands)` each active `PostUpdate`; tool meshes remain attached
 to `R_Hand`. This identifies the transform mutation boundary but not yet the
-runtime entity identity. The next safe step is a bounded identity probe that
-confirms the entity name/resource, scale (`0.25` or `1.0`), camera proximity, and
-authored/custom-transform flags before any matrix replacement.
+runtime entity identity. `0.13.0` closes that identity gap with the confirmed
+name accessor and bounded root-pose probe; model-space correction and state
+classification remain live acceptance gates before matrix replacement.
 
 The exact gameplay HUD hook now also logs confirmed context metrics at
 `+0x58/+0x60/+0x70/+0x7c/+0x84`. These virtual center, full virtual-space, and

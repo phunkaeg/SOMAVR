@@ -4,6 +4,7 @@
 #include "HPLLifecycle.h"
 #include "HPLInputBridge.h"
 #include "HPLInteractionBridge.h"
+#include "HPLHandsBridge.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
 #include "OpenGLHooks.h"
@@ -139,7 +140,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrTrackingRecoveryBlackoutFrames);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f interaction=%d menu=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d suppressAuthoredCamera=%d interactionRay=%d interactionRayOriginTolerance=%.3f comfortBlackoutFrames=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
+        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f interaction=%d menu=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d suppressAuthoredCamera=%d interactionRay=%d interactionRayOriginTolerance=%.3f handTrackingProbe=%d comfortBlackoutFrames=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
         g_config->Get().hplControllerInput ? 1 : 0,
         g_config->Get().hplControllerMoveDeadzone,
         g_config->Get().hplControllerMoveReleaseDeadzone,
@@ -160,6 +161,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplControllerSuppressDuringAuthoredCamera ? 1 : 0,
         g_config->Get().hplControllerInteractionRay ? 1 : 0,
         g_config->Get().hplControllerInteractionRayOriginTolerance,
+        g_config->Get().hplHandTrackingProbe ? 1 : 0,
         g_config->Get().hplControllerComfortBlackoutFrames,
         g_config->Get().hplControllerRecenterHoldMs,
         g_config->Get().hplControllerMaxInputAgeFrames,
@@ -199,6 +201,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     if (!somavr::InstallHPLInteractionBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_interaction_bridge install_failed");
     }
+    if (!somavr::InstallHPLHandsBridge(g_config->Get(), g_openxr.get())) {
+        somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_hands_bridge install_failed");
+    }
     if (!somavr::InstallHPLCompatibilityProbe(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_compat_probe install_failed");
     }
@@ -228,6 +233,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::RemoveHPLLifecycle();
     somavr::LogHPLCompatibilityProbeSummary();
     somavr::RemoveHPLCompatibilityProbe();
+    somavr::LogHPLHandsBridgeSummary();
+    somavr::RemoveHPLHandsBridge();
     somavr::LogHPLInteractionBridgeSummary();
     somavr::RemoveHPLInteractionBridge();
     somavr::LogHPLCameraBridgeSummary();

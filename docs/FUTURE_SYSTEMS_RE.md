@@ -67,9 +67,11 @@ calls, average microseconds, and total milliseconds for left, right, and mono.
 OpenXR bootstrap now inventories `XR_KHR_composition_layer_depth` and may enable
 it without using it. `openxr_depth_capability` correlates extension state with
 `GL_DEPTH_BITS`, `GL_DEPTH_RANGE`, and confirmed HPL projection type/near/far.
-The next step requires supported live evidence, verified eye-owned depth images,
-and confirmed GL-to-OpenXR depth mapping before creating depth swapchains or
-chaining `XrCompositionLayerDepthInfoKHR`.
+`0.32.0` adds same-size `GL_DEPTH_COMPONENT24` attachments to both AFR caches,
+copies source depth with nearest filtering, and samples finite center ranges.
+After a live log proves valid and varying depth for both eyes, the next step is
+format negotiation plus depth swapchains and confirmed GL-to-OpenXR depth
+mapping before chaining `XrCompositionLayerDepthInfoKHR`.
 
 ## 0.25.0 Head Volume, Spectator, And CPU Budget Result
 
@@ -477,6 +479,13 @@ Inside each viewport, `0x140298630` performs this order:
 6. Draw queued GUI sets through `0x1402981e0`.
 
 This is the central design fact for future work: stereo scene rendering and scene post effects belong inside the per-eye viewport path; flat HUD extraction belongs after post effects and before final presentation.
+
+The same boundary exposes exact viewport ownership: camera `+0x18`, world
+`+0x20`, active/visible/listener flags `+0x28/+0x29/+0x2a`, renderer `+0x30`,
+post composite `+0x38`, framebuffer `+0x48`, position/size `+0x50/+0x58`, and
+render settings `+0xa8`. Create/destroy are `0x140297f20/0x140297500`.
+`0.32.0` logs this identity and allows only the exact player camera to consume
+VR controls, giving future dual render a concrete player-versus-secondary gate.
 
 ```mermaid
 flowchart LR

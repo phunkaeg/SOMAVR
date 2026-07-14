@@ -21,10 +21,23 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.31.0-tools-hud`, layered on the
+The active build candidate is `0.32.0-viewport-depth`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- F10/F11 and the diagnostic camera controls are now owned by the exact player
+  camera whenever `HPLPlayerState` can identify it. Secondary viewport cameras
+  retain native frusta and cannot consume activation edges or inherit headset
+  pose. Bounded viewport identity rows expose camera/world/renderer/post/FBO,
+  dimensions, flags, and player/secondary role for future reflection, terminal,
+  save/load, and same-frame render work.
+- Each AFR eye cache may now carry a same-size depth attachment. Depth is copied
+  from the native backbuffer and periodically sampled as evidence only; no depth
+  swapchain or compositor depth chain is submitted in this build.
+- The injector warns about common graphics/VR hook conflicts and blocks a
+  duplicate SOMAVR injection. The release package now includes reversible,
+  checksum-verified install/update/uninstall scripts that preserve user config.
 
 - Exact script identity now separates three viewmodel owners at the shared
   Lux-entity matrix boundary. `PlayerHands_*` retains its existing controller

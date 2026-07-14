@@ -31,6 +31,22 @@ Room-scale head-volume queries may now include dynamic bodies through the
 existing native filter. This improves moving-door coherence but remains a
 sampled volume whose jitter and authored-camera behavior need live validation.
 
+## 0.32.0 Viewport Ownership And Depth Capture
+
+Ghidra and the matching HPL2 layout confirm `cViewport` camera/world/render
+ownership at `0x140298630`. `0.32.0` samples that packet at the render boundary
+and correlates it with both `HPLPlayerState::camera` and the active VR camera.
+The camera frustum hook uses the same invariant before reading any VR hotkey:
+when the exact player camera is known, every different camera returns its native
+frustum immediately. This closes the observed route by which a reflection,
+terminal, water, or shadow camera could consume F10 or inherit headset pose.
+
+The depth experiment now allocates one `GL_DEPTH_COMPONENT24` texture beside
+each eye color cache and blits source depth with `GL_NEAREST`. Periodic
+`openxr_depth_cache_probe` rows report source depth bits, GL errors, finite
+center minimum/maximum, and eye identity. This remains capture-only evidence:
+there is no depth swapchain and no composition-layer depth chain yet.
+
 ## 0.26.0 GPU And Depth Evidence
 
 `HPLCompatibilityProbe` now issues nested-safe start/end `GL_TIMESTAMP` queries

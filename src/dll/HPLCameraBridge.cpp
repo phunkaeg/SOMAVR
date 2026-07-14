@@ -1,6 +1,7 @@
 #include "HPLCameraBridge.h"
 
 #include "HPLCameraMath.h"
+#include "HPLPlayerState.h"
 #include "Logger.h"
 
 #include <Windows.h>
@@ -157,6 +158,8 @@ std::mutex g_stateMutex;
 BridgeState g_state;
 std::atomic<uint64_t> g_getFrustumCalls = 0;
 std::atomic<uint64_t> g_candidateCalls = 0;
+std::atomic<uint64_t> g_secondaryCameraCandidates = 0;
+std::atomic<uint64_t> g_secondaryCameraControlSkips = 0;
 std::atomic<uint64_t> g_appliedCalls = 0;
 std::atomic<uint64_t> g_baseRefreshes = 0;
 std::atomic<uint64_t> g_poseMisses = 0;
@@ -801,7 +804,42 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
             suppressNativeRoll ? 1 : 0);
     }
 
+    HPLPlayerStateSnapshot playerState{};
+    const bool playerCameraKnown = GetHPLPlayerStateSnapshot(playerState)
+        && playerState.playerValid
+        && playerState.camera != nullptr;
+
     std::lock_guard lock(g_stateMutex);
+    void* controlCamera = nullptr;
+    const char* controlOwner = "candidate_fallback";
+    if ((g_state.trackingEnabled || g_state.activationPending)
+        && g_state.activeCamera != nullptr) {
+        controlCamera = g_state.activeCamera;
+        controlOwner = "active_vr_camera";
+    } else if (playerCameraKnown) {
+        controlCamera = playerState.camera;
+        controlOwner = "player_camera";
+    }
+    if (controlCamera != nullptr && controlCamera != camera) {
+        const uint64_t secondary = g_secondaryCameraCandidates.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+        g_secondaryCameraControlSkips.fetch_add(1, std::memory_order_relaxed);
+        if (secondary <= 12 || secondary % candidateLogInterval == 0) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_camera secondary_candidate=%llu camera=%p frustum=%p controlCamera=%p controlOwner=%s playerCamera=%p activeCamera=%p tracking=%d activationPending=%d policy=native_frustum_no_vr_controls",
+                static_cast<unsigned long long>(secondary),
+                camera,
+                frustum,
+                controlCamera,
+                controlOwner,
+                playerCameraKnown ? playerState.camera : nullptr,
+                g_state.activeCamera,
+                g_state.trackingEnabled ? 1 : 0,
+                g_state.activationPending ? 1 : 0);
+        }
+        return frustum;
+    }
     if (g_config.hplRoomscaleControl) {
         const bool f4Down = (GetAsyncKeyState(VK_F4) & 0x8000) != 0;
         const bool wasF4Down = g_roomscaleF4Down.exchange(f4Down, std::memory_order_relaxed);
@@ -1454,9 +1492,11 @@ void LogHPLCameraBridgeSummary()
     std::lock_guard lock(g_stateMutex);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyProbes=%llu roomscaleSafetySkippedProbes=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu",
+        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu secondaryCameraCandidates=%llu secondaryCameraControlSkips=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyProbes=%llu roomscaleSafetySkippedProbes=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu",
         static_cast<unsigned long long>(g_getFrustumCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_candidateCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_secondaryCameraCandidates.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_secondaryCameraControlSkips.load(std::memory_order_relaxed)),
         g_state.activationPending ? 1 : 0,
         g_state.recenterPending ? 1 : 0,
         g_state.trackingEnabled ? 1 : 0,

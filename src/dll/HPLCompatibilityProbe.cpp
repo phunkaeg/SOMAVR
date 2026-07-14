@@ -2,6 +2,7 @@
 
 #include "HPLCameraBridge.h"
 #include "HPLCameraMath.h"
+#include "HPLPlayerState.h"
 #include "Logger.h"
 #include "OpenGLHooks.h"
 
@@ -20,6 +21,7 @@
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -38,6 +40,19 @@ constexpr uintptr_t kRenderPostPostEffectRva = 0x1f1480;
 constexpr uintptr_t kRenderScreenGuiRva = 0x2981e0;
 constexpr uintptr_t kPostEffectHasActiveEffectsRva = 0x33b8f0;
 constexpr uintptr_t kAudioListenerUpdateRva = 0x289340;
+
+constexpr size_t kViewportCameraOffset = 0x18;
+constexpr size_t kViewportWorldOffset = 0x20;
+constexpr size_t kViewportActiveOffset = 0x28;
+constexpr size_t kViewportVisibleOffset = 0x29;
+constexpr size_t kViewportListenerOffset = 0x2a;
+constexpr size_t kViewportRendererOffset = 0x30;
+constexpr size_t kViewportPostCompositeOffset = 0x38;
+constexpr size_t kViewportFramebufferOffset = 0x48;
+constexpr size_t kViewportPositionOffset = 0x50;
+constexpr size_t kViewportSizeOffset = 0x58;
+constexpr size_t kViewportRenderSettingsOffset = 0xa8;
+constexpr size_t kMaxViewportIdentities = 64;
 
 constexpr uintptr_t kToneMappingVtableRva = 0x69b038;
 constexpr uintptr_t kFxaaVtableRva = 0x6ac3b8;
@@ -152,6 +167,20 @@ struct RenderTransactionFrame {
     size_t orderCount = 0;
 };
 
+struct ViewportIdentity {
+    void* camera = nullptr;
+    void* world = nullptr;
+    void* renderer = nullptr;
+    void* postComposite = nullptr;
+    void* framebuffer = nullptr;
+    void* renderSettings = nullptr;
+    int32_t position[2] = {};
+    int32_t size[2] = {};
+    uint8_t active = 0;
+    uint8_t visible = 0;
+    uint8_t listener = 0;
+};
+
 Config g_config;
 OpenXRRuntime* g_openxr = nullptr;
 uintptr_t g_executableBase = 0;
@@ -181,6 +210,12 @@ std::atomic<uint64_t> g_lastPerformanceLogFrame = 0;
 std::atomic<uint64_t> g_lastGpuPerformanceLogFrame = 0;
 std::atomic<uint64_t> g_renderTransactionFrames = 0;
 std::atomic<uint64_t> g_canonicalRenderTransactions = 0;
+std::atomic<uint64_t> g_viewportIdentitySamples = 0;
+std::atomic<uint64_t> g_viewportIdentityChanges = 0;
+std::atomic<uint64_t> g_playerViewportCalls = 0;
+std::atomic<uint64_t> g_secondaryViewportCalls = 0;
+std::mutex g_viewportIdentityMutex;
+std::unordered_map<void*, ViewportIdentity> g_viewportIdentities;
 int64_t g_performanceFrequency = 0;
 std::atomic<uint64_t> g_audioCalls = 0;
 std::atomic<uint64_t> g_audioPoseSamples = 0;
@@ -594,6 +629,119 @@ bool WriteField(void* object, size_t offset, const T& value)
     }
     std::memcpy(address, &value, sizeof(value));
     return true;
+}
+
+bool SameViewportIdentity(const ViewportIdentity& left, const ViewportIdentity& right)
+{
+    return left.camera == right.camera
+        && left.world == right.world
+        && left.renderer == right.renderer
+        && left.postComposite == right.postComposite
+        && left.framebuffer == right.framebuffer
+        && left.renderSettings == right.renderSettings
+        && left.position[0] == right.position[0]
+        && left.position[1] == right.position[1]
+        && left.size[0] == right.size[0]
+        && left.size[1] == right.size[1]
+        && left.active == right.active
+        && left.visible == right.visible
+        && left.listener == right.listener;
+}
+
+void ObserveViewportIdentity(void* viewport, uint64_t renderMask)
+{
+    if (viewport == nullptr) return;
+
+    ViewportIdentity identity;
+    const bool readable = ReadField(viewport, kViewportCameraOffset, identity.camera)
+        && ReadField(viewport, kViewportWorldOffset, identity.world)
+        && ReadField(viewport, kViewportActiveOffset, identity.active)
+        && ReadField(viewport, kViewportVisibleOffset, identity.visible)
+        && ReadField(viewport, kViewportListenerOffset, identity.listener)
+        && ReadField(viewport, kViewportRendererOffset, identity.renderer)
+        && ReadField(viewport, kViewportPostCompositeOffset, identity.postComposite)
+        && ReadField(viewport, kViewportFramebufferOffset, identity.framebuffer)
+        && ReadField(viewport, kViewportPositionOffset, identity.position)
+        && ReadField(viewport, kViewportSizeOffset, identity.size)
+        && ReadField(viewport, kViewportRenderSettingsOffset, identity.renderSettings);
+    const uint64_t sample = g_viewportIdentitySamples.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (!readable) {
+        if (sample <= 8) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_viewport_identity sample=%llu viewport=%p readable=0 policy=native_render_unchanged",
+                static_cast<unsigned long long>(sample),
+                viewport);
+        }
+        return;
+    }
+
+    HPLPlayerStateSnapshot player{};
+    const bool playerCameraKnown = GetHPLPlayerStateSnapshot(player)
+        && player.playerValid
+        && player.camera != nullptr;
+    const HPLCameraBridgeStatus camera = GetHPLCameraBridgeStatus();
+    const bool playerMatch = playerCameraKnown && identity.camera == player.camera;
+    const bool activeMatch = camera.activeCamera != nullptr && identity.camera == camera.activeCamera;
+    if (playerMatch) {
+        g_playerViewportCalls.fetch_add(1, std::memory_order_relaxed);
+    } else if (playerCameraKnown && identity.camera != nullptr) {
+        g_secondaryViewportCalls.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    bool first = false;
+    bool changed = false;
+    size_t knownCount = 0;
+    {
+        std::lock_guard lock(g_viewportIdentityMutex);
+        const auto found = g_viewportIdentities.find(viewport);
+        if (found == g_viewportIdentities.end()) {
+            if (g_viewportIdentities.size() < kMaxViewportIdentities) {
+                first = g_viewportIdentities.emplace(viewport, identity).second;
+            }
+        } else if (!SameViewportIdentity(found->second, identity)) {
+            changed = true;
+            found->second = identity;
+            g_viewportIdentityChanges.fetch_add(1, std::memory_order_relaxed);
+        }
+        knownCount = g_viewportIdentities.size();
+    }
+
+    const uint64_t interval = static_cast<uint64_t>(
+        std::max(g_config.hplCompatibilityLogInterval, 1));
+    if (first || changed || sample <= 12 || sample % interval == 0) {
+        const bool secondaryRole = !playerMatch && !activeMatch && playerCameraKnown;
+        const char* role = playerMatch ? "player"
+            : activeMatch ? "active_vr"
+            : secondaryRole ? "secondary"
+            : "unresolved";
+        Logger::Instance().Write(
+            first || changed || secondaryRole ? LogLevel::Warn : LogLevel::Info,
+            "hpl_viewport_identity sample=%llu frame=%llu viewport=%p readable=1 role=%s first=%d changed=%d known=%llu mask=0x%llx camera=%p playerCamera=%p activeCamera=%p playerMatch=%d activeMatch=%d world=%p renderer=%p postComposite=%p framebuffer=%p renderSettings=%p position=%d,%d size=%d,%d active=%u visible=%u listener=%u policy=player_camera_only_receives_vr_controls",
+            static_cast<unsigned long long>(sample),
+            static_cast<unsigned long long>(GetOpenGLRenderFrameHint()),
+            viewport,
+            role,
+            first ? 1 : 0,
+            changed ? 1 : 0,
+            static_cast<unsigned long long>(knownCount),
+            static_cast<unsigned long long>(renderMask),
+            identity.camera,
+            playerCameraKnown ? player.camera : nullptr,
+            camera.activeCamera,
+            playerMatch ? 1 : 0,
+            activeMatch ? 1 : 0,
+            identity.world,
+            identity.renderer,
+            identity.postComposite,
+            identity.framebuffer,
+            identity.renderSettings,
+            identity.position[0], identity.position[1],
+            identity.size[0], identity.size[1],
+            static_cast<unsigned int>(identity.active),
+            static_cast<unsigned int>(identity.visible),
+            static_cast<unsigned int>(identity.listener));
+    }
 }
 
 const char* PostEffectName(void* effect)
@@ -1206,6 +1354,7 @@ void HookRenderViewport(void* scene, void* viewport, float frameTime, uint64_t r
     const uint64_t previousMask = g_activeRenderMask;
     g_activeViewport = viewport;
     g_activeRenderMask = renderMask;
+    ObserveViewportIdentity(viewport, renderMask);
 
     const StageSample sample = BeginStage(HPLRenderStage::Viewport, viewport, renderMask);
     g_originalRenderViewport(scene, viewport, frameTime, renderMask);
@@ -1472,6 +1621,14 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
     }
 
     g_config = config;
+    g_viewportIdentitySamples.store(0, std::memory_order_relaxed);
+    g_viewportIdentityChanges.store(0, std::memory_order_relaxed);
+    g_playerViewportCalls.store(0, std::memory_order_relaxed);
+    g_secondaryViewportCalls.store(0, std::memory_order_relaxed);
+    {
+        std::lock_guard identityLock(g_viewportIdentityMutex);
+        g_viewportIdentities.clear();
+    }
     if (g_config.hplAudioListenerCorrection && !ValidateAudioRotationMath()) {
         g_config.hplAudioListenerCorrection = false;
         Logger::Instance().Write(
@@ -1606,9 +1763,14 @@ void LogHPLCompatibilityProbeSummary()
 {
     LogPerEyePerformance(GetOpenGLRenderFrameHint(), true);
     LogPerEyeGpuPerformance(GetOpenGLRenderFrameHint(), true);
+    size_t knownViewports = 0;
+    {
+        std::lock_guard lock(g_viewportIdentityMutex);
+        knownViewports = g_viewportIdentities.size();
+    }
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu renderTransactions=%llu canonicalRenderTransactions=%llu audioUpdates=%llu audioSamples=%llu audioCorrections=%llu audioTranslations=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
+        "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu renderTransactions=%llu canonicalRenderTransactions=%llu viewportIdentitySamples=%llu viewportIdentityChanges=%llu knownViewports=%llu playerViewportCalls=%llu secondaryViewportCalls=%llu audioUpdates=%llu audioSamples=%llu audioCorrections=%llu audioTranslations=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::Viewport)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::World)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::WorldCallbacks)].load(std::memory_order_relaxed)),
@@ -1617,6 +1779,11 @@ void LogHPLCompatibilityProbeSummary()
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::ScreenGui)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_renderTransactionFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_canonicalRenderTransactions.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_viewportIdentitySamples.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_viewportIdentityChanges.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(knownViewports),
+        static_cast<unsigned long long>(g_playerViewportCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_secondaryViewportCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioPoseSamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioCorrections.load(std::memory_order_relaxed)),
@@ -1658,6 +1825,10 @@ void RemoveHPLCompatibilityProbe()
     g_glGetBooleanv = nullptr;
     g_glIsEnabled = nullptr;
     g_lastPostEffectInventorySignature = 0;
+    {
+        std::lock_guard identityLock(g_viewportIdentityMutex);
+        g_viewportIdentities.clear();
+    }
     g_executableBase = 0;
     Logger::Instance().Write(LogLevel::Info, "hpl_compat_probe removed");
 }

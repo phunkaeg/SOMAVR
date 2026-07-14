@@ -1511,6 +1511,7 @@ private:
                 viewConfigurationViews_,
                 swapchainFormats_,
                 resolutionScalePercent_,
+                depthExtensionEnabled_ && depthCompositionProbeEnabled_,
                 createHudResources,
                 hudWidthPixels_,
                 hudHeightPixels_,

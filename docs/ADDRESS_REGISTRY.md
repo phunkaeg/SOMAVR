@@ -36,7 +36,7 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x1400cd7d0` | Confirmed, guarded control hook built | Registered global `GetClosestBody` wrapper. ABI is `body(const float* start, const float* direction, float length, float* outDistance, float* outNormal)` and forwards to `0x140143a10`. `0.27.0` redirects only camera-origin rays in the recovered flashlight length range, preserving the randomized cone and every output. Ghidra: `SOMA_GetClosestBody`. |
 | `0x140143a10` | Confirmed, documented | Underlying closest-body physics ray. Forms `end=start+direction*length`, invokes the active physics world callback at vtable `+0x148`, and returns the nearest body plus distance/normal. Ghidra: `SOMA_PhysicsRay_GetClosestBody`. |
 | `0x1402702a0` | Confirmed by HPL2 match | `cFrustum::SetupOrthoProj`; orthographic sibling, deliberately not modified by the first bridge. |
-| `0x140298630` | High-confidence | Render-viewport path; obtains the camera frustum through `0x140271b80` and passes it to the renderer. |
+| `0x140298630` | Confirmed, identity/control gate built | `HPL3_Scene_RenderViewport`. Exact fields: camera `+0x18`, world `+0x20`, active/visible/listener `+0x28/+0x29/+0x2a`, renderer `+0x30`, post composite `+0x38`, framebuffer `+0x48`, position `+0x50`, size `+0x58`, render settings `+0xa8`. `0.32.0` classifies viewport ownership and restricts VR hotkeys/pose to the exact player camera. |
 | `0x140298692` | Confirmed | Main render-viewport call to `cCamera::GetFrustum`; return RVA `0x298697` is an additional runtime selection guard in `0.4.0`. |
 | `0x14022f7d0` | Confirmed by HPL2 match | Viewport pre/post-world callback dispatcher. Phase `0` invokes callback vtable `+0x08`; phase `1` invokes `+0x10`. Ghidra: `HPL3_Viewport_RunWorldDrawCallbacks`. |
 | `0x1402332b0` | Confirmed | Main engine run loop. Dispatches script `OnDraw`, renders viewports through `0x140298850`, dispatches `OnPostRender`, then presents. |
@@ -44,6 +44,9 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x140154c40` | Confirmed | Dispatches a lifecycle id to the corresponding virtual method on an active player/module object. |
 | `0x140298850` | Confirmed | Enumerates active viewports and calls `0x140298630` for each one. |
 | `0x140298850` globals | Confirmed | Increments the renderer frame counter and resets render statistics once before active viewport enumeration; this boundary must not be duplicated per eye. |
+| `0x140297f20` | Confirmed | `HPL3_Scene_CreateViewport`; allocates `0xb0`, stores camera/world/renderer/post ownership and default `-1,-1` size, then inserts the viewport into the scene list. |
+| `0x140297500` | Confirmed | `HPL3_Scene_DestroyViewport`; removes and destroys an owned viewport. |
+| `0x140487ed0` / `0x140487f10` | Confirmed | Registered script wrappers for CreateViewport and DestroyViewport. Ghidra: `HPL3_Script_CreateViewport`, `HPL3_Script_DestroyViewport`. |
 | `0x1401f9790` | High-confidence | Main scene render invoked by `0x140298630` before post effects and GUI. |
 | `0x140297670` | Confirmed by order, probe built | Viewport renderer callback pass after scene render and before active post-effect composition. Passive hook in `0.5.1` classifies calls/FBO state before dual rendering. |
 | `0x14033bd80` | Confirmed | Active post-effect composite render. Iterates the priority-sorted effect tree and ping-pongs outputs. |

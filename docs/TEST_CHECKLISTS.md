@@ -1,5 +1,31 @@
 # Test Checklists
 
+## 0.32.0 Viewport Ownership, Depth, And Release Safety
+
+1. Confirm `version=0.32.0-viewport-depth`, press F10 once after loading a save,
+   and verify normal eye height, rigid head rotation, stereo, shadows, and
+   reflections without extra F8/F11 presses.
+2. Find `hpl_viewport_identity` rows. The gameplay viewport must become
+   `role=player`; other camera pointers should be `secondary` or `unresolved`
+   and retain `policy=player_camera_only_receives_vr_controls`.
+3. Exercise a reflective room, terminal, loading transition, and save reload.
+   No secondary view may consume F10/F11, replace the active VR camera, or gain
+   headset yaw/pitch/roll. Retain the final camera and compatibility summaries.
+4. Find `openxr_depth_cache_probe` for eye `0` and `1`. Record `depthBits`, all
+   three GL errors, `valid`, `centerFinite`, and center min/max. Both eyes should
+   become valid and depth should vary in mixed near/far scenes. No compositor
+   depth behavior is expected yet.
+5. Run the injector against an ordinary SOMA directory and expect a clean
+   compatibility message. If graphics proxies or API layers are present, verify
+   warnings name the file but do not block. A second injection must be refused.
+6. From the ZIP, install to a temporary directory, edit `somavr.ini`, then run
+   install/update again. The edit must survive and new defaults must appear as
+   `somavr.defaults.ini`. Uninstall must remove managed files while preserving
+   `somavr.ini` unless `-RemoveConfig` is supplied.
+7. Regression-test HUD, reticle, hands/tools, flashlight, locomotion, physical
+   interactions, menus, loading, audio, tracking recovery, and clean shutdown.
+   Attach the complete log.
+
 ## 0.31.0 Tools, Gameplay ImGui, And Render Transaction
 
 1. Confirm `version=0.31.0-tools-hud`, `controllerHudObject=1`, and

@@ -26,8 +26,11 @@ public:
         std::vector<XrSwapchainImageOpenGLKHR> images;
         std::vector<uint32_t> framebuffers;
         uint32_t cacheTexture = 0;
+        uint32_t depthCacheTexture = 0;
         uint32_t cacheFramebuffer = 0;
         bool cacheValid = false;
+        bool depthCacheValid = false;
+        uint64_t depthProbeSamples = 0;
     };
 
     struct HudSwapchain {
@@ -57,6 +60,7 @@ public:
         const std::vector<XrViewConfigurationView>& views,
         const std::vector<int64_t>& formats,
         int resolutionScalePercent,
+        bool depthCaptureProbeEnabled,
         bool hudLayerEnabled,
         int hudWidth,
         int hudHeight,
@@ -73,6 +77,7 @@ public:
     bool CopyCacheToBackbuffer(uint32_t eyeIndex, spectator_math::AspectMode aspectMode);
     void InvalidateStereoCaches();
     bool StereoCachesReady() const;
+    bool DepthCachesReady() const;
     bool Ready() const;
     uint32_t EyeCount() const;
     const EyeSwapchain& Eye(uint32_t eyeIndex) const;
@@ -146,6 +151,7 @@ private:
     } hudCaptureState_;
 
     bool suppressCenterCrosshair_ = false;
+    bool depthCaptureProbeEnabled_ = false;
     int crosshairClearRadiusPixels_ = 48;
 
     using GlGenFramebuffersFn = void(APIENTRY*)(int32_t, uint32_t*);

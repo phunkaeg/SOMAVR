@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.31.0-tools-hud")
+set(SOMAVR_BUILD_VERSION "0.32.0-viewport-depth")
 
 include(FetchContent)
 
@@ -127,10 +127,14 @@ add_custom_command(TARGET somavr POST_BUILD
     VERBATIM
 )
 
-add_executable(somavr_injector
-    src/injector/main.cpp
+add_library(somavr_injector_support STATIC
+    src/injector/CompatibilityScan.cpp
 )
-target_link_libraries(somavr_injector PRIVATE somavr_common)
+target_include_directories(somavr_injector_support PUBLIC src/injector)
+target_compile_definitions(somavr_injector_support PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+
+add_executable(somavr_injector src/injector/main.cpp)
+target_link_libraries(somavr_injector PRIVATE somavr_common somavr_injector_support)
 
 add_executable(somavr_dumper
     src/dumper/main.cpp
@@ -143,6 +147,20 @@ if(BUILD_TESTING)
     )
     target_link_libraries(somavr_render_math_tests PRIVATE somavr_render_math)
     add_test(NAME somavr_render_math COMMAND somavr_render_math_tests)
+
+    add_executable(somavr_injector_compatibility_tests
+        tests/InjectorCompatibilityTests.cpp
+    )
+    target_link_libraries(somavr_injector_compatibility_tests PRIVATE somavr_injector_support)
+    add_test(NAME somavr_injector_compatibility COMMAND somavr_injector_compatibility_tests)
+
+    add_test(
+        NAME somavr_installer_lifecycle
+        COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+            -File ${CMAKE_CURRENT_SOURCE_DIR}/tests/InstallerLifecycleTests.ps1
+            -Installer ${CMAKE_CURRENT_SOURCE_DIR}/scripts/Install-Or-Update-SOMAVR.ps1
+            -Uninstaller ${CMAKE_CURRENT_SOURCE_DIR}/scripts/Uninstall-SOMAVR.ps1
+    )
 endif()
 
 if(SOMAVR_ENABLE_OPENXR)

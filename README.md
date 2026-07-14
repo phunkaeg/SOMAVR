@@ -35,6 +35,26 @@ The packager rejects non-OpenXR build metadata, stages the injector, DLL,
 OpenXR loader, active config, diagnostics, and core docs, then writes
 `SHA256SUMS.txt` beside the runtime files. Output is under `out\`.
 
+Install or update a packaged build into a dedicated directory:
+
+```powershell
+& ".\Install-Or-Update-SOMAVR.ps1" -Destination "$env:LOCALAPPDATA\SOMAVR"
+```
+
+The installer verifies every packaged SHA-256 before copying. Existing
+`somavr.ini` is preserved and changed package defaults are written to
+`somavr.defaults.ini`. Updates remove only stale files recorded in the previous
+install manifest. Uninstall is equally bounded:
+
+```powershell
+& ".\Uninstall-SOMAVR.ps1" -Destination "$env:LOCALAPPDATA\SOMAVR"
+```
+
+This preserves `somavr.ini`; pass `-RemoveConfig` to remove it. The injector also
+scans the target process and game directory for known graphics/VR hook conflicts.
+Warnings are advisory, while an already loaded `somavr.dll` blocks duplicate
+injection.
+
 ## Run
 
 Launch suspended and inject before OpenGL/GLEW initialization:

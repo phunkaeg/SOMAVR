@@ -1,4 +1,5 @@
 #include "Config.h"
+#include "CompatibilityScan.h"
 
 #include <Windows.h>
 #include <TlHelp32.h>
@@ -272,6 +273,12 @@ bool InjectDll(DWORD pid, const std::filesystem::path& dllPath)
         return false;
     }
     WarnIfConfigDllMismatch(fullPath);
+    const std::vector<somavr::injector::CompatibilityFinding> findings =
+        somavr::injector::ScanCompatibility(pid);
+    if (somavr::injector::PrintCompatibilityFindings(findings)) {
+        std::wcerr << L"Injection refused because SOMAVR is already loaded in the target process\n";
+        return false;
+    }
 
     HANDLE process = OpenProcess(
         PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ,

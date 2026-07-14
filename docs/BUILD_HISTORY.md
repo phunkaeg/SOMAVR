@@ -2,6 +2,35 @@
 
 ## 2026-07-15
 
+### 0.32.0-viewport-depth
+
+- Hardened native camera ownership around the exact player camera exported by
+  `HPLPlayerState`. Reflection, terminal, water, shadow, and other secondary
+  viewport cameras now keep native frusta and cannot consume F4/F5/F10/F11
+  edges or become the initial VR camera.
+- Recovered the complete `cViewport` identity packet at `0x140298630`, including
+  camera, world, renderer, post composite, framebuffer, position, size,
+  active/visible/listener flags, and render settings. Bounded telemetry labels
+  exact player, active-VR, secondary, and unresolved viewport calls.
+- Extended the depth capability experiment with optional per-eye
+  `GL_DEPTH_COMPONENT24` cache attachments. Each AFR capture copies source depth
+  with `GL_NEAREST` and periodically samples center depth without yet creating
+  OpenXR depth swapchains or submitting `XrCompositionLayerDepthInfoKHR`.
+- Added pre-injection conflict diagnostics for duplicate SOMAVR injection,
+  graphics proxies, ReShade, Special K, RTSS, OpenXR Toolkit/API layers,
+  vrperfkit, OpenVR, and local `dinput8` loaders. Only duplicate SOMAVR blocks;
+  other findings remain explicit warnings.
+- Added checksum-verified install/update and manifest-driven uninstall scripts.
+  Updates preserve `somavr.ini`, publish changed defaults separately, remove
+  stale managed files, and never recursively delete an install root. A CTest
+  lifecycle test covers fresh install, config preservation, update, stale-file
+  cleanup, and uninstall under Windows PowerShell 5.1.
+- Updated and saved the Ghidra viewport/create/destroy names and comments. Both
+  Release flavors and all three test suites pass. OpenXR SHA-256:
+  `08715E82D5C0C3457AD093279EE67ADBC79AFDD4ACCD56ED8CEDD83233508FCC`.
+  Package SHA-256:
+  `38A031665E0486FD93E68B850A21829C07FC1F50546AC5244FFB6719909BE550`.
+
 ### 0.31.0-tools-hud
 
 - Extended the proven Lux entity identity hook to exact `HudObject` and

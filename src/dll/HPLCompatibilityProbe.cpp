@@ -10,6 +10,7 @@
 
 #include <MinHook.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cmath>
@@ -17,6 +18,9 @@
 #include <cstdint>
 #include <cstring>
 #include <mutex>
+#include <sstream>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace somavr {
@@ -39,6 +43,18 @@ constexpr GLenum kGLCurrentProgram = 0x8b8d;
 constexpr GLenum kGLDrawFramebufferBinding = 0x8ca6;
 constexpr GLenum kGLReadFramebufferBinding = 0x8caa;
 constexpr GLenum kGLViewport = 0x0ba2;
+constexpr GLenum kGLScissorBox = 0x0c10;
+constexpr GLenum kGLBlend = 0x0be2;
+constexpr GLenum kGLDepthTest = 0x0b71;
+constexpr GLenum kGLScissorTest = 0x0c11;
+constexpr GLenum kGLDepthWriteMask = 0x0b72;
+constexpr GLenum kGLColorWriteMask = 0x0c23;
+constexpr GLenum kGLBlendSrcRgb = 0x80c9;
+constexpr GLenum kGLBlendDstRgb = 0x80c8;
+constexpr GLenum kGLBlendSrcAlpha = 0x80cb;
+constexpr GLenum kGLBlendDstAlpha = 0x80ca;
+constexpr GLenum kGLBlendEquationRgb = 0x8009;
+constexpr GLenum kGLBlendEquationAlpha = 0x883d;
 
 constexpr size_t kListenerUpOffset = 0x50;
 constexpr size_t kListenerForwardOffset = 0x5c;
@@ -46,6 +62,8 @@ constexpr size_t kListenerPositionOffset = 0x74;
 constexpr size_t kListenerVelocityOffset = 0x80;
 
 using GlGetIntegervFn = void(APIENTRY*)(GLenum, GLint*);
+using GlGetBooleanvFn = void(APIENTRY*)(GLenum, GLboolean*);
+using GlIsEnabledFn = GLboolean(APIENTRY*)(GLenum);
 using RenderViewportFn = void (*)(void*, void*, float, uint64_t);
 using RenderWorldFn = void (*)(void*, float, void*, void*, void*, void*, bool, void*);
 using RenderWorldCallbacksFn = void (*)(void*, void*, void*, float);
@@ -55,15 +73,7 @@ using RenderScreenGuiFn = void (*)(void*, void*, float);
 using PostEffectHasActiveEffectsFn = bool (*)(void*);
 using AudioListenerUpdateFn = void (*)(void*);
 
-enum class Stage : size_t {
-    Viewport,
-    World,
-    WorldCallbacks,
-    PostEffects,
-    PostPostEffect,
-    ScreenGui,
-    Count,
-};
+constexpr size_t kStageCount = 6;
 
 struct GLState {
     bool valid = false;
@@ -71,11 +81,20 @@ struct GLState {
     GLint readFramebuffer = 0;
     GLint program = 0;
     GLint viewport[4] = {};
+    GLint scissor[4] = {};
+    GLint blendFunction[4] = {};
+    GLint blendEquation[2] = {};
+    GLboolean blendEnabled = GL_FALSE;
+    GLboolean depthTestEnabled = GL_FALSE;
+    GLboolean scissorEnabled = GL_FALSE;
+    GLboolean depthWrite = GL_FALSE;
+    GLboolean colorWrite[4] = {};
 };
 
 struct StageSample {
     bool enabled = false;
-    Stage stage = Stage::Viewport;
+    HPLRenderStage stage = HPLRenderStage::Viewport;
+    HPLRenderStage previousStage = HPLRenderStage::None;
     uint64_t frame = 0;
     uint64_t sequence = 0;
     uint64_t call = 0;
@@ -83,6 +102,7 @@ struct StageSample {
     uint64_t renderMask = 0;
     LARGE_INTEGER start = {};
     GLState before = {};
+    OpenGLTelemetrySnapshot telemetryBefore = {};
 };
 
 struct FrameSampleBudget {
@@ -94,11 +114,13 @@ Config g_config;
 OpenXRRuntime* g_openxr = nullptr;
 uintptr_t g_executableBase = 0;
 GlGetIntegervFn g_glGetIntegerv = nullptr;
+GlGetBooleanvFn g_glGetBooleanv = nullptr;
+GlIsEnabledFn g_glIsEnabled = nullptr;
 std::vector<void*> g_hookTargets;
 std::mutex g_installMutex;
 std::mutex g_sampleMutex;
-std::array<FrameSampleBudget, static_cast<size_t>(Stage::Count)> g_sampleBudgets;
-std::array<std::atomic<uint64_t>, static_cast<size_t>(Stage::Count)> g_stageCalls = {};
+std::array<FrameSampleBudget, kStageCount> g_sampleBudgets;
+std::array<std::atomic<uint64_t>, kStageCount> g_stageCalls = {};
 std::atomic<uint64_t> g_audioCalls = 0;
 std::atomic<uint64_t> g_audioPoseSamples = 0;
 std::atomic<uint64_t> g_audioCorrections = 0;
@@ -106,6 +128,10 @@ std::atomic<uint64_t> g_postEffectQueries = 0;
 std::atomic<uint64_t> g_postEffectBypasses = 0;
 std::atomic<bool> g_postEffectBypassEnabled = false;
 std::atomic<bool> g_f12Down = false;
+std::atomic<uint64_t> g_postEffectInventorySamples = 0;
+std::atomic<void*> g_postEffectIsolated = nullptr;
+std::atomic<uint64_t> g_postEffectIsolationApplications = 0;
+uint64_t g_lastPostEffectInventorySignature = 0;
 
 RenderViewportFn g_originalRenderViewport = nullptr;
 RenderWorldFn g_originalRenderWorld = nullptr;
@@ -120,17 +146,18 @@ thread_local uint64_t g_traceFrame = UINT64_MAX;
 thread_local uint64_t g_traceSequence = 0;
 thread_local void* g_activeViewport = nullptr;
 thread_local uint64_t g_activeRenderMask = 0;
+thread_local HPLRenderStage g_activeStage = HPLRenderStage::None;
 
-const char* StageName(Stage stage)
+size_t StageIndex(HPLRenderStage stage)
 {
     switch (stage) {
-    case Stage::Viewport: return "viewport";
-    case Stage::World: return "world";
-    case Stage::WorldCallbacks: return "world_callbacks";
-    case Stage::PostEffects: return "post_effects";
-    case Stage::PostPostEffect: return "post_post_effect";
-    case Stage::ScreenGui: return "screen_gui";
-    default: return "unknown";
+    case HPLRenderStage::Viewport: return 0;
+    case HPLRenderStage::World: return 1;
+    case HPLRenderStage::WorldCallbacks: return 2;
+    case HPLRenderStage::PostEffects: return 3;
+    case HPLRenderStage::PostPostEffect: return 4;
+    case HPLRenderStage::ScreenGui: return 5;
+    default: return 0;
     }
 }
 
@@ -181,6 +208,213 @@ bool IsInsideImage(HMODULE module, uintptr_t rva, size_t bytes)
 bool MatchBytes(const void* address, const uint8_t* expected, size_t size)
 {
     return address != nullptr && std::memcmp(address, expected, size) == 0;
+}
+
+bool IsReadable(const void* address, size_t size)
+{
+    if (address == nullptr || size == 0) {
+        return false;
+    }
+
+    MEMORY_BASIC_INFORMATION memory = {};
+    if (VirtualQuery(address, &memory, sizeof(memory)) == 0
+        || memory.State != MEM_COMMIT
+        || (memory.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0) {
+        return false;
+    }
+
+    const uintptr_t start = reinterpret_cast<uintptr_t>(address);
+    const uintptr_t end = start + size;
+    const uintptr_t regionEnd = reinterpret_cast<uintptr_t>(memory.BaseAddress) + memory.RegionSize;
+    return end >= start && end <= regionEnd;
+}
+
+bool IsWritable(void* address, size_t size)
+{
+    if (!IsReadable(address, size)) {
+        return false;
+    }
+
+    MEMORY_BASIC_INFORMATION memory = {};
+    VirtualQuery(address, &memory, sizeof(memory));
+    constexpr DWORD kWritable = PAGE_READWRITE | PAGE_WRITECOPY
+        | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+    return (memory.Protect & kWritable) != 0;
+}
+
+template <typename T>
+bool ReadField(const void* object, size_t offset, T& value)
+{
+    if (object == nullptr) {
+        return false;
+    }
+    const auto* address = static_cast<const std::byte*>(object) + offset;
+    if (!IsReadable(address, sizeof(value))) {
+        return false;
+    }
+    std::memcpy(&value, address, sizeof(value));
+    return true;
+}
+
+template <typename T>
+bool WriteField(void* object, size_t offset, const T& value)
+{
+    if (object == nullptr) {
+        return false;
+    }
+    auto* address = static_cast<std::byte*>(object) + offset;
+    if (!IsWritable(address, sizeof(value))) {
+        return false;
+    }
+    std::memcpy(address, &value, sizeof(value));
+    return true;
+}
+
+std::vector<void*> CollectActivePostEffects(void* composite)
+{
+    std::vector<void*> effects;
+    void** begin = nullptr;
+    void** end = nullptr;
+    size_t count = 0;
+    if (!ReadField(composite, 0x340, begin)
+        || !ReadField(composite, 0x348, end)
+        || begin == nullptr
+        || reinterpret_cast<uintptr_t>(end) < reinterpret_cast<uintptr_t>(begin)
+        || (reinterpret_cast<uintptr_t>(end) - reinterpret_cast<uintptr_t>(begin)) % sizeof(void*) != 0) {
+        return effects;
+    }
+    count = (reinterpret_cast<uintptr_t>(end) - reinterpret_cast<uintptr_t>(begin)) / sizeof(void*);
+    if (count > 64 || !IsReadable(begin, count * sizeof(void*))) {
+        return effects;
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        void* effect = begin[i];
+        uint8_t disabled = 0;
+        uint8_t active = 0;
+        if (effect != nullptr
+            && ReadField(effect, 0x30, disabled)
+            && ReadField(effect, 0x31, active)
+            && disabled == 0
+            && active != 0) {
+            effects.push_back(effect);
+        }
+    }
+    return effects;
+}
+
+void CyclePostEffectIsolation(void* composite)
+{
+    const std::vector<void*> effects = CollectActivePostEffects(composite);
+    if (effects.empty()) {
+        g_postEffectIsolated.store(nullptr, std::memory_order_relaxed);
+        Logger::Instance().Write(LogLevel::Warn, "hpl_post_effect_isolation key=Ctrl+F12 result=no_active_effects");
+        return;
+    }
+
+    void* current = g_postEffectIsolated.load(std::memory_order_relaxed);
+    auto it = std::find(effects.begin(), effects.end(), current);
+    void* selected = it == effects.end() || ++it == effects.end() ? effects.front() : *it;
+    g_postEffectIsolated.store(selected, std::memory_order_relaxed);
+
+    void* vtable = nullptr;
+    ReadField(selected, 0, vtable);
+    const uintptr_t vtableRva = reinterpret_cast<uintptr_t>(vtable) >= g_executableBase
+        ? reinterpret_cast<uintptr_t>(vtable) - g_executableBase
+        : 0;
+    Logger::Instance().Write(
+        LogLevel::Warn,
+        "hpl_post_effect_isolation key=Ctrl+F12 selected=%p vtable=%p vtableRva=0x%llx activeCount=%llu",
+        selected,
+        vtable,
+        static_cast<unsigned long long>(vtableRva),
+        static_cast<unsigned long long>(effects.size()));
+}
+
+std::vector<std::pair<void*, uint8_t>> ApplyPostEffectIsolation(void* composite)
+{
+    std::vector<std::pair<void*, uint8_t>> patches;
+    void* selected = g_postEffectIsolated.load(std::memory_order_relaxed);
+    if (selected == nullptr) {
+        return patches;
+    }
+
+    const std::vector<void*> effects = CollectActivePostEffects(composite);
+    if (std::find(effects.begin(), effects.end(), selected) == effects.end()) {
+        g_postEffectIsolated.store(nullptr, std::memory_order_relaxed);
+        return patches;
+    }
+
+    for (void* effect : effects) {
+        if (effect == selected) {
+            continue;
+        }
+        uint8_t active = 0;
+        if (ReadField(effect, 0x31, active) && WriteField(effect, 0x31, uint8_t{0})) {
+            patches.emplace_back(effect, active);
+        }
+    }
+    if (!patches.empty()) {
+        g_postEffectIsolationApplications.fetch_add(1, std::memory_order_relaxed);
+    }
+    return patches;
+}
+
+void RestorePostEffectIsolation(const std::vector<std::pair<void*, uint8_t>>& patches)
+{
+    for (const auto& [effect, active] : patches) {
+        WriteField(effect, 0x31, active);
+    }
+}
+
+uint64_t HashInventoryValue(uint64_t hash, uintptr_t value)
+{
+    constexpr uint64_t kPrime = 1099511628211ull;
+    for (size_t i = 0; i < sizeof(value); ++i) {
+        hash ^= static_cast<uint8_t>(value >> (i * 8));
+        hash *= kPrime;
+    }
+    return hash;
+}
+
+void LogPostEffectInventory(const StageSample& sample, void* composite, void* inputTexture, void* renderTarget)
+{
+    const std::vector<void*> effects = CollectActivePostEffects(composite);
+    uint64_t signature = 1469598103934665603ull;
+    std::ostringstream inventory;
+    for (size_t i = 0; i < effects.size(); ++i) {
+        void* vtable = nullptr;
+        ReadField(effects[i], 0, vtable);
+        const uintptr_t vtableRva = reinterpret_cast<uintptr_t>(vtable) >= g_executableBase
+            ? reinterpret_cast<uintptr_t>(vtable) - g_executableBase
+            : 0;
+        signature = HashInventoryValue(signature, reinterpret_cast<uintptr_t>(effects[i]));
+        signature = HashInventoryValue(signature, vtableRva);
+        if (i != 0) {
+            inventory << ';';
+        }
+        inventory << i << ':' << effects[i] << ":0x" << std::hex << vtableRva << std::dec;
+    }
+
+    const uint64_t count = g_postEffectInventorySamples.fetch_add(1, std::memory_order_relaxed) + 1;
+    const bool changed = signature != g_lastPostEffectInventorySignature;
+    const uint64_t interval = static_cast<uint64_t>(g_config.hplCompatibilityLogInterval);
+    if (changed || count <= 2 || (interval != 0 && count % interval == 0)) {
+        g_lastPostEffectInventorySignature = signature;
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_post_effect_inventory frame=%llu sequence=%llu sample=%llu changed=%d composite=%p input=%p target=%p activeCount=%llu isolated=%p effects=%s",
+            static_cast<unsigned long long>(sample.frame),
+            static_cast<unsigned long long>(sample.sequence),
+            static_cast<unsigned long long>(count),
+            changed ? 1 : 0,
+            composite,
+            inputTexture,
+            renderTarget,
+            static_cast<unsigned long long>(effects.size()),
+            g_postEffectIsolated.load(std::memory_order_relaxed),
+            inventory.str().c_str());
+    }
 }
 
 bool InstallHook(
@@ -256,11 +490,27 @@ GLState ReadGLState()
     g_glGetIntegerv(kGLReadFramebufferBinding, &state.readFramebuffer);
     g_glGetIntegerv(kGLCurrentProgram, &state.program);
     g_glGetIntegerv(kGLViewport, state.viewport);
+    g_glGetIntegerv(kGLScissorBox, state.scissor);
+    g_glGetIntegerv(kGLBlendSrcRgb, &state.blendFunction[0]);
+    g_glGetIntegerv(kGLBlendDstRgb, &state.blendFunction[1]);
+    g_glGetIntegerv(kGLBlendSrcAlpha, &state.blendFunction[2]);
+    g_glGetIntegerv(kGLBlendDstAlpha, &state.blendFunction[3]);
+    g_glGetIntegerv(kGLBlendEquationRgb, &state.blendEquation[0]);
+    g_glGetIntegerv(kGLBlendEquationAlpha, &state.blendEquation[1]);
+    if (g_glIsEnabled != nullptr) {
+        state.blendEnabled = g_glIsEnabled(kGLBlend);
+        state.depthTestEnabled = g_glIsEnabled(kGLDepthTest);
+        state.scissorEnabled = g_glIsEnabled(kGLScissorTest);
+    }
+    if (g_glGetBooleanv != nullptr) {
+        g_glGetBooleanv(kGLDepthWriteMask, &state.depthWrite);
+        g_glGetBooleanv(kGLColorWriteMask, state.colorWrite);
+    }
     state.valid = true;
     return state;
 }
 
-bool ConsumeSampleBudget(Stage stage, uint64_t frame, uint64_t call)
+bool ConsumeSampleBudget(HPLRenderStage stage, uint64_t frame, uint64_t call)
 {
     if (call <= 2) {
         return true;
@@ -272,7 +522,7 @@ bool ConsumeSampleBudget(Stage stage, uint64_t frame, uint64_t call)
     }
 
     std::lock_guard lock(g_sampleMutex);
-    FrameSampleBudget& budget = g_sampleBudgets[static_cast<size_t>(stage)];
+    FrameSampleBudget& budget = g_sampleBudgets[StageIndex(stage)];
     if (budget.frame != frame) {
         budget.frame = frame;
         budget.count = 0;
@@ -284,22 +534,25 @@ bool ConsumeSampleBudget(Stage stage, uint64_t frame, uint64_t call)
     return true;
 }
 
-StageSample BeginStage(Stage stage, void* viewport = nullptr, uint64_t renderMask = 0)
+StageSample BeginStage(HPLRenderStage stage, void* viewport = nullptr, uint64_t renderMask = 0)
 {
     StageSample sample;
     sample.stage = stage;
+    sample.previousStage = g_activeStage;
+    g_activeStage = stage;
     sample.frame = GetOpenGLRenderFrameHint();
     if (g_traceFrame != sample.frame) {
         g_traceFrame = sample.frame;
         g_traceSequence = 0;
     }
     sample.sequence = ++g_traceSequence;
-    sample.call = g_stageCalls[static_cast<size_t>(stage)].fetch_add(1, std::memory_order_relaxed) + 1;
+    sample.call = g_stageCalls[StageIndex(stage)].fetch_add(1, std::memory_order_relaxed) + 1;
     sample.viewport = viewport != nullptr ? viewport : g_activeViewport;
     sample.renderMask = renderMask != 0 ? renderMask : g_activeRenderMask;
     sample.enabled = ConsumeSampleBudget(stage, sample.frame, sample.call);
     if (sample.enabled) {
         sample.before = ReadGLState();
+        sample.telemetryBefore = GetOpenGLTelemetrySnapshot();
         QueryPerformanceCounter(&sample.start);
     }
     return sample;
@@ -308,6 +561,7 @@ StageSample BeginStage(Stage stage, void* viewport = nullptr, uint64_t renderMas
 void EndStage(const StageSample& sample)
 {
     if (!sample.enabled) {
+        g_activeStage = sample.previousStage;
         return;
     }
 
@@ -320,19 +574,25 @@ void EndStage(const StageSample& sample)
             / static_cast<double>(frequency.QuadPart)
         : 0.0;
     const GLState after = ReadGLState();
+    const OpenGLTelemetrySnapshot telemetryAfter = GetOpenGLTelemetrySnapshot();
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_render_stage frame=%llu sequence=%llu stage=%s call=%llu viewport=%p mask=0x%llx durationUs=%.2f glValid=%d,%d glBefore=%d,%d,%d,%d,%d,%d,%d glAfter=%d,%d,%d,%d,%d,%d,%d",
+        "hpl_render_stage frame=%llu sequence=%llu stage=%s call=%llu viewport=%p mask=0x%llx durationUs=%.2f calls={drawElements=%llu drawArrays=%llu viewport=%llu framebuffer=%llu program=%llu clear=%llu} before={valid=%d drawFbo=%d readFbo=%d program=%d viewport=%d,%d,%d,%d scissor=%d,%d,%d,%d blend=%d depth=%d scissorEnabled=%d depthWrite=%d colorWrite=%d,%d,%d,%d blendFunc=%d,%d,%d,%d blendEq=%d,%d} after={valid=%d drawFbo=%d readFbo=%d program=%d viewport=%d,%d,%d,%d scissor=%d,%d,%d,%d blend=%d depth=%d scissorEnabled=%d depthWrite=%d colorWrite=%d,%d,%d,%d blendFunc=%d,%d,%d,%d blendEq=%d,%d}",
         static_cast<unsigned long long>(sample.frame),
         static_cast<unsigned long long>(sample.sequence),
-        StageName(sample.stage),
+        GetHPLRenderStageName(sample.stage),
         static_cast<unsigned long long>(sample.call),
         sample.viewport,
         static_cast<unsigned long long>(sample.renderMask),
         durationUs,
+        static_cast<unsigned long long>(telemetryAfter.drawElements - sample.telemetryBefore.drawElements),
+        static_cast<unsigned long long>(telemetryAfter.drawArrays - sample.telemetryBefore.drawArrays),
+        static_cast<unsigned long long>(telemetryAfter.viewportCalls - sample.telemetryBefore.viewportCalls),
+        static_cast<unsigned long long>(telemetryAfter.framebufferBinds - sample.telemetryBefore.framebufferBinds),
+        static_cast<unsigned long long>(telemetryAfter.programUses - sample.telemetryBefore.programUses),
+        static_cast<unsigned long long>(telemetryAfter.clears - sample.telemetryBefore.clears),
         sample.before.valid ? 1 : 0,
-        after.valid ? 1 : 0,
         sample.before.drawFramebuffer,
         sample.before.readFramebuffer,
         sample.before.program,
@@ -340,13 +600,27 @@ void EndStage(const StageSample& sample)
         sample.before.viewport[1],
         sample.before.viewport[2],
         sample.before.viewport[3],
+        sample.before.scissor[0], sample.before.scissor[1], sample.before.scissor[2], sample.before.scissor[3],
+        sample.before.blendEnabled, sample.before.depthTestEnabled, sample.before.scissorEnabled,
+        sample.before.depthWrite,
+        sample.before.colorWrite[0], sample.before.colorWrite[1], sample.before.colorWrite[2], sample.before.colorWrite[3],
+        sample.before.blendFunction[0], sample.before.blendFunction[1], sample.before.blendFunction[2], sample.before.blendFunction[3],
+        sample.before.blendEquation[0], sample.before.blendEquation[1],
+        after.valid ? 1 : 0,
         after.drawFramebuffer,
         after.readFramebuffer,
         after.program,
         after.viewport[0],
         after.viewport[1],
         after.viewport[2],
-        after.viewport[3]);
+        after.viewport[3],
+        after.scissor[0], after.scissor[1], after.scissor[2], after.scissor[3],
+        after.blendEnabled, after.depthTestEnabled, after.scissorEnabled,
+        after.depthWrite,
+        after.colorWrite[0], after.colorWrite[1], after.colorWrite[2], after.colorWrite[3],
+        after.blendFunction[0], after.blendFunction[1], after.blendFunction[2], after.blendFunction[3],
+        after.blendEquation[0], after.blendEquation[1]);
+    g_activeStage = sample.previousStage;
 }
 
 Vector3 ReadVector(const void* object, size_t offset)
@@ -377,7 +651,7 @@ void HookRenderViewport(void* scene, void* viewport, float frameTime, uint64_t r
     g_activeViewport = viewport;
     g_activeRenderMask = renderMask;
 
-    const StageSample sample = BeginStage(Stage::Viewport, viewport, renderMask);
+    const StageSample sample = BeginStage(HPLRenderStage::Viewport, viewport, renderMask);
     g_originalRenderViewport(scene, viewport, frameTime, renderMask);
     EndStage(sample);
 
@@ -395,7 +669,7 @@ void HookRenderWorld(
     bool sendToPostEffects,
     void* callbacks)
 {
-    const StageSample sample = BeginStage(Stage::World);
+    const StageSample sample = BeginStage(HPLRenderStage::World);
     g_originalRenderWorld(
         renderer,
         frameTime,
@@ -410,7 +684,7 @@ void HookRenderWorld(
 
 void HookRenderWorldCallbacks(void* scene, void* viewport, void* frustum, float frameTime)
 {
-    const StageSample sample = BeginStage(Stage::WorldCallbacks, viewport);
+    const StageSample sample = BeginStage(HPLRenderStage::WorldCallbacks, viewport);
     g_originalRenderWorldCallbacks(scene, viewport, frustum, frameTime);
     EndStage(sample);
 }
@@ -422,21 +696,24 @@ void HookRenderPostEffects(
     void* inputTexture,
     void* renderTarget)
 {
-    const StageSample sample = BeginStage(Stage::PostEffects);
+    const StageSample sample = BeginStage(HPLRenderStage::PostEffects);
+    LogPostEffectInventory(sample, composite, inputTexture, renderTarget);
+    const std::vector<std::pair<void*, uint8_t>> patches = ApplyPostEffectIsolation(composite);
     g_originalRenderPostEffects(composite, frameTime, frustum, inputTexture, renderTarget);
+    RestorePostEffectIsolation(patches);
     EndStage(sample);
 }
 
 void HookRenderPostPostEffect(void* renderer, void* frustum, void* renderTarget, void* settings)
 {
-    const StageSample sample = BeginStage(Stage::PostPostEffect);
+    const StageSample sample = BeginStage(HPLRenderStage::PostPostEffect);
     g_originalRenderPostPostEffect(renderer, frustum, renderTarget, settings);
     EndStage(sample);
 }
 
 void HookRenderScreenGui(void* scene, void* viewport, float frameTime)
 {
-    const StageSample sample = BeginStage(Stage::ScreenGui, viewport);
+    const StageSample sample = BeginStage(HPLRenderStage::ScreenGui, viewport);
     g_originalRenderScreenGui(scene, viewport, frameTime);
     EndStage(sample);
 }
@@ -447,16 +724,30 @@ bool HookPostEffectHasActiveEffects(void* composite)
     const bool f12Down = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
     const bool previousF12Down = g_f12Down.exchange(f12Down, std::memory_order_relaxed);
     if (f12Down && !previousF12Down) {
-        const bool enabled = !g_postEffectBypassEnabled.load(std::memory_order_relaxed);
-        g_postEffectBypassEnabled.store(enabled, std::memory_order_relaxed);
-        const HPLCameraBridgeStatus cameraStatus = GetHPLCameraBridgeStatus();
-        Logger::Instance().Write(
-            LogLevel::Warn,
-            "hpl_post_effect_bypass enabled=%d key=F12 call=%llu tracking=%d stereo=%d policy=all_active_effects",
-            enabled ? 1 : 0,
-            static_cast<unsigned long long>(call),
-            cameraStatus.trackingEnabled ? 1 : 0,
-            cameraStatus.stereoEnabled ? 1 : 0);
+        const bool controlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+        const bool shiftDown = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+        if (controlDown) {
+            g_postEffectBypassEnabled.store(false, std::memory_order_relaxed);
+            CyclePostEffectIsolation(composite);
+        } else if (shiftDown) {
+            g_postEffectBypassEnabled.store(false, std::memory_order_relaxed);
+            g_postEffectIsolated.store(nullptr, std::memory_order_relaxed);
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_post_effect_isolation key=Shift+F12 selected=none policy=normal_chain");
+        } else {
+            g_postEffectIsolated.store(nullptr, std::memory_order_relaxed);
+            const bool enabled = !g_postEffectBypassEnabled.load(std::memory_order_relaxed);
+            g_postEffectBypassEnabled.store(enabled, std::memory_order_relaxed);
+            const HPLCameraBridgeStatus cameraStatus = GetHPLCameraBridgeStatus();
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_post_effect_bypass enabled=%d key=F12 call=%llu tracking=%d stereo=%d policy=all_active_effects",
+                enabled ? 1 : 0,
+                static_cast<unsigned long long>(call),
+                cameraStatus.trackingEnabled ? 1 : 0,
+                cameraStatus.stereoEnabled ? 1 : 0);
+        }
     }
 
     if (g_postEffectBypassEnabled.load(std::memory_order_relaxed)) {
@@ -562,6 +853,24 @@ void HookAudioListenerUpdate(void* soundSystem)
 
 } // namespace
 
+HPLRenderStage GetActiveHPLRenderStage()
+{
+    return g_activeStage;
+}
+
+const char* GetHPLRenderStageName(HPLRenderStage stage)
+{
+    switch (stage) {
+    case HPLRenderStage::Viewport: return "viewport";
+    case HPLRenderStage::World: return "world";
+    case HPLRenderStage::WorldCallbacks: return "world_callbacks";
+    case HPLRenderStage::PostEffects: return "post_effects";
+    case HPLRenderStage::PostPostEffect: return "post_post_effect";
+    case HPLRenderStage::ScreenGui: return "screen_gui";
+    default: return "none";
+    }
+}
+
 bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
 {
     std::lock_guard lock(g_installMutex);
@@ -584,6 +893,7 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
     }
     g_openxr = openxr;
     g_postEffectBypassEnabled.store(config.hplPostEffectBypassDefault, std::memory_order_relaxed);
+    g_postEffectIsolated.store(nullptr, std::memory_order_relaxed);
     g_f12Down.store(false, std::memory_order_relaxed);
     HMODULE executable = GetModuleHandleW(nullptr);
     g_executableBase = reinterpret_cast<uintptr_t>(executable);
@@ -591,6 +901,8 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
     HMODULE opengl32 = GetModuleHandleW(L"opengl32.dll");
     if (opengl32 != nullptr) {
         g_glGetIntegerv = reinterpret_cast<GlGetIntegervFn>(GetProcAddress(opengl32, "glGetIntegerv"));
+        g_glGetBooleanv = reinterpret_cast<GlGetBooleanvFn>(GetProcAddress(opengl32, "glGetBooleanv"));
+        g_glIsEnabled = reinterpret_cast<GlIsEnabledFn>(GetProcAddress(opengl32, "glIsEnabled"));
     }
 
     static constexpr uint8_t kRenderViewportSignature[] = {
@@ -661,7 +973,7 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         installed > 0 ? LogLevel::Warn : LogLevel::Error,
-        "hpl_compat_probe install_complete renderStages=%d audioListener=%d audioCorrection=%d postEffectControl=%d postEffectBypass=%d postEffectKey=F12 installed=%llu requested=%d logInterval=%d base=%p",
+        "hpl_compat_probe install_complete renderStages=%d audioListener=%d audioCorrection=%d postEffectControl=%d postEffectBypass=%d postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
         config.hplRenderStageProbe ? 1 : 0,
         config.hplAudioListenerProbe ? 1 : 0,
         g_config.hplAudioListenerCorrection ? 1 : 0,
@@ -680,19 +992,22 @@ void LogHPLCompatibilityProbeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu audioUpdates=%llu audioSamples=%llu audioCorrections=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectBypassEnabled=%d installedHooks=%llu",
-        static_cast<unsigned long long>(g_stageCalls[static_cast<size_t>(Stage::Viewport)].load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_stageCalls[static_cast<size_t>(Stage::World)].load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_stageCalls[static_cast<size_t>(Stage::WorldCallbacks)].load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_stageCalls[static_cast<size_t>(Stage::PostEffects)].load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_stageCalls[static_cast<size_t>(Stage::PostPostEffect)].load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_stageCalls[static_cast<size_t>(Stage::ScreenGui)].load(std::memory_order_relaxed)),
+        "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu audioUpdates=%llu audioSamples=%llu audioCorrections=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
+        static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::Viewport)].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::World)].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::WorldCallbacks)].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::PostEffects)].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::PostPostEffect)].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::ScreenGui)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioPoseSamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioCorrections.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_postEffectQueries.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_postEffectBypasses.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_postEffectInventorySamples.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_postEffectIsolationApplications.load(std::memory_order_relaxed)),
         g_postEffectBypassEnabled.load(std::memory_order_relaxed) ? 1 : 0,
+        g_postEffectIsolated.load(std::memory_order_relaxed),
         static_cast<unsigned long long>(g_hookTargets.size()));
 }
 
@@ -713,9 +1028,13 @@ void RemoveHPLCompatibilityProbe()
     g_originalPostEffectHasActiveEffects = nullptr;
     g_originalAudioListenerUpdate = nullptr;
     g_postEffectBypassEnabled.store(false, std::memory_order_relaxed);
+    g_postEffectIsolated.store(nullptr, std::memory_order_relaxed);
     g_f12Down.store(false, std::memory_order_relaxed);
     g_openxr = nullptr;
     g_glGetIntegerv = nullptr;
+    g_glGetBooleanv = nullptr;
+    g_glIsEnabled = nullptr;
+    g_lastPostEffectInventorySignature = 0;
     g_executableBase = 0;
     Logger::Instance().Write(LogLevel::Info, "hpl_compat_probe removed");
 }

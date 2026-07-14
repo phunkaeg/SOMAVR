@@ -1,6 +1,7 @@
 #include "HPLInputBridge.h"
 
 #include "HPLCameraBridge.h"
+#include "HPLPlayerState.h"
 #include "Logger.h"
 
 #include <Windows.h>
@@ -9,22 +10,11 @@
 #include <array>
 #include <atomic>
 #include <cmath>
-#include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <mutex>
 
 namespace somavr {
 namespace {
-
-constexpr uintptr_t kGetPlayerRva = 0x0cc860;
-constexpr uintptr_t kGetCurrentStateIdRva = 0x155050;
-constexpr uintptr_t kGetCurrentMoveStateIdRva = 0x155090;
-constexpr size_t kPlayerCameraOffset = 0x168;
-constexpr size_t kPlayerCharacterBodyOffset = 0x170;
-
-using GetPlayerFn = void* (*)();
-using GetPlayerStateIdFn = int (*)(void* player);
 
 struct ButtonState {
     bool down = false;
@@ -43,20 +33,11 @@ struct BridgeState {
     uint64_t lastFrame = 0;
     uint64_t lastTickMs = 0;
     double smoothTurnRemainder = 0.0;
-    void* lastPlayer = nullptr;
-    void* lastCamera = nullptr;
-    void* lastBody = nullptr;
-    int lastPlayerState = -2;
-    int lastMoveState = -2;
+    bool authoredCameraSuppressed = false;
 };
 
 Config g_config;
 OpenXRRuntime* g_openxr = nullptr;
-uintptr_t g_executableBase = 0;
-GetPlayerFn g_getPlayer = nullptr;
-GetPlayerStateIdFn g_getPlayerStateId = nullptr;
-GetPlayerStateIdFn g_getMoveStateId = nullptr;
-void** g_gameContextSlot = nullptr;
 BridgeState g_state;
 std::mutex g_mutex;
 std::atomic<uint64_t> g_updates = 0;
@@ -65,57 +46,6 @@ std::atomic<uint64_t> g_sentEvents = 0;
 std::atomic<uint64_t> g_sendFailures = 0;
 std::atomic<uint64_t> g_staleInputFrames = 0;
 std::atomic<uint64_t> g_recenterRequests = 0;
-
-bool IsInsideImage(HMODULE module, uintptr_t rva, size_t bytes)
-{
-    if (module == nullptr) return false;
-    const auto* base = reinterpret_cast<const std::byte*>(module);
-    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
-    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
-    return nt->Signature == IMAGE_NT_SIGNATURE
-        && rva < nt->OptionalHeader.SizeOfImage
-        && bytes <= nt->OptionalHeader.SizeOfImage - rva;
-}
-
-bool MatchGetterSignature(const std::byte* address)
-{
-    constexpr uint8_t prefix[] = {0x48, 0x8b, 0x05};
-    constexpr uint8_t suffix[] = {0x48, 0x8b, 0x80, 0x40, 0x01, 0x00, 0x00, 0xc3};
-    return std::memcmp(address, prefix, sizeof(prefix)) == 0
-        && std::memcmp(address + 7, suffix, sizeof(suffix)) == 0;
-}
-
-bool MatchStateGetterSignature(const std::byte* address, uint32_t playerOffset, uint32_t stateOffset)
-{
-    return address[0] == std::byte{0x48} && address[1] == std::byte{0x8b}
-        && address[2] == std::byte{0x81}
-        && std::memcmp(address + 3, &playerOffset, sizeof(playerOffset)) == 0
-        && address[7] == std::byte{0x48} && address[8] == std::byte{0x85}
-        && address[9] == std::byte{0xc0}
-        && address[12] == std::byte{0x8b} && address[13] == std::byte{0x80}
-        && std::memcmp(address + 14, &stateOffset, sizeof(stateOffset)) == 0;
-}
-
-bool IsReadable(const void* address, size_t bytes)
-{
-    if (address == nullptr) return false;
-    MEMORY_BASIC_INFORMATION info{};
-    if (VirtualQuery(address, &info, sizeof(info)) != sizeof(info)) return false;
-    if (info.State != MEM_COMMIT || (info.Protect & (PAGE_NOACCESS | PAGE_GUARD)) != 0) return false;
-    const uintptr_t start = reinterpret_cast<uintptr_t>(address);
-    const uintptr_t end = reinterpret_cast<uintptr_t>(info.BaseAddress) + info.RegionSize;
-    return start <= end && bytes <= end - start;
-}
-
-template <typename T>
-T ReadField(const void* object, size_t offset)
-{
-    T value{};
-    const auto* address = static_cast<const std::byte*>(object) + offset;
-    if (IsReadable(address, sizeof(value))) std::memcpy(&value, address, sizeof(value));
-    return value;
-}
 
 uint64_t TickMs()
 {
@@ -180,7 +110,7 @@ bool UpdateAxisButton(ButtonState& state, float value, float pressThreshold, flo
     return state.down ? value > releaseThreshold : value > pressThreshold;
 }
 
-void ReleaseAll()
+void ReleaseGameplayInputs()
 {
     SetKey(g_state.forward, 'W', false);
     SetKey(g_state.backward, 'S', false);
@@ -189,52 +119,14 @@ void ReleaseAll()
     SetMouseButton(g_state.interact, false);
     SetKey(g_state.sprint, VK_LSHIFT, false);
     g_state.snapLatched = false;
-    g_state.recenterStartMs = 0;
+    g_state.smoothTurnRemainder = 0.0;
 }
 
-void UpdatePlayerProbe(uint64_t frameIndex)
+void ReleaseAll()
 {
-    void* gameContext = ReadField<void*>(g_gameContextSlot, 0);
-    void* player = g_getPlayer != nullptr && IsReadable(gameContext, 0x148)
-        ? g_getPlayer()
-        : nullptr;
-    void* camera = nullptr;
-    void* body = nullptr;
-    int playerState = -1;
-    int moveState = -1;
-    if (IsReadable(player, 0x208)) {
-        camera = ReadField<void*>(player, kPlayerCameraOffset);
-        body = ReadField<void*>(player, kPlayerCharacterBodyOffset);
-        void* playerStateObject = ReadField<void*>(player, 0x1d8);
-        void* moveStateObject = ReadField<void*>(player, 0x200);
-        if (g_getPlayerStateId != nullptr
-            && (playerStateObject == nullptr || IsReadable(playerStateObject, 0x164))) {
-            playerState = g_getPlayerStateId(player);
-        }
-        if (g_getMoveStateId != nullptr
-            && (moveStateObject == nullptr || IsReadable(moveStateObject, 0x15c))) {
-            moveState = g_getMoveStateId(player);
-        }
-    }
-
-    const bool changed = player != g_state.lastPlayer || camera != g_state.lastCamera
-        || body != g_state.lastBody || playerState != g_state.lastPlayerState
-        || moveState != g_state.lastMoveState;
-    const uint64_t interval = static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1));
-    if (changed || frameIndex == 1 || frameIndex % interval == 0) {
-        const HPLCameraBridgeStatus cameraStatus = GetHPLCameraBridgeStatus();
-        Logger::Instance().Write(
-            LogLevel::Info,
-            "hpl_player_probe frame=%llu player=%p camera=%p body=%p playerState=%d moveState=%d activeCamera=%p cameraMatch=%d tracking=%d stereo=%d",
-            static_cast<unsigned long long>(frameIndex), player, camera, body, playerState, moveState,
-            cameraStatus.activeCamera, camera != nullptr && camera == cameraStatus.activeCamera ? 1 : 0,
-            cameraStatus.trackingEnabled ? 1 : 0, cameraStatus.stereoEnabled ? 1 : 0);
-    }
-    g_state.lastPlayer = player;
-    g_state.lastCamera = camera;
-    g_state.lastBody = body;
-    g_state.lastPlayerState = playerState;
-    g_state.lastMoveState = moveState;
+    ReleaseGameplayInputs();
+    g_state.recenterStartMs = 0;
+    g_state.recenterLatched = false;
 }
 
 void ApplyLocomotion(const OpenXRInputSnapshot& input)
@@ -273,15 +165,8 @@ void ApplyTurn(const OpenXRInputSnapshot& input, uint64_t nowMs)
     SendMouseMove(pixels);
 }
 
-void ApplyActions(const OpenXRInputSnapshot& input, uint64_t nowMs)
+void ApplySystemActions(const OpenXRInputSnapshot& input, uint64_t nowMs)
 {
-    SetKey(g_state.sprint, VK_LSHIFT, input.left.trigger >= 0.75f);
-    if (input.jump && input.jumpChanged) TapKey(VK_SPACE);
-    if (input.crouch && input.crouchChanged) TapKey(VK_LCONTROL);
-    if (g_config.hplControllerInteraction) {
-        const bool interact = input.right.select || input.right.trigger >= 0.75f;
-        SetMouseButton(g_state.interact, interact);
-    }
     if (g_config.hplControllerMenu && input.menu && input.menuChanged) TapKey(VK_ESCAPE);
 
     const bool recenterChord = g_config.hplControllerRecenterChord
@@ -300,6 +185,17 @@ void ApplyActions(const OpenXRInputSnapshot& input, uint64_t nowMs)
     }
 }
 
+void ApplyGameplayActions(const OpenXRInputSnapshot& input)
+{
+    SetKey(g_state.sprint, VK_LSHIFT, input.left.trigger >= 0.75f);
+    if (input.jump && input.jumpChanged) TapKey(VK_SPACE);
+    if (input.crouch && input.crouchChanged) TapKey(VK_LCONTROL);
+    if (g_config.hplControllerInteraction) {
+        const bool interact = input.right.select || input.right.trigger >= 0.75f;
+        SetMouseButton(g_state.interact, interact);
+    }
+}
+
 } // namespace
 
 bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
@@ -307,53 +203,17 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
     std::lock_guard lock(g_mutex);
     g_config = config;
     g_openxr = openxr;
-    HMODULE executable = GetModuleHandleW(nullptr);
-    if (!IsInsideImage(executable, kGetPlayerRva, 15)
-        || !IsInsideImage(executable, kGetCurrentStateIdRva, 20)
-        || !IsInsideImage(executable, kGetCurrentMoveStateIdRva, 20)) {
-        Logger::Instance().Write(LogLevel::Error, "hpl_input_bridge install_failed reason=invalid_image_range");
-        return false;
-    }
-    g_executableBase = reinterpret_cast<uintptr_t>(executable);
-    const auto* getter = reinterpret_cast<const std::byte*>(g_executableBase + kGetPlayerRva);
-    const auto* stateGetter = reinterpret_cast<const std::byte*>(g_executableBase + kGetCurrentStateIdRva);
-    const auto* moveStateGetter = reinterpret_cast<const std::byte*>(g_executableBase + kGetCurrentMoveStateIdRva);
-    if (!MatchGetterSignature(getter)
-        || !MatchStateGetterSignature(stateGetter, 0x1d8, 0x160)
-        || !MatchStateGetterSignature(moveStateGetter, 0x200, 0x158)) {
-        Logger::Instance().Write(LogLevel::Error, "hpl_input_bridge install_failed reason=signature_mismatch");
-        return false;
-    }
-    g_getPlayer = reinterpret_cast<GetPlayerFn>(const_cast<std::byte*>(getter));
-    g_getPlayerStateId = reinterpret_cast<GetPlayerStateIdFn>(const_cast<std::byte*>(stateGetter));
-    g_getMoveStateId = reinterpret_cast<GetPlayerStateIdFn>(const_cast<std::byte*>(moveStateGetter));
-    int32_t gameContextDisplacement = 0;
-    std::memcpy(&gameContextDisplacement, getter + 3, sizeof(gameContextDisplacement));
-    g_gameContextSlot = reinterpret_cast<void**>(
-        const_cast<std::byte*>(getter + 7) + gameContextDisplacement);
-    if (!IsReadable(g_gameContextSlot, sizeof(*g_gameContextSlot))) {
-        g_getPlayer = nullptr;
-        g_getPlayerStateId = nullptr;
-        g_getMoveStateId = nullptr;
-        g_gameContextSlot = nullptr;
-        Logger::Instance().Write(
-            LogLevel::Error,
-            "hpl_input_bridge install_failed reason=invalid_game_context_slot");
-        return false;
-    }
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge install_ok enabled=%d getPlayerRva=0x%llx playerStateRva=0x%llx moveStateRva=0x%llx moveDeadzone=%.2f turnMode=%s turnDeadzone=%.2f interaction=%d menu=%d recenterChord=%d maxInputAgeFrames=%d",
+        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f turnMode=%s turnDeadzone=%.2f interaction=%d menu=%d recenterChord=%d suppressAuthoredCamera=%d maxInputAgeFrames=%d",
         config.hplControllerInput ? 1 : 0,
-        static_cast<unsigned long long>(kGetPlayerRva),
-        static_cast<unsigned long long>(kGetCurrentStateIdRva),
-        static_cast<unsigned long long>(kGetCurrentMoveStateIdRva),
         config.hplControllerMoveDeadzone,
         config.hplControllerSnapTurn ? "snap" : "smooth",
         config.hplControllerTurnDeadzone,
         config.hplControllerInteraction ? 1 : 0,
         config.hplControllerMenu ? 1 : 0,
         config.hplControllerRecenterChord ? 1 : 0,
+        config.hplControllerSuppressDuringAuthoredCamera ? 1 : 0,
         config.hplControllerMaxInputAgeFrames);
     return true;
 }
@@ -361,13 +221,13 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
 void UpdateHPLInputBridge(uint64_t frameIndex)
 {
     std::lock_guard lock(g_mutex);
-    if (g_getPlayer == nullptr) return;
     if (g_state.lastFrame == frameIndex) return;
     g_state.lastFrame = frameIndex;
     g_updates.fetch_add(1, std::memory_order_relaxed);
-    UpdatePlayerProbe(frameIndex);
 
     OpenXRInputSnapshot input;
+    HPLPlayerStateSnapshot player;
+    GetHPLPlayerStateSnapshot(player);
     const HPLCameraBridgeStatus camera = GetHPLCameraBridgeStatus();
     const bool available = g_config.hplControllerInput && camera.trackingEnabled
         && g_openxr != nullptr && g_openxr->GetLatestInput(input) && input.active;
@@ -381,16 +241,36 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
 
     g_activeUpdates.fetch_add(1, std::memory_order_relaxed);
     const uint64_t nowMs = TickMs();
-    ApplyLocomotion(input);
-    ApplyTurn(input, nowMs);
-    ApplyActions(input, nowMs);
+    const bool suppressGameplay = g_config.hplControllerSuppressDuringAuthoredCamera
+        && player.authoredCameraActive;
+    if (suppressGameplay) {
+        ReleaseGameplayInputs();
+    } else {
+        ApplyLocomotion(input);
+        ApplyTurn(input, nowMs);
+        ApplyGameplayActions(input);
+    }
+    ApplySystemActions(input, nowMs);
     g_state.lastTickMs = nowMs;
+
+    if (suppressGameplay != g_state.authoredCameraSuppressed) {
+        Logger::Instance().Write(
+            suppressGameplay ? LogLevel::Warn : LogLevel::Info,
+            "hpl_controller_authored_policy frame=%llu suppressed=%d rotateMode=%d cameraUpdateActive=%d playerState=%d moveState=%d",
+            static_cast<unsigned long long>(frameIndex),
+            suppressGameplay ? 1 : 0,
+            player.cameraRotateMode,
+            player.cameraUpdateActive ? 1 : 0,
+            player.playerStateId,
+            player.moveStateId);
+        g_state.authoredCameraSuppressed = suppressGameplay;
+    }
 
     const uint64_t interval = static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1));
     if (frameIndex % interval == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_controller frame=%llu inputFrame=%llu age=%llu move=%.3f,%.3f keys=%d%d%d%d run=%d jump=%d crouch=%d turn=%.3f mode=%s interact=%d menu=%d recenterChord=%d playerState=%d moveState=%d",
+            "hpl_controller frame=%llu inputFrame=%llu age=%llu move=%.3f,%.3f keys=%d%d%d%d run=%d jump=%d crouch=%d turn=%.3f mode=%s interact=%d menu=%d recenterChord=%d playerState=%d moveState=%d authoredCamera=%d gameplaySuppressed=%d",
             static_cast<unsigned long long>(frameIndex),
             static_cast<unsigned long long>(input.gameFrame),
             static_cast<unsigned long long>(age),
@@ -401,7 +281,9 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
             input.turnX, g_config.hplControllerSnapTurn ? "snap" : "smooth",
             g_state.interact.down ? 1 : 0, input.menu ? 1 : 0,
             g_state.recenterStartMs != 0 ? 1 : 0,
-            g_state.lastPlayerState, g_state.lastMoveState);
+            player.playerStateId, player.moveStateId,
+            player.authoredCameraActive ? 1 : 0,
+            suppressGameplay ? 1 : 0);
     }
 }
 
@@ -409,10 +291,6 @@ void RemoveHPLInputBridge()
 {
     std::lock_guard lock(g_mutex);
     ReleaseAll();
-    g_getPlayer = nullptr;
-    g_getPlayerStateId = nullptr;
-    g_getMoveStateId = nullptr;
-    g_gameContextSlot = nullptr;
     g_openxr = nullptr;
     g_state = {};
     Logger::Instance().Write(LogLevel::Info, "hpl_input_bridge removed");
@@ -420,18 +298,21 @@ void RemoveHPLInputBridge()
 
 void LogHPLInputBridgeSummary()
 {
+    HPLPlayerStateSnapshot player;
+    GetHPLPlayerStateSnapshot(player);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu recenterRequests=%llu lastPlayer=%p lastCamera=%p lastBody=%p playerState=%d moveState=%d",
-        g_getPlayer != nullptr ? 1 : 0,
+        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu recenterRequests=%llu authoredCameraSuppress=%d player=%p camera=%p body=%p playerState=%d moveState=%d",
+        g_openxr != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_updates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_activeUpdates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_sentEvents.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_sendFailures.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_staleInputFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_recenterRequests.load(std::memory_order_relaxed)),
-        g_state.lastPlayer, g_state.lastCamera, g_state.lastBody,
-        g_state.lastPlayerState, g_state.lastMoveState);
+        g_state.authoredCameraSuppressed ? 1 : 0,
+        player.player, player.camera, player.characterBody,
+        player.playerStateId, player.moveStateId);
 }
 
 } // namespace somavr

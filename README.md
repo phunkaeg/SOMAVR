@@ -53,7 +53,9 @@ After loading a save, F10 is the normal VR-mode toggle. One press requests OpenX
 waits for valid views, calibrates the current head pose, enables native tracking
 and AFR stereo, and applies the fully centered projection. Press F10 again to
 leave VR camera/stereo mode. F8 and F11 remain diagnostic runtime/stereo controls;
-F3-F6 retain the existing targeted diagnostics.
+F3-F6 retain the existing targeted diagnostics. Plain F12 toggles the entire
+post chain, `Ctrl+F12` cycles reversible render-only isolation across currently
+active effects, and `Shift+F12` restores the normal effect chain.
 
 ## Current Goal
 
@@ -65,7 +67,7 @@ This is not yet a simultaneous dual-eye renderer. OpenXR transport, native head 
 - bounded AFR fallback and telemetry,
 - head-relative FMOD listener orientation,
 - deferred reconstruction UBO attribution and eye-invariant shadow/reflection state,
-- selective post-effect policy after F12 excluded the post chain as the principal shadow owner,
+- selective post-effect classification using active object/vtable inventories and reversible per-effect isolation,
 - same-frame dual rendering after callback and temporal ownership are proven.
 
 The active `somavr.ini` is currently set up for the OpenXR probe build:
@@ -113,6 +115,10 @@ ManualStart=1
 FrameSubmit=1
 MirrorBackbuffer=1
 ResolutionScalePercent=100
+
+[Controller]
+Enabled=1
+SuppressDuringAuthoredCamera=1
 ```
 
 ## Known Install

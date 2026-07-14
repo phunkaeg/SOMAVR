@@ -14,10 +14,16 @@ OpenGLHooks
   -> OpenGLMatrixAnalysis
   -> OpenXRRuntime
   -> HPLCameraBridge status
+  -> HPLPlayerState frame update
 
 HPLCameraBridge
   -> HPLCameraMath
   -> OpenXRRuntime pose/view snapshots
+
+HPLInputBridge
+  -> OpenXRInput snapshots through OpenXRRuntime
+  -> HPLPlayerState snapshot
+  -> HPLCameraBridge recenter/status
 
 OpenXRRuntime
   -> OpenXRHelpers
@@ -45,6 +51,8 @@ lifecycle.
 | `OpenXRGLBridge` | OpenGL swapchain images, FBOs, eye caches, backbuffer transfer | OpenXR event/session policy |
 | `HPLCameraBridge` | Signature-guarded player-camera interception and VR mode state | Generic quaternion/projection algorithms |
 | `HPLCameraMath` | Pure pose, matrix, FOV centering, projection construction | HPL pointers, hotkeys, logging, OpenXR handles |
+| `HPLPlayerState` | Signature-guarded player/camera/body discovery, player/move IDs, camera ownership classification, immutable snapshots | Controller injection, camera transforms, OpenXR actions |
+| `HPLInputBridge` | Reversible SOMA input-path controls and authored-camera suppression policy | Native player discovery, OpenXR action ownership, camera math |
 | `HPLCompatibilityProbe` | Bounded render/audio/post-effect telemetry and temporary probes; shared pose math comes from `HPLCameraMath` | Permanent feature policy unrelated to a probe |
 | `HPLLifecycle` | Pre-graphics OpenXR teardown boundary | General shutdown orchestration |
 
@@ -66,7 +74,7 @@ lifecycle.
 
 ## Current Refactor Baseline
 
-The maintenance passes now include four focused extractions:
+The maintenance passes now include five focused extractions:
 
 - `HPLCameraMath` owns quaternion/matrix operations, OpenXR projection creation,
   and the fully centered FOV policy proven by the `0.5.7` runtime result.
@@ -74,6 +82,9 @@ The maintenance passes now include four focused extractions:
 - `OpenXRHelpers` owns OpenXR enum/format names and view/pose conversions.
 - `OpenXRInput` owns controller actions and predicted grip/aim acquisition while
   `OpenXRRuntime` remains the lifecycle and frame-submission facade.
+- `HPLPlayerState` owns native player discovery and camera-ownership snapshots,
+  allowing locomotion, hands, interaction, and comfort adapters to share one
+  guarded source instead of duplicating executable offsets.
 
 `somavr_render_math_tests` now protects symmetric tangent-span preservation,
 zero projection offsets, projection construction, pose/matrix basics, and OpenGL
@@ -90,9 +101,9 @@ These are ordered by value and runtime risk:
 3. Continue splitting `OpenXRRuntime::Impl` into bootstrap, session lifecycle,
    and frame-composition owners while preserving one public facade and one lock
    policy. Controller action ownership has already moved to `OpenXRInput`.
-4. Split authored-camera state policy from the HPL frustum adapter when the first
-   state telemetry is live; avoid inventing that boundary before the native owner
-   is observed.
+4. Grow the new `HPLPlayerState` snapshot with named state adapters only after
+   each native state/ownership transition appears in a live log. Keep pose
+   composition in `HPLCameraBridge` and input suppression in `HPLInputBridge`.
 
 Each split should compile and test independently. Runtime-sensitive splits also
 retain the previous DLL until a live log confirms equivalent behavior.

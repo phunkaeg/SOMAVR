@@ -3,6 +3,7 @@
 #include "HPLCompatibilityProbe.h"
 #include "HPLLifecycle.h"
 #include "HPLInputBridge.h"
+#include "HPLPlayerState.h"
 #include "Logger.h"
 #include "OpenGLHooks.h"
 #include "OpenXRRuntime.h"
@@ -128,7 +129,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrInputLogInterval);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f interaction=%d menu=%d recenterChord=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
+        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f interaction=%d menu=%d recenterChord=%d suppressAuthoredCamera=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
         g_config->Get().hplControllerInput ? 1 : 0,
         g_config->Get().hplControllerMoveDeadzone,
         g_config->Get().hplControllerMoveReleaseDeadzone,
@@ -140,6 +141,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplControllerInteraction ? 1 : 0,
         g_config->Get().hplControllerMenu ? 1 : 0,
         g_config->Get().hplControllerRecenterChord ? 1 : 0,
+        g_config->Get().hplControllerSuppressDuringAuthoredCamera ? 1 : 0,
         g_config->Get().hplControllerRecenterHoldMs,
         g_config->Get().hplControllerMaxInputAgeFrames,
         g_config->Get().hplControllerLogInterval);
@@ -163,6 +165,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     }
     if (!somavr::InstallHPLCameraBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_camera_bridge install_failed");
+    }
+    if (!somavr::InstallHPLPlayerState(g_config->Get())) {
+        somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_player_state install_failed");
     }
     if (!somavr::InstallHPLInputBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_input_bridge install_failed");
@@ -199,6 +204,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::LogHPLCameraBridgeSummary();
     somavr::LogHPLInputBridgeSummary();
     somavr::RemoveHPLInputBridge();
+    somavr::LogHPLPlayerStateSummary();
+    somavr::RemoveHPLPlayerState();
     somavr::RemoveHPLCameraBridge();
     somavr::LogOpenGLProofSummary();
     somavr::RemoveOpenGLHooks();

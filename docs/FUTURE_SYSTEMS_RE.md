@@ -109,7 +109,7 @@ Body turn should be a separate action:
 1. **Passive probe:** built in `0.7.0`; logs current player state, move state, character-body pointer, camera pointer, and active-camera ownership.
 2. **Input-path prototype:** built in `0.7.0` and expanded in `0.7.1`; maps move, turn, interact, menu, recenter, run, crouch, and jump with stale-input release and config gates.
 3. **Native action bridge:** replace digital movement and pixel-calibrated turn with analog state-aware move/turn calls; then add lean, interaction cancel/rotate, and inventory.
-4. **State adapters:** normal, ladder, sit, climb ledge, crawl, interaction, conversation, dead, and scripted camera.
+4. **State adapters:** first ownership adapter built in `0.7.2`; matrix camera mode or disabled body camera updates suppress injected gameplay input while preserving menu/recenter. Normal, ladder, sit, climb ledge, crawl, interaction, conversation, and death still need live classification.
 5. **Physical movement:** optional physical crouch and collision-aware room-scale body catch-up.
 
 ### Locomotion Risks
@@ -167,7 +167,7 @@ The preferred long-term path is full-scale geometry at a physically plausible co
 
 ### Implementation Stages
 
-1. **Classification probe:** identify the hands entity, attached tool entity, active animation, full-scale flag, custom position/rotation flags, and camera-attachment state.
+1. **Classification probe:** camera-attachment ownership is now detected natively in `0.7.2` through camera `+0x6c` and body `+0x1e8`. Hands entity, attached tool, active animation, full-scale, and custom-transform fields remain.
 2. **Stereo preservation:** verify the existing camera-follow hands render once per eye with correct IPD and depth.
 3. **Controller pose:** override only the default `PostUpdate` hand matrix and retain animation/socket updates.
 4. **Interaction ray:** source focus/pick checks from the dominant controller while leaving native interaction callbacks intact.
@@ -215,7 +215,7 @@ Use that state to select feedback at the controller ray hit:
 
 ### Implementation Stages
 
-1. **GUI target probe:** log GUI-set framebuffer, viewport, blend state, clear behavior, and dimensions around `0x1402981e0`.
+1. **GUI target probe:** built in `0.7.2`; logs GUI-set draw/read framebuffer, viewport, scissor, blend function/equation, depth/scissor enable, write masks, clears, program changes, and draw counts around `0x1402981e0`. F6 draw rows are now stage-tagged for exact shader attribution.
 2. **HUD-only framebuffer:** capture GUI with alpha while leaving the per-eye scene target untouched.
 3. **OpenXR quad layer:** submit gameplay HUD and menus above the projection layer.
 4. **Controller pointer:** map ray intersection to SOMA's virtual GUI coordinates and existing menu actions.
@@ -273,7 +273,7 @@ Same-frame dual rendering can later restore more effects, but temporal effects s
 
 ### Implementation Stages
 
-1. **Effect activity probe:** log active post-effect type, priority, input/output framebuffer, dimensions, and frame/eye id.
+1. **Effect activity probe:** substantially built in `0.7.2`; logs the retained vector, object/vtable identity, active flags, input texture, render target, stage GL flow, and transitions. `Ctrl+F12` isolates one active effect per render call and `Shift+F12` restores the chain. Mapping vtable RVAs to names/priorities and recording texture dimensions remain.
 2. **VR comfort policy:** add named effect toggles and attenuation values without patching game scripts on disk.
 3. **Per-eye post chain:** ensure the scene and post composite execute inside each eye render before caching/submission.
 4. **Per-eye history:** duplicate image-trail/temporal resources only if those effects are intentionally restored.
@@ -283,12 +283,12 @@ Same-frame dual rendering can later restore more effects, but temporal effects s
 
 These probes are ordered to minimize runtime risk and maximize reusable information:
 
-1. Player/body/action telemetry with no input mutation.
-2. Active player/move state and camera-mode telemetry.
+1. Player/body/action telemetry with no input mutation. **Built.**
+2. Active player/move state and camera-mode telemetry. **Built; first authored ownership policy added in `0.7.2`.**
 3. Hands/tool entity classification and matrix telemetry.
-4. Post-effect active list, priorities, framebuffer flow, and eye attribution.
-5. GUI-set final target and alpha behavior.
-6. OpenXR controller action set and semantic input bridge.
+4. Post-effect active list, priorities, framebuffer flow, and eye attribution. **Active list, object identity, isolation, and GL flow built; priority/name mapping remains.**
+5. GUI-set final target and alpha behavior. **GL state/flow probe built; transparent-target redirection remains.**
+6. OpenXR controller action set and semantic input bridge. **Built as a reversible input-path prototype.**
 7. HUD quad-layer extraction.
 8. Controller-driven hands and interaction ray.
 

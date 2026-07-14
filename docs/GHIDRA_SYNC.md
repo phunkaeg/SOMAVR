@@ -1,5 +1,26 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Authored Camera, HUD, And Post-Effect Sync
+
+The active `Soma_NoSteam.exe` database was updated and saved after the `0.7.2`
+RE pass:
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1404a94f0` | `HPL3_Camera_GetRotateMode` | Registered getter reads camera `+0x6c`; HPL2 confirms Euler `0`, matrix `1`. |
+| `0x1404a9d70` | `HPL3_Script_Camera_GetRotateMode` | Script dispatch wrapper for the native getter. |
+| `0x14049bdf0` | `HPL3_CharacterBody_SetCameraUpdateActive` | Created function and applied prototype; writes body `+0x1e8`. |
+| `0x14049be00` | `HPL3_CharacterBody_GetCameraUpdateActive` | Created function and applied prototype; reads body `+0x1e8`. |
+| `0x14022f8e0` | `HPL3_Viewport_CreateGuiSetIterator` | Iterates viewport `+0x90` GUI-set list for final screen GUI. |
+| `0x140213970` | `HPL3_GuiSet_Render` | Configures and renders one flat/3D GUI set. |
+| `0x1402d7a40` | `HPL3_PostEffect_RenderOne` | Executes one post effect via virtual `+0x68` and handles final copy. |
+| `0x14033b950` / `0x14033bb00` | `HPL3_PostEffectComposite_BeginRender` / `EndRender` | Composite renderer setup and restoration around ordered effect iteration. |
+
+The functions received authored-camera, character-body, camera, HUD/GUI,
+post-effect, renderer, and SOMAVR tags plus evidence plate comments. The first
+three native accessors received known prototypes. These anchors now back
+`HPLPlayerState`, final-GUI state telemetry, and reversible per-effect isolation.
+
 ## 2026-07-14 Player And Input Sync
 
 The active `Soma_NoSteam.exe` database now contains confirmed player-access

@@ -40,6 +40,7 @@ struct Config {
     bool hplControllerInteraction = true;
     bool hplControllerMenu = true;
     bool hplControllerRecenterChord = true;
+    bool hplControllerSuppressDuringAuthoredCamera = true;
     int hplControllerRecenterHoldMs = 900;
     int hplControllerMaxInputAgeFrames = 8;
     int hplControllerLogInterval = 120;

@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.7.1-gameplay-actions")
+set(SOMAVR_BUILD_VERSION "0.7.2-render-state-policy")
 
 include(FetchContent)
 
@@ -73,6 +73,7 @@ add_library(somavr SHARED
     src/dll/HPLCameraBridge.cpp
     src/dll/HPLLifecycle.cpp
     src/dll/HPLInputBridge.cpp
+    src/dll/HPLPlayerState.cpp
     src/dll/OpenGLHooks.cpp
     src/dll/OpenXRGLBridge.cpp
     src/dll/OpenXRRuntime.cpp

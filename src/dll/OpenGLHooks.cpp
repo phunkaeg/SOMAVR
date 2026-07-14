@@ -1,7 +1,9 @@
 #include "OpenGLHooks.h"
 
 #include "HPLCameraBridge.h"
+#include "HPLCompatibilityProbe.h"
 #include "HPLInputBridge.h"
+#include "HPLPlayerState.h"
 #include "Logger.h"
 #include "OpenGLMatrixAnalysis.h"
 
@@ -84,6 +86,7 @@ using GlLoadMatrixfFn = void(APIENTRY*)(const GLfloat*);
 using GlViewportFn = void(APIENTRY*)(GLint, GLint, GLsizei, GLsizei);
 using GlDrawElementsFn = void(APIENTRY*)(GLenum, GLsizei, GLenum, const void*);
 using GlDrawArraysFn = void(APIENTRY*)(GLenum, GLint, GLsizei);
+using GlClearFn = void(APIENTRY*)(GLbitfield);
 using GlUniformMatrix4fvFn = void(APIENTRY*)(GLint, GLsizei, GLboolean, const GLfloat*);
 using GlUniform2fFn = void(APIENTRY*)(GLint, GLfloat, GLfloat);
 using GlUniform2fvFn = void(APIENTRY*)(GLint, GLsizei, const GLfloat*);
@@ -155,6 +158,7 @@ GlLoadMatrixfFn g_originalGlLoadMatrixf = nullptr;
 GlViewportFn g_originalGlViewport = nullptr;
 GlDrawElementsFn g_originalGlDrawElements = nullptr;
 GlDrawArraysFn g_originalGlDrawArrays = nullptr;
+GlClearFn g_originalGlClear = nullptr;
 GlUniformMatrix4fvFn g_originalGlUniformMatrix4fv = nullptr;
 GlUniform2fFn g_originalGlUniform2f = nullptr;
 GlUniform2fvFn g_originalGlUniform2fv = nullptr;
@@ -183,6 +187,12 @@ std::atomic<uint64_t> g_matrixLoadsThisFrame = 0;
 std::atomic<uint64_t> g_uniformMatricesThisFrame = 0;
 std::atomic<uint64_t> g_viewportCallsThisFrame = 0;
 std::atomic<uint64_t> g_framebufferBindsThisFrame = 0;
+std::atomic<uint64_t> g_totalDrawElements = 0;
+std::atomic<uint64_t> g_totalDrawArrays = 0;
+std::atomic<uint64_t> g_totalViewportCalls = 0;
+std::atomic<uint64_t> g_totalFramebufferBinds = 0;
+std::atomic<uint64_t> g_totalProgramUses = 0;
+std::atomic<uint64_t> g_totalClears = 0;
 std::atomic<uint32_t> g_matrixSamplesThisFrame = 0;
 std::atomic<uint32_t> g_uniformNameLogs = 0;
 std::atomic<uint32_t> g_uniformMatrixLogs = 0;
@@ -775,6 +785,7 @@ void RecordRenderDiagnosticDraw(const char* kind, GLenum mode, GLsizei count)
     g_renderDiagnosticDrawStream
         << renderFrame << ','
         << g_renderDiagnosticDraws << ','
+        << GetHPLRenderStageName(GetActiveHPLRenderStage()) << ','
         << camera.stereoRenderEye << ','
         << camera.stereoRenderPoseFrame << ','
         << program << ','
@@ -1065,7 +1076,7 @@ void UpdateRenderDiagnosticHotkey(uint64_t frame)
             std::ios::out | std::ios::trunc);
         if (g_renderDiagnosticDrawStream) {
             g_renderDiagnosticDrawStream
-                << "frame,draw,eye,poseFrame,program,framebuffer,viewportX,viewportY,viewportWidth,viewportHeight,kind,mode,count\n";
+                << "frame,draw,stage,eye,poseFrame,program,framebuffer,viewportX,viewportY,viewportWidth,viewportHeight,kind,mode,count\n";
         }
         if (g_renderDiagnosticMatrixStream) {
             g_renderDiagnosticMatrixStream
@@ -1242,6 +1253,7 @@ GLint APIENTRY HookGlGetUniformLocation(GLuint program, const GLchar* uniformNam
 
 void APIENTRY HookGlUseProgram(GLuint program)
 {
+    g_totalProgramUses.fetch_add(1, std::memory_order_relaxed);
     g_currentProgram.store(program, std::memory_order_relaxed);
     g_originalGlUseProgram(program);
     DumpRenderDiagnosticProgram(program);
@@ -1250,6 +1262,7 @@ void APIENTRY HookGlUseProgram(GLuint program)
 void APIENTRY HookGlBindFramebuffer(GLenum target, GLuint framebuffer)
 {
     g_framebufferBindsThisFrame.fetch_add(1, std::memory_order_relaxed);
+    g_totalFramebufferBinds.fetch_add(1, std::memory_order_relaxed);
     g_currentFramebuffer.store(framebuffer, std::memory_order_relaxed);
     g_originalGlBindFramebuffer(target, framebuffer);
 }
@@ -1528,6 +1541,7 @@ void LogFrameSummary(HDC hdc)
     if (g_openxr != nullptr) {
         g_openxr->OnFrameBoundary(currentHdc != nullptr ? currentHdc : hdc, glContext, frame);
     }
+    UpdateHPLPlayerState(frame);
     UpdateHPLInputBridge(frame);
     UpdateMatrixCaptureHotkey(frame);
     UpdateShadowJitterHotkey(frame);
@@ -1670,6 +1684,7 @@ void APIENTRY HookGlLoadMatrixf(const GLfloat* matrix)
 void APIENTRY HookGlViewport(GLint x, GLint y, GLsizei width, GLsizei height)
 {
     g_viewportCallsThisFrame.fetch_add(1, std::memory_order_relaxed);
+    g_totalViewportCalls.fetch_add(1, std::memory_order_relaxed);
     g_currentViewportX.store(x, std::memory_order_relaxed);
     g_currentViewportY.store(y, std::memory_order_relaxed);
     g_currentViewportWidth.store(width, std::memory_order_relaxed);
@@ -1680,6 +1695,7 @@ void APIENTRY HookGlViewport(GLint x, GLint y, GLsizei width, GLsizei height)
 void APIENTRY HookGlDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices)
 {
     g_drawElementsThisFrame.fetch_add(1, std::memory_order_relaxed);
+    g_totalDrawElements.fetch_add(1, std::memory_order_relaxed);
     PollReflectionFadeControl();
     RecordRenderDiagnosticDraw("elements", mode, count);
     const ReflectionFadePatch reflectionPatch = ApplyReflectionFadeBypass(
@@ -1691,12 +1707,19 @@ void APIENTRY HookGlDrawElements(GLenum mode, GLsizei count, GLenum type, const 
 void APIENTRY HookGlDrawArrays(GLenum mode, GLint first, GLsizei count)
 {
     g_drawArraysThisFrame.fetch_add(1, std::memory_order_relaxed);
+    g_totalDrawArrays.fetch_add(1, std::memory_order_relaxed);
     PollReflectionFadeControl();
     RecordRenderDiagnosticDraw("arrays", mode, count);
     const ReflectionFadePatch reflectionPatch = ApplyReflectionFadeBypass(
         g_currentProgram.load(std::memory_order_relaxed));
     g_originalGlDrawArrays(mode, first, count);
     RestoreReflectionFade(reflectionPatch);
+}
+
+void APIENTRY HookGlClear(GLbitfield mask)
+{
+    g_totalClears.fetch_add(1, std::memory_order_relaxed);
+    g_originalGlClear(mask);
 }
 
 void LoadCoreGLHelpers(HMODULE opengl32)
@@ -1770,6 +1793,9 @@ bool InstallOpenGLHooks(const Config& config, OpenXRRuntime* openxr)
         anyHook |= HookExport(opengl32, "glDrawElements", reinterpret_cast<void*>(&HookGlDrawElements), reinterpret_cast<void**>(&g_originalGlDrawElements));
         anyHook |= HookExport(opengl32, "glDrawArrays", reinterpret_cast<void*>(&HookGlDrawArrays), reinterpret_cast<void**>(&g_originalGlDrawArrays));
     }
+    if (config.hplRenderStageProbe) {
+        anyHook |= HookExport(opengl32, "glClear", reinterpret_cast<void*>(&HookGlClear), reinterpret_cast<void**>(&g_originalGlClear));
+    }
 
     g_hooksInstalled = anyHook;
     Logger::Instance().Write(
@@ -1840,6 +1866,18 @@ void LogOpenGLProofSummary()
 uint64_t GetOpenGLRenderFrameHint()
 {
     return g_frameIndex.load(std::memory_order_relaxed) + 1;
+}
+
+OpenGLTelemetrySnapshot GetOpenGLTelemetrySnapshot()
+{
+    return {
+        g_totalDrawElements.load(std::memory_order_relaxed),
+        g_totalDrawArrays.load(std::memory_order_relaxed),
+        g_totalViewportCalls.load(std::memory_order_relaxed),
+        g_totalFramebufferBinds.load(std::memory_order_relaxed),
+        g_totalProgramUses.load(std::memory_order_relaxed),
+        g_totalClears.load(std::memory_order_relaxed),
+    };
 }
 
 } // namespace somavr

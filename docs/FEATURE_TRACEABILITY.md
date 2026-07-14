@@ -21,20 +21,20 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.HEAD_TRACKING` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | `0x140271b80`, `0x140270230` | `CURRENT_STATE.md`, `VR_COMPATIBILITY_RE.md` | Remain correct through every authored camera state |
 | `FEATURE.AFR_STEREO` | PROVEN | `HPLCameraBridge`, `OpenXRRuntime`, `OpenXRGLBridge` | F11, per-eye cache and submitted render pose | `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.1.md` | Preserve stability while shader/temporal compatibility is classified |
 | `FEATURE.DUAL_RENDER` | RE_REQUIRED | `HPLCompatibilityProbe`, future native render bridge | `0x140298850`, `0x140298630`, `0x1401f9790` | `VR_COMPATIBILITY_RE.md` | Live stage/FBO telemetry proves a side-effect-safe per-eye boundary |
-| `FEATURE.LOCOMOTION` | BUILT | `OpenXRInput`, `HPLInputBridge` | SOMA input path, `0x1400cc860`, `0x140155050`, `0x140155090`, `0x140155290` | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test movement/turn/interaction across normal and authored states, then replace emulation with mapped native actions |
-| `FEATURE.AUTHORED_CAMERA` | RE_REQUIRED | `HPLCameraBridge`, future state adapter | player state, camera mode/parent, body camera ownership | `VR_COMPATIBILITY_RE.md` | Sit, ladder, conversation, animation, death test matrix passes |
+| `FEATURE.LOCOMOTION` | BUILT | `OpenXRInput`, `HPLInputBridge`, `HPLPlayerState` | SOMA input path, `0x1400cc860`, `0x140155050`, `0x140155090`, `0x140155290` | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test movement/turn/interaction across normal and authored states, then replace emulation with mapped native actions |
+| `FEATURE.AUTHORED_CAMERA` | EXPERIMENTAL | `HPLPlayerState`, `HPLInputBridge`, `HPLCameraBridge` | camera rotate mode `+0x6c`, body camera ownership `+0x1e8`, player/move state | `VR_COMPATIBILITY_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Confirm transition detection/input suppression across sit, ladder, conversation, animation, and death states, then add pose-composition policy |
 | `FEATURE.INTERACTION_RAY` | DESIGNED | future input/interaction bridge | `Utility_PickBasics`, native `CanInteract` | `VR_COMPATIBILITY_RE.md` | Controller ray selects same entities/ranges as native camera ray |
 | `FEATURE.PHYSICS_HANDS` | DESIGNED | future pose bridge | native grab/rotate PID force and torque states | `VR_COMPATIBILITY_RE.md` | Stable grab, rotate, release, and throw with native collision |
 | `FEATURE.VIEWMODEL` | RE_REQUIRED | future hands bridge | `PlayerHandsHandler`, `R_Hand`, tool `HudObject` | `FUTURE_SYSTEMS_RE.md` | Hands/tools follow controller poses without breaking animations |
-| `FEATURE.HUD_LAYER` | RE_REQUIRED | future GUI capture bridge | `0x1402981e0`, `0x1401297c0`, `XrCompositionLayerQuad` | `FUTURE_SYSTEMS_RE.md` | HUD/menu readable in headset while world GUIs remain diegetic |
-| `FEATURE.POST_EFFECT_POLICY` | EXPERIMENTAL | `HPLCompatibilityProbe`, future selective policy | `0x14033b8f0`, `0x14033bd80`, history buffers | `FUTURE_SYSTEMS_RE.md`, `RUNTIME_ANALYSIS_0.5.2.md` | Classify individual post effects; F12 proved the principal shadow defect is upstream |
+| `FEATURE.HUD_LAYER` | RE_REQUIRED | `HPLCompatibilityProbe`, `OpenGLHooks`, future GUI capture bridge | `0x1402981e0`, `0x14022f8e0`, `0x140213970`, `0x1401297c0`, `XrCompositionLayerQuad` | `FUTURE_SYSTEMS_RE.md` | Use stage-tagged F6 and GUI GL-state telemetry to prove alpha/FBO behavior, then capture HUD/menu while world GUIs remain diegetic |
+| `FEATURE.POST_EFFECT_POLICY` | EXPERIMENTAL | `HPLCompatibilityProbe`, `OpenGLHooks` | `0x14033b8f0`, `0x14033bd80`, effect vector `+0x340/+0x348`, history buffers | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.2.md` | Use Ctrl+F12 inventory/isolation to classify individual effects and define named comfort policy |
 | `FEATURE.SHADOW_STABILITY` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | fully centered projection, programs `942/944` | `VR_COMPATIBILITY_RE.md`, `RUNTIME_ANALYSIS_0.5.6.md` | Regression-test additional levels and light types |
 | `FEATURE.REFLECTION_STABILITY` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | fully centered projection, program `985` redirect | `VR_COMPATIBILITY_RE.md`, `RUNTIME_ANALYSIS_0.5.6.md` | Regression-test additional reflective materials and levels |
 | `FEATURE.AUDIO_LISTENER` | EXPERIMENTAL | `HPLCompatibilityProbe`, `HPLCameraMath` | `0x140289340`, `0x14061d188`, `0x14048b2d4` | `VR_COMPATIBILITY_RE.md`, `RUNTIME_ANALYSIS_0.5.2.md` | Directional-source test confirms head-relative orientation without world-lock errors |
 | `FEATURE.LOADING_VIDEO` | RE_REQUIRED | future presentation bridge | load-screen registrations, `CreateVideo`, `DestroyVideo` | `VR_COMPATIBILITY_RE.md` | Loading/menu/video remain stable while OpenXR pacing continues |
 | `FEATURE.COMFORT_POLICY` | EXPERIMENTAL | `HPLCameraBridge`, state adapter, post policy, input | authored roll/bob/shake/FOV, vertical roomscale, eye-height offset, turn modes | both future RE documents | Live-test eye-height/vertical policy, then add standing/seated profiles and authored-motion controls |
 | `FEATURE.BUILD_IDENTITY` | BUILT | CMake build manifest | version, flavor, OpenXR bit, DLL SHA-256 | `BUILD_HISTORY.md` | Verify packaged builds reproduce identity and integrity metadata |
-| `FEATURE.TELEMETRY` | PROVEN | `OpenGLHooks`, `OpenGLMatrixAnalysis`, `HPLCompatibilityProbe`, `HPLInputBridge`, logger, config | Swap/FBO/matrix/runtime/stage/audio/player-state bounded logs | all current docs | Correlate player/move states with controller actions and authored-camera transitions |
+| `FEATURE.TELEMETRY` | PROVEN | `OpenGLHooks`, `OpenGLMatrixAnalysis`, `HPLCompatibilityProbe`, `HPLPlayerState`, `HPLInputBridge`, logger, config | Swap/FBO/matrix/runtime/stage/audio/player-state/post-effect bounded logs | all current docs | Correlate authored-camera transitions, stage-tagged draws, GUI state, and per-effect identities in a live run |
 
 ## Dependency Edges
 
@@ -79,6 +79,8 @@ OpenXRRuntime requires OpenXRHelpers
 OpenXRRuntime requires OpenXRInput
 HPLInputBridge requires OpenXRInput
 HPLInputBridge requires HPLCameraBridge
+HPLInputBridge requires HPLPlayerState
+HPLCompatibilityProbe consumes OpenGLHooks telemetry
 ```
 
 ## Runtime Flow

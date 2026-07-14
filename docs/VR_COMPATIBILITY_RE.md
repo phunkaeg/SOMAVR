@@ -153,6 +153,15 @@ telemetry should capture player state, move state, camera rotation mode, camera
 owner/parent, and whether character-body camera updates are enabled. Those values
 will explain most camera incompatibilities without guessing from pixels.
 
+`0.7.2` implements the first adapter boundary. Ghidra and the registered script
+wrappers confirm camera rotate mode at `cCamera+0x6c` and body camera-update
+ownership at `iCharacterBody+0x1e8`; matching HPL2 source confirms Euler mode is
+zero. `HPLPlayerState` logs transitions and marks matrix mode or disabled body
+updates as authored ownership. `HPLInputBridge` then releases injected movement,
+turn, run, jump, crouch, and interaction while keeping menu/recenter live. This
+does not yet alter pose composition: HMD tracking remains in the proven frustum
+bridge while live tests classify each state.
+
 ## Audio Listener Pose
 
 HPL2 `Scene.cpp::PostUpdate` updates the listener from the current viewport's

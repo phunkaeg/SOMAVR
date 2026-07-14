@@ -173,6 +173,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "Interaction=1\n"
         << "Menu=1\n"
         << "RecenterChord=1\n"
+        << "SuppressDuringAuthoredCamera=1\n"
         << "RecenterHoldMs=900\n"
         << "MaxInputAgeFrames=8\n"
         << "LogInterval=120\n";
@@ -303,6 +304,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "interaction") config_.hplControllerInteraction = ParseBool(value, config_.hplControllerInteraction);
             else if (key == "menu") config_.hplControllerMenu = ParseBool(value, config_.hplControllerMenu);
             else if (key == "recenterchord") config_.hplControllerRecenterChord = ParseBool(value, config_.hplControllerRecenterChord);
+            else if (key == "suppressduringauthoredcamera") config_.hplControllerSuppressDuringAuthoredCamera = ParseBool(value, config_.hplControllerSuppressDuringAuthoredCamera);
             else if (key == "recenterholdms") config_.hplControllerRecenterHoldMs = ParseInt(value, config_.hplControllerRecenterHoldMs, 250, 5000);
             else if (key == "maxinputageframes") config_.hplControllerMaxInputAgeFrames = ParseInt(value, config_.hplControllerMaxInputAgeFrames, 1, 300);
             else if (key == "loginterval") config_.hplControllerLogInterval = ParseInt(value, config_.hplControllerLogInterval, 1, 100000);

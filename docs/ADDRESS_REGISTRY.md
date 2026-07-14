@@ -39,6 +39,8 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x1401f1480` | Confirmed by log string and order | `PostPostEffect` renderer callback pass, after the post chain and before final GUI drawing. |
 | `0x1402981e0` | High-confidence | Collects and renders viewport GUI sets after scene post effects. Primary future HUD-target probe. |
 | `0x1401297c0` | Confirmed | Invokes a script object's `OnGui(float)` callback when enabled. |
+| `0x14022f8e0` | Confirmed | Creates an iterator over the viewport GUI-set list at viewport `+0x90`. Ghidra: `HPL3_Viewport_CreateGuiSetIterator`. |
+| `0x140213970` | High-confidence | Renders one `cGuiSet`, selecting normal or 3D GUI projection and issuing GUI batches. Ghidra: `HPL3_GuiSet_Render`. |
 | `0x1404a5030` | Confirmed | Registers the AngelScript `iCharacterBody` API, including `Move`, `SetMoveSpeed`, `AddYaw`, and `SetYaw`. |
 | `0x1402375f0` | Confirmed by registration | Native wrapper registered for `iCharacterBody::Move(eCharDir, float)`. Candidate semantic locomotion probe. |
 | `0x14015ca10` | Confirmed | Registers the AngelScript `cLuxPlayer` API. Maps `GetCamera` to `0x140125ef0` and `GetCharacterBody` to `0x140155290`. |
@@ -49,8 +51,14 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x140155090` | Confirmed by registration and decompilation | `cLuxPlayer::GetCurrentMoveStateId()`. Reads move state at player `+0x200`, then ID `+0x158`, or returns `-1`. Runtime probe anchor in `0.7.0`. |
 | `0x140155c40` | High-confidence by behavior and HPL2 comparison | Player camera-direction update. Smooths input accumulators at player `+0x368/+0x36c`, applies camera pitch/yaw, and synchronizes body/camera yaw ownership. Ghidra: `SOMA_cLuxPlayer_UpdateCameraDirection`. |
 | `0x14015ba20` | High-confidence by behavior | Per-frame player helper update. Derives `cLuxPlayer` as `self-0x110` and runs collision, motion averaging, head, and camera helpers. Ghidra: `SOMA_cLuxPlayerHelper_Update`. |
+| `0x1404a94f0` | Confirmed by registration and HPL2 match | `cCamera::GetRotateMode`; reads camera `+0x6c`. Euler mode is `0`, matrix mode is `1`. Ghidra: `HPL3_Camera_GetRotateMode`. |
+| `0x14049bdf0` | Confirmed by registration | `iCharacterBody::SetCameraUpdateActive`; writes body `+0x1e8`. Ghidra: `HPL3_CharacterBody_SetCameraUpdateActive`. |
+| `0x14049be00` | Confirmed by registration | `iCharacterBody::GetCameraUpdateActive`; reads body `+0x1e8`. Ghidra: `HPL3_CharacterBody_GetCameraUpdateActive`. |
 | `0x14033c240` | Confirmed | Adds a post effect to the priority-sorted container and retained effect list. |
 | `0x14033b8f0` | Confirmed, control hook built | Tests whether the composite has any active post effects. `0.5.2` uses an exact-signature F12 detour to return false for reversible post-chain isolation. |
+| `0x1402d7a40` | Confirmed | Executes one active post effect through virtual `+0x68` and performs the final full-screen copy when appropriate. Ghidra: `HPL3_PostEffect_RenderOne`. |
+| `0x14033b950` | Confirmed | Initializes post-composite frame state, target ratios, renderer state, and texture units. Ghidra: `HPL3_PostEffectComposite_BeginRender`. |
+| `0x14033bb00` | Confirmed | Restores renderer state and publishes the post-composite result. Ghidra: `HPL3_PostEffectComposite_EndRender`. |
 | `0x14038ae60` | Confirmed | Creates the image-trail history texture and framebuffer (`ImageTrailTexture`, `ImageTrailBuffer`). |
 | `0x1403896e0` | Confirmed | Initializes `posteffect_chromatic_aberration_frag.hpsl` and its uniforms. |
 | `0x14038a5d0` | Confirmed | Initializes `posteffect_radial_blur_frag.hpsl` and its uniforms. |
@@ -70,6 +78,7 @@ Offsets confirmed from decompilation and the matching HPL2 source:
 | Object | Offset | Meaning |
 | --- | --- | --- |
 | `cCamera` | `+0x10` | Position (`cVector3f`). |
+| `cCamera` | `+0x6c` | `eCameraRotateMode`: Euler angles `0`, matrix `1`. `HPLPlayerState` uses nonzero as one authored-camera signal. |
 | `cCamera` | `+0x74` | Cached view matrix returned by `0x140271870`. |
 | `cCamera` | `+0x709` | View-matrix dirty flag used by `0x140271870`. |
 | `cCamera` | `+0x70c` | Base-frustum dirty flag. |
@@ -94,6 +103,21 @@ Offsets confirmed by script registrations and the `0.7.0` state probe anchors:
 | `+0x1d8` | Current player-state object; state ID is object `+0x160`. |
 | `+0x200` | Current move-state object; move-state ID is object `+0x158`. |
 | `+0x368/+0x36c` | Smoothed camera direction input accumulators used by `0x140155c40`. |
+
+## HPL3 Character Body Layout
+
+| Object | Offset | Meaning |
+| --- | --- | --- |
+| `iCharacterBody` | `+0x1e8` | Camera-update ownership boolean exposed as `Get/SetCameraUpdateActive`. SOMA's hands script clears it during camera-to-bone attachment and restores it afterward. |
+
+## HPL3 Post-Effect Composite Layout
+
+| Object | Offset | Meaning |
+| --- | --- | --- |
+| composite | `+0x328` | Priority-sorted effect tree used for render order. |
+| composite | `+0x340/+0x348` | Begin/end pointers for retained `iPostEffect*` vector. |
+| effect | `+0x30` | Suppressed/disabled byte; an effect renders only when this is zero. |
+| effect | `+0x31` | Active byte; an effect renders only when this is nonzero. |
 
 ## HPL3 Viewport Layout
 

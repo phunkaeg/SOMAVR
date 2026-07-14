@@ -1,6 +1,6 @@
 # Current State
 
-Date: 2026-07-14
+Date: 2026-07-15
 
 ## Objective
 
@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active runtime test baseline is `0.7.1-gameplay-actions`, layered on the proven
+The active runtime test baseline is `0.7.2-render-state-policy`, layered on the proven
 OpenXR transport, native HPL camera bridge, AFR stereo, full projection centering,
 one-key F10 activation, and compatibility probes:
 
@@ -34,8 +34,14 @@ one-key F10 activation, and compatibility probes:
   Touch/Index profiles through SOMA's shipped default action keys.
 - Every injected held input is released on VR disable, inactive controls, stale
   OpenXR samples, or DLL teardown.
-- A signature-guarded native player probe logs player/camera/body ownership plus
-  current player and move-state IDs from confirmed SOMA getters.
+- `HPLPlayerState` now owns the signature-guarded player/camera/body and state
+  getters. It also reads confirmed camera rotate mode `+0x6c` and body camera
+  update ownership `+0x1e8`, logging every authored-camera transition.
+- Controller gameplay input releases automatically while a scripted sequence or
+  hand-socket attachment owns the camera. Menu and recenter remain available.
+- Render-stage logs now include per-stage GL draw/state deltas. Active post
+  effects are inventoried by object/vtable/flags, and `Ctrl+F12` can isolate one
+  active effect at a time without persisting mutations.
 - This is a fast testable bridge, not final analog locomotion. The live state log
   is intended to identify the safe native action boundary for its replacement.
 

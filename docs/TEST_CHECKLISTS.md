@@ -1,5 +1,34 @@
 # Test Checklists
 
+## 0.7.2 Authored Camera And Render-State Policy
+
+Purpose: validate the broader `0.7.2-render-state-policy` batch without changing
+the proven F10 graphics path.
+
+1. Launch the OpenXR build, load a save, and press F10 once.
+2. Confirm `version=0.7.2-render-state-policy`, `hpl_player_state install_ok`,
+   all six `hpl_compat_hook installed` rows, and no signature mismatch.
+3. Walk, snap-turn, run, jump, crouch, interact, open Escape, and recenter with
+   the two-grip chord. Baseline controls should remain unchanged.
+4. Trigger at least one scripted or animation-owned camera sequence. Confirm
+   `hpl_player_state ... authoredCamera=1` and
+   `hpl_controller_authored_policy ... suppressed=1`; movement/turn/gameplay
+   actions should stop while Escape and recenter remain responsive.
+5. Confirm the sequence exits with `authoredCamera=0` and `suppressed=0`, then
+   verify movement resumes without a stuck key or mouse button.
+6. Inspect one periodic `hpl_render_stage ... stage=screen_gui` row. It should
+   include nonnegative `calls={...}` deltas and complete blend, depth, scissor,
+   color-write, and framebuffer state.
+7. Press F6 once. `draws.csv` should contain the new `stage` column with values
+   such as `world`, `post_effects`, `post_post_effect`, and `screen_gui`.
+8. At a scene with visible full-screen effects, leave plain F12 bypass disabled
+   and press `Ctrl+F12` repeatedly. Each press should log a selected object and
+   vtable RVA and visibly isolate one active effect. Press `Shift+F12` to restore
+   the normal chain.
+9. Exit normally. Confirm no held input, clean OpenXR pre-graphics teardown, and
+   `hpl_player_state_summary`, `hpl_compat_summary`, and
+   `hpl_input_bridge_summary` rows.
+
 ## 0.7.1 Controller, Gameplay Actions, And Player-State Prototype
 
 1. Close SOMA and launch:

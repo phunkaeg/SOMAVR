@@ -1,5 +1,34 @@
 # Build History
 
+## 2026-07-15
+
+### 0.7.2-render-state-policy
+
+- Extracted signature-guarded native player inspection from `HPLInputBridge`
+  into reusable `HPLPlayerState` ownership for future locomotion, interaction,
+  hands, comfort, and authored-camera adapters.
+- Confirmed `cCamera::GetRotateMode` reads camera `+0x6c` and
+  `iCharacterBody::Get/SetCameraUpdateActive` reads/writes body `+0x1e8`.
+  Matching HPL2 source establishes Euler mode `0`; SOMA's shipped
+  `PlayerHandsHandler` switches to matrix mode and disables body camera updates
+  while attaching the camera to a hand bone.
+- Added transition telemetry for camera mode/body ownership and a default-on
+  controller policy that releases movement, turning, run, jump, crouch, and
+  interaction during authored camera ownership. Menu and recenter remain live.
+- Expanded all six HPL render-stage samples with draw, viewport, framebuffer,
+  program, and clear deltas plus complete blend/depth/scissor/write-mask state.
+  F6 `draws.csv` rows now identify their enclosing HPL render stage.
+- Added a bounded active post-effect inventory using the confirmed composite
+  vector at `+0x340/+0x348`, including object pointer, vtable RVA, active flags,
+  input texture, render target, and transition detection.
+- Added reversible selective post-effect diagnosis: `Ctrl+F12` cycles through
+  currently active effects and renders only the selected effect for that call;
+  `Shift+F12` restores the normal chain. Plain F12 retains the all-effect bypass.
+- Promoted eight authored-camera, HUD, and post-effect helpers in Ghidra with
+  names, prototypes where known, evidence comments, and subsystem tags.
+- Built and tested OpenXR/default x64 Release flavors. OpenXR output:
+  `build-openxr-controller\Release`.
+
 ## 2026-07-14
 
 ### 0.7.1-gameplay-actions

@@ -21,10 +21,22 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.32.0-viewport-depth`, layered on the
+The active build candidate is `0.33.0-depth-resources`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Optional compositor depth is now fully wired. The OpenXR runtime negotiates
+  D24/D32F or matching depth-stencil formats, builds matching per-eye depth
+  caches and swapchains, and chains
+  `XrCompositionLayerDepthInfoKHR` using the confirmed standard HPL/OpenGL depth
+  convention. HPL near/far are converted to meters through `HPLWorldScale`.
+  Unsupported formats, invalid clip data, missing caches, and copy failures all
+  retain the proven color-only submission path.
+- OpenXR frame resources now survive changing runtime contracts. A changed
+  SOMA HDC/HGLRC triggers full delayed runtime recovery; changed recommended
+  view dimensions or sample limits trigger a frame-resource rebuild. Stable
+  view checks occur every 300 game frames without reallocating resources.
 
 - F10/F11 and the diagnostic camera controls are now owned by the exact player
   camera whenever `HPLPlayerState` can identify it. Secondary viewport cameras
@@ -32,9 +44,8 @@ compatibility probes:
   pose. Bounded viewport identity rows expose camera/world/renderer/post/FBO,
   dimensions, flags, and player/secondary role for future reflection, terminal,
   save/load, and same-frame render work.
-- Each AFR eye cache may now carry a same-size depth attachment. Depth is copied
-  from the native backbuffer and periodically sampled as evidence only; no depth
-  swapchain or compositor depth chain is submitted in this build.
+- The `0.32.0` per-eye depth evidence path remains available independently as a
+  probe and provides bounded source/copy/sample telemetry around submission.
 - The injector warns about common graphics/VR hook conflicts and blocks a
   duplicate SOMAVR injection. The release package now includes reversible,
   checksum-verified install/update/uninstall scripts that preserve user config.

@@ -29,6 +29,7 @@ struct Config {
     std::string openxrDesktopMirrorEye = "native";
     std::string openxrDesktopMirrorAspect = "fit";
     bool openxrDepthCompositionProbe = false;
+    bool openxrDepthCompositionSubmit = false;
     int openxrResolutionScalePercent = 100;
     std::string openxrReferenceSpace = "local";
     bool openxrInputEnabled = false;

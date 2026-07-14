@@ -1,5 +1,25 @@
 # Test Checklists
 
+## 0.33.0 Depth Submission And XR Resource Recovery
+
+1. Confirm `version=0.33.0-depth-resources`, `DepthCompositionSubmit=1`, and one
+   `openxr_depth_capability` row with the extension enabled and
+   `submissionImplemented=1`.
+2. Press F10 after loading a save. Confirm `openxr_gl_bridge ready` reports two
+   depth caches and two depth swapchains. Confirm `format_selected` matches the
+   reported source stencil topology. If no supported standard depth format is
+   exposed, confirm an explicit `no_supported_depth_format` warning and
+   intact color-only stereo.
+3. Inspect near geometry, distant geometry, transparent/reflection surfaces,
+   HUD, shadows, and head translation. Confirm stereo remains rigid and the log
+   accumulates `depthSubmitted` without `copy_failed` or frame failure rows.
+4. Exercise pause, loading, save reload, fullscreen/window transitions, and HMD
+   sleep/wake. `openxr_view_resources` should remain stable or log one complete
+   rebuild; a changed HDC/HGLRC must enter runtime recovery instead of using stale
+   swapchains. Confirm F10 VR returns without restarting SOMA.
+5. Set `DepthCompositionSubmit=0` as the immediate rollback. The same run should
+   retain color stereo and depth probes while submitting no depth chain.
+
 ## 0.32.0 Viewport Ownership, Depth, And Release Safety
 
 1. Confirm `version=0.32.0-viewport-depth`, press F10 once after loading a save,

@@ -238,6 +238,7 @@ MirrorBackbuffer=1
 DesktopMirrorEye=left
 DesktopMirrorAspect=fit
 DepthCompositionProbe=1
+DepthCompositionSubmit=0
 ResolutionScalePercent=100
 ReferenceSpace=local
 RecoveryEnabled=1
@@ -323,6 +324,11 @@ FlashlightRollDegrees=0.0
 ComfortBlackoutFrames=2
 StateTransitionBlackoutFrames=2
 ```
+
+`DepthCompositionSubmit` is opt-in in generated configurations until live
+runtime and hardware-matrix acceptance is complete. The development
+`somavr.ini` enables it; setting it to `0` immediately restores color-only
+submission while retaining the independent depth evidence probe.
 
 ## Known Install
 

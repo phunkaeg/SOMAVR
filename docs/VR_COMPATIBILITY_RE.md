@@ -1,5 +1,28 @@
 # VR Compatibility Reverse-Engineering Map
 
+## 0.33.0 Compositor Depth And Resource Recovery
+
+The capture-only depth experiment is now a guarded submission path. When
+`XR_KHR_composition_layer_depth` and a standard depth or depth-stencil format
+are available, each eye receives a same-format depth
+cache and OpenXR depth swapchain. The AFR depth copy uses nearest filtering and
+the submitted projection views chain `XrCompositionLayerDepthInfoKHR` with
+`minDepth=0`, `maxDepth=1`, and HPL near/far converted from world units to
+meters. Any negotiation, cache, copy, or projection failure preserves the
+proven color-only path for that frame. Negotiation prefers depth-stencil when
+the live default framebuffer reports stencil bits, avoiding incompatible GL
+depth blits while retaining depth-only fallbacks.
+
+This convention is no longer inferred from framebuffer samples alone. Ghidra
+at `0x140270230` and `0x14026fcf0`, plus the matching HPL2 projection source,
+prove finite standard OpenGL depth: near/far map to normalized depth `0/1`.
+
+The runtime also records the HDC/HGLRC used to create the OpenXR session. A
+changed graphics binding enters the existing delayed full-runtime recovery.
+Every 300 game frames it re-enumerates stereo view recommendations; changed
+dimensions or sample limits transactionally rebuild spaces, color/depth
+swapchains, caches, and layer resources. Stable checks do no GL allocation.
+
 ## 0.29.0 Loading, Video, And Optics Result
 
 Authored script zoom no longer needs to distort the headset projection: exact
@@ -44,8 +67,8 @@ terminal, water, or shadow camera could consume F10 or inherit headset pose.
 The depth experiment now allocates one `GL_DEPTH_COMPONENT24` texture beside
 each eye color cache and blits source depth with `GL_NEAREST`. Periodic
 `openxr_depth_cache_probe` rows report source depth bits, GL errors, finite
-center minimum/maximum, and eye identity. This remains capture-only evidence:
-there is no depth swapchain and no composition-layer depth chain yet.
+center minimum/maximum, and eye identity. This was the capture-only evidence
+gate subsequently promoted in `0.33.0`.
 
 ## 0.26.0 GPU And Depth Evidence
 

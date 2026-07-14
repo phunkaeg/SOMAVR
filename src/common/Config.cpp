@@ -197,6 +197,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "DesktopMirrorEye=native\n"
         << "DesktopMirrorAspect=fit\n"
         << "DepthCompositionProbe=0\n"
+        << "DepthCompositionSubmit=0\n"
         << "ResolutionScalePercent=100\n"
         << "ReferenceSpace=local\n"
         << "InputEnabled=0\n"
@@ -463,6 +464,8 @@ void ConfigManager::LoadFromFile()
                 }
             } else if (key == "depthcompositionprobe") {
                 config_.openxrDepthCompositionProbe = ParseBool(value, config_.openxrDepthCompositionProbe);
+            } else if (key == "depthcompositionsubmit") {
+                config_.openxrDepthCompositionSubmit = ParseBool(value, config_.openxrDepthCompositionSubmit);
             } else if (key == "resolutionscalepercent") {
                 config_.openxrResolutionScalePercent = ParseInt(value, config_.openxrResolutionScalePercent, 25, 200);
             } else if (key == "referencespace") {

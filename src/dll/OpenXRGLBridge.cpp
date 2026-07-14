@@ -40,8 +40,16 @@ constexpr uint32_t kGlColorWriteMask = 0x0C23;
 constexpr uint32_t kGlColorBufferBit = 0x00004000;
 constexpr uint32_t kGlDepthBufferBit = 0x00000100;
 constexpr uint32_t kGlDepthBits = 0x0D56;
+constexpr uint32_t kGlStencilBits = 0x0D57;
 constexpr uint32_t kGlDepthComponent = 0x1902;
 constexpr int32_t kGlDepthComponent24 = 0x81A6;
+constexpr int64_t kGlDepthComponent32f = 0x8CAC;
+constexpr int64_t kGlDepth24Stencil8 = 0x88F0;
+constexpr int64_t kGlDepth32fStencil8 = 0x8CAD;
+constexpr uint32_t kGlDepthStencil = 0x84F9;
+constexpr uint32_t kGlUnsignedInt248 = 0x84FA;
+constexpr uint32_t kGlFloat32UnsignedInt248Rev = 0x8DAD;
+constexpr uint32_t kGlDepthStencilAttachment = 0x821A;
 constexpr uint32_t kGlUnpackAlignment = 0x0CF5;
 constexpr uint32_t kGlLinear = 0x2601;
 constexpr uint32_t kGlNearest = 0x2600;
@@ -72,6 +80,10 @@ const char* GlFormatName(int64_t format)
     case kGlSrgb8Alpha8: return "GL_SRGB8_ALPHA8";
     case kGlRgba8: return "GL_RGBA8";
     case kGlRgba16f: return "GL_RGBA16F";
+    case kGlDepthComponent32f: return "GL_DEPTH_COMPONENT32F";
+    case kGlDepthComponent24: return "GL_DEPTH_COMPONENT24";
+    case kGlDepth24Stencil8: return "GL_DEPTH24_STENCIL8";
+    case kGlDepth32fStencil8: return "GL_DEPTH32F_STENCIL8";
     default: return "UNKNOWN";
     }
 }
@@ -84,6 +96,7 @@ bool OpenXRGLBridge::Initialize(
     const std::vector<int64_t>& formats,
     int resolutionScalePercent,
     bool depthCaptureProbeEnabled,
+    bool depthCompositionSubmitEnabled,
     bool hudLayerEnabled,
     int hudWidth,
     int hudHeight,
@@ -126,8 +139,49 @@ bool OpenXRGLBridge::Initialize(
         return false;
     }
 
+    depthCompositionSubmitEnabled_ = depthCompositionSubmitEnabled;
+    if (depthCompositionSubmitEnabled_) {
+        int32_t sourceDepthBits = 0;
+        int32_t sourceStencilBits = 0;
+        glGetIntegerv(kGlDepthBits, &sourceDepthBits);
+        glGetIntegerv(kGlStencilBits, &sourceStencilBits);
+        const std::array<int64_t, 4> preferredDepthFormats = sourceStencilBits > 0
+            ? std::array<int64_t, 4>{
+                kGlDepth24Stencil8,
+                kGlDepth32fStencil8,
+                kGlDepthComponent24,
+                kGlDepthComponent32f,
+            }
+            : std::array<int64_t, 4>{
+                kGlDepthComponent24,
+                kGlDepthComponent32f,
+                kGlDepth24Stencil8,
+                kGlDepth32fStencil8,
+            };
+        for (const int64_t preferred : preferredDepthFormats) {
+            if (std::find(formats.begin(), formats.end(), preferred) != formats.end()) {
+                depthFormat_ = preferred;
+                break;
+            }
+        }
+        if (depthFormat_ == 0) {
+            depthCompositionSubmitEnabled_ = false;
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_depth_submission disabled reason=no_supported_depth_format");
+        } else {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "openxr_depth_submission format_selected sourceDepthBits=%d sourceStencilBits=%d format=0x%llx(%s)",
+                sourceDepthBits,
+                sourceStencilBits,
+                static_cast<unsigned long long>(depthFormat_),
+                GlFormatName(depthFormat_));
+        }
+    }
+
     session_ = session;
-    depthCaptureProbeEnabled_ = depthCaptureProbeEnabled;
+    depthCaptureProbeEnabled_ = depthCaptureProbeEnabled || depthCompositionSubmitEnabled_;
     suppressCenterCrosshair_ = suppressCenterCrosshair;
     crosshairClearRadiusPixels_ = std::clamp(crosshairClearRadiusPixels, 4, 256);
     interactionReticleNativeIconsEnabled_ = interactionReticleNativeIconsEnabled;
@@ -158,13 +212,17 @@ bool OpenXRGLBridge::Initialize(
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "openxr_gl_bridge ready eyes=%zu format=0x%llx(%s) resolutionScalePercent=%d depthCaptureProbe=%d depthCachesReady=%d hudReady=%d hudSize=%dx%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d interactionReticleReady=%d reticleSize=%dx%d nativeReticleIcons=%u",
+        "openxr_gl_bridge ready eyes=%zu format=0x%llx(%s) resolutionScalePercent=%d depthCaptureProbe=%d depthSubmitRequested=%d depthFormat=0x%llx(%s) depthCachesReady=%d depthSwapchainsReady=%d hudReady=%d hudSize=%dx%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d interactionReticleReady=%d reticleSize=%dx%d nativeReticleIcons=%u",
         eyes_.size(),
         static_cast<unsigned long long>(colorFormat_),
         GlFormatName(colorFormat_),
         resolutionScalePercent,
         depthCaptureProbeEnabled_ ? 1 : 0,
+        depthCompositionSubmitEnabled ? 1 : 0,
+        static_cast<unsigned long long>(depthFormat_),
+        GlFormatName(depthFormat_),
         DepthCachesReady() ? 1 : 0,
+        DepthSwapchainsReady() ? 1 : 0,
         HudReady() ? 1 : 0,
         hud_.width,
         hud_.height,
@@ -177,42 +235,52 @@ bool OpenXRGLBridge::Initialize(
     return true;
 }
 
-void OpenXRGLBridge::Shutdown()
+void OpenXRGLBridge::Shutdown(bool deleteGlResources)
 {
     if (hudCaptureState_.active) {
-        if (wglGetCurrentContext() != nullptr) {
+        if (deleteGlResources && wglGetCurrentContext() != nullptr) {
             RestoreHudCaptureState();
         } else {
             hudCaptureState_.active = false;
         }
     }
-    const bool canDeleteFramebuffers = glDeleteFramebuffers_ != nullptr && wglGetCurrentContext() != nullptr;
+    const bool canDeleteGlResources = deleteGlResources && wglGetCurrentContext() != nullptr;
+    const bool canDeleteFramebuffers = glDeleteFramebuffers_ != nullptr && canDeleteGlResources;
     for (EyeSwapchain& eye : eyes_) {
         if (canDeleteFramebuffers && eye.cacheFramebuffer != 0) {
             glDeleteFramebuffers_(1, &eye.cacheFramebuffer);
             eye.cacheFramebuffer = 0;
         }
-        if (wglGetCurrentContext() != nullptr && eye.cacheTexture != 0) {
+        if (canDeleteGlResources && eye.cacheTexture != 0) {
             glDeleteTextures(1, &eye.cacheTexture);
             eye.cacheTexture = 0;
         }
-        if (wglGetCurrentContext() != nullptr && eye.depthCacheTexture != 0) {
+        if (canDeleteGlResources && eye.depthCacheTexture != 0) {
             glDeleteTextures(1, &eye.depthCacheTexture);
             eye.depthCacheTexture = 0;
         }
         if (canDeleteFramebuffers && !eye.framebuffers.empty()) {
             glDeleteFramebuffers_(static_cast<int32_t>(eye.framebuffers.size()), eye.framebuffers.data());
         }
+        if (canDeleteFramebuffers && !eye.depthFramebuffers.empty()) {
+            glDeleteFramebuffers_(
+                static_cast<int32_t>(eye.depthFramebuffers.size()),
+                eye.depthFramebuffers.data());
+        }
         if (eye.handle != XR_NULL_HANDLE) {
             xrDestroySwapchain(eye.handle);
             eye.handle = XR_NULL_HANDLE;
+        }
+        if (eye.depthHandle != XR_NULL_HANDLE) {
+            xrDestroySwapchain(eye.depthHandle);
+            eye.depthHandle = XR_NULL_HANDLE;
         }
     }
     eyes_.clear();
     if (canDeleteFramebuffers && hud_.captureFramebuffer != 0) {
         glDeleteFramebuffers_(1, &hud_.captureFramebuffer);
     }
-    if (wglGetCurrentContext() != nullptr && hud_.captureTexture != 0) {
+    if (canDeleteGlResources && hud_.captureTexture != 0) {
         glDeleteTextures(1, &hud_.captureTexture);
     }
     if (canDeleteFramebuffers && !hud_.framebuffers.empty()) {
@@ -238,7 +306,9 @@ void OpenXRGLBridge::Shutdown()
     hudCaptureState_ = {};
     session_ = XR_NULL_HANDLE;
     colorFormat_ = 0;
+    depthFormat_ = 0;
     depthCaptureProbeEnabled_ = false;
+    depthCompositionSubmitEnabled_ = false;
 }
 
 bool OpenXRGLBridge::CopyBackbufferToEye(uint32_t eyeIndex)
@@ -379,7 +449,7 @@ bool OpenXRGLBridge::CaptureBackbufferToCache(uint32_t eyeIndex)
             }
             Logger::Instance().Write(
                 eye.depthCacheValid ? LogLevel::Info : LogLevel::Warn,
-                "openxr_depth_cache_probe eye=%u sample=%llu sourceSize=%dx%d cacheSize=%dx%d depthBits=%d priorError=0x%x blitError=0x%x sampleError=0x%x valid=%d centerFinite=%d centerMin=%.7f centerMax=%.7f policy=capture_only_no_depth_submission",
+                "openxr_depth_cache_probe eye=%u sample=%llu sourceSize=%dx%d cacheSize=%dx%d depthBits=%d priorError=0x%x blitError=0x%x sampleError=0x%x valid=%d centerFinite=%d centerMin=%.7f centerMax=%.7f submitEnabled=%d depthFormat=0x%llx(%s)",
                 eyeIndex,
                 static_cast<unsigned long long>(eye.depthProbeSamples),
                 viewport[2], viewport[3],
@@ -391,7 +461,10 @@ bool OpenXRGLBridge::CaptureBackbufferToCache(uint32_t eyeIndex)
                 eye.depthCacheValid ? 1 : 0,
                 finite ? 1 : 0,
                 minimumDepth,
-                maximumDepth);
+                maximumDepth,
+                depthCompositionSubmitEnabled_ ? 1 : 0,
+                static_cast<unsigned long long>(depthFormat_),
+                GlFormatName(depthFormat_));
         }
     } else {
         eye.depthCacheValid = false;
@@ -450,6 +523,57 @@ bool OpenXRGLBridge::CopyCacheToEye(uint32_t eyeIndex)
         Logger::Instance().Write(
             LogLevel::Warn,
             "openxr_swapchain cache_release_failed eye=%u image=%u result=%d",
+            eyeIndex,
+            imageIndex,
+            static_cast<int>(result));
+        return false;
+    }
+    return copied;
+}
+
+bool OpenXRGLBridge::CopyDepthCacheToEye(uint32_t eyeIndex)
+{
+    if (!DepthSwapchainsReady()
+        || eyeIndex >= eyes_.size()
+        || !eyes_[eyeIndex].depthCacheValid) {
+        return false;
+    }
+
+    EyeSwapchain& eye = eyes_[eyeIndex];
+    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+    uint32_t imageIndex = 0;
+    XrResult result = xrAcquireSwapchainImage(eye.depthHandle, &acquireInfo, &imageIndex);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_depth_swapchain acquire_failed eye=%u result=%d",
+            eyeIndex,
+            static_cast<int>(result));
+        return false;
+    }
+
+    XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+    waitInfo.timeout = XR_INFINITE_DURATION;
+    result = xrWaitSwapchainImage(eye.depthHandle, &waitInfo);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_depth_swapchain wait_failed eye=%u image=%u result=%d",
+            eyeIndex,
+            imageIndex,
+            static_cast<int>(result));
+        return false;
+    }
+
+    const bool copied = CopyDepthCacheToImage(eye, imageIndex);
+    glFlush();
+
+    XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+    result = xrReleaseSwapchainImage(eye.depthHandle, &releaseInfo);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_depth_swapchain release_failed eye=%u image=%u result=%d",
             eyeIndex,
             imageIndex,
             static_cast<int>(result));
@@ -805,6 +929,17 @@ bool OpenXRGLBridge::DepthCachesReady() const
         });
 }
 
+bool OpenXRGLBridge::DepthSwapchainsReady() const
+{
+    return depthCompositionSubmitEnabled_
+        && eyes_.size() >= 2
+        && std::all_of(eyes_.begin(), eyes_.end(), [](const EyeSwapchain& eye) {
+            return eye.depthHandle != XR_NULL_HANDLE
+                && !eye.depthImages.empty()
+                && eye.depthImages.size() == eye.depthFramebuffers.size();
+        });
+}
+
 bool OpenXRGLBridge::Ready() const
 {
     return session_ != XR_NULL_HANDLE && eyes_.size() == 2;
@@ -971,17 +1106,160 @@ bool OpenXRGLBridge::CreateEyeSwapchain(
         xrDestroySwapchain(eye.handle);
         return false;
     }
+    if (depthCompositionSubmitEnabled_ && !CreateDepthSwapchain(eye, eyeIndex)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_depth_submission eye_disabled eye=%u reason=swapchain_creation_failed fallback=color_only",
+            eyeIndex);
+    }
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "openxr_swapchain created eye=%u size=%dx%d images=%u format=0x%llx(%s)",
+        "openxr_swapchain created eye=%u size=%dx%d images=%u format=0x%llx(%s) depthSwapchain=%d depthFormat=0x%llx(%s)",
         eyeIndex,
         eye.width,
         eye.height,
         imageCount,
         static_cast<unsigned long long>(colorFormat_),
-        GlFormatName(colorFormat_));
+        GlFormatName(colorFormat_),
+        eye.depthHandle != XR_NULL_HANDLE ? 1 : 0,
+        static_cast<unsigned long long>(eye.depthFormat),
+        GlFormatName(eye.depthFormat));
     eyes_.push_back(std::move(eye));
+    return true;
+}
+
+bool OpenXRGLBridge::CreateDepthSwapchain(EyeSwapchain& eye, uint32_t eyeIndex)
+{
+    if (session_ == XR_NULL_HANDLE || depthFormat_ == 0) {
+        return false;
+    }
+
+    eye.depthFormat = depthFormat_;
+    XrSwapchainCreateInfo createInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+    createInfo.usageFlags = XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    createInfo.format = depthFormat_;
+    createInfo.sampleCount = 1;
+    createInfo.width = static_cast<uint32_t>(eye.width);
+    createInfo.height = static_cast<uint32_t>(eye.height);
+    createInfo.faceCount = 1;
+    createInfo.arraySize = 1;
+    createInfo.mipCount = 1;
+
+    XrResult result = xrCreateSwapchain(session_, &createInfo, &eye.depthHandle);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_depth_swapchain create_failed eye=%u size=%dx%d format=0x%llx(%s) result=%d",
+            eyeIndex,
+            eye.width,
+            eye.height,
+            static_cast<unsigned long long>(depthFormat_),
+            GlFormatName(depthFormat_),
+            static_cast<int>(result));
+        eye.depthHandle = XR_NULL_HANDLE;
+        return false;
+    }
+
+    uint32_t imageCount = 0;
+    result = xrEnumerateSwapchainImages(eye.depthHandle, 0, &imageCount, nullptr);
+    if (XR_FAILED(result) || imageCount == 0) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_depth_swapchain image_count_failed eye=%u result=%d count=%u",
+            eyeIndex,
+            static_cast<int>(result),
+            imageCount);
+        xrDestroySwapchain(eye.depthHandle);
+        eye.depthHandle = XR_NULL_HANDLE;
+        return false;
+    }
+
+    eye.depthImages.resize(imageCount);
+    for (XrSwapchainImageOpenGLKHR& image : eye.depthImages) {
+        image.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR;
+    }
+    result = xrEnumerateSwapchainImages(
+        eye.depthHandle,
+        imageCount,
+        &imageCount,
+        reinterpret_cast<XrSwapchainImageBaseHeader*>(eye.depthImages.data()));
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_depth_swapchain images_failed eye=%u result=%d",
+            eyeIndex,
+            static_cast<int>(result));
+        xrDestroySwapchain(eye.depthHandle);
+        eye.depthHandle = XR_NULL_HANDLE;
+        eye.depthImages.clear();
+        return false;
+    }
+    eye.depthImages.resize(imageCount);
+
+    int32_t savedReadFramebuffer = 0;
+    int32_t savedDrawFramebuffer = 0;
+    int32_t savedReadBuffer = 0;
+    int32_t savedDrawBuffer = 0;
+    glGetIntegerv(kGlReadFramebufferBinding, &savedReadFramebuffer);
+    glGetIntegerv(kGlDrawFramebufferBinding, &savedDrawFramebuffer);
+    glGetIntegerv(kGlReadBuffer, &savedReadBuffer);
+    glGetIntegerv(kGlDrawBuffer, &savedDrawBuffer);
+
+    eye.depthFramebuffers.resize(imageCount);
+    glGenFramebuffers_(static_cast<int32_t>(imageCount), eye.depthFramebuffers.data());
+    bool complete = true;
+    for (uint32_t imageIndex = 0; imageIndex < imageCount; ++imageIndex) {
+        glBindFramebuffer_(kGlFramebuffer, eye.depthFramebuffers[imageIndex]);
+        const uint32_t depthAttachment = depthFormat_ == kGlDepth24Stencil8
+                || depthFormat_ == kGlDepth32fStencil8
+            ? kGlDepthStencilAttachment
+            : kGlDepthAttachment;
+        glFramebufferTexture2D_(
+            kGlFramebuffer,
+            depthAttachment,
+            kGlTexture2D,
+            eye.depthImages[imageIndex].image,
+            0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        const uint32_t status = glCheckFramebufferStatus_(kGlFramebuffer);
+        if (status != kGlFramebufferComplete) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_depth_swapchain framebuffer_incomplete eye=%u image=%u status=0x%x",
+                eyeIndex,
+                imageIndex,
+                status);
+            complete = false;
+            break;
+        }
+    }
+
+    glBindFramebuffer_(kGlReadFramebuffer, static_cast<uint32_t>(savedReadFramebuffer));
+    glReadBuffer(static_cast<uint32_t>(savedReadBuffer));
+    glBindFramebuffer_(kGlDrawFramebuffer, static_cast<uint32_t>(savedDrawFramebuffer));
+    glDrawBuffer(static_cast<uint32_t>(savedDrawBuffer));
+    if (!complete) {
+        glDeleteFramebuffers_(
+            static_cast<int32_t>(eye.depthFramebuffers.size()),
+            eye.depthFramebuffers.data());
+        eye.depthFramebuffers.clear();
+        eye.depthImages.clear();
+        xrDestroySwapchain(eye.depthHandle);
+        eye.depthHandle = XR_NULL_HANDLE;
+        return false;
+    }
+
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "openxr_depth_swapchain created eye=%u size=%dx%d images=%u format=0x%llx(%s)",
+        eyeIndex,
+        eye.width,
+        eye.height,
+        imageCount,
+        static_cast<unsigned long long>(depthFormat_),
+        GlFormatName(depthFormat_));
     return true;
 }
 
@@ -1541,19 +1819,34 @@ bool OpenXRGLBridge::CreateEyeCache(EyeSwapchain& eye, uint32_t eyeIndex)
         glTexParameteri(kGlTexture2D, GL_TEXTURE_MAG_FILTER, kGlNearest);
         glTexParameteri(kGlTexture2D, GL_TEXTURE_WRAP_S, kGlClampToEdge);
         glTexParameteri(kGlTexture2D, GL_TEXTURE_WRAP_T, kGlClampToEdge);
+        const int64_t cacheDepthFormat = depthCompositionSubmitEnabled_ && depthFormat_ != 0
+            ? depthFormat_
+            : kGlDepthComponent24;
+        const bool cacheHasStencil = cacheDepthFormat == kGlDepth24Stencil8
+            || cacheDepthFormat == kGlDepth32fStencil8;
+        const uint32_t cacheDepthExternalFormat = cacheHasStencil
+            ? kGlDepthStencil
+            : kGlDepthComponent;
+        const uint32_t cacheDepthType = cacheDepthFormat == kGlDepthComponent32f
+            ? GL_FLOAT
+            : cacheDepthFormat == kGlDepth24Stencil8
+                ? kGlUnsignedInt248
+                : cacheDepthFormat == kGlDepth32fStencil8
+                    ? kGlFloat32UnsignedInt248Rev
+                    : GL_UNSIGNED_INT;
         glTexImage2D(
             kGlTexture2D,
             0,
-            kGlDepthComponent24,
+            static_cast<int32_t>(cacheDepthFormat),
             eye.width,
             eye.height,
             0,
-            kGlDepthComponent,
-            GL_UNSIGNED_INT,
+            cacheDepthExternalFormat,
+            cacheDepthType,
             nullptr);
         glFramebufferTexture2D_(
             kGlFramebuffer,
-            kGlDepthAttachment,
+            cacheHasStencil ? kGlDepthStencilAttachment : kGlDepthAttachment,
             kGlTexture2D,
             eye.depthCacheTexture,
             0);
@@ -1710,6 +2003,67 @@ bool OpenXRGLBridge::CopyCacheToImage(const EyeSwapchain& eye, uint32_t imageInd
     glDrawBuffer(static_cast<uint32_t>(savedDrawBuffer));
     if (scissorEnabled == GL_TRUE) {
         glEnable(kGlScissorTest);
+    }
+    return true;
+}
+
+bool OpenXRGLBridge::CopyDepthCacheToImage(const EyeSwapchain& eye, uint32_t imageIndex)
+{
+    if (!eye.depthCacheValid
+        || eye.cacheFramebuffer == 0
+        || imageIndex >= eye.depthFramebuffers.size()) {
+        return false;
+    }
+
+    int32_t savedReadFramebuffer = 0;
+    int32_t savedDrawFramebuffer = 0;
+    int32_t savedReadBuffer = 0;
+    int32_t savedDrawBuffer = 0;
+    glGetIntegerv(kGlReadFramebufferBinding, &savedReadFramebuffer);
+    glGetIntegerv(kGlDrawFramebufferBinding, &savedDrawFramebuffer);
+    glGetIntegerv(kGlReadBuffer, &savedReadBuffer);
+    glGetIntegerv(kGlDrawBuffer, &savedDrawBuffer);
+
+    const GLboolean scissorEnabled = glIsEnabled(kGlScissorTest);
+    if (scissorEnabled == GL_TRUE) {
+        glDisable(kGlScissorTest);
+    }
+
+    glBindFramebuffer_(kGlReadFramebuffer, eye.cacheFramebuffer);
+    glReadBuffer(GL_NONE);
+    glBindFramebuffer_(kGlDrawFramebuffer, eye.depthFramebuffers[imageIndex]);
+    glDrawBuffer(GL_NONE);
+    const uint32_t priorError = glGetError();
+    glBlitFramebuffer_(
+        0,
+        0,
+        eye.width,
+        eye.height,
+        0,
+        0,
+        eye.width,
+        eye.height,
+        kGlDepthBufferBit,
+        kGlNearest);
+    const uint32_t copyError = glGetError();
+
+    glBindFramebuffer_(kGlReadFramebuffer, static_cast<uint32_t>(savedReadFramebuffer));
+    glReadBuffer(static_cast<uint32_t>(savedReadBuffer));
+    glBindFramebuffer_(kGlDrawFramebuffer, static_cast<uint32_t>(savedDrawFramebuffer));
+    glDrawBuffer(static_cast<uint32_t>(savedDrawBuffer));
+    if (scissorEnabled == GL_TRUE) {
+        glEnable(kGlScissorTest);
+    }
+
+    if (copyError != GL_NO_ERROR) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_depth_swapchain copy_failed priorError=0x%x copyError=0x%x size=%dx%d",
+            priorError,
+            copyError,
+            eye.width,
+            eye.height);
+        return false;
     }
     return true;
 }

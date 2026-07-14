@@ -1537,6 +1537,7 @@ HPLCameraBridgeStatus GetHPLCameraBridgeStatus()
     status.activeCamera = g_state.activeCamera;
     status.activeFrustum = g_state.activeFrustum;
     status.calibrationGeneration = g_state.calibrationGeneration;
+    status.worldUnitsPerMeter = std::max(g_config.hplWorldScale, 0.001f);
     if (g_state.baseMatricesValid
         && std::isfinite(g_state.parameters.nearPlane)
         && std::isfinite(g_state.parameters.farPlane)) {

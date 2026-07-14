@@ -126,6 +126,7 @@ public:
         const std::string& desktopMirrorEye,
         const std::string& desktopMirrorAspect,
         bool depthCompositionProbe,
+        bool depthCompositionSubmit,
         int resolutionScalePercent,
         const std::string& referenceSpace,
         bool inputEnabled,

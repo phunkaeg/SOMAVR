@@ -19,6 +19,7 @@
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #if defined(SOMAVR_ENABLE_OPENXR)
@@ -31,6 +32,7 @@
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 #include "OpenXRHelpers.h"
+#include "OpenXRDepthMath.h"
 #include "OpenXRInput.h"
 #endif
 
@@ -59,6 +61,8 @@ using xr_helpers::ToXrPose;
 using xr_helpers::ViewConfigurationTypeName;
 using xr_helpers::XrResultString;
 using xr_helpers::XrVersionString;
+
+constexpr uint64_t kViewConfigurationCheckIntervalFrames = 300;
 
 std::wstring Win32ErrorMessage(DWORD error)
 {
@@ -114,6 +118,7 @@ struct OpenXRRuntime::Impl {
         const std::string& desktopMirrorEye,
         const std::string& desktopMirrorAspect,
         bool depthCompositionProbe,
+        bool depthCompositionSubmit,
         int resolutionScalePercent,
         const std::string& referenceSpace,
         bool inputEnabled,
@@ -163,6 +168,7 @@ struct OpenXRRuntime::Impl {
                 ? spectator_math::AspectMode::Stretch
                 : spectator_math::AspectMode::Fit;
         depthCompositionProbeEnabled_ = depthCompositionProbe;
+        depthCompositionSubmitEnabled_ = depthCompositionSubmit;
         depthExtensionAvailable_ = false;
         depthExtensionEnabled_ = false;
         depthCapabilityLogged_ = false;
@@ -213,7 +219,7 @@ struct OpenXRRuntime::Impl {
         desktopMirrorFailures_ = 0;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d desktopMirrorEye=%s desktopMirrorAspect=%s resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
+            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d desktopMirrorEye=%s desktopMirrorAspect=%s depth={probe=%d submit=%d} resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -224,6 +230,8 @@ struct OpenXRRuntime::Impl {
             mirrorBackbufferEnabled_ ? 1 : 0,
             desktopMirrorEye_.c_str(),
             desktopMirrorAspect_.c_str(),
+            depthCompositionProbeEnabled_ ? 1 : 0,
+            depthCompositionSubmitEnabled_ ? 1 : 0,
             resolutionScalePercent_,
             requestedReferenceSpace_.c_str(),
             inputEnabled_ ? 1 : 0,
@@ -288,6 +296,34 @@ struct OpenXRRuntime::Impl {
             return;
         }
 
+        const bool graphicsBindingChanged = session_ != XR_NULL_HANDLE
+            && sessionGlContext_ != nullptr
+            && glContext != nullptr
+            && (sessionGlContext_ != glContext || sessionHdc_ != deviceContext);
+        if (graphicsBindingChanged) {
+            ++glContextChangeEvents_;
+            Logger::Instance().Write(
+                recoveryEnabled_ ? LogLevel::Warn : LogLevel::Error,
+                "openxr_graphics_binding changed frame=%llu oldHdc=%s oldHglrc=%s newHdc=%s newHglrc=%s recovery=%d events=%llu",
+                static_cast<unsigned long long>(frameIndex),
+                HexPointer(sessionHdc_).c_str(),
+                HexPointer(sessionGlContext_).c_str(),
+                HexPointer(deviceContext).c_str(),
+                HexPointer(glContext).c_str(),
+                recoveryEnabled_ ? 1 : 0,
+                static_cast<unsigned long long>(glContextChangeEvents_));
+            if (recoveryEnabled_) {
+                // Old-context GL names must not be deleted while the replacement
+                // context is current; the owning context will release them.
+                glBridge_.Shutdown(false);
+                recoveryRequested_ = true;
+                BeginRuntimeRecoveryLocked(frameIndex);
+            } else {
+                frameSubmitFailed_ = true;
+            }
+            return;
+        }
+
         UpdateManualStartLocked(frameIndex);
 
         if (session_ != XR_NULL_HANDLE) {
@@ -318,8 +354,14 @@ struct OpenXRRuntime::Impl {
 
         LogDepthCapabilityLocked(glContext, frameIndex, cameraStatus);
 
+        if (sessionRunning_ && frameResourcesReady_ && !frameSubmitFailed_
+            && !RefreshViewConfigurationLocked(frameIndex)) {
+            frameSubmitFailed_ = true;
+            return;
+        }
+
         if (sessionRunning_ && frameResourcesReady_ && !frameSubmitFailed_) {
-            SubmitFrameLocked(frameIndex);
+            SubmitFrameLocked(frameIndex, cameraStatus);
         }
     }
 
@@ -351,6 +393,8 @@ struct OpenXRRuntime::Impl {
             DestroyFrameResourcesLocked();
             xrDestroySession(session_);
             session_ = XR_NULL_HANDLE;
+            sessionHdc_ = nullptr;
+            sessionGlContext_ = nullptr;
         } else {
             DestroyFrameResourcesLocked();
         }
@@ -408,9 +452,14 @@ struct OpenXRRuntime::Impl {
             << " openxrDesktopMirrorFrames=" << static_cast<unsigned long long>(desktopMirrorFrames_)
             << " openxrDesktopMirrorFailures=" << static_cast<unsigned long long>(desktopMirrorFailures_)
             << " openxrDepthCompositionProbe=" << (depthCompositionProbeEnabled_ ? 1 : 0)
+            << " openxrDepthCompositionSubmit=" << (depthCompositionSubmitEnabled_ ? 1 : 0)
             << " openxrDepthExtensionAvailable=" << (depthExtensionAvailable_ ? 1 : 0)
             << " openxrDepthExtensionEnabled=" << (depthExtensionEnabled_ ? 1 : 0)
             << " openxrDepthCapabilityLogged=" << (depthCapabilityLogged_ ? 1 : 0)
+            << " openxrDepthSwapchainsReady=" << (glBridge_.DepthSwapchainsReady() ? 1 : 0)
+            << " openxrDepthCachesReady=" << (glBridge_.DepthCachesReady() ? 1 : 0)
+            << " openxrDepthSubmittedFrames=" << static_cast<unsigned long long>(depthSubmittedFrameCount_)
+            << " openxrDepthSubmissionFailures=" << static_cast<unsigned long long>(depthSubmissionFailures_)
             << " openxrResolutionScalePercent=" << resolutionScalePercent_
             << " openxrReferenceSpaceRequested=" << requestedReferenceSpace_
             << " openxrReferenceSpaceSelected=" << ReferenceSpaceTypeName(selectedReferenceSpace_)
@@ -419,6 +468,9 @@ struct OpenXRRuntime::Impl {
             << " openxrRecoveryEnabled=" << (recoveryEnabled_ ? 1 : 0)
             << " openxrRecoveryPending=" << (recoveryRequested_ ? 1 : 0)
             << " openxrRecoveries=" << static_cast<unsigned long long>(runtimeRecoveries_)
+            << " openxrGlContextChanges=" << static_cast<unsigned long long>(glContextChangeEvents_)
+            << " openxrViewResourceChecks=" << static_cast<unsigned long long>(viewResourceChecks_)
+            << " openxrViewResourceRebuilds=" << static_cast<unsigned long long>(viewResourceRebuilds_)
             << " openxrTrackingHoldFrames=" << trackingHoldFrames_
             << " openxrTrackingRecoveryBlackoutFrames=" << trackingRecoveryBlackoutFrames_
             << " openxrTrackingDegraded=" << (trackingDegraded_ ? 1 : 0)
@@ -849,7 +901,8 @@ private:
         std::vector<const char*> enabledExtensions = {
             XR_KHR_OPENGL_ENABLE_EXTENSION_NAME,
         };
-        if (depthCompositionProbeEnabled_ && depthExtensionAvailable_) {
+        if ((depthCompositionProbeEnabled_ || depthCompositionSubmitEnabled_)
+            && depthExtensionAvailable_) {
             enabledExtensions.push_back("XR_KHR_composition_layer_depth");
             depthExtensionEnabled_ = true;
         }
@@ -978,6 +1031,8 @@ private:
             DestroyFrameResourcesLocked();
             xrDestroySession(session_);
             session_ = XR_NULL_HANDLE;
+            sessionHdc_ = nullptr;
+            sessionGlContext_ = nullptr;
             sessionRunning_ = false;
             sessionReleasedAfterProbe_ = true;
             releaseFrame_ = 0;
@@ -1010,6 +1065,8 @@ private:
             DestroyFrameResourcesLocked();
             xrDestroySession(session_);
             session_ = XR_NULL_HANDLE;
+            sessionHdc_ = nullptr;
+            sessionGlContext_ = nullptr;
         } else {
             DestroyFrameResourcesLocked();
         }
@@ -1118,12 +1175,13 @@ private:
         depthExtensionAvailable_ = ExtensionPresent(extensions, "XR_KHR_composition_layer_depth");
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_extensions count=%u khrOpenGL=%d khrWin32Time=%d khrCompositionLayerDepth=%d depthProbeRequested=%d sample=\"%s\"",
+            "openxr_extensions count=%u khrOpenGL=%d khrWin32Time=%d khrCompositionLayerDepth=%d depthProbeRequested=%d depthSubmitRequested=%d sample=\"%s\"",
             extensionCount,
             hasOpenGL ? 1 : 0,
             hasWin32Time ? 1 : 0,
             depthExtensionAvailable_ ? 1 : 0,
             depthCompositionProbeEnabled_ ? 1 : 0,
+            depthCompositionSubmitEnabled_ ? 1 : 0,
             ExtensionSample(extensions).c_str());
 
         if (!hasOpenGL) {
@@ -1137,7 +1195,8 @@ private:
         uint64_t frameIndex,
         const HPLCameraBridgeStatus& camera)
     {
-        if (!depthCompositionProbeEnabled_ || depthCapabilityLogged_
+        if ((!depthCompositionProbeEnabled_ && !depthCompositionSubmitEnabled_)
+            || depthCapabilityLogged_
             || glContext == nullptr || wglGetCurrentContext() != glContext) {
             return;
         }
@@ -1150,8 +1209,10 @@ private:
         glGetDoublev(GL_DEPTH_RANGE, depthRange);
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_depth_capability frame=%llu requested=1 extensionAvailable=%d extensionEnabled=%d glDepthBits=%d glDepthRange=%.6f,%.6f hplProjectionValid=1 hplProjectionType=%d hplNear=%.6f hplFar=%.6f submissionImplemented=0",
+            "openxr_depth_capability frame=%llu probeRequested=%d submitRequested=%d extensionAvailable=%d extensionEnabled=%d glDepthBits=%d glDepthRange=%.6f,%.6f hplProjectionValid=1 hplProjectionType=%d hplNear=%.6f hplFar=%.6f worldUnitsPerMeter=%.6f submissionImplemented=1",
             static_cast<unsigned long long>(frameIndex),
+            depthCompositionProbeEnabled_ ? 1 : 0,
+            depthCompositionSubmitEnabled_ ? 1 : 0,
             depthExtensionAvailable_ ? 1 : 0,
             depthExtensionEnabled_ ? 1 : 0,
             depthBits,
@@ -1159,7 +1220,8 @@ private:
             depthRange[1],
             camera.projectionType,
             camera.nearPlane,
-            camera.farPlane);
+            camera.farPlane,
+            camera.worldUnitsPerMeter);
         depthCapabilityLogged_ = true;
     }
 
@@ -1357,6 +1419,8 @@ private:
         }
 
         session_ = session;
+        sessionHdc_ = deviceContext;
+        sessionGlContext_ = glContext;
         sessionCreated_ = true;
         sessionCreatedFrame_ = frameIndex;
         Logger::Instance().Write(
@@ -1511,7 +1575,9 @@ private:
                 viewConfigurationViews_,
                 swapchainFormats_,
                 resolutionScalePercent_,
-                depthExtensionEnabled_ && depthCompositionProbeEnabled_,
+                depthExtensionEnabled_
+                    && (depthCompositionProbeEnabled_ || depthCompositionSubmitEnabled_),
+                depthExtensionEnabled_ && depthCompositionSubmitEnabled_,
                 createHudResources,
                 hudWidthPixels_,
                 hudHeightPixels_,
@@ -1546,7 +1612,117 @@ private:
             ReferenceSpaceTypeName(selectedReferenceSpace_),
             glBridge_.EyeCount(),
             mirrorBackbufferEnabled_ ? 1 : 0);
+        nextViewConfigurationCheckFrame_ = currentGameFrame_ + kViewConfigurationCheckIntervalFrames;
         return true;
+    }
+
+    bool RefreshViewConfigurationLocked(uint64_t frameIndex)
+    {
+        if (frameIndex < nextViewConfigurationCheckFrame_) {
+            return true;
+        }
+        nextViewConfigurationCheckFrame_ = frameIndex + kViewConfigurationCheckIntervalFrames;
+        ++viewResourceChecks_;
+
+        uint32_t viewCount = 0;
+        XrResult result = xrEnumerateViewConfigurationViews(
+            instance_,
+            systemId_,
+            XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+            0,
+            &viewCount,
+            nullptr);
+        if (XR_FAILED(result) || viewCount < 2) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_view_resources refresh_enumerate_count_failed frame=%llu result=%s count=%u",
+                static_cast<unsigned long long>(frameIndex),
+                XrResultString(result).c_str(),
+                viewCount);
+            return true;
+        }
+
+        std::vector<XrViewConfigurationView> refreshed(viewCount);
+        for (XrViewConfigurationView& view : refreshed) {
+            view.type = XR_TYPE_VIEW_CONFIGURATION_VIEW;
+        }
+        result = xrEnumerateViewConfigurationViews(
+            instance_,
+            systemId_,
+            XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+            viewCount,
+            &viewCount,
+            refreshed.data());
+        if (XR_FAILED(result)) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_view_resources refresh_enumerate_failed frame=%llu result=%s",
+                static_cast<unsigned long long>(frameIndex),
+                XrResultString(result).c_str());
+            return true;
+        }
+        refreshed.resize(viewCount);
+
+        const auto differs = [](const XrViewConfigurationView& left,
+                                const XrViewConfigurationView& right) {
+            return left.recommendedImageRectWidth != right.recommendedImageRectWidth
+                || left.maxImageRectWidth != right.maxImageRectWidth
+                || left.recommendedImageRectHeight != right.recommendedImageRectHeight
+                || left.maxImageRectHeight != right.maxImageRectHeight
+                || left.recommendedSwapchainSampleCount != right.recommendedSwapchainSampleCount
+                || left.maxSwapchainSampleCount != right.maxSwapchainSampleCount;
+        };
+        bool changed = refreshed.size() != viewConfigurationViews_.size();
+        if (!changed) {
+            for (size_t index = 0; index < refreshed.size(); ++index) {
+                if (differs(refreshed[index], viewConfigurationViews_[index])) {
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        if (!changed) {
+            if (viewResourceChecks_ <= 2 || viewResourceChecks_ % 20 == 0) {
+                Logger::Instance().Write(
+                    LogLevel::Info,
+                    "openxr_view_resources stable frame=%llu checks=%llu eyes=%zu",
+                    static_cast<unsigned long long>(frameIndex),
+                    static_cast<unsigned long long>(viewResourceChecks_),
+                    refreshed.size());
+            }
+            return true;
+        }
+
+        const uint32_t oldWidth = viewConfigurationViews_.empty()
+            ? 0 : viewConfigurationViews_[0].recommendedImageRectWidth;
+        const uint32_t oldHeight = viewConfigurationViews_.empty()
+            ? 0 : viewConfigurationViews_[0].recommendedImageRectHeight;
+        const uint32_t newWidth = refreshed.empty() ? 0 : refreshed[0].recommendedImageRectWidth;
+        const uint32_t newHeight = refreshed.empty() ? 0 : refreshed[0].recommendedImageRectHeight;
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_view_resources changed frame=%llu oldEyes=%zu newEyes=%zu oldRecommended=%ux%u newRecommended=%ux%u policy=rebuild_frame_resources",
+            static_cast<unsigned long long>(frameIndex),
+            viewConfigurationViews_.size(),
+            refreshed.size(),
+            oldWidth,
+            oldHeight,
+            newWidth,
+            newHeight);
+
+        DestroyFrameResourcesLocked();
+        viewConfigurationViews_ = std::move(refreshed);
+        viewCount_ = static_cast<uint32_t>(viewConfigurationViews_.size());
+        frameResourcesReady_ = CreateFrameResourcesLocked();
+        frameSubmitFailed_ = !frameResourcesReady_;
+        ++viewResourceRebuilds_;
+        Logger::Instance().Write(
+            frameResourcesReady_ ? LogLevel::Info : LogLevel::Error,
+            "openxr_view_resources rebuild_complete frame=%llu ready=%d rebuilds=%llu",
+            static_cast<unsigned long long>(frameIndex),
+            frameResourcesReady_ ? 1 : 0,
+            static_cast<unsigned long long>(viewResourceRebuilds_));
+        return frameResourcesReady_;
     }
 
     void DestroyFrameResourcesLocked()
@@ -1569,6 +1745,7 @@ private:
         interactionReticleState_ = {};
         interactionReticleSubmissionSuspended_ = false;
         interactionReticleConsecutiveFailures_ = 0;
+        nextViewConfigurationCheckFrame_ = 0;
         frameResourcesReady_ = false;
     }
 
@@ -1699,7 +1876,7 @@ private:
         trackingLost_ = false;
     }
 
-    void SubmitFrameLocked(uint64_t frameIndex)
+    void SubmitFrameLocked(uint64_t frameIndex, const HPLCameraBridgeStatus& cameraStatus)
     {
         if (stereoSubmissionEnabled_ && pendingRenderedEyeValid_ && glBridge_.Ready()) {
             const uint32_t eyeIndex = pendingRenderedEye_;
@@ -1758,6 +1935,7 @@ private:
         input_.Sync(session_, appSpace_, frameState.predictedDisplayTime, frameIndex);
 
         std::array<XrCompositionLayerProjectionView, 2> projectionViews{};
+        std::array<XrCompositionLayerDepthInfoKHR, 2> depthViews{};
         XrCompositionLayerProjection projectionLayer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
         XrCompositionLayerQuad hudLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
         XrCompositionLayerQuad interactionReticleLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
@@ -1766,6 +1944,7 @@ private:
         uint32_t locatedViewCount = 0;
         XrViewState viewState{XR_TYPE_VIEW_STATE};
         bool submittedStereo = false;
+        bool submittedDepth = false;
         bool submittedHud = false;
         bool submittedInteractionReticle = false;
         bool viewsLocatedValid = false;
@@ -1835,6 +2014,19 @@ private:
                 }
 
                 if (copied) {
+                    depth_math::CompositionDepthRange depthRange;
+                    bool depthFrameReady = stereoReady
+                        && depthCompositionSubmitEnabled_
+                        && depthExtensionEnabled_
+                        && cameraStatus.projectionParametersValid
+                        && cameraStatus.projectionType == 0
+                        && glBridge_.DepthCachesReady()
+                        && glBridge_.DepthSwapchainsReady()
+                        && depth_math::BuildStandardDepthRange(
+                            cameraStatus.nearPlane,
+                            cameraStatus.farPlane,
+                            cameraStatus.worldUnitsPerMeter,
+                            depthRange);
                     for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
                         const bool eyeCopied = stereoReady
                             ? glBridge_.CopyCacheToEye(eyeIndex)
@@ -1846,6 +2038,20 @@ private:
                                 XR_ERROR_RUNTIME_FAILURE,
                                 frameIndex);
                             break;
+                        }
+
+                        if (depthFrameReady && !glBridge_.CopyDepthCacheToEye(eyeIndex)) {
+                            depthFrameReady = false;
+                            ++depthSubmissionFailures_;
+                            if (depthSubmissionFailures_ <= 4
+                                || depthSubmissionFailures_ % 120 == 0) {
+                                Logger::Instance().Write(
+                                    LogLevel::Warn,
+                                    "openxr_depth_submission copy_failed frame=%llu eye=%u failures=%llu fallback=color_only",
+                                    static_cast<unsigned long long>(frameIndex),
+                                    eyeIndex,
+                                    static_cast<unsigned long long>(depthSubmissionFailures_));
+                            }
                         }
 
                         const OpenXRGLBridge::EyeSwapchain& eye = glBridge_.Eye(eyeIndex);
@@ -1861,6 +2067,23 @@ private:
                         projectionView.subImage.imageRect.offset = {0, 0};
                         projectionView.subImage.imageRect.extent = {eye.width, eye.height};
                         projectionView.subImage.imageArrayIndex = 0;
+                    }
+                    if (copied && depthFrameReady) {
+                        for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
+                            const OpenXRGLBridge::EyeSwapchain& eye = glBridge_.Eye(eyeIndex);
+                            XrCompositionLayerDepthInfoKHR& depthView = depthViews[eyeIndex];
+                            depthView.type = XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR;
+                            depthView.subImage.swapchain = eye.depthHandle;
+                            depthView.subImage.imageRect.offset = {0, 0};
+                            depthView.subImage.imageRect.extent = {eye.width, eye.height};
+                            depthView.subImage.imageArrayIndex = 0;
+                            depthView.minDepth = depthRange.minDepth;
+                            depthView.maxDepth = depthRange.maxDepth;
+                            depthView.nearZ = depthRange.nearMeters;
+                            depthView.farZ = depthRange.farMeters;
+                            projectionViews[eyeIndex].next = &depthView;
+                        }
+                        submittedDepth = true;
                     }
                     submittedStereo = copied && stereoReady;
                 }
@@ -2089,23 +2312,29 @@ private:
             if (submittedStereo) {
                 ++stereoSubmittedFrameCount_;
             }
+            if (submittedDepth) {
+                ++depthSubmittedFrameCount_;
+            }
         }
 
         if (completedXrFrameCount_ == 1 || (completedXrFrameCount_ % 300) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d hud=%d reticle=%d spectatorFrames=%llu stereoCaptured=%llu stereoSubmitted=%llu hudSubmitted=%llu reticleSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
+                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d depth=%d hud=%d reticle=%d spectatorFrames=%llu stereoCaptured=%llu stereoSubmitted=%llu depthSubmitted=%llu depthFailures=%llu hudSubmitted=%llu reticleSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
                 static_cast<unsigned long long>(frameIndex),
                 static_cast<unsigned long long>(completedXrFrameCount_),
                 frameState.shouldRender == XR_TRUE ? 1 : 0,
                 layerCount,
                 locatedViewCount,
                 submittedStereo ? 1 : 0,
+                submittedDepth ? 1 : 0,
                 submittedHud ? 1 : 0,
                 submittedInteractionReticle ? 1 : 0,
                 static_cast<unsigned long long>(desktopMirrorFrames_),
                 static_cast<unsigned long long>(stereoCapturedEyeCount_),
                 static_cast<unsigned long long>(stereoSubmittedFrameCount_),
+                static_cast<unsigned long long>(depthSubmittedFrameCount_),
+                static_cast<unsigned long long>(depthSubmissionFailures_),
                 static_cast<unsigned long long>(hudSubmittedFrames_),
                 static_cast<unsigned long long>(interactionReticleSubmittedFrames_),
                 static_cast<long long>(frameState.predictedDisplayTime),
@@ -2223,6 +2452,7 @@ private:
     std::string desktopMirrorEye_ = "native";
     std::string desktopMirrorAspect_ = "fit";
     bool depthCompositionProbeEnabled_ = false;
+    bool depthCompositionSubmitEnabled_ = false;
     bool depthExtensionAvailable_ = false;
     bool depthExtensionEnabled_ = false;
     bool depthCapabilityLogged_ = false;
@@ -2293,6 +2523,8 @@ private:
     uint32_t stereoCaptureFailures_ = 0;
     uint64_t stereoCapturedEyeCount_ = 0;
     uint64_t stereoSubmittedFrameCount_ = 0;
+    uint64_t depthSubmittedFrameCount_ = 0;
+    uint64_t depthSubmissionFailures_ = 0;
     uint32_t hudConsecutiveFailures_ = 0;
     uint64_t hudCaptureStarts_ = 0;
     uint64_t hudCaptureCompletions_ = 0;
@@ -2307,6 +2539,10 @@ private:
     uint64_t interactionReticleSubmittedFrames_ = 0;
     uint64_t interactionReticleSubmissionFailures_ = 0;
     uint64_t runtimeRecoveries_ = 0;
+    uint64_t glContextChangeEvents_ = 0;
+    uint64_t viewResourceChecks_ = 0;
+    uint64_t viewResourceRebuilds_ = 0;
+    uint64_t nextViewConfigurationCheckFrame_ = 0;
     uint64_t trackingInvalidFrames_ = 0;
     uint64_t trackingLossEvents_ = 0;
     uint64_t trackingRestoreEvents_ = 0;
@@ -2330,6 +2566,8 @@ private:
     XrPosef latestRightEyePose_{};
     HDC latestHdc_ = nullptr;
     HGLRC latestGlContext_ = nullptr;
+    HDC sessionHdc_ = nullptr;
+    HGLRC sessionGlContext_ = nullptr;
     XrInstance instance_ = XR_NULL_HANDLE;
     XrSystemId systemId_ = XR_NULL_SYSTEM_ID;
     XrSession session_ = XR_NULL_HANDLE;
@@ -2365,6 +2603,7 @@ struct OpenXRRuntime::Impl {
         const std::string& desktopMirrorEye,
         const std::string& desktopMirrorAspect,
         bool depthCompositionProbe,
+        bool depthCompositionSubmit,
         int resolutionScalePercent,
         const std::string& referenceSpace,
         bool inputEnabled,
@@ -2405,6 +2644,7 @@ struct OpenXRRuntime::Impl {
         desktopMirrorEye_ = desktopMirrorEye;
         desktopMirrorAspect_ = desktopMirrorAspect;
         depthCompositionProbeEnabled_ = depthCompositionProbe;
+        depthCompositionSubmitEnabled_ = depthCompositionSubmit;
         resolutionScalePercent_ = resolutionScalePercent;
         referenceSpace_ = referenceSpace;
         inputEnabled_ = inputEnabled;
@@ -2418,7 +2658,7 @@ struct OpenXRRuntime::Impl {
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d desktopMirrorEye=%s desktopMirrorAspect=%s resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
+            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d desktopMirrorEye=%s desktopMirrorAspect=%s depth={probe=%d submit=%d} resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -2429,6 +2669,8 @@ struct OpenXRRuntime::Impl {
             mirrorBackbufferEnabled_ ? 1 : 0,
             desktopMirrorEye_.c_str(),
             desktopMirrorAspect_.c_str(),
+            depthCompositionProbeEnabled_ ? 1 : 0,
+            depthCompositionSubmitEnabled_ ? 1 : 0,
             resolutionScalePercent_,
             referenceSpace_.c_str(),
             inputEnabled_ ? 1 : 0,
@@ -2501,6 +2743,7 @@ struct OpenXRRuntime::Impl {
             << " openxrManualStartFrame=0"
             << " openxrFrameSubmit=" << (frameSubmitEnabled_ ? 1 : 0)
             << " openxrDepthCompositionProbe=" << (depthCompositionProbeEnabled_ ? 1 : 0)
+            << " openxrDepthCompositionSubmit=" << (depthCompositionSubmitEnabled_ ? 1 : 0)
             << " openxrMirrorBackbuffer=" << (mirrorBackbufferEnabled_ ? 1 : 0)
             << " openxrResolutionScalePercent=" << resolutionScalePercent_
             << " openxrInputEnabled=" << (inputEnabled_ ? 1 : 0)
@@ -2593,6 +2836,7 @@ private:
     std::string desktopMirrorEye_ = "native";
     std::string desktopMirrorAspect_ = "fit";
     bool depthCompositionProbeEnabled_ = false;
+    bool depthCompositionSubmitEnabled_ = false;
     int resolutionScalePercent_ = 100;
     std::string referenceSpace_ = "local";
     bool unavailableLogged_ = false;
@@ -2617,6 +2861,7 @@ void OpenXRRuntime::Configure(
     const std::string& desktopMirrorEye,
     const std::string& desktopMirrorAspect,
     bool depthCompositionProbe,
+    bool depthCompositionSubmit,
     int resolutionScalePercent,
     const std::string& referenceSpace,
     bool inputEnabled,
@@ -2657,6 +2902,7 @@ void OpenXRRuntime::Configure(
         desktopMirrorEye,
         desktopMirrorAspect,
         depthCompositionProbe,
+        depthCompositionSubmit,
         resolutionScalePercent,
         referenceSpace,
         inputEnabled,

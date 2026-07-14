@@ -64,14 +64,18 @@ Results are read only after `GL_QUERY_RESULT_AVAILABLE`; a full pool increments
 `dropped` and leaves rendering untouched. Periodic `hpl_per_eye_gpu` rows report
 calls, average microseconds, and total milliseconds for left, right, and mono.
 
-OpenXR bootstrap now inventories `XR_KHR_composition_layer_depth` and may enable
-it without using it. `openxr_depth_capability` correlates extension state with
-`GL_DEPTH_BITS`, `GL_DEPTH_RANGE`, and confirmed HPL projection type/near/far.
-`0.32.0` adds same-size `GL_DEPTH_COMPONENT24` attachments to both AFR caches,
-copies source depth with nearest filtering, and samples finite center ranges.
-After a live log proves valid and varying depth for both eyes, the next step is
-format negotiation plus depth swapchains and confirmed GL-to-OpenXR depth
-mapping before chaining `XrCompositionLayerDepthInfoKHR`.
+OpenXR bootstrap inventories `XR_KHR_composition_layer_depth`, while
+`openxr_depth_capability` correlates extension state with `GL_DEPTH_BITS`,
+`GL_DEPTH_RANGE`, and confirmed HPL projection type/near/far. `0.32.0` added
+same-size depth attachments to both AFR caches and sampled finite center ranges.
+
+`0.33.0` closes the implementation side of this item: it negotiates D24/D32F
+or their depth-stencil counterparts based on the live default framebuffer,
+creates per-eye depth swapchains, copies matching cache depth, and chains
+`XrCompositionLayerDepthInfoKHR`. Ghidra plus HPL2 source prove standard finite
+OpenGL depth (`0` near, `1` far). Near/far are divided by `HPLWorldScale` for
+OpenXR meters. The remaining work is live runtime and hardware-matrix acceptance,
+not another speculative depth reconstruction.
 
 ## 0.25.0 Head Volume, Spectator, And CPU Budget Result
 

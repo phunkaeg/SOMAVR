@@ -10,6 +10,7 @@
 #include "HPLScreenEffectMath.h"
 #include "OpenGLMatrixAnalysis.h"
 #include "OpenXRSpectatorMath.h"
+#include "OpenXRDepthMath.h"
 
 #include <array>
 #include <cmath>
@@ -68,6 +69,24 @@ int main()
         !spectator_math::ComputeBlitLayout(
             0, 1000, 1000, 1000, spectator_math::AspectMode::Fit, spectatorLayout),
         "spectator layout rejects invalid dimensions");
+    depth_math::CompositionDepthRange depthRange;
+    failures += Check(
+        depth_math::BuildStandardDepthRange(0.03f, 1000.0f, 1.0f, depthRange)
+            && Near(depthRange.minDepth, 0.0f)
+            && Near(depthRange.maxDepth, 1.0f)
+            && Near(depthRange.nearMeters, 0.03f)
+            && Near(depthRange.farMeters, 1000.0f),
+        "standard OpenGL depth maps HPL clip distances to OpenXR meters");
+    failures += Check(
+        depth_math::BuildStandardDepthRange(0.06f, 2000.0f, 2.0f, depthRange)
+            && Near(depthRange.nearMeters, 0.03f)
+            && Near(depthRange.farMeters, 1000.0f),
+        "depth range converts configurable HPL world scale");
+    failures += Check(
+        !depth_math::BuildStandardDepthRange(0.0f, 1000.0f, 1.0f, depthRange)
+            && !depth_math::BuildStandardDepthRange(10.0f, 1.0f, 1.0f, depthRange)
+            && !depth_math::BuildStandardDepthRange(0.03f, 1000.0f, 0.0f, depthRange),
+        "depth range rejects malformed clip and scale inputs");
     failures += Check(
         Near(camera_math::ComputeRoomscaleSafetyFactor(0.75f, 1.0f, 0.10f), 0.65f),
         "room-scale safety retracts collision fraction by clearance");

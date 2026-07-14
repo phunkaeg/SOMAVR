@@ -606,3 +606,28 @@ pulses occur only on usable state transitions. Redirect if the default state
 frequently masks a usable target or callbacks occur before range validation; in
 that case add a narrow observer around the script-visible `CanInteract` result
 instead of weakening the existing guard.
+
+## S22 - HPL scene depth can be submitted without reconstruction
+
+Status: GUARDED BUILD READY (`0.33.0-depth-resources`)
+
+Hypothesis: SOMA's captured per-eye depth already follows the finite standard
+OpenGL convention required by `XR_KHR_composition_layer_depth`, so a same-format
+nearest blit plus HPL near/far in meters is sufficient.
+
+Evidence: `0x140270230` supplies projection, view, far, and near to common setup
+at `0x14026fcf0`; the matching HPL2 matrix maps near/far to NDC `-1/+1` and
+normalized depth `0/1`. The build fails back to color-only on unsupported depth
+formats, invalid clip data, absent caches, or copy failure.
+
+## S23 - Graphics-binding and view-contract changes can recover transactionally
+
+Status: GUARDED BUILD READY (`0.33.0-depth-resources`)
+
+Hypothesis: HDC/HGLRC identity plus periodic OpenXR view-configuration comparison
+is sufficient to detect resource-invalidating display changes. Context changes
+use full runtime recovery; recommendation changes rebuild only frame resources.
+
+The build confirms this if fullscreen transitions, HMD sleep/wake, and runtime
+resolution changes either remain stable or emit one bounded rebuild/recovery and
+resume F10 VR without stale FBOs, swapchains, or a SOMA restart.

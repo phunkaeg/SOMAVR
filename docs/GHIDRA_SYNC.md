@@ -1,5 +1,16 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Frustum Depth-Convention Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x14026fcf0` | `HPL3_Frustum_SetupCommon` | Renamed from the default symbol. Decompile proves projection `+0xd8`, view `+0x158`, far `+0x18`, and near `+0x1c`; the plate comment records `0.33.0` compositor-depth use and HPL-to-meter conversion. |
+| `0x140270230` | `HPL3_Frustum_SetupPerspectiveProj` | Existing name retained. Plate comment now records finite standard OpenGL near/far mapping, matching HPL2 source, and the exact call into common setup. |
+
+The explicitly selected `Soma_NoSteam.exe` database was saved after both
+updates. No new executable hook was added; this pass closes the projection/depth
+contract used by `XrCompositionLayerDepthInfoKHR`.
+
 ## 2026-07-15 Presentation And Optics Sync
 
 | Address | Ghidra name | Evidence/use |

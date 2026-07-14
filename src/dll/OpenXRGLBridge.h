@@ -23,8 +23,12 @@ public:
         int32_t width = 0;
         int32_t height = 0;
         int64_t format = 0;
+        XrSwapchain depthHandle = XR_NULL_HANDLE;
+        int64_t depthFormat = 0;
         std::vector<XrSwapchainImageOpenGLKHR> images;
         std::vector<uint32_t> framebuffers;
+        std::vector<XrSwapchainImageOpenGLKHR> depthImages;
+        std::vector<uint32_t> depthFramebuffers;
         uint32_t cacheTexture = 0;
         uint32_t depthCacheTexture = 0;
         uint32_t cacheFramebuffer = 0;
@@ -61,6 +65,7 @@ public:
         const std::vector<int64_t>& formats,
         int resolutionScalePercent,
         bool depthCaptureProbeEnabled,
+        bool depthCompositionSubmitEnabled,
         bool hudLayerEnabled,
         int hudWidth,
         int hudHeight,
@@ -69,15 +74,17 @@ public:
         bool interactionReticleEnabled,
         bool interactionReticleNativeIconsEnabled,
         int interactionReticleSizePixels);
-    void Shutdown();
+    void Shutdown(bool deleteGlResources = true);
 
     bool CopyBackbufferToEye(uint32_t eyeIndex);
     bool CaptureBackbufferToCache(uint32_t eyeIndex);
     bool CopyCacheToEye(uint32_t eyeIndex);
+    bool CopyDepthCacheToEye(uint32_t eyeIndex);
     bool CopyCacheToBackbuffer(uint32_t eyeIndex, spectator_math::AspectMode aspectMode);
     void InvalidateStereoCaches();
     bool StereoCachesReady() const;
     bool DepthCachesReady() const;
+    bool DepthSwapchainsReady() const;
     bool Ready() const;
     uint32_t EyeCount() const;
     const EyeSwapchain& Eye(uint32_t eyeIndex) const;
@@ -108,6 +115,8 @@ private:
     bool CopyBackbufferToImage(const EyeSwapchain& eye, uint32_t imageIndex);
     bool CopyCacheToImage(const EyeSwapchain& eye, uint32_t imageIndex);
     bool CreateEyeCache(EyeSwapchain& eye, uint32_t eyeIndex);
+    bool CreateDepthSwapchain(EyeSwapchain& eye, uint32_t eyeIndex);
+    bool CopyDepthCacheToImage(const EyeSwapchain& eye, uint32_t imageIndex);
     bool CreateHudSwapchain(XrSession session, int width, int height);
     bool CreateHudCaptureTarget();
     bool CopyHudCaptureToImage(uint32_t imageIndex);
@@ -124,6 +133,7 @@ private:
 
     XrSession session_ = XR_NULL_HANDLE;
     int64_t colorFormat_ = 0;
+    int64_t depthFormat_ = 0;
     std::vector<EyeSwapchain> eyes_;
     HudSwapchain hud_;
     ReticleSwapchain interactionReticle_;
@@ -152,6 +162,7 @@ private:
 
     bool suppressCenterCrosshair_ = false;
     bool depthCaptureProbeEnabled_ = false;
+    bool depthCompositionSubmitEnabled_ = false;
     int crosshairClearRadiusPixels_ = 48;
 
     using GlGenFramebuffersFn = void(APIENTRY*)(int32_t, uint32_t*);

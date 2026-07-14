@@ -2,6 +2,28 @@
 
 ## 2026-07-15
 
+### 0.33.0-depth-resources
+
+- Promoted the capture-only depth experiment into optional compositor depth.
+  Supported runtimes negotiate D24/D32F or their depth-stencil counterparts,
+  preferring the live default framebuffer's stencil topology, and receive one
+  matching swapchain/cache per eye, and chain `XrCompositionLayerDepthInfoKHR`
+  onto both projection views. Every unsupported or failed condition falls back
+  to the proven color-only frame.
+- Confirmed at `0x140270230` and `0x14026fcf0`, with matching HPL2 source, that
+  SOMA uses finite standard OpenGL depth. Submitted min/max are `0/1`; HPL
+  near/far are divided by world units per meter. Pure tests cover conversion and
+  malformed clip contracts.
+- Added graphics-binding and runtime-view resilience. A changed HDC/HGLRC enters
+  existing full runtime recovery, while changed recommended dimensions or sample
+  limits rebuild frame resources transactionally. Bounded summary counters expose
+  checks, rebuilds, context changes, depth copies, and depth failures.
+- Updated Ghidra, Graphify, traceability, RE maps, phase tracking, and the live
+  checklist. Both Release flavors and all three test suites pass. OpenXR SHA-256:
+  `DB626F12368FFE388527EA435EA5D4A88901EA200F35438156DBCA9AFCE1582E`.
+  Package SHA-256:
+  `7C7BE027CD51767374A03C312AFC824FE84C6515501FC37FAF3F0BE8CB3E5D4C`.
+
 ### 0.32.0-viewport-depth
 
 - Hardened native camera ownership around the exact player camera exported by

@@ -22,6 +22,7 @@ struct HPLCameraBridgeStatus {
     float nearPlane = 0.0f;
     float farPlane = 0.0f;
     int projectionType = -1;
+    float worldUnitsPerMeter = 1.0f;
     float headWorldRotationX = 0.0f;
     float headWorldRotationY = 0.0f;
     float headWorldRotationZ = 0.0f;

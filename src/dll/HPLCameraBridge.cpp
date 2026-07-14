@@ -26,16 +26,23 @@ using camera_math::Conjugate;
 using camera_math::MatrixMultiply;
 using camera_math::Multiply;
 using camera_math::Normalize;
+using camera_math::PoseStabilityState;
+using camera_math::PoseStabilityUpdate;
 using camera_math::Quaternion;
 using camera_math::RotateVector;
 using camera_math::RotationMatrix;
 using camera_math::TranslationMatrix;
+using camera_math::UpdatePoseStability;
 using camera_math::ValidateStereoProjectionMath;
 using camera_math::Vector3;
 
 constexpr uintptr_t kCameraGetFrustumRva = 0x271b80;
 constexpr uintptr_t kSetupPerspectiveFrustumRva = 0x270230;
 constexpr uintptr_t kRenderViewportGetFrustumReturnRva = 0x298697;
+constexpr uint32_t kActivationStablePoseFrames = 8;
+constexpr float kActivationMaxPositionStepMeters = 0.25f;
+constexpr float kActivationMaxOrientationStepRadians = 0.7853981633974483f;
+constexpr float kRadiansToDegrees = 57.29577951308232f;
 
 constexpr size_t kFrustumFarOffset = 0x18;
 constexpr size_t kFrustumNearOffset = 0x1c;
@@ -87,8 +94,10 @@ struct BridgeState {
     uint32_t nextEyeIndex = 0;
     int currentEyeIndex = -1;
     uint64_t currentEyePoseFrame = 0;
+    uint32_t activationTrackingWaitLogs = 0;
     void* activeCamera = nullptr;
     void* activeFrustum = nullptr;
+    PoseStabilityState activationPoseStability{};
     Quaternion neutralOrientation{};
     Vector3 neutralPosition{};
     std::array<float, 16> baseProjection{};
@@ -193,8 +202,15 @@ bool WasFrustumDirty(const void* camera)
         usesSecondaryFrustum ? kCameraSecondaryFrustumDirtyOffset : kCameraBaseFrustumDirtyOffset) != 0;
 }
 
-bool ReadHeadPose(Quaternion& orientation, Vector3& position, uint64_t& gameFrame)
+bool ReadHeadPose(
+    Quaternion& orientation,
+    Vector3& position,
+    uint64_t& gameFrame,
+    bool* fullyTracked = nullptr)
 {
+    if (fullyTracked != nullptr) {
+        *fullyTracked = false;
+    }
     if (g_openxr == nullptr) {
         return false;
     }
@@ -212,6 +228,9 @@ bool ReadHeadPose(Quaternion& orientation, Vector3& position, uint64_t& gameFram
     });
     position = {pose.positionX, pose.positionY, pose.positionZ};
     gameFrame = pose.gameFrame;
+    if (fullyTracked != nullptr) {
+        *fullyTracked = pose.orientationTracked && pose.positionTracked;
+    }
     return true;
 }
 
@@ -382,7 +401,6 @@ bool ApplyStereoEye(
     g_appliedCalls.fetch_add(1, std::memory_order_relaxed);
     const uint64_t logInterval = static_cast<uint64_t>(std::max(g_config.hplCameraLogInterval, 1));
     if (stereoApplied <= 2 || stereoApplied % logInterval == 0) {
-        constexpr float kRadiansToDegrees = 57.29577951308232f;
         Logger::Instance().Write(
             LogLevel::Info,
             "hpl_stereo applied=%llu eye=%u poseFrame=%llu dirtyBefore=%d worldScale=%.4f eyeOffset=%.5f,%.5f,%.5f fovDegrees=%.3f aspect=%.5f projectionCentered=%d roomscale=%d projectionOffset=%.6f,%.6f",
@@ -541,10 +559,74 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
         Quaternion orientation;
         Vector3 position;
         uint64_t poseFrame = 0;
+        bool fullyTracked = false;
         OpenXRStereoViewSnapshot views;
-        const bool poseReady = ReadHeadPose(orientation, position, poseFrame);
+        const bool poseReady = ReadHeadPose(orientation, position, poseFrame, &fullyTracked);
         const bool stereoReady = !g_config.hplStereoAfr || ReadStereoViews(views);
         if (!poseReady || !stereoReady) {
+            return frustum;
+        }
+        if (!fullyTracked) {
+            if (g_state.activationTrackingWaitLogs < 4) {
+                ++g_state.activationTrackingWaitLogs;
+                Logger::Instance().Write(
+                    LogLevel::Info,
+                    "hpl_vr_mode calibration_wait reason=tracking_not_settled poseFrame=%llu sample=%u",
+                    static_cast<unsigned long long>(poseFrame),
+                    g_state.activationTrackingWaitLogs);
+            }
+            return frustum;
+        }
+        if (g_config.hplStereoAfr && views.gameFrame != poseFrame) {
+            return frustum;
+        }
+
+        float positionStep = 0.0f;
+        float orientationStepRadians = 0.0f;
+        const PoseStabilityUpdate stability = UpdatePoseStability(
+            g_state.activationPoseStability,
+            poseFrame,
+            orientation,
+            position,
+            kActivationStablePoseFrames,
+            kActivationMaxPositionStepMeters,
+            kActivationMaxOrientationStepRadians,
+            positionStep,
+            orientationStepRadians);
+        if (stability == PoseStabilityUpdate::Invalid) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_vr_mode calibration_wait reason=invalid_pose poseFrame=%llu",
+                static_cast<unsigned long long>(poseFrame));
+            return frustum;
+        }
+        if (stability == PoseStabilityUpdate::Started) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_vr_mode calibration_wait reason=initial_tracked_pose poseFrame=%llu stable=%u/%u position=%.6f,%.6f,%.6f",
+                static_cast<unsigned long long>(poseFrame),
+                g_state.activationPoseStability.consecutiveFrames,
+                kActivationStablePoseFrames,
+                position.x,
+                position.y,
+                position.z);
+            return frustum;
+        }
+        if (stability == PoseStabilityUpdate::Reset) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_vr_mode calibration_reset reason=reference_space_jump poseFrame=%llu positionStep=%.5f orientationStepDeg=%.3f stable=%u/%u position=%.6f,%.6f,%.6f",
+                static_cast<unsigned long long>(poseFrame),
+                positionStep,
+                orientationStepRadians * kRadiansToDegrees,
+                g_state.activationPoseStability.consecutiveFrames,
+                kActivationStablePoseFrames,
+                position.x,
+                position.y,
+                position.z);
+            return frustum;
+        }
+        if (stability != PoseStabilityUpdate::Ready) {
             return frustum;
         }
 
@@ -564,10 +646,11 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
         }
         Logger::Instance().Write(
             LogLevel::Warn,
-            "hpl_vr_mode activated key=F10 camera=%p frustum=%p poseFrame=%llu tracking=1 stereo=%d projectionCentered=%d roomscale=%d neutralPosition=%.6f,%.6f,%.6f neutralQuaternion=%.6f,%.6f,%.6f,%.6f",
+            "hpl_vr_mode activated key=F10 camera=%p frustum=%p poseFrame=%llu tracking=1 fullyTracked=1 stablePoseFrames=%u stereo=%d projectionCentered=%d roomscale=%d neutralPosition=%.6f,%.6f,%.6f neutralQuaternion=%.6f,%.6f,%.6f,%.6f",
             camera,
             frustum,
             static_cast<unsigned long long>(poseFrame),
+            g_state.activationPoseStability.consecutiveFrames,
             g_state.stereoEnabled ? 1 : 0,
             g_projectionCentered.load(std::memory_order_relaxed) ? 1 : 0,
             g_roomscaleEnabled.load(std::memory_order_relaxed) ? 1 : 0,
@@ -684,7 +767,6 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
     const uint64_t applied = g_appliedCalls.fetch_add(1, std::memory_order_relaxed) + 1;
     const int logInterval = std::max(g_config.hplCameraLogInterval, 1);
     if (applied == 1 || applied % static_cast<uint64_t>(logInterval) == 0) {
-        constexpr float kRadiansToDegrees = 57.29577951308232f;
         const float angleDegrees = 2.0f * std::acos(std::clamp(std::abs(headViewRotation.w), 0.0f, 1.0f))
             * kRadiansToDegrees;
         Logger::Instance().Write(
@@ -802,7 +884,7 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         LogLevel::Warn,
-        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 projectionKey=F5 roomscaleKey=F4 stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d worldScale=%.4f logInterval=%d",
+        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 projectionKey=F5 roomscaleKey=F4 stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d worldScale=%.4f activationStableFrames=%u activationMaxPositionStep=%.3f activationMaxOrientationStepDeg=%.1f logInterval=%d",
         ModulePath(executable).c_str(),
         executable,
         static_cast<unsigned long long>(kCameraGetFrustumRva),
@@ -812,6 +894,9 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
         g_projectionCentered.load(std::memory_order_relaxed) ? 1 : 0,
         g_roomscaleEnabled.load(std::memory_order_relaxed) ? 1 : 0,
         g_config.hplWorldScale,
+        kActivationStablePoseFrames,
+        kActivationMaxPositionStepMeters,
+        kActivationMaxOrientationStepRadians * kRadiansToDegrees,
         g_config.hplCameraLogInterval);
     return true;
 }

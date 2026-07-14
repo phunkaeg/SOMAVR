@@ -75,6 +75,131 @@ int main()
         Near(yawRotated.x, 1.0f) && Near(yawRotated.y, 0.0f) && Near(yawRotated.z, 0.0f),
         "quarter-turn yaw rotation");
 
+    const camera_math::Quaternion matrixTestRotation = camera_math::Normalize(
+        {0.23f, -0.41f, 0.17f, 0.86f});
+    const std::array<float, 16> rotationMatrix = camera_math::RotationMatrix(matrixTestRotation);
+    const auto rowDot = [&rotationMatrix](size_t leftRow, size_t rightRow) {
+        float value = 0.0f;
+        for (size_t column = 0; column < 3; ++column) {
+            value += rotationMatrix[leftRow * 4 + column]
+                * rotationMatrix[rightRow * 4 + column];
+        }
+        return value;
+    };
+    failures += Check(
+        Near(rowDot(0, 0), 1.0f) && Near(rowDot(1, 1), 1.0f) && Near(rowDot(2, 2), 1.0f),
+        "rotation matrix unit basis");
+    failures += Check(
+        Near(rowDot(0, 1), 0.0f) && Near(rowDot(0, 2), 0.0f) && Near(rowDot(1, 2), 0.0f),
+        "rotation matrix orthogonal basis");
+
+    const camera_math::Vector3 matrixTestVector{0.31f, -0.27f, 0.73f};
+    const camera_math::Vector3 quaternionResult = camera_math::RotateVector(
+        matrixTestRotation,
+        matrixTestVector);
+    const camera_math::Vector3 matrixResult{
+        rotationMatrix[0] * matrixTestVector.x + rotationMatrix[1] * matrixTestVector.y
+            + rotationMatrix[2] * matrixTestVector.z,
+        rotationMatrix[4] * matrixTestVector.x + rotationMatrix[5] * matrixTestVector.y
+            + rotationMatrix[6] * matrixTestVector.z,
+        rotationMatrix[8] * matrixTestVector.x + rotationMatrix[9] * matrixTestVector.y
+            + rotationMatrix[10] * matrixTestVector.z,
+    };
+    failures += Check(
+        Near(matrixResult.x, quaternionResult.x)
+            && Near(matrixResult.y, quaternionResult.y)
+            && Near(matrixResult.z, quaternionResult.z),
+        "rotation matrix matches quaternion rotation");
+
+    camera_math::PoseStabilityState poseLatch;
+    float positionStep = 0.0f;
+    float orientationStep = 0.0f;
+    camera_math::PoseStabilityUpdate poseUpdate = camera_math::UpdatePoseStability(
+        poseLatch,
+        1,
+        camera_math::Quaternion{},
+        {0.0f, -1.2447f, 0.0f},
+        8,
+        0.25f,
+        0.7853982f,
+        positionStep,
+        orientationStep);
+    failures += Check(
+        poseUpdate == camera_math::PoseStabilityUpdate::Started
+            && poseLatch.consecutiveFrames == 1,
+        "pose stability starts on first unique frame");
+    poseUpdate = camera_math::UpdatePoseStability(
+        poseLatch,
+        1,
+        camera_math::Quaternion{},
+        {0.0f, -1.2447f, 0.0f},
+        8,
+        0.25f,
+        0.7853982f,
+        positionStep,
+        orientationStep);
+    failures += Check(
+        poseUpdate == camera_math::PoseStabilityUpdate::DuplicateFrame
+            && poseLatch.consecutiveFrames == 1,
+        "pose stability ignores duplicate game-frame samples");
+
+    const camera_math::Quaternion settledOrientation = camera_math::Normalize(
+        {0.07f, 0.55f, 0.04f, -0.83f});
+    const camera_math::Vector3 settledPosition{-0.45f, 0.55f, -0.33f};
+    poseUpdate = camera_math::UpdatePoseStability(
+        poseLatch,
+        2,
+        settledOrientation,
+        settledPosition,
+        8,
+        0.25f,
+        0.7853982f,
+        positionStep,
+        orientationStep);
+    failures += Check(
+        poseUpdate == camera_math::PoseStabilityUpdate::Reset
+            && poseLatch.consecutiveFrames == 1
+            && positionStep > 1.0f,
+        "pose stability resets after reference-space jump");
+
+    for (uint64_t frame = 3; frame <= 9; ++frame) {
+        poseUpdate = camera_math::UpdatePoseStability(
+            poseLatch,
+            frame,
+            settledOrientation,
+            settledPosition,
+            8,
+            0.25f,
+            0.7853982f,
+            positionStep,
+            orientationStep);
+    }
+    failures += Check(
+        poseUpdate == camera_math::PoseStabilityUpdate::Ready
+            && poseLatch.consecutiveFrames == 8,
+        "pose stability requires consecutive settled frames");
+
+    const camera_math::Quaternion equivalentOrientation{
+        -settledOrientation.x,
+        -settledOrientation.y,
+        -settledOrientation.z,
+        -settledOrientation.w,
+    };
+    poseUpdate = camera_math::UpdatePoseStability(
+        poseLatch,
+        10,
+        equivalentOrientation,
+        settledPosition,
+        8,
+        0.25f,
+        0.7853982f,
+        positionStep,
+        orientationStep);
+    failures += Check(
+        poseUpdate == camera_math::PoseStabilityUpdate::Ready
+            && Near(orientationStep, 0.0f),
+        "pose stability accepts equivalent quaternion sign");
+
     const std::array<float, 16> identityMatrix = {
         1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,

@@ -1,6 +1,45 @@
 # Build History
 
+## 2026-07-14
+
+### 0.5.10-poselatch
+
+- Triaged the first `0.5.9-rotationfix` live run. The world remained rigid, but
+  F10 calibrated against OpenXR frame `2857` at head `Y=-1.244683`; the next
+  frame settled near `Y=+0.543`, producing an artificial upward offset of about
+  `1.79` metres and placing the camera through the roof.
+- Confirmed this is a one-key startup calibration regression rather than an HPL
+  world-scale or projection fault. The older manual F8/F10 sequence naturally
+  allowed the OpenXR reference space to settle before neutral capture.
+- Exposed OpenXR orientation/position tracked flags to the camera bridge. F10
+  calibration now requires both tracked bits rather than validity alone.
+- Added a deterministic neutral-pose latch: eight consecutive unique poses must
+  remain within `0.25 m` and `45 degrees` per frame. A startup reference-space
+  discontinuity resets the latch instead of becoming permanent room-scale motion.
+- Added bounded `calibration_wait` and `calibration_reset` telemetry plus unit
+  tests for duplicate frames, large origin jumps, stable-frame accumulation, and
+  equivalent quaternion signs.
+- Kept the `0.5.9` rigid-rotation fix, full projection centering, AFR stereo,
+  room-scale policy, audio correction, and clean shutdown path unchanged.
+- Built default and OpenXR x64 Release flavors. OpenXR output:
+  `build-openxr-poselatch\Release`.
+
 ## 2026-07-13
+
+### 0.5.9-rotationfix
+
+- Diagnosed the user-reported yaw/pitch skew in `0.5.8-onekey` as a camera-math
+  regression introduced during the deterministic math extraction.
+- Fixed the quaternion-to-matrix XY cross-term, which incorrectly used `2*y*y`
+  where `2*x*y` was required. The resulting non-orthogonal matrix sheared the
+  HPL view as the headset rotated.
+- Added regression tests that require the generated rotation basis to remain
+  unit length and mutually orthogonal, and require matrix rotation to agree with
+  the independent quaternion-vector implementation.
+- Kept F10 one-key activation, full projection centering, room-scale translation,
+  AFR stereo, compatibility controls, and the OpenXR submission policy unchanged.
+- Built default and OpenXR x64 Release flavors. OpenXR output:
+  `build-openxr-rotationfix\Release`.
 
 ### 0.5.8-onekey
 

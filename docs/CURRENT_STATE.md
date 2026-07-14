@@ -21,8 +21,9 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active diagnostic baseline is `0.5.5-reconstruct`, layered on the proven
-OpenXR transport, native HPL camera bridge, AFR stereo, and compatibility probes:
+The active runtime test baseline is `0.5.10-poselatch`, layered on the proven
+OpenXR transport, native HPL camera bridge, AFR stereo, full projection centering,
+one-key F10 activation, and compatibility probes:
 
 - `somavr_injector.exe`: launch-suspended or attach-by-PID/process-name DLL injector.
 - `somavr.dll`: MinHook-based OpenGL/WGL telemetry DLL.
@@ -199,7 +200,7 @@ span and synchronized submitted FOV. This directly tests the pitch/roll, diagona
 ceiling, and top-down window symptoms.
 
 The user confirmed `0.5.7` fixes all observed shadow and reflection defects.
-`0.5.8-onekey` is now the active usability build. F10 requests OpenXR and holds a
+`0.5.8-onekey` promoted F10 to the normal usability path. F10 requests OpenXR and holds a
 pending activation until valid pose/stereo views arrive, then enables tracking,
 AFR stereo, and full centering together. A second F10 cancels or exits. F8/F11
 remain diagnostic controls only.
@@ -211,6 +212,21 @@ binary contract but moves deterministic responsibilities out of runtime hooks:
 owns OpenXR names and view/pose conversion. `somavr_render_math_tests` runs in both
 build flavors. Module boundaries and the next safe extractions are recorded in
 `docs\ARCHITECTURE.md`.
+
+The first live `0.5.8` test exposed severe view skew during HMD yaw and pitch.
+The extracted quaternion-to-matrix function had an incorrect XY cross-term and
+therefore generated a shearing, non-orthogonal camera rotation. `0.5.9-rotationfix`
+corrects that term and adds orthonormality plus quaternion/matrix agreement tests.
+That rigid-rotation fix remains in the active build; all one-key, full-center,
+AFR, room-scale, audio, and shutdown policies are otherwise unchanged.
+
+The live `0.5.9` test confirmed rigid camera rotation, then exposed a separate
+one-key startup problem: OpenXR frame `2857` reported head `Y=-1.244683`, F10
+captured it immediately, and frame `2858` settled roughly `1.79 m` higher. That
+reference-space transition was incorrectly applied as room-scale head movement.
+`0.5.10-poselatch` requires tracked position/orientation and eight consecutive
+settled unique poses before neutral capture. Large startup jumps reset the latch;
+projection, stereo, world scale, and normal physical head translation are unchanged.
 
 The exit minidump disproved the earlier orphan-worker diagnosis for this run. It
 contains only SOMA's main thread in OpenGL with Virtual Desktop runtime frames.
@@ -242,27 +258,31 @@ The OpenXR build now asks for:
 
 ## Next Step
 
-1. Launch the one-key OpenXR build:
+1. Launch the pose-latch OpenXR build:
 
 ```powershell
-& "D:\Dev Debug\SOMAVR\build-openxr-onekey\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
+& "D:\Dev Debug\SOMAVR\build-openxr-poselatch\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Inspect `logs\somavr.log` for `version=0.5.8-onekey`,
+2. Inspect `logs\somavr.log` for `version=0.5.10-poselatch`,
    `hpl_lifecycle install_ok`, `renderDiagnostic=1`, and the camera/compatibility
    hook install rows.
 3. Load a save game, face forward, and press F10 once.
 4. Confirm `hpl_vr_mode requested`, API-attributed `openxr_manual_start triggered`,
-   then `hpl_vr_mode activated` with tracking/stereo/centering enabled.
+   one or more `calibration_wait` rows, then `hpl_vr_mode activated` with
+   `fullyTracked=1 stablePoseFrames=8` and tracking/stereo/centering enabled.
 5. Confirm two `openxr_swapchain created` rows, `openxr_frame_resources ready`, and `openxr_session_begin ok`.
 6. Confirm `openxr_frame ok ... layers=1 views=2` repeats and the headset receives SOMA's mirrored desktop image.
 7. Confirm later summaries show `openxrFrameResourcesReady=1`, `openxrSessionRunning=1`, increasing `openxrSubmittedFrames`, and `openxrFrameSubmitFailed=0`.
-8. Make small yaw/pitch/roll movements; press F10 immediately to exit if motion is uncomfortable.
-9. Confirm alternating `hpl_stereo ... eye=0/1`, ready eye caches, and `openxr_frame ... stereo=1` without pressing F11.
-10. Without pressing F5, test shadow motion using deliberate pitch and roll, then
+8. Make small yaw and pitch movements first. The world must rotate rigidly with no
+   shear, diagonal stretch, or scale change; press F10 immediately if it does not.
+9. Confirm the first `hpl_stereo` eye offset is near IPD scale rather than metres,
+   and that the native player eye height is retained.
+10. Confirm alternating `hpl_stereo ... eye=0/1`, ready eye caches, and `openxr_frame ... stereo=1` without pressing F11.
+11. Without pressing F5, test shadow motion using deliberate pitch and roll, then
     inspect the ceiling angle and window/oven boundary while moving normally.
-11. Confirm `hpl_stereo` rows report `projectionOffset=0.000000,0.000000`.
-12. Press F5 only for a brief old-asymmetry comparison, then restore centered mode.
-13. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
+12. Confirm `hpl_stereo` rows report `projectionOffset=0.000000,0.000000`.
+13. Press F5 only for a brief old-asymmetry comparison, then restore centered mode.
+14. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
     `complete`, then check that `Soma_NoSteam.exe` disappears. If it remains,
     capture it with the dumper before manually terminating it.

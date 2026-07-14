@@ -313,6 +313,8 @@ struct OpenXRRuntime::Impl {
         std::lock_guard lock(mutex_);
         pose = {};
         pose.valid = latestPoseValid_;
+        pose.orientationTracked = (latestViewStateFlags_ & XR_VIEW_STATE_ORIENTATION_TRACKED_BIT) != 0;
+        pose.positionTracked = (latestViewStateFlags_ & XR_VIEW_STATE_POSITION_TRACKED_BIT) != 0;
         pose.gameFrame = latestPoseGameFrame_;
         pose.positionX = latestHeadPose_.position.x;
         pose.positionY = latestHeadPose_.position.y;
@@ -335,6 +337,10 @@ struct OpenXRRuntime::Impl {
         views.valid = true;
         views.gameFrame = latestPoseGameFrame_;
         views.head.valid = true;
+        views.head.orientationTracked =
+            (latestViewStateFlags_ & XR_VIEW_STATE_ORIENTATION_TRACKED_BIT) != 0;
+        views.head.positionTracked =
+            (latestViewStateFlags_ & XR_VIEW_STATE_POSITION_TRACKED_BIT) != 0;
         views.head.gameFrame = latestPoseGameFrame_;
         views.head.positionX = latestHeadPose_.position.x;
         views.head.positionY = latestHeadPose_.position.y;

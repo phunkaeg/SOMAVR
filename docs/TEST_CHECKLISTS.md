@@ -1,5 +1,51 @@
 # Test Checklists
 
+## 0.5.10 Neutral Pose Latch
+
+1. Close any running SOMA process and launch:
+
+```powershell
+& "D:\Dev Debug\SOMAVR\build-openxr-poselatch\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
+```
+
+2. Confirm `version=0.5.10-poselatch buildOpenXR=1` and the camera install row
+   reports `activationStableFrames=8`.
+3. Load the same save, stand or sit normally, face forward, and press F10 once.
+4. Expect OpenXR startup followed by `hpl_vr_mode calibration_wait`. A
+   `calibration_reset reason=reference_space_jump` row is acceptable and proves
+   a transient origin was rejected.
+5. Expect activation shortly afterward with `fullyTracked=1 stablePoseFrames=8`.
+   No F8 or F11 press is required.
+6. Confirm the initial `neutralPosition` resembles subsequent `hmdPos` values.
+   The first `hpl_stereo eyeOffset` should be centimetres, not the approximately
+   `1.79 m` vertical offset seen in `0.5.9`.
+7. Confirm native player eye height, rigid yaw/pitch/roll, room-scale translation,
+   stereo depth, and the known-good shadow/reflection behavior.
+8. Press F10 twice to test exit/re-entry, then exit SOMA normally and confirm
+   clean lifecycle shutdown.
+
+## 0.5.9 Camera Rotation Regression Fix
+
+1. Close any running SOMA process and launch:
+
+```powershell
+& "D:\Dev Debug\SOMAVR\build-openxr-rotationfix\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
+```
+
+2. Confirm the log reports `version=0.5.9-rotationfix buildOpenXR=1`.
+3. Load the same save used for the `0.5.8` test, face forward, and press F10 once.
+4. Make small yaw movements, then small pitch movements. Geometry must remain
+   rigid, with no shear, diagonal stretching, or view-dependent scale change.
+5. Increase yaw and pitch gradually, then add roll and head translation. Confirm
+   tracking, stereo depth, and room scale still match the `0.5.7` visual baseline.
+6. Recheck one formerly broken shadow/reflection location. Full projection
+   centering must remain active and those effects should stay stereo-consistent.
+7. Press F10 twice to verify exit and re-entry, then exit SOMA normally.
+
+Expected log markers remain `hpl_vr_mode activated ... stereo=1 projectionCentered=1 roomscale=1`,
+`hpl_stereo ... projectionOffset=0.000000,0.000000`, and clean lifecycle shutdown.
+No additional hotkeys are required.
+
 ## 0.5.8 One-Key VR Activation
 
 1. Close any running SOMA process and launch:

@@ -3,6 +3,7 @@
 #include "OpenXRRuntime.h"
 
 #include <array>
+#include <cstdint>
 
 namespace somavr::camera_math {
 
@@ -19,6 +20,23 @@ struct Vector3 {
     float z = 0.0f;
 };
 
+struct PoseStabilityState {
+    bool valid = false;
+    uint64_t gameFrame = 0;
+    uint32_t consecutiveFrames = 0;
+    Quaternion orientation{};
+    Vector3 position{};
+};
+
+enum class PoseStabilityUpdate {
+    Invalid,
+    DuplicateFrame,
+    Started,
+    Accumulating,
+    Reset,
+    Ready,
+};
+
 Quaternion Normalize(Quaternion value);
 Quaternion Conjugate(const Quaternion& value);
 Quaternion Multiply(const Quaternion& left, const Quaternion& right);
@@ -29,6 +47,17 @@ std::array<float, 16> MatrixMultiply(
     const std::array<float, 16>& left,
     const std::array<float, 16>& right);
 std::array<float, 16> TranslationMatrix(const Vector3& translation);
+
+PoseStabilityUpdate UpdatePoseStability(
+    PoseStabilityState& state,
+    uint64_t gameFrame,
+    const Quaternion& orientation,
+    const Vector3& position,
+    uint32_t requiredConsecutiveFrames,
+    float maxPositionStep,
+    float maxOrientationStepRadians,
+    float& positionStep,
+    float& orientationStepRadians);
 
 OpenXREyeView CenterProjectionFov(const OpenXREyeView& eye);
 bool BuildOpenXRProjection(

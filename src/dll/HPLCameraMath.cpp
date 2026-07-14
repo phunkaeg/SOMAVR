@@ -1,5 +1,6 @@
 #include "HPLCameraMath.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace somavr::camera_math {
@@ -53,7 +54,7 @@ std::array<float, 16> RotationMatrix(const Quaternion& input)
     const float twy = ty * q.w;
     const float twz = tz * q.w;
     const float txx = tx * q.x;
-    const float txy = ty * q.y;
+    const float txy = ty * q.x;
     const float txz = tz * q.x;
     const float tyy = ty * q.y;
     const float tyz = tz * q.y;
@@ -92,6 +93,89 @@ std::array<float, 16> TranslationMatrix(const Vector3& translation)
         0.0f, 0.0f, 1.0f, translation.z,
         0.0f, 0.0f, 0.0f, 1.0f,
     };
+}
+
+PoseStabilityUpdate UpdatePoseStability(
+    PoseStabilityState& state,
+    uint64_t gameFrame,
+    const Quaternion& orientation,
+    const Vector3& position,
+    uint32_t requiredConsecutiveFrames,
+    float maxPositionStep,
+    float maxOrientationStepRadians,
+    float& positionStep,
+    float& orientationStepRadians)
+{
+    positionStep = 0.0f;
+    orientationStepRadians = 0.0f;
+
+    const float orientationLengthSquared = orientation.x * orientation.x
+        + orientation.y * orientation.y + orientation.z * orientation.z
+        + orientation.w * orientation.w;
+    const bool finite = gameFrame != 0
+        && std::isfinite(orientationLengthSquared)
+        && orientationLengthSquared >= 1.0e-8f
+        && std::isfinite(position.x)
+        && std::isfinite(position.y)
+        && std::isfinite(position.z)
+        && requiredConsecutiveFrames != 0
+        && std::isfinite(maxPositionStep)
+        && maxPositionStep > 0.0f
+        && std::isfinite(maxOrientationStepRadians)
+        && maxOrientationStepRadians > 0.0f;
+    if (!finite) {
+        state = {};
+        return PoseStabilityUpdate::Invalid;
+    }
+
+    const Quaternion normalizedOrientation = Normalize(orientation);
+    const auto storeSample = [&] {
+        state.valid = true;
+        state.gameFrame = gameFrame;
+        state.orientation = normalizedOrientation;
+        state.position = position;
+    };
+
+    if (!state.valid) {
+        storeSample();
+        state.consecutiveFrames = 1;
+        return requiredConsecutiveFrames == 1
+            ? PoseStabilityUpdate::Ready
+            : PoseStabilityUpdate::Started;
+    }
+    if (gameFrame == state.gameFrame) {
+        return PoseStabilityUpdate::DuplicateFrame;
+    }
+
+    const float dx = position.x - state.position.x;
+    const float dy = position.y - state.position.y;
+    const float dz = position.z - state.position.z;
+    positionStep = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+    const float orientationDot = std::abs(
+        normalizedOrientation.x * state.orientation.x
+        + normalizedOrientation.y * state.orientation.y
+        + normalizedOrientation.z * state.orientation.z
+        + normalizedOrientation.w * state.orientation.w);
+    orientationStepRadians = 2.0f * std::acos(std::clamp(orientationDot, 0.0f, 1.0f));
+
+    const bool reset = gameFrame < state.gameFrame
+        || !std::isfinite(positionStep)
+        || !std::isfinite(orientationStepRadians)
+        || positionStep > maxPositionStep
+        || orientationStepRadians > maxOrientationStepRadians;
+    storeSample();
+    if (reset) {
+        state.consecutiveFrames = 1;
+        return PoseStabilityUpdate::Reset;
+    }
+
+    if (state.consecutiveFrames < requiredConsecutiveFrames) {
+        ++state.consecutiveFrames;
+    }
+    return state.consecutiveFrames >= requiredConsecutiveFrames
+        ? PoseStabilityUpdate::Ready
+        : PoseStabilityUpdate::Accumulating;
 }
 
 OpenXREyeView CenterProjectionFov(const OpenXREyeView& eye)

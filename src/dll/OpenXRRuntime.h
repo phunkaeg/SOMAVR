@@ -10,6 +10,8 @@ namespace somavr {
 
 struct OpenXRHeadPose {
     bool valid = false;
+    bool orientationTracked = false;
+    bool positionTracked = false;
     uint64_t gameFrame = 0;
     float positionX = 0.0f;
     float positionY = 0.0f;

@@ -42,11 +42,11 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x140297670` | Confirmed by order, probe built | Viewport renderer callback pass after scene render and before active post-effect composition. Passive hook in `0.5.1` classifies calls/FBO state before dual rendering. |
 | `0x14033bd80` | Confirmed | Active post-effect composite render. Iterates the priority-sorted effect tree and ping-pongs outputs. |
 | `0x1401f1480` | Confirmed by log string and order | `PostPostEffect` renderer callback pass, after the post chain and before final GUI drawing. |
-| `0x1402981e0` | High-confidence | Collects and renders viewport GUI sets after scene post effects. Primary future HUD-target probe. |
+| `0x1402981e0` | Confirmed | Collects, priority-sorts, and renders viewport GUI sets after scene post effects. Parent iteration boundary for gameplay-HUD capture classification. |
 | `0x1401297c0` | Confirmed | Invokes a script object's `OnGui(float)` callback when enabled. |
 | `0x14022f8e0` | Confirmed | Creates an iterator over the viewport GUI-set list at viewport `+0x90`. Ghidra: `HPL3_Viewport_CreateGuiSetIterator`. |
-| `0x140213970` | High-confidence | Renders one `cGuiSet`, selecting normal or 3D GUI projection and issuing GUI batches. Ghidra: `HPL3_GuiSet_Render`. |
-| `0x1400cc9b0` | Confirmed | `SOMA_GetGameHudSet`; returns game-context `+0x50`. Runtime signature guard and direct context lookup identify the gameplay HUD `cGuiSet`. |
+| `0x140213970` | Confirmed, control hook built | Renders one `cGuiSet`; 2D sets draw into the current framebuffer. `0.15.0` redirects only exact GameHudSet draws to transparent capture. Ghidra: `HPL3_GuiSet_Render`. |
+| `0x1400cc9b0` | Confirmed, identity gate built | `SOMA_GetGameHudSet`; returns game-context `+0x50`. The signature-derived context slot gates exact gameplay-HUD capture and fail-closed native fallback. |
 | `0x1400cc9c0` / `0x1400cc9d0` | Confirmed | HUD virtual-center size at context `+0x58` and virtual size at `+0x60`. Ghidra: `SOMA_GetHudVirtualCenterSize`, `SOMA_GetHudVirtualSize`. |
 | `0x1400cc9f0` | Confirmed | `SOMA_GetHudVirtualStartPos`; returns context `+0x70`. |
 | `0x1400cca00` / `0x1400cca10` | Confirmed | Center-screen virtual size/start-position getters at context `+0x7c/+0x84`. |

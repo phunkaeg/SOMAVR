@@ -170,7 +170,14 @@ void ConfigManager::WriteDefaultConfig() const
         << "RecoveryEnabled=1\n"
         << "RecoveryDelayFrames=120\n"
         << "TrackingHoldFrames=30\n"
-        << "TrackingRecoveryBlackoutFrames=2\n\n"
+        << "TrackingRecoveryBlackoutFrames=2\n"
+        << "HudLayer=0\n"
+        << "HudWidthPixels=1600\n"
+        << "HudHeightPixels=900\n"
+        << "HudDistanceMeters=1.5\n"
+        << "HudWidthMeters=1.6\n"
+        << "HudVerticalOffsetMeters=0.0\n"
+        << "HudMaxAgeFrames=2\n\n"
         << "[Controller]\n"
         << "Enabled=0\n"
         << "MoveDeadzone=0.35\n"
@@ -333,6 +340,20 @@ void ConfigManager::LoadFromFile()
                 config_.openxrTrackingHoldFrames = ParseInt(value, config_.openxrTrackingHoldFrames, 0, 600);
             } else if (key == "trackingrecoveryblackoutframes") {
                 config_.openxrTrackingRecoveryBlackoutFrames = ParseInt(value, config_.openxrTrackingRecoveryBlackoutFrames, 0, 120);
+            } else if (key == "hudlayer") {
+                config_.openxrHudLayer = ParseBool(value, config_.openxrHudLayer);
+            } else if (key == "hudwidthpixels") {
+                config_.openxrHudWidthPixels = ParseInt(value, config_.openxrHudWidthPixels, 256, 4096);
+            } else if (key == "hudheightpixels") {
+                config_.openxrHudHeightPixels = ParseInt(value, config_.openxrHudHeightPixels, 256, 4096);
+            } else if (key == "huddistancemeters") {
+                config_.openxrHudDistanceMeters = ParseFloat(value, config_.openxrHudDistanceMeters, 0.25f, 10.0f);
+            } else if (key == "hudwidthmeters") {
+                config_.openxrHudWidthMeters = ParseFloat(value, config_.openxrHudWidthMeters, 0.25f, 10.0f);
+            } else if (key == "hudverticaloffsetmeters") {
+                config_.openxrHudVerticalOffsetMeters = ParseFloat(value, config_.openxrHudVerticalOffsetMeters, -5.0f, 5.0f);
+            } else if (key == "hudmaxageframes") {
+                config_.openxrHudMaxAgeFrames = ParseInt(value, config_.openxrHudMaxAgeFrames, 0, 30);
             }
             continue;
         }

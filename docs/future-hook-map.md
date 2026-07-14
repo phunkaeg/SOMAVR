@@ -71,14 +71,14 @@ and `docs\VR_COMPATIBILITY_RE.md`. Stable graph nodes and acceptance gates are i
 | `Soma_NoSteam.exe+0x2328f0` | Static confirmed | Attribute script lifecycle callbacks | Callback id `2` queues `OnDraw`; id `3` is `OnPostRender`. |
 | `Soma_NoSteam.exe+0x298850` | Static confirmed | Whole-frame viewport render boundary | Main loop calls this between script `OnDraw` and `OnPostRender`. |
 | `Soma_NoSteam.exe+0x33bd80` | Runtime confirmed | Per-eye post-effect composite | F11 gameplay averaged about `125 us`; F12 bypass in `0.5.2` distinguishes post-chain defects from world shaders. |
-| `Soma_NoSteam.exe+0x2981e0` | High confidence | Final GUI-set draw/capture boundary | Best first target for an alpha HUD framebuffer and OpenXR quad layer. |
+| `Soma_NoSteam.exe+0x2981e0` / `+0x213970` | Guarded capture built | Final GUI iteration and exact 2D set draw boundary | `0.15.0` captures only GameHudSet into alpha and submits a VIEW-space quad; ImGui/menu/subtitle classification remains. |
 | `Soma_NoSteam.exe+0x0cd750` | Control hook built | Dominant-controller native interaction ray | Replace only closest-entity start/direction under strict query/camera/tracking gates; preserve all native policy and callbacks. |
 | `Soma_NoSteam.exe+0x0bcd90` | Identity/pose probe built | Shared Lux entity SetMatrix boundary | Exact `PlayerHands_*` filtering now correlates root matrix, scale, camera, grip, and authored state before default-state replacement. |
 | `Soma_NoSteam.exe+0x00fb60` | Static confirmed, probe built | Inherited Lux entity GetName accessor | Returns native name at entity `+0x120`; signature-guarded exact hand identity avoids broad SetMatrix telemetry. |
 | `Soma_NoSteam.exe+0x1297c0` | Static confirmed | Attribute module `OnGui` activity | Useful for inventory, hint, menu, wake, and game-over classification. |
 | Player hands `PostUpdate` transform | Source, native wrapper, and identity probe built | Replace camera-follow hands with controller pose | Derive model correction and override-safe states from `hpl_hands_pose`, preserving mesh, animations, `R_Hand` attachments, tool callbacks, and camera attachments. |
 | OpenXR action set | Design ready | Semantic movement, turn, interaction, and menu input | Snap turn first; body yaw and HMD-local pose remain separate. |
-| `XrCompositionLayerQuad` HUD | Design ready | Head-locked HUD/menu presentation | Capture `GameHudSet` and ImGui after post effects; keep terminals in the stereo world. |
+| `XrCompositionLayerQuad` HUD | Gameplay layer built | Head-locked gameplay HUD presentation | Exact GameHudSet capture is built; ImGui/menu/subtitle layers remain future work and terminals stay in the stereo world. |
 | Post-effect comfort policy | Source/static confirmed | Disable or attenuate VR-hostile effects | Start with image trail, lens distortion, chromatic aberration, radial blur, DoF, shake, sway, roll, and head bob. |
 | `Soma_NoSteam.exe+0x297670` | Runtime confirmed | World/3D overlay pass | Remains on FBO `11` after world render and is effectively free in sampled frames; exact content still needs classification. |
 | `Soma_NoSteam.exe+0x289340` | Correction build ready | Commit center-head audio orientation | `0.5.1` confirmed authored vectors ignore HMD motion; `0.5.2` temporarily rotates forward/up during FMOD commit. |

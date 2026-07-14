@@ -312,6 +312,27 @@ The preferred long-term path is full-scale geometry at a physically plausible co
 
 ## HUD And GUI
 
+### 0.15.0 Gameplay HUD Layer Findings
+
+Ghidra confirms `HPL3_GuiSet_Render` at `0x140213970` ignores its native
+render-target argument for 2D sets and draws into the current OpenGL framebuffer.
+This is the narrow capture boundary now owned by `HPLHudBridge`:
+
+```text
+exact GameHudSet -> transparent GL capture FBO -> HUD OpenXR swapchain
+                 -> alpha XrCompositionLayerQuad in VIEW space
+```
+
+The bridge clears to transparent, renders only the exact set, restores the
+incoming framebuffer/viewport/buffer state, and keeps all nonmatching sets on
+the original path. Capture begins only while the OpenXR session is VISIBLE or
+FOCUSED and all resources are valid. Resource/signature failures never suppress
+the native HUD; repeated copy failures suspend extraction and restore it.
+
+This is deliberately gameplay-HUD-only. ImGui inventory/hints, pause/load/death
+menus, subtitles not owned by GameHudSet, and diegetic GUI still need live
+classification before they can share or receive separate layers.
+
 ### Surface Classes
 
 SOMA does not have one monolithic HUD.
@@ -328,7 +349,10 @@ The crosshair is centered using `cLux_GetHudVirtualCenterSize()` and can be shif
 
 ### Capture Strategy
 
-Do not begin by hooking every `DrawGfx` call. The first robust route is to redirect the final GUI-set target to a transparent HUD framebuffer around `0x1402981e0`, then restore the world eye target before presentation.
+Do not begin by hooking every `DrawGfx` call. The implemented route identifies
+the exact gameplay set during final GUI iteration at `0x1402981e0`, redirects
+its 2D draw at `0x140213970` to a transparent HUD framebuffer, then restores
+the world eye target before the next set and presentation.
 
 The HUD texture can be submitted as an `XrCompositionLayerQuad`:
 
@@ -352,9 +376,9 @@ Use that state to select feedback at the controller ray hit:
 
 ### Implementation Stages
 
-1. **GUI target probe:** built in `0.7.2`; logs GUI-set draw/read framebuffer, viewport, scissor, blend function/equation, depth/scissor enable, write masks, clears, program changes, and draw counts around `0x1402981e0`. F6 draw rows are now stage-tagged for exact shader attribution.
-2. **HUD-only framebuffer:** capture GUI with alpha while leaving the per-eye scene target untouched.
-3. **OpenXR quad layer:** submit gameplay HUD and menus above the projection layer.
+1. **GUI target probe:** built in `0.7.2` and moved into `HPLHudBridge` in `0.15.0`; exact matches preserve virtual metrics, GL state, and draw deltas.
+2. **HUD-only framebuffer:** built in `0.15.0`; exact GameHudSet draws into a transparent target while the per-eye scene and nonmatching sets remain untouched.
+3. **OpenXR quad layer:** gameplay HUD submission in VIEW space is built in `0.15.0`; ImGui/menu/subtitle classification remains.
 4. **Controller pointer:** map ray intersection to SOMA's virtual GUI coordinates and existing menu actions.
 5. **Reticle split:** suppress the native centered crosshair and render interaction feedback at world depth.
 

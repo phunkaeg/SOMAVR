@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.14.0-native-locomotion")
+set(SOMAVR_BUILD_VERSION "0.15.0-hud-layer")
 
 include(FetchContent)
 
@@ -62,6 +62,7 @@ target_link_libraries(somavr_common PUBLIC shlwapi)
 
 add_library(somavr_render_math STATIC
     src/dll/HPLCameraMath.cpp
+    src/dll/HPLHudMath.cpp
     src/dll/HPLInputMath.cpp
     src/dll/OpenGLMatrixAnalysis.cpp
 )
@@ -72,6 +73,7 @@ add_library(somavr SHARED
     src/dll/DllMain.cpp
     src/dll/HPLCompatibilityProbe.cpp
     src/dll/HPLCameraBridge.cpp
+    src/dll/HPLHudBridge.cpp
     src/dll/HPLLifecycle.cpp
     src/dll/HPLInputBridge.cpp
     src/dll/HPLNativeLocomotion.cpp

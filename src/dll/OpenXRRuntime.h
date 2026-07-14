@@ -112,7 +112,14 @@ public:
         bool recoveryEnabled,
         int recoveryDelayFrames,
         int trackingHoldFrames,
-        int trackingRecoveryBlackoutFrames);
+        int trackingRecoveryBlackoutFrames,
+        bool hudLayerEnabled,
+        int hudWidthPixels,
+        int hudHeightPixels,
+        float hudDistanceMeters,
+        float hudWidthMeters,
+        float hudVerticalOffsetMeters,
+        int hudMaxAgeFrames);
     void OnOpenGLContext(HDC deviceContext, HGLRC glContext);
     void OnFrameBoundary(HDC deviceContext, HGLRC glContext, uint64_t frameIndex);
     bool RequestManualStart();
@@ -128,6 +135,8 @@ public:
     bool MarkRenderedStereoEye(uint32_t eyeIndex, const OpenXREyeView& view);
     void InvalidateStereoCaches(const char* reason);
     void RequestComfortBlackout(uint32_t frames, const char* reason);
+    bool BeginHudCapture(uint64_t frameIndex);
+    bool EndHudCapture(uint64_t frameIndex);
 
 private:
     struct Impl;

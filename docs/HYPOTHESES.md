@@ -197,9 +197,11 @@ Redirects if the scaled mesh or authored animations cannot tolerate physical sca
 
 ## S8 - The final GUI-set pass is the right HUD extraction boundary
 
-Status: STATICALLY SUPPORTED
+Status: GAMEPLAY HUD BUILD READY (`0.15.0-hud-layer`)
 
-Hypothesis: redirecting GUI rendering around `0x1402981e0` to an alpha framebuffer will capture gameplay HUD and menus after scene post effects without contaminating the per-eye scene targets.
+Hypothesis: exact GameHudSet identity during `0x1402981e0`, redirected at the
+2D set renderer `0x140213970`, will capture gameplay HUD after scene post
+effects without contaminating the per-eye scene targets.
 
 Evidence:
 
@@ -207,9 +209,14 @@ Evidence:
 - `0x140298630` runs scene, post composite, `PostPostEffect`, then `0x1402981e0`.
 - Crosshair, descriptions, flashes, and infection draw through `GameHudSet`; inventory, hints, menus, wake, and game-over use ImGui.
 
-Confirms if the redirected target contains HUD/menu pixels with usable alpha while the eye scene remains complete and diegetic terminal GUI remains in-world.
+The `0.15.0` build implements that transaction and submits the result as a
+VIEW-space alpha quad. It confirms if live output contains gameplay HUD pixels
+with usable alpha while the eye scene remains complete and diegetic terminal GUI
+remains in-world.
 
-Redirects if ImGui or subtitles use another pass; capture the additional GUI set or split it into a second OpenXR layer.
+Redirects if alpha/scale is unusable or the exact set has hidden side effects;
+restore native rendering. ImGui menus and subtitles known to use another owner
+remain a separate capture/classification stage rather than an assumption.
 
 ## S9 - Temporal and optical screen effects require an explicit VR policy
 

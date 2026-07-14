@@ -1,5 +1,34 @@
 # Test Checklists
 
+## 0.15.0 Gameplay HUD OpenXR Quad
+
+1. Launch the OpenXR Release build, load a gameplay save, and press F10 once.
+   Confirm `version=0.15.0-hud-layer`,
+   `hpl_hud_bridge installed ... layer=1`, and
+   `openxr_hud swapchain_created size=1600x900`.
+2. Show the crosshair, interaction description, infection border, and a white
+   flash if safely available. Matching rows must report
+   `gameHud=1 hudCapture={enabled=1 started=1 completed=1}`; OpenXR frame rows
+   should report `layers=2 ... hud=1` while current HUD content is captured.
+3. Move and rotate the HMD quickly. The HUD must remain rigidly head locked,
+   appear once rather than at different eye depths, preserve transparent areas,
+   and show no dark rectangle, upside-down image, clipping, or alpha fringe.
+4. Check text/crosshair scale and comfort at the default 1.5 m distance and
+   1.6 m width. Adjust `HudDistanceMeters`, `HudWidthMeters`, and
+   `HudVerticalOffsetMeters` only after recording the default result.
+5. Open inventory, pause/main/load/game-over UI, show subtitles, and use a
+   terminal. Only exact gameplay rows may report `gameHud=1`; all diegetic/3D
+   GUI must remain in the stereo world. Record which flat surfaces still render
+   natively so the next ImGui/menu classifier has evidence.
+6. Before F10, after toggling VR off, and during runtime focus loss, the HUD must
+   remain on SOMA's native backbuffer path. There must be no invisible UI.
+7. Exercise recenter, snap turn, map/load transition, tracking loss/recovery,
+   and the known rigid shadow/reflection scenes. Confirm no world, eye-height,
+   input, post-effect, or shutdown regression.
+8. Exit and attach the log. Expect nonzero `hpl_hud_summary` matches/captures
+   and `openxrHudSubmittedFrames`, with zero submission failures and
+   `openxrHudSuspended=0`.
+
 ## 0.14.0 Native Analog Locomotion And Exact-Angle Turn
 
 1. Launch the OpenXR Release build, load a gameplay save, and press F10 once.

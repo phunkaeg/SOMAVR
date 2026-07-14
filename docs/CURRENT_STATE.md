@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.14.0-native-locomotion`, layered on the
+The active build candidate is `0.15.0-hud-layer`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
@@ -31,10 +31,14 @@ compatibility probes:
   positions and directions for live validation before native pick injection.
 - Listener orientation and room-scale head translation are composed only for
   the native FMOD update and then restored, preserving authored camera state.
-- The final GUI hook can distinguish the exact gameplay HUD `cGuiSet` from
-  menus, ImGui, subtitles, and diegetic sets via the confirmed game-context
-  getter at `0x1400cc9b0`. It now reports the confirmed virtual-space and
-  center-screen metrics needed to size a future alpha HUD target.
+- `HPLHudBridge` now owns the exact gameplay HUD `cGuiSet` boundary at
+  `0x140213970`, identified through the confirmed game-context getter at
+  `0x1400cc9b0`. With `HudLayer=1`, only that 2D set is redirected into a
+  transparent GL target and submitted as an alpha-blended VIEW-space OpenXR
+  quad. Existing virtual/center-screen metrics remain in bounded telemetry.
+- Menus, ImGui, subtitles not owned by the gameplay set, terminals, and every
+  3D/diegetic GUI remain native. Missing signatures/resources, non-visible XR
+  state, or repeated transfer failures restore normal backbuffer rendering.
 - The dominant controller's fully tracked world aim can replace only the
   start/direction passed to SOMA's native closest-entity wrapper at
   `0x1400cd750`. Strict query-type, native-origin, tracking, input, and
@@ -361,7 +365,8 @@ The OpenXR build now asks for:
 & "D:\Dev Debug\SOMAVR\build-openxr-controller\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.14.0-native-locomotion`, seven render-stage/GUI hooks,
+2. Confirm `version=0.15.0-hud-layer`, six compatibility render-stage hooks,
+   `hpl_hud_bridge installed ... layer=1`,
    `hpl_interaction_bridge install_ok`, `hpl_hands_bridge install_ok`,
    `referenceSpace=local`, `recovery=1`, and controller haptics enabled.
 3. Load a save game, face forward, and press F10 once.
@@ -369,7 +374,9 @@ The OpenXR build now asks for:
    one or more `calibration_wait` rows, then `hpl_vr_mode activated` with
    `fullyTracked=1 stablePoseFrames=8` and tracking/stereo/centering enabled.
 5. Confirm two `openxr_swapchain created` rows, `openxr_frame_resources ready`, and `openxr_session_begin ok`.
-6. Confirm `openxr_frame ok ... layers=1 views=2` repeats and the headset receives SOMA's mirrored desktop image.
+6. Confirm `openxr_hud swapchain_created size=1600x900`, then
+   `openxr_frame ok ... layers=2 views=2 ... hud=1` repeats while the gameplay
+   HUD is visible. Frames without gameplay HUD content may remain `layers=1`.
 7. Confirm later summaries show `openxrFrameResourcesReady=1`, `openxrSessionRunning=1`, increasing `openxrSubmittedFrames`, and `openxrFrameSubmitFailed=0`.
 8. Make small yaw and pitch movements first. The world must rotate rigidly with no
    shear, diagonal stretch, or scale change; press F10 immediately if it does not.
@@ -395,9 +402,10 @@ The OpenXR build now asks for:
     objects. Confirm focus follows controller aim and bounded
     `hpl_interaction_ray` rows report `applied=1`; then test authored-camera and
     tracking-loss fallbacks.
-18. Capture gameplay, menu, subtitle, and terminal moments. Attach bounded
-    `hpl_gui_set` rows including `hudMetrics` so HUD virtual-space calibration
-    and diegetic GUI classification can be checked.
+18. Capture gameplay, menu, subtitle, and terminal moments. Gameplay rows should
+    report `gameHud=1 hudCapture={enabled=1 started=1 completed=1}` and appear as
+    one comfortable head-locked quad rather than two eye-local copies. Menu,
+    terminal, and diegetic rows must stay `gameHud=0`; note where subtitles land.
 19. Confirm haptic pulses for discrete actions, then briefly remove runtime
     focus while holding movement and verify immediate release plus one loss and
     restoration transition in the log.
@@ -405,7 +413,7 @@ The OpenXR build now asks for:
     `hpl_hands_identity` and `hpl_hands_pose` rows with quarter/full scale,
     camera distance, grip distance, and player-state transitions.
 21. Confirm `somavr_build_manifest.txt` reports version
-    `0.14.0-native-locomotion`, flavor `openxr`, and a DLL SHA-256.
+    `0.15.0-hud-layer`, flavor `openxr`, and a DLL SHA-256.
 22. Exit normally. Confirm `hpl_lifecycle pre_graphics_shutdown begin` and
     `complete`, then check that `Soma_NoSteam.exe` disappears. If it remains,
     capture it with the dumper before manually terminating it.

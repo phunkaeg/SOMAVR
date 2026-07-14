@@ -30,7 +30,7 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.INTERACTION_RAY` | BUILT | `HPLInteractionBridge`, `HPLCameraBridge`, `HPLInputBridge` | `0x1400cd750`, world aim pose, `Utility_PickBasics`, native `CanInteract` | `VR_COMPATIBILITY_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test controller-directed focus at several distances and states; verify gaze no longer selects while the controller ray is valid and every fallback restores native behavior |
 | `FEATURE.PHYSICS_HANDS` | DESIGNED | future pose bridge | native grab/rotate PID force and torque states | `VR_COMPATIBILITY_RE.md` | Stable grab, rotate, release, and throw with native collision |
 | `FEATURE.VIEWMODEL` | EXPERIMENTAL | `HPLHandsBridge`, `HPLCameraBridge`, `HPLInputBridge` | world grip pose, `PlayerHandsHandler`, `0x14000fb60`, `0x1400bcd90`, `R_Hand`, tool `HudObject` | `FUTURE_SYSTEMS_RE.md`, `TEST_CHECKLISTS.md` | Live probe confirms exact identity, matrix scale/orientation, root-to-grip correction, and authored/full-scale modes; then enable a configurable default-state root override |
-| `FEATURE.HUD_LAYER` | EXPERIMENTAL | `HPLCompatibilityProbe`, `OpenGLHooks`, future GUI capture bridge | `0x1400cc9b0`, `0x1402981e0`, `0x14022f8e0`, `0x140213970`, GUI-set fields, `XrCompositionLayerQuad` | `FUTURE_SYSTEMS_RE.md` | Runtime confirms exact gameplay-HUD matches; then redirect only that flat set to an alpha target |
+| `FEATURE.HUD_LAYER` | BUILT | `HPLHudBridge`, `HPLHudMath`, `OpenXRGLBridge`, `OpenXRRuntime` | `0x1400cc9b0`, `0x140213970`, transparent GL capture FBO, VIEW space, `XrCompositionLayerQuad` | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test alpha, scale, text/crosshair placement, native fallback, and classification coverage; then add ImGui/menu/subtitle policy |
 | `FEATURE.POST_EFFECT_POLICY` | BUILT | `HPLCompatibilityProbe`, `OpenGLHooks` | `0x14033b8f0`, `0x14033bd80`, priority tree `+0x328`, named vtables, active byte `+0x31` | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.2.md` | Live-test default suppression of ImageTrail, ChromaticAberration, and RadialBlur while fades/tone mapping remain intact |
 | `FEATURE.SHADOW_STABILITY` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | fully centered projection, programs `942/944` | `VR_COMPATIBILITY_RE.md`, `RUNTIME_ANALYSIS_0.5.6.md` | Regression-test additional levels and light types |
 | `FEATURE.REFLECTION_STABILITY` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | fully centered projection, program `985` redirect | `VR_COMPATIBILITY_RE.md`, `RUNTIME_ANALYSIS_0.5.6.md` | Regression-test additional reflective materials and levels |
@@ -73,7 +73,8 @@ FEATURE.SHADOW_STABILITY requires FEATURE.AFR_STEREO
 FEATURE.REFLECTION_STABILITY requires FEATURE.AFR_STEREO
 FEATURE.DUAL_RENDER requires FEATURE.SHADOW_STABILITY
 FEATURE.DUAL_RENDER requires FEATURE.REFLECTION_STABILITY
-FEATURE.HUD_LAYER requires FEATURE.DUAL_RENDER
+FEATURE.HUD_LAYER requires FEATURE.XR_GL_SUBMISSION
+FEATURE.HUD_LAYER constrains FEATURE.AFR_STEREO
 FEATURE.AUTHORED_CAMERA requires FEATURE.HEAD_TRACKING
 FEATURE.LOCOMOTION requires FEATURE.AUTHORED_CAMERA
 FEATURE.INTERACTION_RAY requires FEATURE.AUTHORED_CAMERA
@@ -96,6 +97,8 @@ HPLInputBridge requires HPLPlayerState
 HPLCompatibilityProbe consumes OpenGLHooks telemetry
 HPLInputBridge requires HPLNativeLocomotion
 HPLNativeLocomotion requires HPLPlayerState
+HPLHudBridge requires OpenXRRuntime
+OpenXRRuntime requires HPLHudMath
 ```
 
 ## Runtime Flow

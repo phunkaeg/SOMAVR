@@ -1,5 +1,19 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Gameplay HUD Capture Sync
+
+The `0.15.0` HUD transaction is now recorded on all three native anchors:
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x140213970` | `HPL3_GuiSet_Render` | Confirmed 2D branch ignores the render-target argument and draws into the current framebuffer; exact GameHudSet capture hook. |
+| `0x1402981e0` | `HPL3_Scene_RenderScreenGui` | Confirmed non-3D set collection, priority sort, and final per-set render order after post effects. |
+| `0x1400cc9b0` | `SOMA_GetGameHudSet` | Exact game-context `+0x50` identity gate; signature/context failure retains native HUD rendering. |
+
+Their plate comments now describe the transparent FBO and VIEW-space OpenXR
+quad ownership contract. HUD/GUI/OpenXR/capture/render-order identity tags were
+applied as appropriate, and `Soma_NoSteam.exe` was saved after synchronization.
+
 ## 2026-07-15 Native Locomotion And Pause Policy Sync
 
 The `0.14.0` normal-state native input contract is now explicit in

@@ -56,6 +56,10 @@ leave VR camera/stereo mode. F8 and F11 remain diagnostic runtime/stereo control
 F3-F6 retain the existing targeted diagnostics. Plain F12 toggles the entire
 post chain, `Ctrl+F12` cycles reversible render-only isolation across currently
 active effects, and `Shift+F12` restores the normal effect chain.
+With `HudLayer=1`, the exact gameplay HUD set is removed from the eye render and
+submitted once as a transparent, compositor head-locked OpenXR quad. Menus,
+ImGui, subtitles not owned by that set, and diegetic terminal GUIs remain on
+their native paths until separately classified.
 
 ## Current Goal
 
@@ -68,6 +72,7 @@ This is not yet a simultaneous dual-eye renderer. OpenXR transport, native head 
 - head-relative FMOD listener orientation,
 - deferred reconstruction UBO attribution and eye-invariant shadow/reflection state,
 - selective post-effect classification using active object/vtable inventories and reversible per-effect isolation,
+- gameplay HUD extraction into a configurable OpenXR quad layer,
 - same-frame dual rendering after callback and temporal ownership are proven.
 
 The active `somavr.ini` is currently set up for the OpenXR probe build:
@@ -124,6 +129,13 @@ RecoveryEnabled=1
 RecoveryDelayFrames=120
 TrackingHoldFrames=30
 TrackingRecoveryBlackoutFrames=2
+HudLayer=1
+HudWidthPixels=1600
+HudHeightPixels=900
+HudDistanceMeters=1.5
+HudWidthMeters=1.6
+HudVerticalOffsetMeters=0.0
+HudMaxAgeFrames=2
 
 [Controller]
 Enabled=1

@@ -27,11 +27,27 @@ public:
         bool cacheValid = false;
     };
 
+    struct HudSwapchain {
+        XrSwapchain handle = XR_NULL_HANDLE;
+        int32_t width = 0;
+        int32_t height = 0;
+        int64_t format = 0;
+        std::vector<XrSwapchainImageOpenGLKHR> images;
+        std::vector<uint32_t> framebuffers;
+        uint32_t captureTexture = 0;
+        uint32_t captureFramebuffer = 0;
+        bool captureValid = false;
+        uint64_t captureFrame = 0;
+    };
+
     bool Initialize(
         XrSession session,
         const std::vector<XrViewConfigurationView>& views,
         const std::vector<int64_t>& formats,
-        int resolutionScalePercent);
+        int resolutionScalePercent,
+        bool hudLayerEnabled,
+        int hudWidth,
+        int hudHeight);
     void Shutdown();
 
     bool CopyBackbufferToEye(uint32_t eyeIndex);
@@ -43,6 +59,13 @@ public:
     uint32_t EyeCount() const;
     const EyeSwapchain& Eye(uint32_t eyeIndex) const;
     int64_t ColorFormat() const;
+    bool BeginHudCapture(uint64_t frameIndex);
+    bool EndHudCapture(uint64_t frameIndex);
+    bool CopyHudCaptureToSwapchain();
+    void InvalidateHudCapture();
+    bool HudReady() const;
+    bool HudCaptureFresh(uint64_t frameIndex, uint64_t maxAgeFrames) const;
+    const HudSwapchain& Hud() const;
 
 private:
     bool ResolveFunctions();
@@ -54,10 +77,27 @@ private:
     bool CopyBackbufferToImage(const EyeSwapchain& eye, uint32_t imageIndex);
     bool CopyCacheToImage(const EyeSwapchain& eye, uint32_t imageIndex);
     bool CreateEyeCache(EyeSwapchain& eye, uint32_t eyeIndex);
+    bool CreateHudSwapchain(XrSession session, int width, int height);
+    bool CreateHudCaptureTarget();
+    bool CopyHudCaptureToImage(uint32_t imageIndex);
+    void RestoreHudCaptureState();
 
     XrSession session_ = XR_NULL_HANDLE;
     int64_t colorFormat_ = 0;
     std::vector<EyeSwapchain> eyes_;
+    HudSwapchain hud_;
+
+    struct HudCaptureState {
+        bool active = false;
+        int32_t readFramebuffer = 0;
+        int32_t drawFramebuffer = 0;
+        int32_t readBuffer = 0;
+        int32_t drawBuffer = 0;
+        int32_t viewport[4] = {};
+        float clearColor[4] = {};
+        unsigned char colorMask[4] = {};
+        bool scissorEnabled = false;
+    } hudCaptureState_;
 
     using GlGenFramebuffersFn = void(APIENTRY*)(int32_t, uint32_t*);
     using GlDeleteFramebuffersFn = void(APIENTRY*)(int32_t, const uint32_t*);

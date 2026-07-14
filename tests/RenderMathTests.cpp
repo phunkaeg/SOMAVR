@@ -1,4 +1,5 @@
 #include "HPLCameraMath.h"
+#include "HPLHudMath.h"
 #include "HPLInputMath.h"
 #include "OpenGLMatrixAnalysis.h"
 
@@ -41,6 +42,29 @@ int main()
     const input_math::Axis2 halfStick = input_math::ApplyRadialDeadzone(0.0f, 0.675f, 0.35f);
     failures += Check(Near(halfStick.x, 0.0f) && Near(halfStick.y, 0.5f), "radial deadzone rescales magnitude");
     failures += Check(Near(input_math::DegreesToRadians(30.0f), 0.5235988f), "snap-turn degree conversion");
+
+    hud_math::HudQuadPose hudPose;
+    failures += Check(
+        hud_math::BuildHeadLockedQuadPose(
+            {1.0f, 2.0f, 3.0f},
+            {},
+            1.5f,
+            0.1f,
+            1.6f,
+            16.0f / 9.0f,
+            hudPose),
+        "head-locked HUD pose construction");
+    failures += Check(
+        Near(hudPose.position.x, 1.0f)
+            && Near(hudPose.position.y, 2.1f)
+            && Near(hudPose.position.z, 1.5f),
+        "head-locked HUD local offset");
+    failures += Check(
+        Near(hudPose.widthMeters, 1.6f) && Near(hudPose.heightMeters, 0.9f),
+        "head-locked HUD aspect ratio");
+    failures += Check(
+        !hud_math::BuildHeadLockedQuadPose({}, {}, 0.0f, 0.0f, 1.0f, 1.0f, hudPose),
+        "head-locked HUD rejects invalid distance");
 
     OpenXREyeView asymmetricEye;
     asymmetricEye.valid = true;

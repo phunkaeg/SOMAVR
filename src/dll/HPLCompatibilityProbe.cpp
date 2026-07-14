@@ -36,8 +36,6 @@ constexpr uintptr_t kRenderWorldCallbacksRva = 0x297670;
 constexpr uintptr_t kRenderPostEffectsRva = 0x33bd80;
 constexpr uintptr_t kRenderPostPostEffectRva = 0x1f1480;
 constexpr uintptr_t kRenderScreenGuiRva = 0x2981e0;
-constexpr uintptr_t kGuiSetRenderRva = 0x213970;
-constexpr uintptr_t kGetGameHudSetRva = 0x0cc9b0;
 constexpr uintptr_t kPostEffectHasActiveEffectsRva = 0x33b8f0;
 constexpr uintptr_t kAudioListenerUpdateRva = 0x289340;
 
@@ -80,10 +78,8 @@ using RenderWorldCallbacksFn = void (*)(void*, void*, void*, float);
 using RenderPostEffectsFn = void (*)(void*, float, void*, void*, void*);
 using RenderPostPostEffectFn = void (*)(void*, void*, void*, void*);
 using RenderScreenGuiFn = void (*)(void*, void*, float);
-using GuiSetRenderFn = void (*)(void*, void*);
 using PostEffectHasActiveEffectsFn = bool (*)(void*);
 using AudioListenerUpdateFn = void (*)(void*);
-using GetGameHudSetFn = void* (*)();
 
 constexpr size_t kStageCount = 6;
 
@@ -146,10 +142,7 @@ std::atomic<void*> g_postEffectIsolated = nullptr;
 std::atomic<uint64_t> g_postEffectIsolationApplications = 0;
 std::atomic<uint64_t> g_postEffectComfortApplications = 0;
 std::atomic<uint64_t> g_postEffectComfortSuppressed = 0;
-std::atomic<uint64_t> g_guiSetRenderCalls = 0;
-std::atomic<uint64_t> g_gameHudSetMatches = 0;
 uint64_t g_lastPostEffectInventorySignature = 0;
-std::vector<void*> g_seenGuiSets;
 
 RenderViewportFn g_originalRenderViewport = nullptr;
 RenderWorldFn g_originalRenderWorld = nullptr;
@@ -157,11 +150,8 @@ RenderWorldCallbacksFn g_originalRenderWorldCallbacks = nullptr;
 RenderPostEffectsFn g_originalRenderPostEffects = nullptr;
 RenderPostPostEffectFn g_originalRenderPostPostEffect = nullptr;
 RenderScreenGuiFn g_originalRenderScreenGui = nullptr;
-GuiSetRenderFn g_originalGuiSetRender = nullptr;
 PostEffectHasActiveEffectsFn g_originalPostEffectHasActiveEffects = nullptr;
 AudioListenerUpdateFn g_originalAudioListenerUpdate = nullptr;
-GetGameHudSetFn g_getGameHudSet = nullptr;
-void** g_gameContextSlot = nullptr;
 
 thread_local uint64_t g_traceFrame = UINT64_MAX;
 thread_local uint64_t g_traceSequence = 0;
@@ -229,35 +219,6 @@ bool IsInsideImage(HMODULE module, uintptr_t rva, size_t bytes)
 bool MatchBytes(const void* address, const uint8_t* expected, size_t size)
 {
     return address != nullptr && std::memcmp(address, expected, size) == 0;
-}
-
-bool ResolveGameHudGetter(HMODULE executable)
-{
-    if (!IsInsideImage(executable, kGetGameHudSetRva, 12)) {
-        return false;
-    }
-    const auto* target = reinterpret_cast<const uint8_t*>(executable) + kGetGameHudSetRva;
-    static constexpr uint8_t kPrefix[] = {0x48, 0x8b, 0x05};
-    static constexpr uint8_t kSuffix[] = {0x48, 0x8b, 0x40, 0x50, 0xc3};
-    if (!MatchBytes(target, kPrefix, sizeof(kPrefix))
-        || !MatchBytes(target + 7, kSuffix, sizeof(kSuffix))) {
-        return false;
-    }
-    g_getGameHudSet = reinterpret_cast<GetGameHudSetFn>(
-        reinterpret_cast<uintptr_t>(executable) + kGetGameHudSetRva);
-    int32_t displacement = 0;
-    std::memcpy(&displacement, target + 3, sizeof(displacement));
-    g_gameContextSlot = reinterpret_cast<void**>(
-        reinterpret_cast<uintptr_t>(target + 7) + displacement);
-    if (!IsInsideImage(
-            executable,
-            reinterpret_cast<uintptr_t>(g_gameContextSlot) - reinterpret_cast<uintptr_t>(executable),
-            sizeof(void*))) {
-        g_getGameHudSet = nullptr;
-        g_gameContextSlot = nullptr;
-        return false;
-    }
-    return true;
 }
 
 bool IsReadable(const void* address, size_t size)
@@ -865,123 +826,6 @@ void HookRenderScreenGui(void* scene, void* viewport, float frameTime)
     EndStage(sample);
 }
 
-void HookGuiSetRender(void* guiSet, void* renderTarget)
-{
-    const uint64_t call = g_guiSetRenderCalls.fetch_add(1, std::memory_order_relaxed) + 1;
-    const uint64_t frame = GetOpenGLRenderFrameHint();
-    uint8_t depthLayer = 0;
-    uint8_t is3d = 0;
-    float virtualWidth = 0.0f;
-    float virtualHeight = 0.0f;
-    float offsetX = 0.0f;
-    float offsetY = 0.0f;
-    float depthMin = 0.0f;
-    float depthMax = 0.0f;
-    int32_t priority = 0;
-    ReadField(guiSet, 0x138, depthLayer);
-    ReadField(guiSet, 0x139, is3d);
-    ReadField(guiSet, 0x100, virtualWidth);
-    ReadField(guiSet, 0x104, virtualHeight);
-    ReadField(guiSet, 0x108, offsetX);
-    ReadField(guiSet, 0x10c, offsetY);
-    ReadField(guiSet, 0x110, depthMin);
-    ReadField(guiSet, 0x114, depthMax);
-    ReadField(guiSet, 0x188, priority);
-    void* gameContext = nullptr;
-    void* gameHudSet = nullptr;
-    float hudVirtualCenterWidth = 0.0f;
-    float hudVirtualCenterHeight = 0.0f;
-    float hudVirtualWidth = 0.0f;
-    float hudVirtualHeight = 0.0f;
-    float hudVirtualStartX = 0.0f;
-    float hudVirtualStartY = 0.0f;
-    float hudVirtualStartZ = 0.0f;
-    float hudCenterScreenWidth = 0.0f;
-    float hudCenterScreenHeight = 0.0f;
-    float hudCenterScreenStartX = 0.0f;
-    float hudCenterScreenStartY = 0.0f;
-    float hudCenterScreenStartZ = 0.0f;
-    if (g_gameContextSlot != nullptr
-        && ReadField(g_gameContextSlot, 0, gameContext)
-        && gameContext != nullptr) {
-        ReadField(gameContext, 0x50, gameHudSet);
-        ReadField(gameContext, 0x58, hudVirtualCenterWidth);
-        ReadField(gameContext, 0x5c, hudVirtualCenterHeight);
-        ReadField(gameContext, 0x60, hudVirtualWidth);
-        ReadField(gameContext, 0x64, hudVirtualHeight);
-        ReadField(gameContext, 0x70, hudVirtualStartX);
-        ReadField(gameContext, 0x74, hudVirtualStartY);
-        ReadField(gameContext, 0x78, hudVirtualStartZ);
-        ReadField(gameContext, 0x7c, hudCenterScreenWidth);
-        ReadField(gameContext, 0x80, hudCenterScreenHeight);
-        ReadField(gameContext, 0x84, hudCenterScreenStartX);
-        ReadField(gameContext, 0x88, hudCenterScreenStartY);
-        ReadField(gameContext, 0x8c, hudCenterScreenStartZ);
-    }
-    const bool isGameHud = guiSet != nullptr && guiSet == gameHudSet;
-    if (isGameHud) {
-        g_gameHudSetMatches.fetch_add(1, std::memory_order_relaxed);
-    }
-
-    const GLState before = ReadGLState();
-    const OpenGLTelemetrySnapshot telemetryBefore = GetOpenGLTelemetrySnapshot();
-    g_originalGuiSetRender(guiSet, renderTarget);
-    const OpenGLTelemetrySnapshot telemetryAfter = GetOpenGLTelemetrySnapshot();
-    const GLState after = ReadGLState();
-
-    bool newlySeen = false;
-    {
-        std::lock_guard lock(g_sampleMutex);
-        if (std::find(g_seenGuiSets.begin(), g_seenGuiSets.end(), guiSet) == g_seenGuiSets.end()
-            && g_seenGuiSets.size() < 256) {
-            g_seenGuiSets.push_back(guiSet);
-            newlySeen = true;
-        }
-    }
-    const uint64_t interval = static_cast<uint64_t>(std::max(g_config.hplCompatibilityLogInterval, 1));
-    if (newlySeen || call <= 16 || call % interval == 0) {
-        Logger::Instance().Write(
-            LogLevel::Info,
-            "hpl_gui_set frame=%llu call=%llu stage=%s set=%p target=%p gameHud=%d gameHudSet=%p is3d=%d depthLayer=%d virtualSize=%.1f,%.1f offset=%.1f,%.1f depthRange=%.3f,%.3f priority=%d hudMetrics={virtualCenterSize=%.1f,%.1f virtualSize=%.1f,%.1f virtualStart=%.1f,%.1f,%.1f centerScreenSize=%.1f,%.1f centerScreenStart=%.1f,%.1f,%.1f} calls={drawElements=%llu drawArrays=%llu framebuffer=%llu program=%llu} gl={fbo=%d->%d program=%d->%d}",
-            static_cast<unsigned long long>(frame),
-            static_cast<unsigned long long>(call),
-            GetHPLRenderStageName(g_activeStage),
-            guiSet,
-            renderTarget,
-            isGameHud ? 1 : 0,
-            gameHudSet,
-            is3d != 0 ? 1 : 0,
-            depthLayer != 0 ? 1 : 0,
-            virtualWidth,
-            virtualHeight,
-            offsetX,
-            offsetY,
-            depthMin,
-            depthMax,
-            priority,
-            hudVirtualCenterWidth,
-            hudVirtualCenterHeight,
-            hudVirtualWidth,
-            hudVirtualHeight,
-            hudVirtualStartX,
-            hudVirtualStartY,
-            hudVirtualStartZ,
-            hudCenterScreenWidth,
-            hudCenterScreenHeight,
-            hudCenterScreenStartX,
-            hudCenterScreenStartY,
-            hudCenterScreenStartZ,
-            static_cast<unsigned long long>(telemetryAfter.drawElements - telemetryBefore.drawElements),
-            static_cast<unsigned long long>(telemetryAfter.drawArrays - telemetryBefore.drawArrays),
-            static_cast<unsigned long long>(telemetryAfter.framebufferBinds - telemetryBefore.framebufferBinds),
-            static_cast<unsigned long long>(telemetryAfter.programUses - telemetryBefore.programUses),
-            before.drawFramebuffer,
-            after.drawFramebuffer,
-            before.program,
-            after.program);
-    }
-}
-
 bool HookPostEffectHasActiveEffects(void* composite)
 {
     const uint64_t call = g_postEffectQueries.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -1187,15 +1031,6 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
     g_f12Down.store(false, std::memory_order_relaxed);
     HMODULE executable = GetModuleHandleW(nullptr);
     g_executableBase = reinterpret_cast<uintptr_t>(executable);
-    if (config.hplRenderStageProbe) {
-        const bool gameHudGetterResolved = ResolveGameHudGetter(executable);
-        Logger::Instance().Write(
-            gameHudGetterResolved ? LogLevel::Info : LogLevel::Error,
-            "hpl_game_hud_getter resolved=%d rva=0x%llx target=%p",
-            gameHudGetterResolved ? 1 : 0,
-            static_cast<unsigned long long>(kGetGameHudSetRva),
-            reinterpret_cast<void*>(g_getGameHudSet));
-    }
 
     HMODULE opengl32 = GetModuleHandleW(L"opengl32.dll");
     if (opengl32 != nullptr) {
@@ -1228,10 +1063,6 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
         0x48, 0x89, 0x5c, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18,
         0x55, 0x48, 0x8d, 0x6c, 0x24, 0xa9,
     };
-    static constexpr uint8_t kGuiSetRenderSignature[] = {
-        0x48, 0x89, 0x5c, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18,
-        0x48, 0x89, 0x7c, 0x24, 0x20, 0x55,
-    };
     static constexpr uint8_t kAudioListenerSignature[] = {
         0x4c, 0x8b, 0xdc, 0x41, 0x54, 0x48, 0x81, 0xec, 0x90, 0x00,
         0x00, 0x00,
@@ -1261,9 +1092,6 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
         installed += InstallHook(executable, kRenderScreenGuiRva, kRenderScreenGuiSignature,
             sizeof(kRenderScreenGuiSignature), "screen_gui", reinterpret_cast<void*>(&HookRenderScreenGui),
             reinterpret_cast<void**>(&g_originalRenderScreenGui));
-        installed += InstallHook(executable, kGuiSetRenderRva, kGuiSetRenderSignature,
-            sizeof(kGuiSetRenderSignature), "gui_set_render", reinterpret_cast<void*>(&HookGuiSetRender),
-            reinterpret_cast<void**>(&g_originalGuiSetRender));
     }
     if (config.hplAudioListenerProbe) {
         installed += InstallHook(executable, kAudioListenerUpdateRva, kAudioListenerSignature,
@@ -1279,10 +1107,8 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         installed > 0 ? LogLevel::Warn : LogLevel::Error,
-        "hpl_compat_probe install_complete renderStages=%d guiSetProbe=%d gameHudIdentity=%d audioListener=%d audioCorrection=%d audioTranslation=%d postEffectControl=%d postEffectBypass=%d postEffectComfort={imageTrail=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
+        "hpl_compat_probe install_complete renderStages=%d audioListener=%d audioCorrection=%d audioTranslation=%d postEffectControl=%d postEffectBypass=%d postEffectComfort={imageTrail=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
         config.hplRenderStageProbe ? 1 : 0,
-        config.hplRenderStageProbe ? 1 : 0,
-        g_getGameHudSet != nullptr ? 1 : 0,
         config.hplAudioListenerProbe ? 1 : 0,
         g_config.hplAudioListenerCorrection ? 1 : 0,
         g_config.hplAudioListenerTranslation ? 1 : 0,
@@ -1292,7 +1118,7 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
         config.hplPostEffectDisableChromaticAberration ? 1 : 0,
         config.hplPostEffectDisableRadialBlur ? 1 : 0,
         static_cast<unsigned long long>(installed),
-        (config.hplRenderStageProbe ? 7 : 0)
+        (config.hplRenderStageProbe ? 6 : 0)
             + (config.hplAudioListenerProbe ? 1 : 0)
             + (config.hplPostEffectControl ? 1 : 0),
         config.hplCompatibilityLogInterval,
@@ -1304,15 +1130,13 @@ void LogHPLCompatibilityProbeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu guiSets=%llu gameHudMatches=%llu audioUpdates=%llu audioSamples=%llu audioCorrections=%llu audioTranslations=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
+        "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu audioUpdates=%llu audioSamples=%llu audioCorrections=%llu audioTranslations=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::Viewport)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::World)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::WorldCallbacks)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::PostEffects)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::PostPostEffect)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::ScreenGui)].load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_guiSetRenderCalls.load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_gameHudSetMatches.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioPoseSamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioCorrections.load(std::memory_order_relaxed)),
@@ -1342,11 +1166,8 @@ void RemoveHPLCompatibilityProbe()
     g_originalRenderPostEffects = nullptr;
     g_originalRenderPostPostEffect = nullptr;
     g_originalRenderScreenGui = nullptr;
-    g_originalGuiSetRender = nullptr;
     g_originalPostEffectHasActiveEffects = nullptr;
     g_originalAudioListenerUpdate = nullptr;
-    g_getGameHudSet = nullptr;
-    g_gameContextSlot = nullptr;
     g_postEffectBypassEnabled.store(false, std::memory_order_relaxed);
     g_postEffectIsolated.store(nullptr, std::memory_order_relaxed);
     g_f12Down.store(false, std::memory_order_relaxed);
@@ -1355,7 +1176,6 @@ void RemoveHPLCompatibilityProbe()
     g_glGetBooleanv = nullptr;
     g_glIsEnabled = nullptr;
     g_lastPostEffectInventorySignature = 0;
-    g_seenGuiSets.clear();
     g_executableBase = 0;
     Logger::Instance().Write(LogLevel::Info, "hpl_compat_probe removed");
 }

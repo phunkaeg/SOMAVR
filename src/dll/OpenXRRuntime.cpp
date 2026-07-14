@@ -1,6 +1,7 @@
 #include "OpenXRRuntime.h"
 
 #include "Logger.h"
+#include "HPLHudMath.h"
 #include "OpenXRGLBridge.h"
 
 #include <Windows.h>
@@ -115,7 +116,14 @@ struct OpenXRRuntime::Impl {
         bool recoveryEnabled,
         int recoveryDelayFrames,
         int trackingHoldFrames,
-        int trackingRecoveryBlackoutFrames)
+        int trackingRecoveryBlackoutFrames,
+        bool hudLayerEnabled,
+        int hudWidthPixels,
+        int hudHeightPixels,
+        float hudDistanceMeters,
+        float hudWidthMeters,
+        float hudVerticalOffsetMeters,
+        int hudMaxAgeFrames)
     {
         std::lock_guard lock(mutex_);
         enabled_ = enabled;
@@ -134,6 +142,15 @@ struct OpenXRRuntime::Impl {
         recoveryDelayFrames_ = std::max(recoveryDelayFrames, 1);
         trackingHoldFrames_ = std::max(trackingHoldFrames, 0);
         trackingRecoveryBlackoutFrames_ = std::max(trackingRecoveryBlackoutFrames, 0);
+        hudLayerEnabled_ = hudLayerEnabled;
+        hudWidthPixels_ = std::clamp(hudWidthPixels, 256, 4096);
+        hudHeightPixels_ = std::clamp(hudHeightPixels, 256, 4096);
+        hudDistanceMeters_ = std::clamp(hudDistanceMeters, 0.25f, 10.0f);
+        hudWidthMeters_ = std::clamp(hudWidthMeters, 0.25f, 10.0f);
+        hudVerticalOffsetMeters_ = std::clamp(hudVerticalOffsetMeters, -5.0f, 5.0f);
+        hudMaxAgeFrames_ = std::clamp(hudMaxAgeFrames, 0, 30);
+        hudSubmissionSuspended_ = false;
+        hudConsecutiveFailures_ = 0;
         manualStartArmed_ = false;
         manualStartLogged_ = false;
         manualStartKeyDown_ = false;
@@ -141,7 +158,7 @@ struct OpenXRRuntime::Impl {
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d",
+            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -157,7 +174,14 @@ struct OpenXRRuntime::Impl {
             recoveryEnabled_ ? 1 : 0,
             recoveryDelayFrames_,
             trackingHoldFrames_,
-            trackingRecoveryBlackoutFrames_);
+            trackingRecoveryBlackoutFrames_,
+            hudLayerEnabled_ ? 1 : 0,
+            hudWidthPixels_,
+            hudHeightPixels_,
+            hudDistanceMeters_,
+            hudWidthMeters_,
+            hudVerticalOffsetMeters_,
+            hudMaxAgeFrames_);
 
         if (frameSubmitEnabled_ && !sessionProbeEnabled_) {
             Logger::Instance().Write(
@@ -277,6 +301,8 @@ struct OpenXRRuntime::Impl {
         comfortBlackoutUntilFrame_ = 0;
         trackingDegraded_ = false;
         trackingLost_ = false;
+        hudSubmissionSuspended_ = false;
+        hudConsecutiveFailures_ = 0;
         releaseFrame_ = 0;
     }
 
@@ -324,6 +350,13 @@ struct OpenXRRuntime::Impl {
             << " openxrStereoSubmission=" << (stereoSubmissionEnabled_ ? 1 : 0)
             << " openxrStereoCapturedEyes=" << static_cast<unsigned long long>(stereoCapturedEyeCount_)
             << " openxrStereoSubmittedFrames=" << static_cast<unsigned long long>(stereoSubmittedFrameCount_)
+            << " openxrHudLayer=" << (hudLayerEnabled_ ? 1 : 0)
+            << " openxrHudReady=" << (glBridge_.HudReady() ? 1 : 0)
+            << " openxrHudSuspended=" << (hudSubmissionSuspended_ ? 1 : 0)
+            << " openxrHudCaptureStarts=" << static_cast<unsigned long long>(hudCaptureStarts_)
+            << " openxrHudCaptureCompletions=" << static_cast<unsigned long long>(hudCaptureCompletions_)
+            << " openxrHudSubmittedFrames=" << static_cast<unsigned long long>(hudSubmittedFrames_)
+            << " openxrHudSubmissionFailures=" << static_cast<unsigned long long>(hudSubmissionFailures_)
             << " openxrSubmittedFrames=" << static_cast<unsigned long long>(submittedFrameCount_)
             << " openxrLastSubmittedGameFrame=" << static_cast<unsigned long long>(lastSubmittedGameFrame_)
             << " openxrSessionAttempted=" << (sessionAttempted_ ? 1 : 0)
@@ -485,6 +518,7 @@ struct OpenXRRuntime::Impl {
     {
         std::lock_guard lock(mutex_);
         glBridge_.InvalidateStereoCaches();
+        glBridge_.InvalidateHudCapture();
         pendingRenderedEyeValid_ = false;
         renderedStereoViewValid_[0] = false;
         renderedStereoViewValid_[1] = false;
@@ -515,6 +549,37 @@ struct OpenXRRuntime::Impl {
             static_cast<unsigned long long>(currentGameFrame_),
             static_cast<unsigned long long>(comfortBlackoutUntilFrame_),
             static_cast<unsigned long long>(comfortBlackoutRequests_));
+    }
+
+    bool BeginHudCapture(uint64_t frameIndex)
+    {
+        std::lock_guard lock(mutex_);
+        if (!hudLayerEnabled_
+            || hudSubmissionSuspended_
+            || !frameSubmitEnabled_
+            || !sessionRunning_
+            || !stereoSubmissionEnabled_
+            || (sessionState_ != XR_SESSION_STATE_VISIBLE
+                && sessionState_ != XR_SESSION_STATE_FOCUSED)
+            || !frameResourcesReady_
+            || !glBridge_.HudReady()) {
+            return false;
+        }
+        const bool started = glBridge_.BeginHudCapture(frameIndex);
+        if (started) {
+            ++hudCaptureStarts_;
+        }
+        return started;
+    }
+
+    bool EndHudCapture(uint64_t frameIndex)
+    {
+        std::lock_guard lock(mutex_);
+        const bool completed = glBridge_.EndHudCapture(frameIndex);
+        if (completed) {
+            ++hudCaptureCompletions_;
+        }
+        return completed;
     }
 
 private:
@@ -1184,6 +1249,8 @@ private:
                 swapchainFormats_.size());
             return false;
         }
+        hudSubmissionSuspended_ = false;
+        hudConsecutiveFailures_ = 0;
 
         const bool stageSupported = std::find(
             supportedReferenceSpaces_.begin(),
@@ -1212,13 +1279,36 @@ private:
             return false;
         }
 
+        bool createHudResources = hudLayerEnabled_;
+        if (createHudResources) {
+            XrReferenceSpaceCreateInfo viewSpaceInfo{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
+            viewSpaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+            viewSpaceInfo.poseInReferenceSpace.orientation.w = 1.0f;
+            result = xrCreateReferenceSpace(session_, &viewSpaceInfo, &viewSpace_);
+            if (XR_FAILED(result)) {
+                createHudResources = false;
+                hudSubmissionSuspended_ = true;
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "openxr_hud disabled reason=view_space_create_failed result=%s",
+                    XrResultString(result).c_str());
+            }
+        }
+
         if (!glBridge_.Initialize(
                 session_,
                 viewConfigurationViews_,
                 swapchainFormats_,
-                resolutionScalePercent_)) {
+                resolutionScalePercent_,
+                createHudResources,
+                hudWidthPixels_,
+                hudHeightPixels_)) {
             xrDestroySpace(appSpace_);
             appSpace_ = XR_NULL_HANDLE;
+            if (viewSpace_ != XR_NULL_HANDLE) {
+                xrDestroySpace(viewSpace_);
+                viewSpace_ = XR_NULL_HANDLE;
+            }
             Logger::Instance().Write(LogLevel::Warn, "openxr_frame_resources gl_bridge_failed");
             return false;
         }
@@ -1245,6 +1335,10 @@ private:
     void DestroyFrameResourcesLocked()
     {
         glBridge_.Shutdown();
+        if (viewSpace_ != XR_NULL_HANDLE) {
+            xrDestroySpace(viewSpace_);
+            viewSpace_ = XR_NULL_HANDLE;
+        }
         if (appSpace_ != XR_NULL_HANDLE) {
             xrDestroySpace(appSpace_);
             appSpace_ = XR_NULL_HANDLE;
@@ -1445,11 +1539,14 @@ private:
 
         std::array<XrCompositionLayerProjectionView, 2> projectionViews{};
         XrCompositionLayerProjection projectionLayer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
-        const XrCompositionLayerBaseHeader* layers[1] = {};
+        XrCompositionLayerQuad hudLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
+        const XrCompositionLayerBaseHeader* layers[2] = {};
         uint32_t layerCount = 0;
         uint32_t locatedViewCount = 0;
         XrViewState viewState{XR_TYPE_VIEW_STATE};
         bool submittedStereo = false;
+        bool submittedHud = false;
+        bool viewsLocatedValid = false;
         for (XrView& view : pendingLocatedViews_) {
             view = {XR_TYPE_VIEW};
         }
@@ -1472,6 +1569,7 @@ private:
             const bool viewsValid = XR_SUCCEEDED(result)
                 && locatedViewCount == glBridge_.EyeCount()
                 && (viewState.viewStateFlags & requiredFlags) == requiredFlags;
+            viewsLocatedValid = viewsValid;
 
             bool copied = viewsValid;
             if (!viewsValid) {
@@ -1555,6 +1653,63 @@ private:
             }
         }
 
+        if (frameState.shouldRender == XR_TRUE
+            && viewsLocatedValid
+            && hudLayerEnabled_
+            && !hudSubmissionSuspended_
+            && stereoSubmissionEnabled_
+            && viewSpace_ != XR_NULL_HANDLE
+            && glBridge_.HudCaptureFresh(frameIndex, static_cast<uint64_t>(hudMaxAgeFrames_))) {
+            hud_math::HudQuadPose quadPose;
+            const bool poseValid = hud_math::BuildHeadLockedQuadPose(
+                {},
+                {},
+                hudDistanceMeters_,
+                hudVerticalOffsetMeters_,
+                hudWidthMeters_,
+                static_cast<float>(glBridge_.Hud().width) / static_cast<float>(glBridge_.Hud().height),
+                quadPose);
+            if (poseValid && glBridge_.CopyHudCaptureToSwapchain()) {
+                hudLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                hudLayer.space = viewSpace_;
+                hudLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                hudLayer.pose.orientation = {
+                    quadPose.orientation.x,
+                    quadPose.orientation.y,
+                    quadPose.orientation.z,
+                    quadPose.orientation.w,
+                };
+                hudLayer.pose.position = {
+                    quadPose.position.x,
+                    quadPose.position.y,
+                    quadPose.position.z,
+                };
+                hudLayer.size = {quadPose.widthMeters, quadPose.heightMeters};
+                hudLayer.subImage.swapchain = glBridge_.Hud().handle;
+                hudLayer.subImage.imageRect.offset = {0, 0};
+                hudLayer.subImage.imageRect.extent = {
+                    glBridge_.Hud().width,
+                    glBridge_.Hud().height,
+                };
+                hudLayer.subImage.imageArrayIndex = 0;
+                layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&hudLayer);
+                submittedHud = true;
+                hudConsecutiveFailures_ = 0;
+                ++hudSubmittedFrames_;
+            } else {
+                ++hudSubmissionFailures_;
+                ++hudConsecutiveFailures_;
+                if (hudConsecutiveFailures_ >= 4) {
+                    hudSubmissionSuspended_ = true;
+                    Logger::Instance().Write(
+                        LogLevel::Error,
+                        "openxr_hud suspended reason=submission_failures consecutive=%u total=%llu fallback=native_backbuffer",
+                        hudConsecutiveFailures_,
+                        static_cast<unsigned long long>(hudSubmissionFailures_));
+                }
+            }
+        }
+
         const bool comfortBlackout = comfortBlackoutUntilFrame_ != 0
             && frameIndex <= comfortBlackoutUntilFrame_;
         if (comfortBlackout) {
@@ -1593,15 +1748,17 @@ private:
         if (completedXrFrameCount_ == 1 || (completedXrFrameCount_ % 300) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d stereoCaptured=%llu stereoSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
+                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d hud=%d stereoCaptured=%llu stereoSubmitted=%llu hudSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
                 static_cast<unsigned long long>(frameIndex),
                 static_cast<unsigned long long>(completedXrFrameCount_),
                 frameState.shouldRender == XR_TRUE ? 1 : 0,
                 layerCount,
                 locatedViewCount,
                 submittedStereo ? 1 : 0,
+                submittedHud ? 1 : 0,
                 static_cast<unsigned long long>(stereoCapturedEyeCount_),
                 static_cast<unsigned long long>(stereoSubmittedFrameCount_),
+                static_cast<unsigned long long>(hudSubmittedFrames_),
                 static_cast<long long>(frameState.predictedDisplayTime),
                 locatedViewCount > 0 ? locatedViews_[0].pose.position.x : 0.0f,
                 locatedViewCount > 0 ? locatedViews_[0].pose.position.y : 0.0f,
@@ -1739,6 +1896,14 @@ private:
     int recoveryDelayFrames_ = 120;
     int trackingHoldFrames_ = 30;
     int trackingRecoveryBlackoutFrames_ = 2;
+    bool hudLayerEnabled_ = false;
+    bool hudSubmissionSuspended_ = false;
+    int hudWidthPixels_ = 1600;
+    int hudHeightPixels_ = 900;
+    float hudDistanceMeters_ = 1.5f;
+    float hudWidthMeters_ = 1.6f;
+    float hudVerticalOffsetMeters_ = 0.0f;
+    int hudMaxAgeFrames_ = 2;
     bool trackingDegraded_ = false;
     bool trackingLost_ = false;
     uint64_t retryFrame_ = 0;
@@ -1756,6 +1921,11 @@ private:
     uint32_t stereoCaptureFailures_ = 0;
     uint64_t stereoCapturedEyeCount_ = 0;
     uint64_t stereoSubmittedFrameCount_ = 0;
+    uint32_t hudConsecutiveFailures_ = 0;
+    uint64_t hudCaptureStarts_ = 0;
+    uint64_t hudCaptureCompletions_ = 0;
+    uint64_t hudSubmittedFrames_ = 0;
+    uint64_t hudSubmissionFailures_ = 0;
     uint64_t runtimeRecoveries_ = 0;
     uint64_t trackingInvalidFrames_ = 0;
     uint64_t trackingLossEvents_ = 0;
@@ -1780,6 +1950,7 @@ private:
     XrSystemId systemId_ = XR_NULL_SYSTEM_ID;
     XrSession session_ = XR_NULL_HANDLE;
     XrSpace appSpace_ = XR_NULL_HANDLE;
+    XrSpace viewSpace_ = XR_NULL_HANDLE;
     XrReferenceSpaceType selectedReferenceSpace_ = XR_REFERENCE_SPACE_TYPE_LOCAL;
     HMODULE loaderModule_ = nullptr;
     XrSessionState sessionState_ = XR_SESSION_STATE_UNKNOWN;
@@ -1814,7 +1985,14 @@ struct OpenXRRuntime::Impl {
         bool recoveryEnabled,
         int recoveryDelayFrames,
         int trackingHoldFrames,
-        int trackingRecoveryBlackoutFrames)
+        int trackingRecoveryBlackoutFrames,
+        bool hudLayerEnabled,
+        int hudWidthPixels,
+        int hudHeightPixels,
+        float hudDistanceMeters,
+        float hudWidthMeters,
+        float hudVerticalOffsetMeters,
+        int hudMaxAgeFrames)
     {
         std::lock_guard lock(mutex_);
         enabled_ = enabled;
@@ -1833,11 +2011,12 @@ struct OpenXRRuntime::Impl {
         recoveryDelayFrames_ = recoveryDelayFrames;
         trackingHoldFrames_ = trackingHoldFrames;
         trackingRecoveryBlackoutFrames_ = trackingRecoveryBlackoutFrames;
+        hudLayerEnabled_ = hudLayerEnabled;
         manualStartArmed_ = false;
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d",
+            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -1853,7 +2032,14 @@ struct OpenXRRuntime::Impl {
             recoveryEnabled_ ? 1 : 0,
             recoveryDelayFrames_,
             trackingHoldFrames_,
-            trackingRecoveryBlackoutFrames_);
+            trackingRecoveryBlackoutFrames_,
+            hudLayerEnabled_ ? 1 : 0,
+            hudWidthPixels,
+            hudHeightPixels,
+            hudDistanceMeters,
+            hudWidthMeters,
+            hudVerticalOffsetMeters,
+            hudMaxAgeFrames);
     }
 
     void OnOpenGLContext(HDC deviceContext, HGLRC glContext)
@@ -1950,6 +2136,8 @@ struct OpenXRRuntime::Impl {
     bool MarkRenderedStereoEye(uint32_t, const OpenXREyeView&) { return false; }
     void InvalidateStereoCaches(const char*) {}
     void RequestComfortBlackout(uint32_t, const char*) {}
+    bool BeginHudCapture(uint64_t) { return false; }
+    bool EndHudCapture(uint64_t) { return false; }
 
 private:
     void LogUnavailableLocked()
@@ -1978,6 +2166,7 @@ private:
     int recoveryDelayFrames_ = 120;
     int trackingHoldFrames_ = 30;
     int trackingRecoveryBlackoutFrames_ = 2;
+    bool hudLayerEnabled_ = false;
     bool mirrorBackbufferEnabled_ = true;
     int resolutionScalePercent_ = 100;
     std::string referenceSpace_ = "local";
@@ -2007,7 +2196,14 @@ void OpenXRRuntime::Configure(
     bool recoveryEnabled,
     int recoveryDelayFrames,
     int trackingHoldFrames,
-    int trackingRecoveryBlackoutFrames)
+    int trackingRecoveryBlackoutFrames,
+    bool hudLayerEnabled,
+    int hudWidthPixels,
+    int hudHeightPixels,
+    float hudDistanceMeters,
+    float hudWidthMeters,
+    float hudVerticalOffsetMeters,
+    int hudMaxAgeFrames)
 {
     impl_->Configure(
         enabled,
@@ -2025,7 +2221,14 @@ void OpenXRRuntime::Configure(
         recoveryEnabled,
         recoveryDelayFrames,
         trackingHoldFrames,
-        trackingRecoveryBlackoutFrames);
+        trackingRecoveryBlackoutFrames,
+        hudLayerEnabled,
+        hudWidthPixels,
+        hudHeightPixels,
+        hudDistanceMeters,
+        hudWidthMeters,
+        hudVerticalOffsetMeters,
+        hudMaxAgeFrames);
 }
 
 void OpenXRRuntime::OnOpenGLContext(HDC deviceContext, HGLRC glContext)
@@ -2096,6 +2299,16 @@ void OpenXRRuntime::InvalidateStereoCaches(const char* reason)
 void OpenXRRuntime::RequestComfortBlackout(uint32_t frames, const char* reason)
 {
     impl_->RequestComfortBlackout(frames, reason);
+}
+
+bool OpenXRRuntime::BeginHudCapture(uint64_t frameIndex)
+{
+    return impl_->BeginHudCapture(frameIndex);
+}
+
+bool OpenXRRuntime::EndHudCapture(uint64_t frameIndex)
+{
+    return impl_->EndHudCapture(frameIndex);
 }
 
 } // namespace somavr

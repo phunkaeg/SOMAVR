@@ -2,6 +2,25 @@
 
 ## 2026-07-15
 
+### 0.15.0-hud-layer
+
+- Extracted permanent GUI ownership from `HPLCompatibilityProbe` into a
+  signature-guarded `HPLHudBridge`; the existing exact `GameHudSet` identity,
+  per-set draw telemetry, and virtual HUD metrics remain available.
+- The exact 2D gameplay HUD now renders into a transparent `1600x900` OpenGL
+  target instead of both AFR eye images when the OpenXR session is visible.
+  Menus, ImGui, subtitles outside this set, and 3D/diegetic GUI sets remain native.
+- Added a dedicated OpenXR HUD swapchain and alpha-blended
+  `XrCompositionLayerQuad` in VIEW reference space. Distance, physical width,
+  vertical offset, pixel dimensions, and accepted capture age are configurable.
+- Added fail-closed behavior: missing signatures/resources/session visibility
+  keep the native HUD path; four consecutive copy failures suspend extraction
+  so the next frame returns to the backbuffer path.
+- Added tested `HPLHudMath` quad placement/aspect validation and expanded OpenXR
+  frame/summary telemetry with HUD capture, submission, and fallback counters.
+- Built and tested default and OpenXR x64 Release flavors. OpenXR SHA-256:
+  `B7639F5EF7DDE23098B7913CAF10523F3D648179BA8F4B61F40EF3494CB2C299`.
+
 ### 0.14.0-native-locomotion
 
 - Added `HPLNativeLocomotion`, signature-guarding the registered

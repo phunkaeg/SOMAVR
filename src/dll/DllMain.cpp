@@ -5,6 +5,7 @@
 #include "HPLInputBridge.h"
 #include "HPLInteractionBridge.h"
 #include "HPLHandsBridge.h"
+#include "HPLHudBridge.h"
 #include "HPLNativeLocomotion.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
@@ -174,6 +175,16 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplControllerRecenterHoldMs,
         g_config->Get().hplControllerMaxInputAgeFrames,
         g_config->Get().hplControllerLogInterval);
+    somavr::Logger::Instance().Write(
+        somavr::LogLevel::Info,
+        "hud_config enabled=%d size=%dx%d distanceMeters=%.3f widthMeters=%.3f verticalOffsetMeters=%.3f maxAgeFrames=%d",
+        g_config->Get().openxrHudLayer ? 1 : 0,
+        g_config->Get().openxrHudWidthPixels,
+        g_config->Get().openxrHudHeightPixels,
+        g_config->Get().openxrHudDistanceMeters,
+        g_config->Get().openxrHudWidthMeters,
+        g_config->Get().openxrHudVerticalOffsetMeters,
+        g_config->Get().openxrHudMaxAgeFrames);
 
     g_openxr = std::make_unique<somavr::OpenXRRuntime>();
     g_openxr->Configure(
@@ -192,7 +203,14 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrRecoveryEnabled,
         g_config->Get().openxrRecoveryDelayFrames,
         g_config->Get().openxrTrackingHoldFrames,
-        g_config->Get().openxrTrackingRecoveryBlackoutFrames);
+        g_config->Get().openxrTrackingRecoveryBlackoutFrames,
+        g_config->Get().openxrHudLayer,
+        g_config->Get().openxrHudWidthPixels,
+        g_config->Get().openxrHudHeightPixels,
+        g_config->Get().openxrHudDistanceMeters,
+        g_config->Get().openxrHudWidthMeters,
+        g_config->Get().openxrHudVerticalOffsetMeters,
+        g_config->Get().openxrHudMaxAgeFrames);
 
     if (!somavr::InstallOpenGLHooks(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "opengl_hooks install_failed");
@@ -214,6 +232,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     }
     if (!somavr::InstallHPLHandsBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_hands_bridge install_failed");
+    }
+    if (!somavr::InstallHPLHudBridge(g_config->Get(), g_openxr.get())) {
+        somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_hud_bridge install_failed");
     }
     if (!somavr::InstallHPLCompatibilityProbe(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_compat_probe install_failed");
@@ -244,6 +265,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::RemoveHPLLifecycle();
     somavr::LogHPLCompatibilityProbeSummary();
     somavr::RemoveHPLCompatibilityProbe();
+    somavr::LogHPLHudBridgeSummary();
+    somavr::RemoveHPLHudBridge();
     somavr::LogHPLHandsBridgeSummary();
     somavr::RemoveHPLHandsBridge();
     somavr::LogHPLInteractionBridgeSummary();

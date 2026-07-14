@@ -34,6 +34,13 @@ struct Config {
     int openxrRecoveryDelayFrames = 120;
     int openxrTrackingHoldFrames = 30;
     int openxrTrackingRecoveryBlackoutFrames = 2;
+    bool openxrHudLayer = false;
+    int openxrHudWidthPixels = 1600;
+    int openxrHudHeightPixels = 900;
+    float openxrHudDistanceMeters = 1.5f;
+    float openxrHudWidthMeters = 1.6f;
+    float openxrHudVerticalOffsetMeters = 0.0f;
+    int openxrHudMaxAgeFrames = 2;
     bool hplControllerInput = false;
     float hplControllerMoveDeadzone = 0.35f;
     float hplControllerMoveReleaseDeadzone = 0.25f;

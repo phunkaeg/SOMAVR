@@ -103,7 +103,9 @@ public:
         bool mirrorBackbuffer,
         int resolutionScalePercent,
         bool inputEnabled,
-        int inputLogInterval);
+        int inputLogInterval,
+        bool recoveryEnabled,
+        int recoveryDelayFrames);
     void OnOpenGLContext(HDC deviceContext, HGLRC glContext);
     void OnFrameBoundary(HDC deviceContext, HGLRC glContext, uint64_t frameIndex);
     bool RequestManualStart();
@@ -116,6 +118,8 @@ public:
     bool GetLatestInput(OpenXRInputSnapshot& input) const;
     void SetStereoSubmissionEnabled(bool enabled);
     bool MarkRenderedStereoEye(uint32_t eyeIndex, const OpenXREyeView& view);
+    void InvalidateStereoCaches(const char* reason);
+    void RequestComfortBlackout(uint32_t frames, const char* reason);
 
 private:
     struct Impl;

@@ -28,5 +28,6 @@ void RemoveHPLCameraBridge();
 void LogHPLCameraBridgeSummary();
 HPLCameraBridgeStatus GetHPLCameraBridgeStatus();
 bool RequestHPLRecenter(const char* source);
+void NotifyHPLPlayerCameraChanged(void* previousCamera, void* currentCamera);
 
 } // namespace somavr

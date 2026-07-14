@@ -106,6 +106,11 @@ Offsets confirmed by script registrations and the `0.7.0` state probe anchors:
 
 ## HPL3 Character Body Layout
 
+`0x1402375f0` is the confirmed AngelScript `iCharacterBody::Move` wrapper. It
+adds the supplied amount to body `+0x94 + direction*4` and records the direction
+at `+0xbc`. This is a low-level accumulator below SOMA's player-state input
+dispatch, not a safe semantic locomotion boundary by itself.
+
 | Object | Offset | Meaning |
 | --- | --- | --- |
 | `iCharacterBody` | `+0x1e8` | Camera-update ownership boolean exposed as `Get/SetCameraUpdateActive`. SOMA's hands script clears it during camera-to-bone attachment and restores it afterward. |
@@ -118,6 +123,35 @@ Offsets confirmed by script registrations and the `0.7.0` state probe anchors:
 | composite | `+0x340/+0x348` | Begin/end pointers for retained `iPostEffect*` vector. |
 | effect | `+0x30` | Suppressed/disabled byte; an effect renders only when this is zero. |
 | effect | `+0x31` | Active byte; an effect renders only when this is nonzero. |
+
+Confirmed post-effect vtable RVAs used for runtime identity:
+
+| Effect | Vtable RVA | GetTypeName |
+| --- | --- | --- |
+| ToneMapping | `0x69b038` | `0x1402859b0` |
+| FXAA | `0x6ac3b8` | `0x140386170` |
+| ImageFadeFX | `0x6ac4e8` | `0x140386b20` |
+| VideoDistortion | `0x6ac688` | `0x1403878a0` |
+| ChromaticAberration | `0x6ac928` | `0x140388ee0` |
+| RadialBlur | `0x6acb78` | `0x140389ed0` |
+| ImageTrail | `0x6acd48` | `0x14038ad00` |
+
+The MSVC tree rooted through composite `+0x328` stores priority at node `+0x18`
+and effect pointer at node `+0x20`; child links are `+0x0/+0x10` and `_Isnil`
+is node `+0x29`.
+
+## HPL3 GUI Set Layout
+
+Fields confirmed in `HPL3_GuiSet_Render` at `0x140213970`:
+
+| Offset | Meaning |
+| --- | --- |
+| `+0x100/+0x104` | Virtual width and height. |
+| `+0x108/+0x10c` | Virtual coordinate offsets. |
+| `+0x110/+0x114` | GUI depth range. |
+| `+0x138` | Depth/3D-layer behavior flag. |
+| `+0x139` | 3D GUI flag. |
+| `+0x188` | GUI-set render priority. |
 
 ## HPL3 Viewport Layout
 

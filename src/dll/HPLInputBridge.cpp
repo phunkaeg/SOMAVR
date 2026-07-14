@@ -148,6 +148,11 @@ void ApplyTurn(const OpenXRInputSnapshot& input, uint64_t nowMs)
             g_config.hplControllerTurnDeadzone);
         if (!g_state.snapLatched && std::fabs(turn) >= g_config.hplControllerTurnDeadzone) {
             SendMouseMove(turn > 0.0f ? g_config.hplControllerSnapTurnPixels : -g_config.hplControllerSnapTurnPixels);
+            if (g_openxr != nullptr && g_config.hplControllerComfortBlackoutFrames > 0) {
+                g_openxr->RequestComfortBlackout(
+                    static_cast<uint32_t>(g_config.hplControllerComfortBlackoutFrames),
+                    "snap_turn");
+            }
             g_state.snapLatched = true;
         } else if (g_state.snapLatched && std::fabs(turn) <= releaseThreshold) {
             g_state.snapLatched = false;
@@ -205,7 +210,7 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
     g_openxr = openxr;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f turnMode=%s turnDeadzone=%.2f interaction=%d menu=%d recenterChord=%d suppressAuthoredCamera=%d maxInputAgeFrames=%d",
+        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f turnMode=%s turnDeadzone=%.2f interaction=%d menu=%d recenterChord=%d suppressAuthoredCamera=%d comfortBlackoutFrames=%d maxInputAgeFrames=%d",
         config.hplControllerInput ? 1 : 0,
         config.hplControllerMoveDeadzone,
         config.hplControllerSnapTurn ? "snap" : "smooth",
@@ -214,6 +219,7 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplControllerMenu ? 1 : 0,
         config.hplControllerRecenterChord ? 1 : 0,
         config.hplControllerSuppressDuringAuthoredCamera ? 1 : 0,
+        config.hplControllerComfortBlackoutFrames,
         config.hplControllerMaxInputAgeFrames);
     return true;
 }

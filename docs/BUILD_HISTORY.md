@@ -2,6 +2,29 @@
 
 ## 2026-07-15
 
+### 0.8.0-resilience-comfort
+
+- Added automatic OpenXR recovery for session `EXITING`/`LOSS_PENDING` and
+  instance-loss events. SOMAVR now destroys stale session/instance resources,
+  waits a configurable frame delay, and reboots the runtime while preserving
+  the user's stereo intent.
+- Added explicit AFR cache invalidation and automatic stable-pose re-arming when
+  SOMA replaces the active player or camera during save/load or map transition.
+- Added bounded OpenXR comfort-black frames for snap turns and completed
+  recenters. Frame pacing continues normally; only projection-layer submission
+  is omitted for the configured number of frames.
+- Promoted seven post-effect vtable identities from Ghidra. Active ImageTrail,
+  ChromaticAberration, and RadialBlur effects are temporarily disabled only
+  during active stereo VR compositor calls and restored immediately afterward.
+  ToneMapping, FXAA, ImageFadeFX, and VideoDistortion remain enabled.
+- Added priority lookup from the composite tree and named inventory/isolation
+  logs. Ctrl+F12 diagnostics continue to override the normal comfort policy.
+- Added a signature-guarded `HPL3_GuiSet_Render` hook with per-set 2D/3D flags,
+  virtual dimensions, offsets, depth range, priority, framebuffer/program state,
+  and draw-call deltas for HUD/diegetic classification.
+- Built and tested default and OpenXR x64 Release flavors. OpenXR output remains
+  `build-openxr-controller\Release`.
+
 ### 0.7.2-render-state-policy
 
 - Extracted signature-guarded native player inspection from `HPLInputBridge`

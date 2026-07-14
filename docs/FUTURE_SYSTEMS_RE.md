@@ -273,20 +273,30 @@ Same-frame dual rendering can later restore more effects, but temporal effects s
 
 ### Implementation Stages
 
-1. **Effect activity probe:** substantially built in `0.7.2`; logs the retained vector, object/vtable identity, active flags, input texture, render target, stage GL flow, and transitions. `Ctrl+F12` isolates one active effect per render call and `Shift+F12` restores the chain. Mapping vtable RVAs to names/priorities and recording texture dimensions remain.
-2. **VR comfort policy:** add named effect toggles and attenuation values without patching game scripts on disk.
+1. **Effect activity probe:** built through `0.8.0`; logs named vtable identity, priority-tree result, active flags, input texture, render target, stage GL flow, and transitions. `Ctrl+F12` isolates one active effect per render call and `Shift+F12` restores policy. Texture dimensions remain to be mapped.
+2. **VR comfort policy:** first named policy built in `0.8.0`. It temporarily suppresses ImageTrail, ChromaticAberration, and RadialBlur during active stereo rendering and restores their native active bytes immediately after the compositor call.
 3. **Per-eye post chain:** ensure the scene and post composite execute inside each eye render before caching/submission.
 4. **Per-eye history:** duplicate image-trail/temporal resources only if those effects are intentionally restored.
 5. **Overlay extraction:** move simple flashes, fades, and infection/HUD overlays to alpha-capable OpenXR layers.
 
 ## Probe Order
 
+### Native Movement Boundary Result
+
+`HPL3_Script_iCharacterBody_Move` at `0x1402375f0` is confirmed but intentionally
+not wired as the default controller path. It directly accumulates movement on the
+character body and bypasses SOMA's `Player::OnAnalogInput` state handling.
+SOMA's scripts route move/gamepad analog input through player and move states
+before calling the body, preserving crawl, ladder, authored, and constrained
+behavior. The current reversible W/A/S/D route therefore remains safer until the
+higher semantic AngelScript analog dispatch boundary is mapped.
+
 These probes are ordered to minimize runtime risk and maximize reusable information:
 
 1. Player/body/action telemetry with no input mutation. **Built.**
 2. Active player/move state and camera-mode telemetry. **Built; first authored ownership policy added in `0.7.2`.**
 3. Hands/tool entity classification and matrix telemetry.
-4. Post-effect active list, priorities, framebuffer flow, and eye attribution. **Active list, object identity, isolation, and GL flow built; priority/name mapping remains.**
+4. Post-effect active list, priorities, framebuffer flow, and eye attribution. **Named identity, priority lookup, isolation, temporary comfort policy, and GL flow are built; texture dimensions and per-eye history ownership remain.**
 5. GUI-set final target and alpha behavior. **GL state/flow probe built; transparent-target redirection remains.**
 6. OpenXR controller action set and semantic input bridge. **Built as a reversible input-path prototype.**
 7. HUD quad-layer extraction.

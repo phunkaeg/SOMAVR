@@ -37,6 +37,7 @@ public:
     bool CopyBackbufferToEye(uint32_t eyeIndex);
     bool CaptureBackbufferToCache(uint32_t eyeIndex);
     bool CopyCacheToEye(uint32_t eyeIndex);
+    void InvalidateStereoCaches();
     bool StereoCachesReady() const;
     bool Ready() const;
     uint32_t EyeCount() const;

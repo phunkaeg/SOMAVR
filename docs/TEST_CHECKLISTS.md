@@ -1,5 +1,25 @@
 # Test Checklists
 
+## 0.8.0 Runtime Resilience, Comfort, Effects, And GUI Sets
+
+1. Launch `build-openxr-controller\Release\somavr_injector.exe`, load a save,
+   and press F10 once. Confirm the known rigid, centered stereo baseline.
+2. Confirm seven render-stage/GUI hooks install, including `gui_set_render`, and
+   no native signature mismatch appears.
+3. Snap-turn once and recenter once. Expect comfort-blackout request/completion
+   rows with continuing successful OpenXR frames.
+4. Load another save or cross a map. Expect camera replacement, eye-cache
+   invalidation, stable calibration, and automatic stereo resumption without F10.
+5. Visit gameplay HUD, subtitles, pause/menu, and a terminal. Preserve the
+   `hpl_gui_set` rows, especially `is3d`, `priority`, virtual size, and draws.
+6. Trigger damage, blur, or visual-distortion effects. Confirm named inventory
+   rows and nonzero comfort suppression counters when the three targeted effects
+   are active. Fades, tone mapping, and video distortion should remain present.
+7. Ctrl+F12 should still isolate named effects; Shift+F12 restores policy.
+8. Remove headset/runtime focus if practical. Confirm loss events either recover
+   after the configured delay or fail closed without crashing SOMA.
+9. Exit normally and attach `logs\somavr.log`.
+
 ## 0.7.2 Authored Camera And Render-State Policy
 
 Purpose: validate the broader `0.7.2-render-state-policy` batch without changing

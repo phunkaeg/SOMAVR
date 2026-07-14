@@ -1,5 +1,22 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Runtime Resilience, GUI, And Effect Identity Sync
+
+Seven virtual type-name getters were promoted and tagged `HPL3`, `PostEffect`,
+and `SOMAVR`: ToneMapping `0x1402859b0`, FXAA `0x140386170`, ImageFadeFX
+`0x140386b20`, VideoDistortion `0x1403878a0`, ChromaticAberration
+`0x140388ee0`, RadialBlur `0x140389ed0`, and ImageTrail `0x14038ad00`.
+
+Their vtables were named at `0x14069b038`, `0x1406ac3b8`, `0x1406ac4e8`,
+`0x1406ac688`, `0x1406ac928`, `0x1406acb78`, and `0x1406acd48`. Plate comments
+record how SOMAVR's named, temporary VR policy treats each effect.
+`HPL3_GuiSet_Render` received the confirmed field ledger used by the new per-set
+telemetry hook. The program was saved after synchronization.
+
+`HPL3_Script_iCharacterBody_Move` at `0x1402375f0` was also confirmed, tagged,
+and commented. Its direct body accumulator behavior explains why it remains an
+RE anchor rather than the default locomotion injection point.
+
 ## 2026-07-15 Authored Camera, HUD, And Post-Effect Sync
 
 The active `Soma_NoSteam.exe` database was updated and saved after the `0.7.2`

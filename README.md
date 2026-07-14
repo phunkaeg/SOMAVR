@@ -101,6 +101,9 @@ HPLAudioListenerProbe=1
 HPLAudioListenerCorrection=1
 HPLPostEffectControl=1
 HPLPostEffectBypassDefault=0
+HPLPostEffectDisableImageTrail=1
+HPLPostEffectDisableChromaticAberration=1
+HPLPostEffectDisableRadialBlur=1
 HPLShadowJitterControl=1
 HPLShadowJitterSuppressedDefault=0
 HPLCompatibilityLogInterval=120
@@ -115,10 +118,13 @@ ManualStart=1
 FrameSubmit=1
 MirrorBackbuffer=1
 ResolutionScalePercent=100
+RecoveryEnabled=1
+RecoveryDelayFrames=120
 
 [Controller]
 Enabled=1
 SuppressDuringAuthoredCamera=1
+ComfortBlackoutFrames=2
 ```
 
 ## Known Install

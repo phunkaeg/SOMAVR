@@ -144,6 +144,9 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLAudioListenerCorrection=0\n"
         << "HPLPostEffectControl=0\n"
         << "HPLPostEffectBypassDefault=0\n"
+        << "HPLPostEffectDisableImageTrail=1\n"
+        << "HPLPostEffectDisableChromaticAberration=1\n"
+        << "HPLPostEffectDisableRadialBlur=1\n"
         << "HPLShadowJitterControl=0\n"
         << "HPLShadowJitterSuppressedDefault=0\n"
         << "HPLCompatibilityLogInterval=120\n"
@@ -160,7 +163,9 @@ void ConfigManager::WriteDefaultConfig() const
         << "MirrorBackbuffer=1\n"
         << "ResolutionScalePercent=100\n"
         << "InputEnabled=0\n"
-        << "InputLogInterval=120\n\n"
+        << "InputLogInterval=120\n"
+        << "RecoveryEnabled=1\n"
+        << "RecoveryDelayFrames=120\n\n"
         << "[Controller]\n"
         << "Enabled=0\n"
         << "MoveDeadzone=0.35\n"
@@ -174,6 +179,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "Menu=1\n"
         << "RecenterChord=1\n"
         << "SuppressDuringAuthoredCamera=1\n"
+        << "ComfortBlackoutFrames=2\n"
         << "RecenterHoldMs=900\n"
         << "MaxInputAgeFrames=8\n"
         << "LogInterval=120\n";
@@ -258,6 +264,9 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplaudiolistenercorrection") config_.hplAudioListenerCorrection = ParseBool(value, config_.hplAudioListenerCorrection);
             else if (key == "hplposteffectcontrol") config_.hplPostEffectControl = ParseBool(value, config_.hplPostEffectControl);
             else if (key == "hplposteffectbypassdefault") config_.hplPostEffectBypassDefault = ParseBool(value, config_.hplPostEffectBypassDefault);
+            else if (key == "hplposteffectdisableimagetrail") config_.hplPostEffectDisableImageTrail = ParseBool(value, config_.hplPostEffectDisableImageTrail);
+            else if (key == "hplposteffectdisablechromaticaberration") config_.hplPostEffectDisableChromaticAberration = ParseBool(value, config_.hplPostEffectDisableChromaticAberration);
+            else if (key == "hplposteffectdisableradialblur") config_.hplPostEffectDisableRadialBlur = ParseBool(value, config_.hplPostEffectDisableRadialBlur);
             else if (key == "hplshadowjittercontrol") config_.hplShadowJitterControl = ParseBool(value, config_.hplShadowJitterControl);
             else if (key == "hplshadowjittersuppresseddefault") config_.hplShadowJitterSuppressedDefault = ParseBool(value, config_.hplShadowJitterSuppressedDefault);
             else if (key == "hplcompatibilityloginterval") config_.hplCompatibilityLogInterval = ParseInt(value, config_.hplCompatibilityLogInterval, 1, 100000);
@@ -288,6 +297,10 @@ void ConfigManager::LoadFromFile()
                 config_.openxrInputEnabled = ParseBool(value, config_.openxrInputEnabled);
             } else if (key == "inputloginterval") {
                 config_.openxrInputLogInterval = ParseInt(value, config_.openxrInputLogInterval, 1, 100000);
+            } else if (key == "recoveryenabled") {
+                config_.openxrRecoveryEnabled = ParseBool(value, config_.openxrRecoveryEnabled);
+            } else if (key == "recoverydelayframes") {
+                config_.openxrRecoveryDelayFrames = ParseInt(value, config_.openxrRecoveryDelayFrames, 1, 100000);
             }
             continue;
         }
@@ -305,6 +318,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "menu") config_.hplControllerMenu = ParseBool(value, config_.hplControllerMenu);
             else if (key == "recenterchord") config_.hplControllerRecenterChord = ParseBool(value, config_.hplControllerRecenterChord);
             else if (key == "suppressduringauthoredcamera") config_.hplControllerSuppressDuringAuthoredCamera = ParseBool(value, config_.hplControllerSuppressDuringAuthoredCamera);
+            else if (key == "comfortblackoutframes") config_.hplControllerComfortBlackoutFrames = ParseInt(value, config_.hplControllerComfortBlackoutFrames, 0, 120);
             else if (key == "recenterholdms") config_.hplControllerRecenterHoldMs = ParseInt(value, config_.hplControllerRecenterHoldMs, 250, 5000);
             else if (key == "maxinputageframes") config_.hplControllerMaxInputAgeFrames = ParseInt(value, config_.hplControllerMaxInputAgeFrames, 1, 300);
             else if (key == "loginterval") config_.hplControllerLogInterval = ParseInt(value, config_.hplControllerLogInterval, 1, 100000);

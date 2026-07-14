@@ -833,6 +833,11 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
             g_state.currentEyeIndex = -1;
             g_state.currentEyePoseFrame = 0;
             g_state.nextEyeIndex = 0;
+            if (g_openxr != nullptr && g_config.hplControllerComfortBlackoutFrames > 0) {
+                g_openxr->RequestComfortBlackout(
+                    static_cast<uint32_t>(g_config.hplControllerComfortBlackoutFrames),
+                    "recenter");
+            }
             Logger::Instance().Write(
                 LogLevel::Warn,
                 "hpl_recenter applied key=F2 camera=%p frustum=%p poseFrame=%llu stablePoseFrames=%u stereo=%d roomscale=%d neutralPosition=%.6f,%.6f,%.6f neutralQuaternion=%.6f,%.6f,%.6f,%.6f",
@@ -1108,6 +1113,42 @@ bool RequestHPLRecenter(const char* source)
         g_state.stereoEnabled ? 1 : 0,
         g_roomscaleEnabled.load(std::memory_order_relaxed) ? 1 : 0);
     return true;
+}
+
+void NotifyHPLPlayerCameraChanged(void* previousCamera, void* currentCamera)
+{
+    std::lock_guard lock(g_stateMutex);
+    if (currentCamera == nullptr
+        || (!g_state.trackingEnabled && !g_state.activationPending)
+        || g_state.activeCamera == currentCamera) {
+        return;
+    }
+
+    const bool wasStereo = g_state.stereoEnabled;
+    if (g_openxr != nullptr) {
+        g_openxr->SetStereoSubmissionEnabled(false);
+        g_openxr->InvalidateStereoCaches("player_camera_changed");
+    }
+    g_state.activationPending = true;
+    g_state.recenterPending = false;
+    g_state.trackingEnabled = false;
+    g_state.stereoEnabled = false;
+    g_state.baseMatricesValid = false;
+    g_state.activeCamera = currentCamera;
+    g_state.activeFrustum = nullptr;
+    g_state.activationTrackingWaitLogs = 0;
+    g_state.recenterTrackingWaitLogs = 0;
+    g_state.activationPoseStability = PoseStabilityState{};
+    g_state.recenterPoseStability = PoseStabilityState{};
+    g_state.nextEyeIndex = 0;
+    g_state.currentEyeIndex = -1;
+    g_state.currentEyePoseFrame = 0;
+    Logger::Instance().Write(
+        LogLevel::Warn,
+        "hpl_vr_mode camera_replaced previous=%p current=%p stereoWas=%d policy=cache_invalidate_and_rearm",
+        previousCamera,
+        currentCamera,
+        wasStereo ? 1 : 0);
 }
 
 void RemoveHPLCameraBridge()

@@ -211,6 +211,13 @@ OpenXR frame pacing must continue through loading if SOMA continues presenting.
 If scene rendering pauses, submit the last valid world frame or a neutral clear
 behind the UI without re-running game simulation.
 
+`0.8.0-resilience-comfort` implements the first transition guard: when the
+player-owned camera pointer changes after VR activation, SOMAVR suspends stereo
+submission, clears both AFR eye caches, adopts the replacement camera, and runs
+the stable-pose latch before resuming. OpenXR session and swapchain ownership are
+kept alive. A separate delayed recovery path rebuilds OpenXR after session or
+instance loss. Dedicated load-screen/video extraction remains future work.
+
 ## Same-Frame Dual Render Boundary
 
 The proven native order is:

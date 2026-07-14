@@ -110,7 +110,9 @@ struct OpenXRRuntime::Impl {
         bool mirrorBackbuffer,
         int resolutionScalePercent,
         bool inputEnabled,
-        int inputLogInterval)
+        int inputLogInterval,
+        bool recoveryEnabled,
+        int recoveryDelayFrames)
     {
         std::lock_guard lock(mutex_);
         enabled_ = enabled;
@@ -124,6 +126,8 @@ struct OpenXRRuntime::Impl {
         resolutionScalePercent_ = std::clamp(resolutionScalePercent, 25, 200);
         inputEnabled_ = inputEnabled;
         inputLogInterval_ = std::max(inputLogInterval, 1);
+        recoveryEnabled_ = recoveryEnabled;
+        recoveryDelayFrames_ = std::max(recoveryDelayFrames, 1);
         manualStartArmed_ = false;
         manualStartLogged_ = false;
         manualStartKeyDown_ = false;
@@ -131,7 +135,7 @@ struct OpenXRRuntime::Impl {
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d input=%d inputLogInterval=%d",
+            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -142,7 +146,9 @@ struct OpenXRRuntime::Impl {
             mirrorBackbufferEnabled_ ? 1 : 0,
             resolutionScalePercent_,
             inputEnabled_ ? 1 : 0,
-            inputLogInterval_);
+            inputLogInterval_,
+            recoveryEnabled_ ? 1 : 0,
+            recoveryDelayFrames_);
 
         if (frameSubmitEnabled_ && !sessionProbeEnabled_) {
             Logger::Instance().Write(
@@ -183,6 +189,10 @@ struct OpenXRRuntime::Impl {
 
         if (session_ != XR_NULL_HANDLE) {
             PollEventsLocked(frameIndex);
+            if (recoveryRequested_) {
+                BeginRuntimeRecoveryLocked(frameIndex);
+                return;
+            }
             if (releaseAfterProbeEnabled_ && releaseFrame_ != 0 && frameIndex >= releaseFrame_) {
                 ReleaseRuntimeAfterProbeLocked("hold_complete");
             }
@@ -197,6 +207,10 @@ struct OpenXRRuntime::Impl {
                 return;
             }
             AttemptBootstrapLocked(deviceContext, glContext, frameIndex);
+            if (failed_ && recoveryEnabled_ && runtimeRecoveries_ != 0) {
+                BeginRuntimeRecoveryLocked(frameIndex);
+                return;
+            }
         }
 
         if (sessionRunning_ && frameResourcesReady_ && !frameSubmitFailed_) {
@@ -250,6 +264,8 @@ struct OpenXRRuntime::Impl {
         pendingRenderedEyeValid_ = false;
         renderedStereoViewValid_[0] = false;
         renderedStereoViewValid_[1] = false;
+        recoveryRequested_ = false;
+        comfortBlackoutUntilFrame_ = 0;
         releaseFrame_ = 0;
     }
 
@@ -277,6 +293,13 @@ struct OpenXRRuntime::Impl {
             << " openxrResolutionScalePercent=" << resolutionScalePercent_
             << " openxrFrameResourcesReady=" << (frameResourcesReady_ ? 1 : 0)
             << " openxrFrameSubmitFailed=" << (frameSubmitFailed_ ? 1 : 0)
+            << " openxrRecoveryEnabled=" << (recoveryEnabled_ ? 1 : 0)
+            << " openxrRecoveryPending=" << (recoveryRequested_ ? 1 : 0)
+            << " openxrRecoveries=" << static_cast<unsigned long long>(runtimeRecoveries_)
+            << " openxrStereoCacheInvalidations=" << static_cast<unsigned long long>(stereoCacheInvalidations_)
+            << " openxrComfortBlackoutUntilFrame=" << static_cast<unsigned long long>(comfortBlackoutUntilFrame_)
+            << " openxrComfortBlackoutRequests=" << static_cast<unsigned long long>(comfortBlackoutRequests_)
+            << " openxrComfortBlackoutFrames=" << static_cast<unsigned long long>(comfortBlackoutFrames_)
             << " openxrSessionRunning=" << (sessionRunning_ ? 1 : 0)
             << " openxrStereoSubmission=" << (stereoSubmissionEnabled_ ? 1 : 0)
             << " openxrStereoCapturedEyes=" << static_cast<unsigned long long>(stereoCapturedEyeCount_)
@@ -411,6 +434,42 @@ struct OpenXRRuntime::Impl {
         pendingRenderedView_ = view;
         pendingRenderedEyeValid_ = true;
         return true;
+    }
+
+    void InvalidateStereoCaches(const char* reason)
+    {
+        std::lock_guard lock(mutex_);
+        glBridge_.InvalidateStereoCaches();
+        pendingRenderedEyeValid_ = false;
+        renderedStereoViewValid_[0] = false;
+        renderedStereoViewValid_[1] = false;
+        stereoWarmupLogged_ = false;
+        ++stereoCacheInvalidations_;
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_stereo_cache invalidated reason=%s count=%llu frame=%llu",
+            reason != nullptr ? reason : "unspecified",
+            static_cast<unsigned long long>(stereoCacheInvalidations_),
+            static_cast<unsigned long long>(currentGameFrame_));
+    }
+
+    void RequestComfortBlackout(uint32_t frames, const char* reason)
+    {
+        if (frames == 0) {
+            return;
+        }
+        std::lock_guard lock(mutex_);
+        const uint64_t requestedUntil = currentGameFrame_ + frames;
+        comfortBlackoutUntilFrame_ = std::max(comfortBlackoutUntilFrame_, requestedUntil);
+        ++comfortBlackoutRequests_;
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "openxr_comfort_blackout requested reason=%s frames=%u currentFrame=%llu untilFrame=%llu requests=%llu",
+            reason != nullptr ? reason : "unspecified",
+            frames,
+            static_cast<unsigned long long>(currentGameFrame_),
+            static_cast<unsigned long long>(comfortBlackoutUntilFrame_),
+            static_cast<unsigned long long>(comfortBlackoutRequests_));
     }
 
 private:
@@ -654,6 +713,52 @@ private:
         if (std::strcmp(reason, "session_probe_disabled") == 0) {
             Logger::Instance().Write(LogLevel::Info, "openxr_instance released_after_static_probe reason=session_probe_disabled");
         }
+    }
+
+    void BeginRuntimeRecoveryLocked(uint64_t frameIndex)
+    {
+        const bool resumeStereo = stereoSubmissionEnabled_;
+        if (session_ != XR_NULL_HANDLE) {
+            input_.ShutdownSession();
+            DestroyFrameResourcesLocked();
+            xrDestroySession(session_);
+            session_ = XR_NULL_HANDLE;
+        } else {
+            DestroyFrameResourcesLocked();
+        }
+        if (instance_ != XR_NULL_HANDLE) {
+            input_.Shutdown();
+            xrDestroyInstance(instance_);
+            instance_ = XR_NULL_HANDLE;
+        }
+
+        systemId_ = XR_NULL_SYSTEM_ID;
+        sessionState_ = XR_SESSION_STATE_UNKNOWN;
+        initialized_ = false;
+        attempted_ = true;
+        failed_ = false;
+        sessionAttempted_ = false;
+        sessionCreated_ = false;
+        sessionRunning_ = false;
+        frameSubmitFailed_ = false;
+        pendingRenderedEyeValid_ = false;
+        renderedStereoViewValid_[0] = false;
+        renderedStereoViewValid_[1] = false;
+        latestPoseValid_ = false;
+        consecutiveFrameFailures_ = 0;
+        stereoCaptureFailures_ = 0;
+        stereoSubmissionEnabled_ = resumeStereo;
+        retryFrame_ = frameIndex + static_cast<uint64_t>(recoveryDelayFrames_);
+        recoveryRequested_ = false;
+        ++runtimeRecoveries_;
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_recovery scheduled frame=%llu retryFrame=%llu delayFrames=%d resumeStereo=%d count=%llu",
+            static_cast<unsigned long long>(frameIndex),
+            static_cast<unsigned long long>(retryFrame_),
+            recoveryDelayFrames_,
+            resumeStereo ? 1 : 0,
+            static_cast<unsigned long long>(runtimeRecoveries_));
     }
 
     bool EnsureOpenXRLoaderLoadedLocked()
@@ -1130,6 +1235,18 @@ private:
                 static_cast<unsigned long long>(frameIndex),
                 consecutiveFrameFailures_);
         }
+        if (recoveryEnabled_
+            && (result == XR_SESSION_LOSS_PENDING
+                || result == XR_ERROR_SESSION_LOST
+                || result == XR_ERROR_INSTANCE_LOST)) {
+            recoveryRequested_ = true;
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_recovery requested source=frame_failure operation=%s result=%s frame=%llu",
+                operation,
+                XrResultString(result).c_str(),
+                static_cast<unsigned long long>(frameIndex));
+        }
     }
 
     void SubmitFrameLocked(uint64_t frameIndex)
@@ -1297,6 +1414,20 @@ private:
             }
         }
 
+        const bool comfortBlackout = comfortBlackoutUntilFrame_ != 0
+            && frameIndex <= comfortBlackoutUntilFrame_;
+        if (comfortBlackout) {
+            layerCount = 0;
+            ++comfortBlackoutFrames_;
+        } else if (comfortBlackoutUntilFrame_ != 0) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "openxr_comfort_blackout complete frame=%llu totalBlackFrames=%llu",
+                static_cast<unsigned long long>(frameIndex),
+                static_cast<unsigned long long>(comfortBlackoutFrames_));
+            comfortBlackoutUntilFrame_ = 0;
+        }
+
         XrFrameEndInfo endInfo{XR_TYPE_FRAME_END_INFO};
         endInfo.displayTime = frameState.predictedDisplayTime;
         endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
@@ -1393,7 +1524,27 @@ private:
                         || state->state == XR_SESSION_STATE_LOSS_PENDING) {
                         sessionRunning_ = false;
                         frameSubmitFailed_ = true;
+                        if (recoveryEnabled_) {
+                            recoveryRequested_ = true;
+                            Logger::Instance().Write(
+                                LogLevel::Warn,
+                                "openxr_recovery requested source=session_state state=%s frame=%llu",
+                                SessionStateName(state->state),
+                                static_cast<unsigned long long>(frameIndex));
+                            return;
+                        }
                     }
+                }
+            } else if (event.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) {
+                frameSubmitFailed_ = true;
+                sessionRunning_ = false;
+                if (recoveryEnabled_) {
+                    recoveryRequested_ = true;
+                    Logger::Instance().Write(
+                        LogLevel::Warn,
+                        "openxr_recovery requested source=instance_loss frame=%llu",
+                        static_cast<unsigned long long>(frameIndex));
+                    return;
                 }
             } else {
                 if (eventLogCount_ < 64) {
@@ -1441,6 +1592,9 @@ private:
     bool sessionHeldAfterProbe_ = false;
     bool sessionAttempted_ = false;
     bool sessionCreated_ = false;
+    bool recoveryEnabled_ = true;
+    bool recoveryRequested_ = false;
+    int recoveryDelayFrames_ = 120;
     uint64_t retryFrame_ = 0;
     uint64_t releaseFrame_ = 0;
     uint64_t sessionCreatedFrame_ = 0;
@@ -1456,6 +1610,11 @@ private:
     uint32_t stereoCaptureFailures_ = 0;
     uint64_t stereoCapturedEyeCount_ = 0;
     uint64_t stereoSubmittedFrameCount_ = 0;
+    uint64_t runtimeRecoveries_ = 0;
+    uint64_t stereoCacheInvalidations_ = 0;
+    uint64_t comfortBlackoutUntilFrame_ = 0;
+    uint64_t comfortBlackoutRequests_ = 0;
+    uint64_t comfortBlackoutFrames_ = 0;
     OpenXREyeView pendingRenderedView_{};
     OpenXREyeView renderedStereoViews_[2] = {};
     bool latestPoseValid_ = false;
@@ -1497,7 +1656,9 @@ struct OpenXRRuntime::Impl {
         bool mirrorBackbuffer,
         int resolutionScalePercent,
         bool inputEnabled,
-        int inputLogInterval)
+        int inputLogInterval,
+        bool recoveryEnabled,
+        int recoveryDelayFrames)
     {
         std::lock_guard lock(mutex_);
         enabled_ = enabled;
@@ -1511,11 +1672,13 @@ struct OpenXRRuntime::Impl {
         resolutionScalePercent_ = resolutionScalePercent;
         inputEnabled_ = inputEnabled;
         inputLogInterval_ = inputLogInterval;
+        recoveryEnabled_ = recoveryEnabled;
+        recoveryDelayFrames_ = recoveryDelayFrames;
         manualStartArmed_ = false;
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d input=%d inputLogInterval=%d",
+            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d resolutionScalePercent=%d input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -1526,7 +1689,9 @@ struct OpenXRRuntime::Impl {
             mirrorBackbufferEnabled_ ? 1 : 0,
             resolutionScalePercent_,
             inputEnabled_ ? 1 : 0,
-            inputLogInterval_);
+            inputLogInterval_,
+            recoveryEnabled_ ? 1 : 0,
+            recoveryDelayFrames_);
     }
 
     void OnOpenGLContext(HDC deviceContext, HGLRC glContext)
@@ -1574,6 +1739,9 @@ struct OpenXRRuntime::Impl {
             << " openxrMirrorBackbuffer=" << (mirrorBackbufferEnabled_ ? 1 : 0)
             << " openxrResolutionScalePercent=" << resolutionScalePercent_
             << " openxrInputEnabled=" << (inputEnabled_ ? 1 : 0)
+            << " openxrRecoveryEnabled=" << (recoveryEnabled_ ? 1 : 0)
+            << " openxrRecoveryPending=0 openxrRecoveries=0 openxrStereoCacheInvalidations=0"
+            << " openxrComfortBlackoutUntilFrame=0 openxrComfortBlackoutRequests=0 openxrComfortBlackoutFrames=0"
             << " openxrFrameResourcesReady=0"
             << " openxrFrameSubmitFailed=" << (enabled_ && frameSubmitEnabled_ ? 1 : 0)
             << " openxrSessionRunning=0"
@@ -1616,6 +1784,8 @@ struct OpenXRRuntime::Impl {
 
     void SetStereoSubmissionEnabled(bool) {}
     bool MarkRenderedStereoEye(uint32_t, const OpenXREyeView&) { return false; }
+    void InvalidateStereoCaches(const char*) {}
+    void RequestComfortBlackout(uint32_t, const char*) {}
 
 private:
     void LogUnavailableLocked()
@@ -1640,6 +1810,8 @@ private:
     bool frameSubmitEnabled_ = false;
     bool inputEnabled_ = false;
     int inputLogInterval_ = 120;
+    bool recoveryEnabled_ = true;
+    int recoveryDelayFrames_ = 120;
     bool mirrorBackbufferEnabled_ = true;
     int resolutionScalePercent_ = 100;
     bool unavailableLogged_ = false;
@@ -1663,7 +1835,9 @@ void OpenXRRuntime::Configure(
     bool mirrorBackbuffer,
     int resolutionScalePercent,
     bool inputEnabled,
-    int inputLogInterval)
+    int inputLogInterval,
+    bool recoveryEnabled,
+    int recoveryDelayFrames)
 {
     impl_->Configure(
         enabled,
@@ -1676,7 +1850,9 @@ void OpenXRRuntime::Configure(
         mirrorBackbuffer,
         resolutionScalePercent,
         inputEnabled,
-        inputLogInterval);
+        inputLogInterval,
+        recoveryEnabled,
+        recoveryDelayFrames);
 }
 
 void OpenXRRuntime::OnOpenGLContext(HDC deviceContext, HGLRC glContext)
@@ -1732,6 +1908,16 @@ void OpenXRRuntime::SetStereoSubmissionEnabled(bool enabled)
 bool OpenXRRuntime::MarkRenderedStereoEye(uint32_t eyeIndex, const OpenXREyeView& view)
 {
     return impl_->MarkRenderedStereoEye(eyeIndex, view);
+}
+
+void OpenXRRuntime::InvalidateStereoCaches(const char* reason)
+{
+    impl_->InvalidateStereoCaches(reason);
+}
+
+void OpenXRRuntime::RequestComfortBlackout(uint32_t frames, const char* reason)
+{
+    impl_->RequestComfortBlackout(frames, reason);
 }
 
 } // namespace somavr

@@ -304,6 +304,13 @@ bool OpenXRGLBridge::CopyCacheToEye(uint32_t eyeIndex)
     return copied;
 }
 
+void OpenXRGLBridge::InvalidateStereoCaches()
+{
+    for (EyeSwapchain& eye : eyes_) {
+        eye.cacheValid = false;
+    }
+}
+
 bool OpenXRGLBridge::StereoCachesReady() const
 {
     return Ready()

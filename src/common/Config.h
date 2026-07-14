@@ -29,6 +29,8 @@ struct Config {
     int openxrResolutionScalePercent = 100;
     bool openxrInputEnabled = false;
     int openxrInputLogInterval = 120;
+    bool openxrRecoveryEnabled = true;
+    int openxrRecoveryDelayFrames = 120;
     bool hplControllerInput = false;
     float hplControllerMoveDeadzone = 0.35f;
     float hplControllerMoveReleaseDeadzone = 0.25f;
@@ -41,6 +43,7 @@ struct Config {
     bool hplControllerMenu = true;
     bool hplControllerRecenterChord = true;
     bool hplControllerSuppressDuringAuthoredCamera = true;
+    int hplControllerComfortBlackoutFrames = 2;
     int hplControllerRecenterHoldMs = 900;
     int hplControllerMaxInputAgeFrames = 8;
     int hplControllerLogInterval = 120;
@@ -78,6 +81,9 @@ struct Config {
     bool hplAudioListenerCorrection = false;
     bool hplPostEffectControl = false;
     bool hplPostEffectBypassDefault = false;
+    bool hplPostEffectDisableImageTrail = true;
+    bool hplPostEffectDisableChromaticAberration = true;
+    bool hplPostEffectDisableRadialBlur = true;
     bool hplShadowJitterControl = false;
     bool hplShadowJitterSuppressedDefault = false;
     int hplCompatibilityLogInterval = 120;

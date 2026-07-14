@@ -45,10 +45,10 @@ lifecycle.
 | `DllMain` | DLL attach worker, ordered subsystem install/shutdown | Feature logic, OpenGL/OpenXR calls, native camera policy |
 | `OpenGLHooks` | Hook registration, GL/WGL interception, frame-boundary dispatch | New gameplay systems or OpenXR session policy |
 | `OpenGLMatrixAnalysis` | Pure matrix classification and formatting | GL state, logging lifecycle, hooks |
-| `OpenXRRuntime` | Instance/system/session state, frame pacing, view snapshots, layer submission | HPL camera transforms or gameplay input semantics |
+| `OpenXRRuntime` | Instance/system/session state, delayed loss recovery, frame pacing, view snapshots, layer submission and bounded comfort-black frames | HPL camera transforms or gameplay input semantics |
 | `OpenXRInput` | OpenXR action set, suggested bindings, action synchronization, grip/aim spaces, immutable input snapshots | SOMA movement, interaction, hand placement, or camera policy |
 | `OpenXRHelpers` | OpenXR names, format strings, pose/view conversion | Handles, session lifetime, swapchain ownership |
-| `OpenXRGLBridge` | OpenGL swapchain images, FBOs, eye caches, backbuffer transfer | OpenXR event/session policy |
+| `OpenXRGLBridge` | OpenGL swapchain images, FBOs, invalidatable eye caches, backbuffer transfer | OpenXR event/session policy |
 | `HPLCameraBridge` | Signature-guarded player-camera interception and VR mode state | Generic quaternion/projection algorithms |
 | `HPLCameraMath` | Pure pose, matrix, FOV centering, projection construction | HPL pointers, hotkeys, logging, OpenXR handles |
 | `HPLPlayerState` | Signature-guarded player/camera/body discovery, player/move IDs, camera ownership classification, immutable snapshots | Controller injection, camera transforms, OpenXR actions |

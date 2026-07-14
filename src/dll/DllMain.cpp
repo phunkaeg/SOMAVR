@@ -81,7 +81,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         somavr::Logger::LevelName(g_config->Get().logLevel));
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "hook_config frameSummaryInterval=%d matrixSampleLimitPerFrame=%d uniformNameLogLimit=%d uniformMatrixLogLimit=%d uniformMatrixProjectionOnly=%d matrixCapture=%d matrixCaptureFrames=%d matrixCaptureStackDepth=%d matrixCaptureMaxSites=%d matrixCaptureSamplesPerUniform=%d renderDiagnosticCapture=%d renderDiagnosticFrames=%d renderDiagnosticMaxPrograms=%d renderDiagnosticMaxDraws=%d hplCameraBridge=%d hplLifecycleShutdown=%d hplProjectionCenterControl=%d hplProjectionCenteredDefault=%d hplRoomscaleControl=%d hplRoomscaleEnabledDefault=%d hplRoomscaleVertical=%d hplEyeHeightOffsetMeters=%.4f hplReflectionFadeControl=%d hplCameraLogInterval=%d hplStereoAfr=%d hplWorldScale=%.4f hplRenderStageProbe=%d hplAudioListenerProbe=%d hplAudioListenerCorrection=%d hplPostEffectControl=%d hplPostEffectBypassDefault=%d hplShadowJitterControl=%d hplShadowJitterSuppressedDefault=%d hplCompatibilityLogInterval=%d openxrProbe=%d openxrSessionProbe=%d openxrReleaseAfterProbe=%d openxrBootstrapFrame=%d openxrHoldFrames=%d openxrManualStart=%d openxrFrameSubmit=%d openxrMirrorBackbuffer=%d openxrResolutionScalePercent=%d openxrInputEnabled=%d openxrInputLogInterval=%d",
+        "hook_config frameSummaryInterval=%d matrixSampleLimitPerFrame=%d uniformNameLogLimit=%d uniformMatrixLogLimit=%d uniformMatrixProjectionOnly=%d matrixCapture=%d matrixCaptureFrames=%d matrixCaptureStackDepth=%d matrixCaptureMaxSites=%d matrixCaptureSamplesPerUniform=%d renderDiagnosticCapture=%d renderDiagnosticFrames=%d renderDiagnosticMaxPrograms=%d renderDiagnosticMaxDraws=%d hplCameraBridge=%d hplLifecycleShutdown=%d hplProjectionCenterControl=%d hplProjectionCenteredDefault=%d hplRoomscaleControl=%d hplRoomscaleEnabledDefault=%d hplRoomscaleVertical=%d hplEyeHeightOffsetMeters=%.4f hplReflectionFadeControl=%d hplCameraLogInterval=%d hplStereoAfr=%d hplWorldScale=%.4f hplRenderStageProbe=%d hplAudioListenerProbe=%d hplAudioListenerCorrection=%d hplPostEffectControl=%d hplPostEffectBypassDefault=%d hplPostEffectDisableImageTrail=%d hplPostEffectDisableChromaticAberration=%d hplPostEffectDisableRadialBlur=%d hplShadowJitterControl=%d hplShadowJitterSuppressedDefault=%d hplCompatibilityLogInterval=%d openxrProbe=%d openxrSessionProbe=%d openxrReleaseAfterProbe=%d openxrBootstrapFrame=%d openxrHoldFrames=%d openxrManualStart=%d openxrFrameSubmit=%d openxrMirrorBackbuffer=%d openxrResolutionScalePercent=%d openxrInputEnabled=%d openxrInputLogInterval=%d openxrRecoveryEnabled=%d openxrRecoveryDelayFrames=%d",
         g_config->Get().frameSummaryInterval,
         g_config->Get().matrixSampleLimitPerFrame,
         g_config->Get().uniformNameLogLimit,
@@ -113,6 +113,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplAudioListenerCorrection ? 1 : 0,
         g_config->Get().hplPostEffectControl ? 1 : 0,
         g_config->Get().hplPostEffectBypassDefault ? 1 : 0,
+        g_config->Get().hplPostEffectDisableImageTrail ? 1 : 0,
+        g_config->Get().hplPostEffectDisableChromaticAberration ? 1 : 0,
+        g_config->Get().hplPostEffectDisableRadialBlur ? 1 : 0,
         g_config->Get().hplShadowJitterControl ? 1 : 0,
         g_config->Get().hplShadowJitterSuppressedDefault ? 1 : 0,
         g_config->Get().hplCompatibilityLogInterval,
@@ -126,10 +129,12 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrMirrorBackbuffer ? 1 : 0,
         g_config->Get().openxrResolutionScalePercent,
         g_config->Get().openxrInputEnabled ? 1 : 0,
-        g_config->Get().openxrInputLogInterval);
+        g_config->Get().openxrInputLogInterval,
+        g_config->Get().openxrRecoveryEnabled ? 1 : 0,
+        g_config->Get().openxrRecoveryDelayFrames);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f interaction=%d menu=%d recenterChord=%d suppressAuthoredCamera=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
+        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f interaction=%d menu=%d recenterChord=%d suppressAuthoredCamera=%d comfortBlackoutFrames=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
         g_config->Get().hplControllerInput ? 1 : 0,
         g_config->Get().hplControllerMoveDeadzone,
         g_config->Get().hplControllerMoveReleaseDeadzone,
@@ -142,6 +147,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplControllerMenu ? 1 : 0,
         g_config->Get().hplControllerRecenterChord ? 1 : 0,
         g_config->Get().hplControllerSuppressDuringAuthoredCamera ? 1 : 0,
+        g_config->Get().hplControllerComfortBlackoutFrames,
         g_config->Get().hplControllerRecenterHoldMs,
         g_config->Get().hplControllerMaxInputAgeFrames,
         g_config->Get().hplControllerLogInterval);
@@ -158,7 +164,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrMirrorBackbuffer,
         g_config->Get().openxrResolutionScalePercent,
         g_config->Get().openxrInputEnabled,
-        g_config->Get().openxrInputLogInterval);
+        g_config->Get().openxrInputLogInterval,
+        g_config->Get().openxrRecoveryEnabled,
+        g_config->Get().openxrRecoveryDelayFrames);
 
     if (!somavr::InstallOpenGLHooks(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "opengl_hooks install_failed");

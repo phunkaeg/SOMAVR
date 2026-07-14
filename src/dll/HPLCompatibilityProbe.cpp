@@ -36,8 +36,17 @@ constexpr uintptr_t kRenderWorldCallbacksRva = 0x297670;
 constexpr uintptr_t kRenderPostEffectsRva = 0x33bd80;
 constexpr uintptr_t kRenderPostPostEffectRva = 0x1f1480;
 constexpr uintptr_t kRenderScreenGuiRva = 0x2981e0;
+constexpr uintptr_t kGuiSetRenderRva = 0x213970;
 constexpr uintptr_t kPostEffectHasActiveEffectsRva = 0x33b8f0;
 constexpr uintptr_t kAudioListenerUpdateRva = 0x289340;
+
+constexpr uintptr_t kToneMappingVtableRva = 0x69b038;
+constexpr uintptr_t kFxaaVtableRva = 0x6ac3b8;
+constexpr uintptr_t kImageFadeFxVtableRva = 0x6ac4e8;
+constexpr uintptr_t kVideoDistortionVtableRva = 0x6ac688;
+constexpr uintptr_t kChromaticAberrationVtableRva = 0x6ac928;
+constexpr uintptr_t kRadialBlurVtableRva = 0x6acb78;
+constexpr uintptr_t kImageTrailVtableRva = 0x6acd48;
 
 constexpr GLenum kGLCurrentProgram = 0x8b8d;
 constexpr GLenum kGLDrawFramebufferBinding = 0x8ca6;
@@ -70,6 +79,7 @@ using RenderWorldCallbacksFn = void (*)(void*, void*, void*, float);
 using RenderPostEffectsFn = void (*)(void*, float, void*, void*, void*);
 using RenderPostPostEffectFn = void (*)(void*, void*, void*, void*);
 using RenderScreenGuiFn = void (*)(void*, void*, float);
+using GuiSetRenderFn = void (*)(void*, void*);
 using PostEffectHasActiveEffectsFn = bool (*)(void*);
 using AudioListenerUpdateFn = void (*)(void*);
 
@@ -131,7 +141,11 @@ std::atomic<bool> g_f12Down = false;
 std::atomic<uint64_t> g_postEffectInventorySamples = 0;
 std::atomic<void*> g_postEffectIsolated = nullptr;
 std::atomic<uint64_t> g_postEffectIsolationApplications = 0;
+std::atomic<uint64_t> g_postEffectComfortApplications = 0;
+std::atomic<uint64_t> g_postEffectComfortSuppressed = 0;
+std::atomic<uint64_t> g_guiSetRenderCalls = 0;
 uint64_t g_lastPostEffectInventorySignature = 0;
+std::vector<void*> g_seenGuiSets;
 
 RenderViewportFn g_originalRenderViewport = nullptr;
 RenderWorldFn g_originalRenderWorld = nullptr;
@@ -139,6 +153,7 @@ RenderWorldCallbacksFn g_originalRenderWorldCallbacks = nullptr;
 RenderPostEffectsFn g_originalRenderPostEffects = nullptr;
 RenderPostPostEffectFn g_originalRenderPostPostEffect = nullptr;
 RenderScreenGuiFn g_originalRenderScreenGui = nullptr;
+GuiSetRenderFn g_originalGuiSetRender = nullptr;
 PostEffectHasActiveEffectsFn g_originalPostEffectHasActiveEffects = nullptr;
 AudioListenerUpdateFn g_originalAudioListenerUpdate = nullptr;
 
@@ -270,6 +285,64 @@ bool WriteField(void* object, size_t offset, const T& value)
     return true;
 }
 
+const char* PostEffectName(void* effect)
+{
+    void* vtable = nullptr;
+    if (!ReadField(effect, 0, vtable) || reinterpret_cast<uintptr_t>(vtable) < g_executableBase) {
+        return "Unknown";
+    }
+    switch (reinterpret_cast<uintptr_t>(vtable) - g_executableBase) {
+    case kToneMappingVtableRva: return "ToneMapping";
+    case kFxaaVtableRva: return "FXAA";
+    case kImageFadeFxVtableRva: return "ImageFadeFX";
+    case kVideoDistortionVtableRva: return "VideoDistortion";
+    case kChromaticAberrationVtableRva: return "ChromaticAberration";
+    case kRadialBlurVtableRva: return "RadialBlur";
+    case kImageTrailVtableRva: return "ImageTrail";
+    default: return "Unknown";
+    }
+}
+
+bool FindPostEffectPriority(void* composite, void* effect, int32_t& priority)
+{
+    void* head = nullptr;
+    void* root = nullptr;
+    if (!ReadField(composite, 0x328, head) || head == nullptr || !ReadField(head, 0x8, root)) {
+        return false;
+    }
+
+    std::vector<void*> pending{root};
+    std::vector<void*> visited;
+    while (!pending.empty() && visited.size() < 128) {
+        void* node = pending.back();
+        pending.pop_back();
+        if (node == nullptr || node == head || std::find(visited.begin(), visited.end(), node) != visited.end()) {
+            continue;
+        }
+        uint8_t isNil = 1;
+        if (!ReadField(node, 0x29, isNil) || isNil != 0) {
+            continue;
+        }
+        visited.push_back(node);
+        void* nodeEffect = nullptr;
+        if (ReadField(node, 0x20, nodeEffect) && nodeEffect == effect && ReadField(node, 0x18, priority)) {
+            return true;
+        }
+        void* left = nullptr;
+        void* right = nullptr;
+        if (ReadField(node, 0, left)) pending.push_back(left);
+        if (ReadField(node, 0x10, right)) pending.push_back(right);
+    }
+    return false;
+}
+
+bool ShouldSuppressPostEffect(const char* name)
+{
+    return (g_config.hplPostEffectDisableImageTrail && std::strcmp(name, "ImageTrail") == 0)
+        || (g_config.hplPostEffectDisableChromaticAberration && std::strcmp(name, "ChromaticAberration") == 0)
+        || (g_config.hplPostEffectDisableRadialBlur && std::strcmp(name, "RadialBlur") == 0);
+}
+
 std::vector<void*> CollectActivePostEffects(void* composite)
 {
     std::vector<void*> effects;
@@ -324,8 +397,9 @@ void CyclePostEffectIsolation(void* composite)
         : 0;
     Logger::Instance().Write(
         LogLevel::Warn,
-        "hpl_post_effect_isolation key=Ctrl+F12 selected=%p vtable=%p vtableRva=0x%llx activeCount=%llu",
+        "hpl_post_effect_isolation key=Ctrl+F12 selected=%p name=%s vtable=%p vtableRva=0x%llx activeCount=%llu",
         selected,
+        PostEffectName(selected),
         vtable,
         static_cast<unsigned long long>(vtableRva),
         static_cast<unsigned long long>(effects.size()));
@@ -356,6 +430,35 @@ std::vector<std::pair<void*, uint8_t>> ApplyPostEffectIsolation(void* composite)
     }
     if (!patches.empty()) {
         g_postEffectIsolationApplications.fetch_add(1, std::memory_order_relaxed);
+    }
+    return patches;
+}
+
+std::vector<std::pair<void*, uint8_t>> ApplyPostEffectComfortPolicy(void* composite)
+{
+    std::vector<std::pair<void*, uint8_t>> patches;
+    if (!g_config.hplPostEffectControl
+        || g_postEffectBypassEnabled.load(std::memory_order_relaxed)
+        || g_postEffectIsolated.load(std::memory_order_relaxed) != nullptr) {
+        return patches;
+    }
+    const HPLCameraBridgeStatus cameraStatus = GetHPLCameraBridgeStatus();
+    if (!cameraStatus.trackingEnabled || !cameraStatus.stereoEnabled) {
+        return patches;
+    }
+
+    for (void* effect : CollectActivePostEffects(composite)) {
+        if (!ShouldSuppressPostEffect(PostEffectName(effect))) {
+            continue;
+        }
+        uint8_t active = 0;
+        if (ReadField(effect, 0x31, active) && active != 0 && WriteField(effect, 0x31, uint8_t{0})) {
+            patches.emplace_back(effect, active);
+        }
+    }
+    if (!patches.empty()) {
+        g_postEffectComfortApplications.fetch_add(1, std::memory_order_relaxed);
+        g_postEffectComfortSuppressed.fetch_add(patches.size(), std::memory_order_relaxed);
     }
     return patches;
 }
@@ -393,7 +496,13 @@ void LogPostEffectInventory(const StageSample& sample, void* composite, void* in
         if (i != 0) {
             inventory << ';';
         }
-        inventory << i << ':' << effects[i] << ":0x" << std::hex << vtableRva << std::dec;
+        int32_t priority = 0;
+        const bool priorityKnown = FindPostEffectPriority(composite, effects[i], priority);
+        inventory << i << ':' << PostEffectName(effects[i]) << ':' << effects[i]
+            << ":0x" << std::hex << vtableRva << std::dec
+            << ":priority=";
+        if (priorityKnown) inventory << priority;
+        else inventory << "unknown";
     }
 
     const uint64_t count = g_postEffectInventorySamples.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -698,7 +807,10 @@ void HookRenderPostEffects(
 {
     const StageSample sample = BeginStage(HPLRenderStage::PostEffects);
     LogPostEffectInventory(sample, composite, inputTexture, renderTarget);
-    const std::vector<std::pair<void*, uint8_t>> patches = ApplyPostEffectIsolation(composite);
+    std::vector<std::pair<void*, uint8_t>> patches = ApplyPostEffectIsolation(composite);
+    if (patches.empty() && g_postEffectIsolated.load(std::memory_order_relaxed) == nullptr) {
+        patches = ApplyPostEffectComfortPolicy(composite);
+    }
     g_originalRenderPostEffects(composite, frameTime, frustum, inputTexture, renderTarget);
     RestorePostEffectIsolation(patches);
     EndStage(sample);
@@ -716,6 +828,74 @@ void HookRenderScreenGui(void* scene, void* viewport, float frameTime)
     const StageSample sample = BeginStage(HPLRenderStage::ScreenGui, viewport);
     g_originalRenderScreenGui(scene, viewport, frameTime);
     EndStage(sample);
+}
+
+void HookGuiSetRender(void* guiSet, void* renderTarget)
+{
+    const uint64_t call = g_guiSetRenderCalls.fetch_add(1, std::memory_order_relaxed) + 1;
+    const uint64_t frame = GetOpenGLRenderFrameHint();
+    uint8_t depthLayer = 0;
+    uint8_t is3d = 0;
+    float virtualWidth = 0.0f;
+    float virtualHeight = 0.0f;
+    float offsetX = 0.0f;
+    float offsetY = 0.0f;
+    float depthMin = 0.0f;
+    float depthMax = 0.0f;
+    int32_t priority = 0;
+    ReadField(guiSet, 0x138, depthLayer);
+    ReadField(guiSet, 0x139, is3d);
+    ReadField(guiSet, 0x100, virtualWidth);
+    ReadField(guiSet, 0x104, virtualHeight);
+    ReadField(guiSet, 0x108, offsetX);
+    ReadField(guiSet, 0x10c, offsetY);
+    ReadField(guiSet, 0x110, depthMin);
+    ReadField(guiSet, 0x114, depthMax);
+    ReadField(guiSet, 0x188, priority);
+
+    const GLState before = ReadGLState();
+    const OpenGLTelemetrySnapshot telemetryBefore = GetOpenGLTelemetrySnapshot();
+    g_originalGuiSetRender(guiSet, renderTarget);
+    const OpenGLTelemetrySnapshot telemetryAfter = GetOpenGLTelemetrySnapshot();
+    const GLState after = ReadGLState();
+
+    bool newlySeen = false;
+    {
+        std::lock_guard lock(g_sampleMutex);
+        if (std::find(g_seenGuiSets.begin(), g_seenGuiSets.end(), guiSet) == g_seenGuiSets.end()
+            && g_seenGuiSets.size() < 256) {
+            g_seenGuiSets.push_back(guiSet);
+            newlySeen = true;
+        }
+    }
+    const uint64_t interval = static_cast<uint64_t>(std::max(g_config.hplCompatibilityLogInterval, 1));
+    if (newlySeen || call <= 16 || call % interval == 0) {
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_gui_set frame=%llu call=%llu stage=%s set=%p target=%p is3d=%d depthLayer=%d virtualSize=%.1f,%.1f offset=%.1f,%.1f depthRange=%.3f,%.3f priority=%d calls={drawElements=%llu drawArrays=%llu framebuffer=%llu program=%llu} gl={fbo=%d->%d program=%d->%d}",
+            static_cast<unsigned long long>(frame),
+            static_cast<unsigned long long>(call),
+            GetHPLRenderStageName(g_activeStage),
+            guiSet,
+            renderTarget,
+            is3d != 0 ? 1 : 0,
+            depthLayer != 0 ? 1 : 0,
+            virtualWidth,
+            virtualHeight,
+            offsetX,
+            offsetY,
+            depthMin,
+            depthMax,
+            priority,
+            static_cast<unsigned long long>(telemetryAfter.drawElements - telemetryBefore.drawElements),
+            static_cast<unsigned long long>(telemetryAfter.drawArrays - telemetryBefore.drawArrays),
+            static_cast<unsigned long long>(telemetryAfter.framebufferBinds - telemetryBefore.framebufferBinds),
+            static_cast<unsigned long long>(telemetryAfter.programUses - telemetryBefore.programUses),
+            before.drawFramebuffer,
+            after.drawFramebuffer,
+            before.program,
+            after.program);
+    }
 }
 
 bool HookPostEffectHasActiveEffects(void* composite)
@@ -929,6 +1109,10 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
         0x48, 0x89, 0x5c, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18,
         0x55, 0x48, 0x8d, 0x6c, 0x24, 0xa9,
     };
+    static constexpr uint8_t kGuiSetRenderSignature[] = {
+        0x48, 0x89, 0x5c, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18,
+        0x48, 0x89, 0x7c, 0x24, 0x20, 0x55,
+    };
     static constexpr uint8_t kAudioListenerSignature[] = {
         0x4c, 0x8b, 0xdc, 0x41, 0x54, 0x48, 0x81, 0xec, 0x90, 0x00,
         0x00, 0x00,
@@ -958,6 +1142,9 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
         installed += InstallHook(executable, kRenderScreenGuiRva, kRenderScreenGuiSignature,
             sizeof(kRenderScreenGuiSignature), "screen_gui", reinterpret_cast<void*>(&HookRenderScreenGui),
             reinterpret_cast<void**>(&g_originalRenderScreenGui));
+        installed += InstallHook(executable, kGuiSetRenderRva, kGuiSetRenderSignature,
+            sizeof(kGuiSetRenderSignature), "gui_set_render", reinterpret_cast<void*>(&HookGuiSetRender),
+            reinterpret_cast<void**>(&g_originalGuiSetRender));
     }
     if (config.hplAudioListenerProbe) {
         installed += InstallHook(executable, kAudioListenerUpdateRva, kAudioListenerSignature,
@@ -973,14 +1160,18 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         installed > 0 ? LogLevel::Warn : LogLevel::Error,
-        "hpl_compat_probe install_complete renderStages=%d audioListener=%d audioCorrection=%d postEffectControl=%d postEffectBypass=%d postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
+        "hpl_compat_probe install_complete renderStages=%d guiSetProbe=%d audioListener=%d audioCorrection=%d postEffectControl=%d postEffectBypass=%d postEffectComfort={imageTrail=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
+        config.hplRenderStageProbe ? 1 : 0,
         config.hplRenderStageProbe ? 1 : 0,
         config.hplAudioListenerProbe ? 1 : 0,
         g_config.hplAudioListenerCorrection ? 1 : 0,
         config.hplPostEffectControl ? 1 : 0,
         config.hplPostEffectBypassDefault ? 1 : 0,
+        config.hplPostEffectDisableImageTrail ? 1 : 0,
+        config.hplPostEffectDisableChromaticAberration ? 1 : 0,
+        config.hplPostEffectDisableRadialBlur ? 1 : 0,
         static_cast<unsigned long long>(installed),
-        (config.hplRenderStageProbe ? 6 : 0)
+        (config.hplRenderStageProbe ? 7 : 0)
             + (config.hplAudioListenerProbe ? 1 : 0)
             + (config.hplPostEffectControl ? 1 : 0),
         config.hplCompatibilityLogInterval,
@@ -992,13 +1183,14 @@ void LogHPLCompatibilityProbeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu audioUpdates=%llu audioSamples=%llu audioCorrections=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
+        "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu guiSets=%llu audioUpdates=%llu audioSamples=%llu audioCorrections=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::Viewport)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::World)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::WorldCallbacks)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::PostEffects)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::PostPostEffect)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::ScreenGui)].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_guiSetRenderCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioPoseSamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioCorrections.load(std::memory_order_relaxed)),
@@ -1006,6 +1198,8 @@ void LogHPLCompatibilityProbeSummary()
         static_cast<unsigned long long>(g_postEffectBypasses.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_postEffectInventorySamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_postEffectIsolationApplications.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_postEffectComfortApplications.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_postEffectComfortSuppressed.load(std::memory_order_relaxed)),
         g_postEffectBypassEnabled.load(std::memory_order_relaxed) ? 1 : 0,
         g_postEffectIsolated.load(std::memory_order_relaxed),
         static_cast<unsigned long long>(g_hookTargets.size()));
@@ -1025,6 +1219,7 @@ void RemoveHPLCompatibilityProbe()
     g_originalRenderPostEffects = nullptr;
     g_originalRenderPostPostEffect = nullptr;
     g_originalRenderScreenGui = nullptr;
+    g_originalGuiSetRender = nullptr;
     g_originalPostEffectHasActiveEffects = nullptr;
     g_originalAudioListenerUpdate = nullptr;
     g_postEffectBypassEnabled.store(false, std::memory_order_relaxed);
@@ -1035,6 +1230,7 @@ void RemoveHPLCompatibilityProbe()
     g_glGetBooleanv = nullptr;
     g_glIsEnabled = nullptr;
     g_lastPostEffectInventorySignature = 0;
+    g_seenGuiSets.clear();
     g_executableBase = 0;
     Logger::Instance().Write(LogLevel::Info, "hpl_compat_probe removed");
 }

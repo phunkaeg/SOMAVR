@@ -200,6 +200,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLPerEyeImageTrailControl=0\n"
         << "HPLToneMappingFrameControl=0\n"
         << "HPLPerEyeSSAOTemporalControl=0\n"
+        << "HPLSSAOFrameOwnerControl=0\n"
         << "HPLPerEyePerformanceTelemetry=0\n"
         << "HPLPerEyeGpuTelemetry=0\n"
         << "HPLGpuQueryPoolSize=128\n"
@@ -533,6 +534,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplpereyeimagetrailcontrol") config_.hplPerEyeImageTrailControl = ParseBool(value, config_.hplPerEyeImageTrailControl);
             else if (key == "hpltonemappingframecontrol") config_.hplToneMappingFrameControl = ParseBool(value, config_.hplToneMappingFrameControl);
             else if (key == "hplpereyessaotemporalcontrol") config_.hplPerEyeSSAOTemporalControl = ParseBool(value, config_.hplPerEyeSSAOTemporalControl);
+            else if (key == "hplssaoframeownercontrol") config_.hplSSAOFrameOwnerControl = ParseBool(value, config_.hplSSAOFrameOwnerControl);
             else if (key == "hplpereyeperformancetelemetry") config_.hplPerEyePerformanceTelemetry = ParseBool(value, config_.hplPerEyePerformanceTelemetry);
             else if (key == "hplpereyegputelemetry") config_.hplPerEyeGpuTelemetry = ParseBool(value, config_.hplPerEyeGpuTelemetry);
             else if (key == "hplgpuquerypoolsize") config_.hplGpuQueryPoolSize = ParseInt(value, config_.hplGpuQueryPoolSize, 16, 512);

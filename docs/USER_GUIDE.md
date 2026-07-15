@@ -107,6 +107,8 @@ headset, GPU, and relevant timestamps with every report.
   suppression policy.
 - Set `HPLPerEyeSSAOTemporalControl=0` to restore SOMA's native shared temporal
   SSAO history.
+- Set `HPLSSAOFrameOwnerControl=0` to restore native once-per-eye SSAO jitter
+  advancement while retaining per-eye GPU history.
 - Disable `SAME FRAME STEREO` in F1 to return immediately to AFR.
 - Press F10 to restore the native desktop camera/input path.
 - Restore `Preset=custom` to use only explicit comfort settings.

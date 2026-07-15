@@ -128,6 +128,9 @@ immediate native behavior.
 `HPLPerEyeSSAOTemporalControl=1` isolates SOMA's temporal SSAO history per eye.
 It signature-hooks the confirmed native SSAO writer and keeps two matching GPU
 history copies while leaving the original AO shaders and render targets intact.
+`HPLSSAOFrameOwnerControl=1` additionally makes the native temporal AO jitter
+phase advance once per same-pose stereo pair. It can be disabled independently
+without giving up per-eye GPU history.
 It is opt-in and faults back to native shared history if GL copy support,
 resource identity, or allocation disagrees; set it to `0` for immediate rollback.
 With `HudLayer=1`, the exact gameplay HUD set is removed from the eye render and

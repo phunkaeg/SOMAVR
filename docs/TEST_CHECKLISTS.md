@@ -1,5 +1,25 @@
 # Test Checklists
 
+## 0.55.0 SSAO Same-Pose Frame Owner
+
+1. Run packaged doctor and require `version=0.55.0-ssao-frame-owner`, OpenXR
+   flavor, and `fail=0`. Load a save, press F10, and require
+   `ssaoFrameOwner=1` plus the existing `ssao_render` exact hook.
+2. In same-frame stereo, inspect fine contact AO while translating and rotating
+   the HMD. Require `firstPasses`, `replayPasses`, and `committedRestores` to
+   rise together with `failures=0`; both eyes must show matching temporal noise.
+3. Switch to AFR. Rendering must remain rigid and the owner must not manufacture
+   replay restores across different pose frames. Switch back and recheck the
+   same-frame counters without restart.
+4. Exercise F2 recenter, calibration changes, loading, pause/inventory, tracking
+   loss/recovery, and same-frame toggle. Require no stale phase, flashes, or
+   persistent mismatch stream.
+5. Inspect local reflective surfaces. They must remain unchanged; local
+   reflection copy resources are deliberately native sequential scratch.
+6. Independent rollback: set `HPLSSAOFrameOwnerControl=0` while leaving
+   `HPLPerEyeSSAOTemporalControl=1`. Per-eye history must remain active and only
+   native once-per-eye jitter advancement should return.
+
 ## 0.54.0 Per-Eye Temporal SSAO History
 
 1. Run packaged doctor and require `version=0.54.0-per-eye-ssao-history`,

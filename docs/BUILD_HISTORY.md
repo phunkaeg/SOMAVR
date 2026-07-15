@@ -2,6 +2,27 @@
 
 ## 2026-07-15
 
+### 0.55.0-ssao-frame-owner
+
+- Confirmed that `HPL3_RendererDeferred_RenderSSAO` advances global float
+  `0x14079575c` by renderer frame time and derives temporal blur uniform `7`
+  from it on every invocation. Same-frame stereo therefore gave eye two a
+  different SSAO jitter phase even after the history texture was isolated.
+- Added separately reversible `HPLSSAOFrameOwner`. For an eligible same-pose
+  pair it captures the first-eye phase baseline and committed result, restores
+  the baseline before eye two, then restores the first committed result after
+  eye two. AFR and mono/native ownership remain unchanged; invalid memory or
+  sequencing faults closed to native per-eye advancement with bounded summary
+  and mismatch telemetry.
+- Reclassified local-reflection texture `renderer+0xeb0` and framebuffer
+  `+0xf00` as feedback-avoidance scratch: `0x1403f40d0` fully overwrites the
+  copy from the current accumulation input before final composition. No
+  per-eye allocation was added. Generated config remains off; the active test
+  profile enables `HPLSSAOFrameOwnerControl=1`.
+- Both default and OpenXR Release trees pass all four CTest suites. The packaged
+  doctor reports `pass=7 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `617736BED59D1843C28E07331006C1ABEC1E510862832CCEA77ADB0C9DE27616`.
+
 ### 0.54.0-per-eye-ssao-history
 
 - Confirmed SOMA's complete temporal SSAO ownership chain. Deferred renderer

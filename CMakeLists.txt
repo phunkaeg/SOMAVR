@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.54.0-per-eye-ssao-history")
+set(SOMAVR_BUILD_VERSION "0.55.0-ssao-frame-owner")
 
 include(FetchContent)
 
@@ -101,6 +101,7 @@ add_library(somavr SHARED
     src/dll/HPLPerEyePostEffect.cpp
     src/dll/HPLToneMappingFrame.cpp
     src/dll/HPLSSAOTemporalHistory.cpp
+    src/dll/HPLSSAOFrameOwner.cpp
     src/dll/HPLCameraBridge.cpp
     src/dll/HPLComfortBridge.cpp
     src/dll/HPLHudBridge.cpp

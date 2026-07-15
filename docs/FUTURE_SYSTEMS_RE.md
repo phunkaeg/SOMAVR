@@ -942,7 +942,7 @@ Use that state to select feedback at the controller ray hit:
 | Effect | Priority/path | VR policy |
 | --- | --- | --- |
 | Tone mapping, bloom, film grain | viewport tone-mapping effect; native default post priority includes `-100` | `0.53.0` makes exposure/white-cut/fade/grading and film-grain offsets/phase advance once per same-pose pair. Bloom scratch is fully regenerated per eye. |
-| Temporal SSAO | deferred renderer `0x1403f2b50`; history texture `+0xe78`, framebuffer `+0xed8`, temporal program `+0xf40` | `0.54.0` banks two same-format GPU histories around native SSAO, preserving the original reprojection shader while preventing eye-to-eye history contamination. |
+| Temporal SSAO | deferred renderer `0x1403f2b50`; history texture `+0xe78`, framebuffer `+0xed8`, temporal program `+0xf40`, phase `0x14079575c` | `0.54.0` banks two same-format GPU histories around native SSAO. `0.55.0` also advances the shared jitter phase once per same-pose pair, preserving the original reprojection shader without eye-to-eye history or phase contamination. |
 | Image trail | `-100000` | Generated defaults suppress it. `0.52.0` adds opt-in native per-eye framebuffer/texture and clear-state ownership so it can be restored without cross-eye history contamination. |
 | Chromatic aberration | `25` | Disable by default. The HMD runtime already owns optical distortion; artistic RGB separation can be offered as an opt-in reduced effect. |
 | Radial blur | `50` | Disable or strongly reduce. Screen-center blur is uncomfortable and conflicts with gaze/controller focus. |
@@ -1027,8 +1027,10 @@ Same-frame dual rendering can restore more stateless effects, but temporal effec
 6. **Per-eye temporal SSAO:** built in `0.54.0`. Native history `+0xe78` is
    correlated with its GL texture through `0x1402aba30`; an eye-local copy is
    restored before and committed after exact SSAO writer `0x1403f2b50`.
-   Velocity, projection, local-reflection accumulation, and other temporal
-   owners remain.
+   `0.55.0` additionally frame-owns global sample phase `0x14079575c`, which
+   the same writer otherwise advances once per eye. Local-reflection
+   `+0xeb0/+0xf00` is now proven fully rewritten feedback scratch rather than
+   temporal history. Projection and any other observed temporal owners remain.
 7. **Overlay extraction:** move simple flashes, fades, and infection/HUD overlays to alpha-capable OpenXR layers.
 8. **Screen-material convergence:** built in `0.30.0`; four exact native
    billboard boundaries provide reversible active-VR distance and size control

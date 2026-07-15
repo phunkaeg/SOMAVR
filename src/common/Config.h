@@ -256,6 +256,7 @@ struct Config {
     bool hplPerEyeImageTrailControl = false;
     bool hplToneMappingFrameControl = false;
     bool hplPerEyeSSAOTemporalControl = false;
+    bool hplSSAOFrameOwnerControl = false;
     bool hplPerEyePerformanceTelemetry = false;
     bool hplPerEyeGpuTelemetry = false;
     int hplGpuQueryPoolSize = 128;

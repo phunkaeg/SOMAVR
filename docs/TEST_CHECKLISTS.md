@@ -1,5 +1,22 @@
 # Test Checklists
 
+## 0.42.0 Native Gameplay Haptics
+
+1. Start the OpenXR build, load a save, press F10, and confirm
+   `hpl_gameplay_haptics install_ok function=SetRumble rva=0x109b30`.
+2. Trigger player damage, a locked lever/door, and a datamining or sustained
+   scripted effect. Both controllers should follow SOMA's authored intensity;
+   ordinary locomotion must not buzz.
+3. Hold a sustained effect for several seconds. Confirm output remains smooth,
+   stops promptly on release/end, and the log shows bounded `pulse=` rows rather
+   than one OpenXR request per rendered frame.
+4. Confirm the shutdown summary has native calls and nonzero pulses/applied
+   hands. Repeat with `GameplayHaptics=0`: native gamepad rumble and all other VR
+   input must remain unchanged.
+5. When a physical gamepad is available, confirm its original rumble still
+   works alongside VR output. Test pause, loading, tracking loss, and session
+   focus transitions for stuck vibration.
+
 ## 0.41.0 Roomscale Body Reconciliation
 
 1. Confirm `version=0.41.0-roomscale-body-reconciliation`, native feet get/set

@@ -474,6 +474,23 @@ bool OpenXRInput::ApplyHaptic(XrSession session, uint32_t hand, float amplitude,
     return true;
 }
 
+bool OpenXRInput::StopHaptic(XrSession session, uint32_t hand)
+{
+    if (!attached_ || session == XR_NULL_HANDLE || hand >= 2 || hapticAction_ == XR_NULL_HANDLE) {
+        return false;
+    }
+    XrHapticActionInfo actionInfo{XR_TYPE_HAPTIC_ACTION_INFO};
+    actionInfo.action = hapticAction_;
+    actionInfo.subactionPath = handPaths_[hand];
+    const XrResult result = xrStopHapticFeedback(session, &actionInfo);
+    if (XR_FAILED(result)) {
+        ++hapticFailureCount_;
+        return false;
+    }
+    ++hapticStopCount_;
+    return true;
+}
+
 void OpenXRInput::ShutdownSession()
 {
     for (XrSpace& space : gripSpaces_) {
@@ -517,6 +534,7 @@ std::string OpenXRInput::SummaryString() const
         << " openxrInputFocusRestores=" << focusRestoreCount_
         << " openxrHapticRequests=" << hapticRequestCount_
         << " openxrHapticFailures=" << hapticFailureCount_
+        << " openxrHapticStops=" << hapticStopCount_
         << " openxrGripLinearVelocitySamples=" << gripLinearVelocitySamples_[0]
         << ',' << gripLinearVelocitySamples_[1]
         << " openxrGripAngularVelocitySamples=" << gripAngularVelocitySamples_[0]

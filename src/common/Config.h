@@ -97,6 +97,12 @@ struct Config {
     bool hplControllerHaptics = true;
     float hplControllerHapticAmplitude = 0.35f;
     int hplControllerHapticDurationMs = 30;
+    bool hplControllerGameplayHaptics = true;
+    float hplControllerGameplayHapticAmplitudeScale = 0.75f;
+    float hplControllerGameplayHapticMinAmplitude = 0.05f;
+    float hplControllerGameplayHapticRetriggerDelta = 0.08f;
+    int hplControllerGameplayHapticRefreshMs = 80;
+    int hplControllerGameplayHapticSegmentMs = 100;
     bool hplControllerFocusHaptics = false;
     float hplControllerFocusHapticAmplitude = 0.12f;
     int hplControllerFocusHapticDurationMs = 15;

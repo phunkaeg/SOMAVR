@@ -9,6 +9,9 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x1401daec0` | Confirmed | Command-line/startup bridge. Calls `SetProcessDPIAware`, converts command line, then calls `FUN_140125a20`. |
 | `0x140125a20` | Confirmed | Likely real app entry. Allocates `0x8d0` app object, calls init/run/shutdown sequence. |
 | `0x14004b620` | Candidate | Init path. Logs `Version %d.%02d` as `1.110`, then performs staged setup. |
+| `0x140109b30` | Confirmed, control hook built | Script-visible `cLuxInputHandler::SetRumble(int,float,float)`. `0.42.0` preserves native gamepad behavior and mirrors authored global strength/duration through a throttled bilateral OpenXR envelope. Ghidra: `SOMA_cLuxInputHandler_SetRumble`. |
+| `0x1401158c0` | Confirmed registration | Registers `cLuxInputHandler` script methods and binds `SetRumble` directly to `0x140109b30`. Ghidra: `SOMA_Script_Register_cLuxInputHandler`. |
+| `0x14015bf50` | Confirmed script wrapper | `cLuxPlayer::GiveDamage`; shipped player damage handling starts `Effect_Rumble_Start`, which converges on the hooked rumble boundary. Ghidra: `SOMA_cLuxPlayer_GiveDamage`. |
 | `0x1400383e0` | Candidate | Run path wrapper around virtual/engine run call. |
 | `0x14003dd70` | Candidate | Shutdown/cleanup path. |
 | `0x1403b16e0` | Confirmed | `cSDLEngineSetup` destructor. Deletes engine subsystems including Graphics; `0.5.5` hooks entry for pre-graphics OpenXR shutdown. Ghidra: `HPL3_cSDLEngineSetup_Destructor`. |

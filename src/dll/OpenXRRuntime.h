@@ -187,6 +187,7 @@ public:
     bool GetLatestStereoViews(OpenXRStereoViewSnapshot& views) const;
     bool GetLatestInput(OpenXRInputSnapshot& input) const;
     bool RequestHapticPulse(uint32_t hand, float amplitude, int durationMs, const char* reason);
+    bool StopHaptic(uint32_t hand, const char* reason);
     void SetStereoSubmissionEnabled(bool enabled);
     bool MarkRenderedStereoEye(uint32_t eyeIndex, const OpenXREyeView& view);
     bool CapturePendingStereoEye(uint64_t frameIndex, const char* source);

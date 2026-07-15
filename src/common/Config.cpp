@@ -275,6 +275,12 @@ void ConfigManager::WriteDefaultConfig() const
         << "Haptics=1\n"
         << "HapticAmplitude=0.35\n"
         << "HapticDurationMs=30\n"
+        << "GameplayHaptics=1\n"
+        << "GameplayHapticAmplitudeScale=0.75\n"
+        << "GameplayHapticMinAmplitude=0.05\n"
+        << "GameplayHapticRetriggerDelta=0.08\n"
+        << "GameplayHapticRefreshMs=80\n"
+        << "GameplayHapticSegmentMs=100\n"
         << "FocusHaptics=0\n"
         << "FocusHapticAmplitude=0.12\n"
         << "FocusHapticDurationMs=15\n"
@@ -619,6 +625,12 @@ void ConfigManager::LoadFromFile()
             else if (key == "haptics") config_.hplControllerHaptics = ParseBool(value, config_.hplControllerHaptics);
             else if (key == "hapticamplitude") config_.hplControllerHapticAmplitude = ParseFloat(value, config_.hplControllerHapticAmplitude, 0.0f, 1.0f);
             else if (key == "hapticdurationms") config_.hplControllerHapticDurationMs = ParseInt(value, config_.hplControllerHapticDurationMs, 1, 1000);
+            else if (key == "gameplayhaptics") config_.hplControllerGameplayHaptics = ParseBool(value, config_.hplControllerGameplayHaptics);
+            else if (key == "gameplayhapticamplitudescale") config_.hplControllerGameplayHapticAmplitudeScale = ParseFloat(value, config_.hplControllerGameplayHapticAmplitudeScale, 0.0f, 2.0f);
+            else if (key == "gameplayhapticminamplitude") config_.hplControllerGameplayHapticMinAmplitude = ParseFloat(value, config_.hplControllerGameplayHapticMinAmplitude, 0.0f, 1.0f);
+            else if (key == "gameplayhapticretriggerdelta") config_.hplControllerGameplayHapticRetriggerDelta = ParseFloat(value, config_.hplControllerGameplayHapticRetriggerDelta, 0.0f, 1.0f);
+            else if (key == "gameplayhapticrefreshms") config_.hplControllerGameplayHapticRefreshMs = ParseInt(value, config_.hplControllerGameplayHapticRefreshMs, 10, 1000);
+            else if (key == "gameplayhapticsegmentms") config_.hplControllerGameplayHapticSegmentMs = ParseInt(value, config_.hplControllerGameplayHapticSegmentMs, 1, 1000);
             else if (key == "focushaptics") config_.hplControllerFocusHaptics = ParseBool(value, config_.hplControllerFocusHaptics);
             else if (key == "focushapticamplitude") config_.hplControllerFocusHapticAmplitude = ParseFloat(value, config_.hplControllerFocusHapticAmplitude, 0.0f, 1.0f);
             else if (key == "focushapticdurationms") config_.hplControllerFocusHapticDurationMs = ParseInt(value, config_.hplControllerFocusHapticDurationMs, 1, 1000);

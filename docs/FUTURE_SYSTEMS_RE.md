@@ -1,5 +1,23 @@
 # Future Systems Reverse Engineering
 
+## 0.42.0 Native Gameplay Haptics Result
+
+AngelScript registration binds `void SetRumble(int,float,float)` directly to
+`SOMA_cLuxInputHandler_SetRumble` (`0x140109b30`). This wrapper receives device,
+strength, and duration before checking whether SOMA currently has an eligible
+physical gamepad. Shipped `Effect_Rumble_Start` callers include player damage
+and death, attacks, locked interactions, datamining/tool progress, and authored
+environment effects. The player damage wrapper at `0x14015bf50` therefore does
+not need a narrower duplicate hook.
+
+`0.42.0` preserves the original call and mirrors the authored envelope to both
+OpenXR hands. Rising edges, material strength increases, and an 80 ms keepalive
+emit at most 100 ms segments; intermediate per-frame calls are suppressed and
+an authored zero transition calls `xrStopHapticFeedback`. Bilateral output is
+intentional because SOMA's gamepad device index is not a VR-hand identity. Raw
+physics contact and material-specific impacts are not claimed by this route and
+still need a quiet, semantically filtered native owner.
+
 ## 0.41.0 Roomscale Body Reconciliation Result
 
 Ghidra and both released HPL2 codebases agree on the native character-body
@@ -489,10 +507,10 @@ configurable floor-aware profile and falls back to LOCAL if the runtime does not
 advertise it. The live acceptance gate is eye height and recenter behavior across
 standing, seated, save/load, and map transitions; no camera-scale change is needed.
 
-Controller haptics now have a proper OpenXR vibration-output action and profile
-bindings. The first policy is intentionally semantic and discrete: confirmation
-for actions already accepted by SOMAVR's native input bridge. Damage, weapon,
-contact, and object-material haptics still need native gameplay event anchors.
+Controller haptics have a proper OpenXR vibration-output action and profile
+bindings. `0.42.0` adds SOMA's exact authored gameplay-rumble boundary, covering
+damage and broad scripted tool/action effects. Raw unscripted physics contact
+and object-material haptics still need a filtered native event owner.
 
 Ghidra confirms `cCamera` base roll at `+0x4c` and extended/authored roll at
 `+0x68`. `SetRoll` invalidates `+0x709/+0x70b/+0x70c/+0x70d`; extended roll

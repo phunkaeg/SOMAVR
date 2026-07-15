@@ -3,6 +3,7 @@
 #include "HPLFlashlightMath.h"
 #include "HPLHandsMath.h"
 #include "HPLGrabMath.h"
+#include "HPLGameplayHapticsMath.h"
 #include "HPLHudMath.h"
 #include "HPLInputMath.h"
 #include "HPLMenuMath.h"
@@ -49,6 +50,36 @@ int main()
     using namespace somavr;
 
     int failures = 0;
+    gameplay_haptics_math::Settings hapticSettings;
+    gameplay_haptics_math::State hapticState;
+    auto hapticDecision = gameplay_haptics_math::Update(
+        hapticState, 0.8f, 0.5f, 1000, hapticSettings);
+    failures += Check(
+        hapticDecision.action == gameplay_haptics_math::Action::Pulse
+            && Near(hapticDecision.amplitude, 0.6f)
+            && hapticDecision.durationMs == 100,
+        "gameplay haptics start with a bounded authored pulse");
+    hapticDecision = gameplay_haptics_math::Update(
+        hapticState, 0.8f, 0.4f, 1040, hapticSettings);
+    failures += Check(
+        hapticDecision.action == gameplay_haptics_math::Action::None,
+        "gameplay haptics throttle repeated frame updates");
+    hapticDecision = gameplay_haptics_math::Update(
+        hapticState, 0.8f, 0.3f, 1080, hapticSettings);
+    failures += Check(
+        hapticDecision.action == gameplay_haptics_math::Action::Pulse,
+        "gameplay haptics refresh sustained effects");
+    hapticDecision = gameplay_haptics_math::Update(
+        hapticState, 0.0f, 0.0f, 1090, hapticSettings);
+    failures += Check(
+        hapticDecision.action == gameplay_haptics_math::Action::Stop && !hapticState.active,
+        "gameplay haptics stop on the authored falling edge");
+    hapticDecision = gameplay_haptics_math::Update(
+        hapticState, 1.0f, 1.0e30f, 1100, hapticSettings);
+    failures += Check(
+        hapticDecision.action == gameplay_haptics_math::Action::Pulse
+            && hapticDecision.durationMs == 100,
+        "gameplay haptics bound extreme finite authored durations");
     const post_effect_resource_math::TextureResource postTextures[] = {
         {0x84f5u, 17u, 1920, 1080, 1, 0x8058},
         {0x0de1u, 9u, 256, 16, 1, 0x8058},

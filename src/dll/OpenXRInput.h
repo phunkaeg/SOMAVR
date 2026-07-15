@@ -15,6 +15,7 @@ public:
     bool AttachSession(XrSession session);
     void Sync(XrSession session, XrSpace baseSpace, XrTime displayTime, uint64_t gameFrame);
     bool ApplyHaptic(XrSession session, uint32_t hand, float amplitude, int durationMs);
+    bool StopHaptic(XrSession session, uint32_t hand);
     void ShutdownSession();
     void Shutdown();
 
@@ -35,6 +36,7 @@ private:
     uint64_t focusRestoreCount_ = 0;
     uint64_t hapticRequestCount_ = 0;
     uint64_t hapticFailureCount_ = 0;
+    uint64_t hapticStopCount_ = 0;
     uint64_t gripLinearVelocitySamples_[2] = {};
     uint64_t gripAngularVelocitySamples_[2] = {};
     bool focusSuppressed_ = false;

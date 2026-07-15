@@ -7,6 +7,7 @@
 #include "HPLInputBridge.h"
 #include "HPLInteractionBridge.h"
 #include "HPLGrabBridge.h"
+#include "HPLGameplayHapticsBridge.h"
 #include "HPLHandsBridge.h"
 #include "HPLHudBridge.h"
 #include "HPLMenuBridge.h"
@@ -253,6 +254,15 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplControllerLogInterval);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
+        "gameplay_haptics_config enabled=%d amplitudeScale=%.3f minAmplitude=%.3f retriggerDelta=%.3f refreshMs=%d segmentMs=%d",
+        g_config->Get().hplControllerGameplayHaptics ? 1 : 0,
+        g_config->Get().hplControllerGameplayHapticAmplitudeScale,
+        g_config->Get().hplControllerGameplayHapticMinAmplitude,
+        g_config->Get().hplControllerGameplayHapticRetriggerDelta,
+        g_config->Get().hplControllerGameplayHapticRefreshMs,
+        g_config->Get().hplControllerGameplayHapticSegmentMs);
+    somavr::Logger::Instance().Write(
+        somavr::LogLevel::Info,
         "hud_config enabled=%d size=%dx%d distanceMeters=%.3f widthMeters=%.3f verticalOffsetMeters=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d",
         g_config->Get().openxrHudLayer ? 1 : 0,
         g_config->Get().openxrHudWidthPixels,
@@ -391,6 +401,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     if (!somavr::InstallHPLInteractionBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_interaction_bridge install_failed");
     }
+    if (!somavr::InstallHPLGameplayHapticsBridge(g_config->Get(), g_openxr.get())) {
+        somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_gameplay_haptics install_failed");
+    }
     if (!somavr::InstallHPLCrosshairBridge(g_config->Get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_crosshair_bridge install_failed");
     }
@@ -442,6 +455,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::RemoveHPLCrosshairBridge();
     somavr::LogHPLInteractionBridgeSummary();
     somavr::RemoveHPLInteractionBridge();
+    somavr::LogHPLGameplayHapticsBridgeSummary();
+    somavr::RemoveHPLGameplayHapticsBridge();
     somavr::LogHPLPresentationBridgeSummary();
     somavr::RemoveHPLPresentationBridge();
     somavr::LogHPLScreenEffectBridgeSummary();

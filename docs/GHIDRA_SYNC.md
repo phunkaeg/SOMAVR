@@ -1,5 +1,16 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Native Gameplay Haptics Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x140109b30` | `SOMA_cLuxInputHandler_SetRumble` | Renamed, typed as the four-argument fastcall wrapper, and documented as the exact script-visible boundary mirrored by `0.42.0`. |
+| `0x1401158c0` | `SOMA_Script_Register_cLuxInputHandler` | Registration strings bind `void SetRumble(int,float,float)` directly to the hooked wrapper. |
+| `0x14015bf50` | `SOMA_cLuxPlayer_GiveDamage` | Shipped damage flow reaches `Effect_Rumble_Start` and therefore the shared rumble boundary. |
+
+The explicitly selected `Soma_NoSteam.exe` database was saved after all three
+renames, the rumble prototype, and plate comments.
+
 ## 2026-07-15 Post-Effect Resource Ownership Sync
 
 | Address | Ghidra name | Evidence/use |

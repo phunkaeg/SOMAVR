@@ -151,7 +151,9 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
   state after native interaction policy; `InteractionReticleNativeIcons=1`
   aspect-fits the matching shipped artwork with a procedural fallback.
   `FocusHaptics=1` adds a bounded intent-scaled pulse when confirmed entity/body
-  focus changes. These prototypes remain opt-in live-acceptance features rather
+  focus changes. `GameplayHaptics=1` also mirrors SOMA's authored global rumble
+  for damage, scripted tools/actions, death, and environmental effects through
+  bounded bilateral OpenXR segments. These prototypes remain opt-in live-acceptance features rather
   than generated-config defaults.
 
 ## Current Goal
@@ -335,6 +337,12 @@ MenuPointerSmoothing=0.35
 Haptics=1
 HapticAmplitude=0.35
 HapticDurationMs=30
+GameplayHaptics=1
+GameplayHapticAmplitudeScale=0.75
+GameplayHapticMinAmplitude=0.05
+GameplayHapticRetriggerDelta=0.08
+GameplayHapticRefreshMs=80
+GameplayHapticSegmentMs=100
 FocusHaptics=1
 FocusHapticAmplitude=0.12
 FocusHapticDurationMs=15

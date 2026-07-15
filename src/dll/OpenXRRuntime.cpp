@@ -739,16 +739,37 @@ struct OpenXRRuntime::Impl {
         }
         const bool applied = input_.ApplyHaptic(session_, hand, amplitude, durationMs);
         if (applied) {
-            Logger::Instance().Write(
-                LogLevel::Info,
-                "openxr_haptic applied hand=%u amplitude=%.3f durationMs=%d reason=%s frame=%llu",
-                hand,
-                std::clamp(amplitude, 0.0f, 1.0f),
-                std::max(durationMs, 1),
-                reason != nullptr ? reason : "unspecified",
-                static_cast<unsigned long long>(currentGameFrame_));
+            const bool gameplay = reason != nullptr
+                && std::strcmp(reason, "native_gameplay_rumble") == 0;
+            const uint64_t gameplayLog = gameplay ? ++gameplayHapticRequestCount_ : 0;
+            if (!gameplay || gameplayLog <= 8 || gameplayLog % 64 == 0) {
+                Logger::Instance().Write(
+                    LogLevel::Info,
+                    "openxr_haptic applied hand=%u amplitude=%.3f durationMs=%d reason=%s frame=%llu",
+                    hand,
+                    std::clamp(amplitude, 0.0f, 1.0f),
+                    std::max(durationMs, 1),
+                    reason != nullptr ? reason : "unspecified",
+                    static_cast<unsigned long long>(currentGameFrame_));
+            }
         }
         return applied;
+    }
+
+    bool StopHaptic(uint32_t hand, const char* reason)
+    {
+        std::lock_guard lock(mutex_);
+        if (!inputEnabled_ || !sessionRunning_ || sessionState_ != XR_SESSION_STATE_FOCUSED) {
+            return false;
+        }
+        const bool stopped = input_.StopHaptic(session_, hand);
+        if (stopped) {
+            Logger::Instance().Write(LogLevel::Info,
+                "openxr_haptic stopped hand=%u reason=%s frame=%llu",
+                hand, reason != nullptr ? reason : "unspecified",
+                static_cast<unsigned long long>(currentGameFrame_));
+        }
+        return stopped;
     }
 
     void SetStereoSubmissionEnabled(bool enabled)
@@ -2691,6 +2712,7 @@ private:
     uint64_t submittedFrameCount_ = 0;
     uint64_t lastSubmittedGameFrame_ = 0;
     uint64_t currentGameFrame_ = 0;
+    uint64_t gameplayHapticRequestCount_ = 0;
     uint32_t consecutiveFrameFailures_ = 0;
     uint32_t frameErrorLogCount_ = 0;
     uint32_t pendingRenderedEye_ = 0;
@@ -2978,6 +3000,7 @@ struct OpenXRRuntime::Impl {
     }
 
     bool RequestHapticPulse(uint32_t, float, int, const char*) { return false; }
+    bool StopHaptic(uint32_t, const char*) { return false; }
     void SetInteractionReticle(const OpenXRInteractionReticleState&) {}
     void SetInteractionReticleSemantic(int) {}
     void ClearInteractionReticle() {}
@@ -3213,6 +3236,11 @@ void OpenXRRuntime::SetInteractionReticleRuntimeVisible(bool visible)
 bool OpenXRRuntime::RequestHapticPulse(uint32_t hand, float amplitude, int durationMs, const char* reason)
 {
     return impl_->RequestHapticPulse(hand, amplitude, durationMs, reason);
+}
+
+bool OpenXRRuntime::StopHaptic(uint32_t hand, const char* reason)
+{
+    return impl_->StopHaptic(hand, reason);
 }
 
 void OpenXRRuntime::SetStereoSubmissionEnabled(bool enabled)

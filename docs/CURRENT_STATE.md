@@ -21,10 +21,17 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.41.0-roomscale-body-reconciliation`, layered on the
+The active build candidate is `0.42.0-native-gameplay-haptics`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- SOMA's script-authored gamepad rumble now crosses into OpenXR at the exact
+  registered `SetRumble` wrapper. Damage, death, attacks, locked interactions,
+  datamining/tool sequences, and authored environmental effects retain native
+  strength/duration semantics as bilateral segmented VR haptics. The original
+  physical-gamepad path is always called, repeated script updates are
+  throttled, and explicit falling edges stop both OpenXR outputs.
 
 - Sustained physical roomscale displacement can now advance the native player
   capsule through exact-signature guarded feet-position wrappers. The path is
@@ -290,7 +297,8 @@ compatibility probes:
 - `ReferenceSpace=local|stage` now supports seated/local and floor-aware standing
   calibration profiles with a logged fallback when STAGE is unavailable.
 - OpenXR controller output haptics cover interaction, snap turn, menu, jump,
-  crouch, and recenter. Focus loss clears the entire input snapshot immediately.
+  crouch, recenter, semantic focus, and SOMA-authored gameplay rumble. Focus
+  loss clears the entire input snapshot immediately.
 - Native base and extended roll are now measured from confirmed camera fields;
   opt-in temporary suppression is available for authored-camera comfort testing.
 - OpenXR session/instance loss now schedules an in-process runtime rebuild after

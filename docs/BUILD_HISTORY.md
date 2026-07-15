@@ -2,6 +2,26 @@
 
 ## 2026-07-15
 
+### 0.42.0-native-gameplay-haptics
+
+- Confirmed SOMA's script-visible `SetRumble` boundary at `0x140109b30` and
+  traced shipped `Effect_Rumble_Start` use across player damage, death,
+  attacks, locked interactions, datamining/tool sequences, and environmental
+  effects. The native player damage wrapper at `0x14015bf50` is also named and
+  documented in Ghidra.
+- Added an exact-signature bridge that preserves SOMA's gamepad call, mirrors
+  authored strength/duration bilaterally to OpenXR, and works without a
+  connected physical gamepad. A tested rising-edge/strength/80 ms refresh
+  envelope emits bounded 100 ms segments, suppresses per-frame chatter, and
+  explicitly stops both hands on the authored falling edge.
+- Added independent config controls and OpenXR `xrStopHapticFeedback` support.
+  Raw unscripted physics contact/material haptics remain future work. Both
+  Release flavors and all three CTest suites pass; live gameplay acceptance
+  remains. OpenXR DLL SHA-256:
+  `302C321D1E628AC38A59CE2B466964AB18CCCF5A9EB945A21A7F8E4FDFD693DB`.
+  Package SHA-256:
+  `DC0523D61253183A94094D230956E9836F8BADDD0AF8F01679605C7F1805962F`.
+
 ### 0.41.0-roomscale-body-reconciliation
 
 - Confirmed and signature-guarded native character-body feet getters/setters at

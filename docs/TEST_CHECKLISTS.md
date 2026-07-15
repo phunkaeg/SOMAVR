@@ -1,5 +1,32 @@
 # Test Checklists
 
+## 0.45.0 Continuous Dual Render
+
+1. Confirm `version=0.45.0-continuous-dual-render`, OpenXR flavor,
+   `dualRenderContinuousControl=1`, `dualRenderContinuousDefault=0`, and a ready
+   continuous control after hook installation. Enter VR with F10 and confirm the
+   session initially remains on the proven AFR path.
+2. Open F1, navigate to `SAME FRAME STEREO: OFF`, and activate it. The panel must
+   change to `ON` without recentering, rebuilding the XR session, leaking input,
+   or changing eye height/world rigidity.
+3. Expect the first five successful rows, then bounded interval rows, to report
+   `source=continuous`, `result=same_pose_opposite_eye`, opposite eyes, one pose
+   frame, replay mask bit `2` clear, and `temporalDiagnostics=0`. The viewport
+   enumerator, renderer frame/stat reset, update/script lifecycle, GUI, XR
+   submission, and presentation must remain once per game frame.
+4. Inspect quiet, shadowed, reflective, tone/bloom, fade, inventory, pause,
+   subtitle, terminal, flashlight, and authored-camera scenes. Stop for skew,
+   eye mismatch, moving shadows/reflections, cross-eye history, duplicated HUD,
+   broken menus, simulation-speed changes, or unacceptable frame pacing.
+5. Toggle the panel action off. AFR must resume immediately without a session
+   reset or stale eye. Toggle on again and verify the same clean transition.
+6. Automatic samples and a manual `Ctrl+F6` arm must still report temporal
+   mutation/resource diagnostics while continuous mode is enabled, then return
+   to ordinary continuous rows. Any cache or eye-sequence failure must disable
+   continuous mode and leave AFR operational.
+7. Set `HPLDualRenderContinuousControl=0` for the hard rollback. The panel action
+   must show unavailable and no continuous replay may occur.
+
 ## 0.44.0 Inventory Presentation
 
 1. Confirm `version=0.44.0-inventory-presentation`,

@@ -1,5 +1,6 @@
 #include "HPLStatusPanelBridge.h"
 
+#include "HPLDualRenderControl.h"
 #include "Logger.h"
 #include "OpenXRStatusPanelMath.h"
 
@@ -53,6 +54,9 @@ void Publish(
     panel.stereoEnabled = camera.stereoEnabled;
     panel.roomscaleEnabled = camera.roomscaleEnabled;
     panel.projectionCentered = camera.projectionCentered;
+    const HPLDualRenderControlStatus dualRender = GetHPLDualRenderControlStatus();
+    panel.dualRenderReady = dualRender.ready;
+    panel.continuousDualRender = dualRender.enabled;
     panel.hudVisible = g_state.hudVisible;
     panel.reticleVisible = g_state.reticleVisible;
     panel.inputAvailable = input != nullptr && input->active;
@@ -96,28 +100,39 @@ void ActivateSelected(HPLCameraBridgeStatus& camera)
         camera = GetHPLCameraBridgeStatus();
         break;
     case 3:
+    {
+        const HPLDualRenderControlStatus dualRender = GetHPLDualRenderControlStatus();
+        if (dualRender.ready) {
+            SetHPLContinuousDualRenderEnabled(!dualRender.enabled, "vr_status_panel");
+        }
+        break;
+    }
+    case 4:
         g_state.hudVisible = !g_state.hudVisible;
         if (g_openxr != nullptr) g_openxr->SetHudRuntimeVisible(g_state.hudVisible);
         break;
-    case 4:
+    case 5:
         g_state.reticleVisible = !g_state.reticleVisible;
         if (g_openxr != nullptr) {
             g_openxr->SetInteractionReticleRuntimeVisible(g_state.reticleVisible);
         }
         break;
-    case 5:
+    case 6:
         SetVisible(false, "close_action");
         break;
     default:
         break;
     }
     g_actions.fetch_add(1, std::memory_order_relaxed);
+    const HPLDualRenderControlStatus dualRender = GetHPLDualRenderControlStatus();
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_status_panel action=%d roomscale=%d centered=%d hud=%d reticle=%d visible=%d",
+        "hpl_status_panel action=%d roomscale=%d centered=%d continuousDualRender=%d dualRenderReady=%d hud=%d reticle=%d visible=%d",
         g_state.selectedAction,
         camera.roomscaleEnabled ? 1 : 0,
         camera.projectionCentered ? 1 : 0,
+        dualRender.enabled ? 1 : 0,
+        dualRender.ready ? 1 : 0,
         g_state.hudVisible ? 1 : 0,
         g_state.reticleVisible ? 1 : 0,
         g_state.visible ? 1 : 0);
@@ -214,9 +229,10 @@ bool UpdateHPLStatusPanelBridge(
 void LogHPLStatusPanelBridgeSummary()
 {
     std::lock_guard lock(g_mutex);
+    const HPLDualRenderControlStatus dualRender = GetHPLDualRenderControlStatus();
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_status_panel_summary installed=%d visible=%d selected=%d updates=%llu visibleFrames=%llu opens=%llu actions=%llu hud=%d reticle=%d",
+        "hpl_status_panel_summary installed=%d visible=%d selected=%d updates=%llu visibleFrames=%llu opens=%llu actions=%llu continuousDualRender=%d dualRenderReady=%d hud=%d reticle=%d",
         g_state.installed ? 1 : 0,
         g_state.visible ? 1 : 0,
         g_state.selectedAction,
@@ -224,6 +240,8 @@ void LogHPLStatusPanelBridgeSummary()
         static_cast<unsigned long long>(g_visibleFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_openCount.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_actions.load(std::memory_order_relaxed)),
+        dualRender.enabled ? 1 : 0,
+        dualRender.ready ? 1 : 0,
         g_state.hudVisible ? 1 : 0,
         g_state.reticleVisible ? 1 : 0);
 }

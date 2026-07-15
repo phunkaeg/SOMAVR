@@ -91,8 +91,11 @@ replays only the next exact player viewport once, suppresses screen GUI on the
 second pass, and logs whether both eyes came from the same tracked pose. With
 `HPLDualRenderAutoProbe=1`, three automatically spaced samples run after the
 tracked player viewport becomes stable. Each sample also records the CPU regions
-mutated by HPL3's deferred/post-post phase. These are bounded evidence probes,
-not a persistent dual-render toggle.
+mutated by HPL3's deferred/post-post phase. These remain bounded evidence probes.
+`HPLDualRenderContinuousControl=1` separately exposes `SAME FRAME STEREO` in the
+F1 panel. It is off by default, reuses the exact-player replay without per-frame
+diagnostic snapshots, and returns to AFR if eye-one caching or eye sequencing
+fails.
 With `HudLayer=1`, the exact gameplay HUD set is removed from the eye render and
 submitted once as a transparent, compositor head-locked OpenXR quad. Menus,
 ImGui, subtitles not owned by that set, and diegetic terminal GUIs remain on
@@ -158,10 +161,10 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
 
 ## Current Goal
 
-This is not yet a sustained simultaneous dual-eye renderer. OpenXR transport,
-native head tracking, and AFR stereo geometry are proven. `0.35.0` adds a
-one-frame exact-player replay to validate the remaining callback, temporal, and
-performance contracts before promotion. `0.36.0` also advances physical
+The proven default remains OpenXR transport, native head tracking, and AFR stereo
+geometry. `0.45.0` adds an opt-in sustained same-frame prototype below HPL3's
+once-per-frame viewport owner. It is deliberately not the default until live
+visual, temporal, performance, and rollback acceptance. `0.36.0` also advances physical
 presence with bounded two-hand independent-tool and carried-object control.
 `0.37.0` maps each active post effect's bound GL textures, dimensions, formats,
 and framebuffer writes, and classifies same-pose left/right resources as shared
@@ -169,9 +172,9 @@ or eye-distinct.
 
 `0.39.0` adds a head-locked in-VR status and control panel. Press `F1` or
 `Menu + Secondary`, navigate with the movement stick, and activate with dominant
-select/trigger. It exposes recenter plus reversible roomscale, centered
-projection, HUD-layer, and interaction-reticle controls while suppressing all
-underlying gameplay input.
+  select/trigger. It exposes recenter plus reversible roomscale, centered
+  projection, same-frame stereo, HUD-layer, and interaction-reticle controls
+  while suppressing all underlying gameplay input.
 
 `0.38.0` adds controller-addressable diegetic wall and handheld terminals.
 During exact terminal states `8/9`, dominant aim drives SOMA's native virtual ImGui cursor and
@@ -190,7 +193,7 @@ behavior on every unsupported path. Configure this under `[Controller]` with
 - gameplay HUD extraction into a configurable OpenXR quad layer,
 - controller-owned native hands with calibration and authored-state fallback,
 - paused-menu aim pointer and hard gameplay-input suppression,
-- promote same-frame dual rendering only after repeated one-frame replay evidence.
+- live-validate and tune the opt-in same-frame renderer before default promotion.
 
 The active `somavr.ini` is currently set up for the OpenXR probe build:
 
@@ -259,6 +262,8 @@ HPLDualRenderAutoProbe=1
 HPLDualRenderAutoProbeCount=3
 HPLDualRenderAutoProbeDelayFrames=180
 HPLDualRenderAutoProbeIntervalFrames=180
+HPLDualRenderContinuousControl=1
+HPLDualRenderContinuousDefault=0
 HPLPerEyePerformanceTelemetry=1
 HPLPerEyeGpuTelemetry=1
 HPLGpuQueryPoolSize=128

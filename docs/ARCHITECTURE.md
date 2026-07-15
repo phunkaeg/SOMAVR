@@ -31,8 +31,13 @@ HPLInputBridge
 
 HPLStatusPanelBridge
   -> immutable player/camera/input snapshots
-  -> guarded recenter, roomscale, projection, HUD, and reticle controls
+  -> guarded recenter, roomscale, projection, same-frame stereo, HUD, and reticle controls
   -> OpenXRRuntime status model publication
+
+HPLDualRenderControl
+  -> explicit configured/ready/enabled/fail-closed state
+  -> HPLCompatibilityProbe exact-player viewport replay executor
+  -> HPLStatusPanelBridge guarded runtime toggle
 
 HPLGrabBridge
   -> signature-guarded vector PID output
@@ -129,6 +134,7 @@ lifecycle.
 | `HPLPlayerState` | Signature-guarded player/camera/body discovery, player/move IDs, camera ownership classification, immutable snapshots | Controller injection, camera transforms, OpenXR actions |
 | `HPLInputBridge` | Reversible SOMA input-path controls plus authored-camera/hard-pause suppression and bounded high-motion player-state transition blackouts | Native player discovery, OpenXR action ownership, camera math, or authored pose replacement |
 | `HPLStatusPanelBridge` | Exclusive panel input lifecycle and guarded user-facing VR option commands | Text rasterization, swapchains, native discovery, or world rendering |
+| `HPLDualRenderControl` | Configured/ready/enabled state, explicit runtime changes, rejection counts, and fail-closed disable policy | Native viewport hooks, render-pass execution, GL resources, temporal state restoration, or XR submission |
 | `HPLNativeLocomotion` | Guarded analog Move and exact-radian AddYaw calls only in unpaused normal player/move state; exposes the confirmed pause state to input policy | Player discovery, special-state input semantics, direct capsule transforms, or bypassing pause ownership |
 | `HPLMenuBridge` | Paused-only head-relative controller aim to native client cursor routing | GUI rendering/capture, pause ownership, OpenXR actions, or gameplay clicks |
 | `HPLMenuMath` | Pure HMD/controller orientation projection into normalized menu coordinates | HWND state, cursor mutation, native pointers, or logging |
@@ -149,7 +155,7 @@ lifecycle.
 | `HPLHudMath` | Pure quad pose, angular size, and aspect validation | GL state, OpenXR handles, native pointers, or logging |
 | `HPLSubtitleBridge` | Signature-guarded scoped override/restore of native voice subtitle layout during active stereo | Subtitle content, localization, timing, enable state, font resources, or HUD swapchains |
 | `HPLSubtitleMath` | Pure validated subtitle width/font/Y/shadow scaling | Native pointers, hooks, camera state, or logging |
-| `HPLCompatibilityProbe` | Bounded render/audio/post-effect telemetry, left/right/mono CPU stage totals, and temporary probes; shared pose math comes from `HPLCameraMath` | Permanent GUI/HUD feature policy, GPU timing ownership, or unrelated gameplay systems |
+| `HPLCompatibilityProbe` | Bounded render/audio/post-effect telemetry, left/right/mono CPU stage totals, temporary probes, and the single exact-player viewport replay hook shared by bounded and continuous dual render; shared pose math comes from `HPLCameraMath` | Permanent dual-render user policy, GUI/HUD feature policy, GPU timing ownership, or unrelated gameplay systems |
 | `HPLLifecycle` | Pre-graphics OpenXR teardown boundary | General shutdown orchestration |
 
 ## Growth Rules
@@ -193,8 +199,9 @@ The maintenance passes now include eleven focused extractions:
   `HPLSubtitleBridge` owns the one exact draw hook and immediate restoration.
 - `HPLDualRenderDiagnostics` owns safe native-region snapshots and first/replay
   correlation, while `HPLTemporalMutationMath` owns tested byte hashing and
-  bounded changed-range classification. `HPLCompatibilityProbe` only schedules
-  and labels the render passes.
+  bounded changed-range classification. `HPLDualRenderControl` owns the explicit
+  sustained-mode state; `HPLCompatibilityProbe` owns the one native viewport
+  hook and executes either bounded diagnostic or continuous replay policy.
 
 `somavr_render_math_tests` now protects symmetric tangent-span preservation,
 zero projection offsets, projection construction, temporal mutation ranges,

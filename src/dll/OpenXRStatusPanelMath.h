@@ -5,7 +5,7 @@
 
 namespace somavr::status_panel_math {
 
-constexpr int kActionCount = 6;
+constexpr int kActionCount = 7;
 
 struct PanelModel {
     bool visible = false;
@@ -14,6 +14,8 @@ struct PanelModel {
     bool stereoEnabled = false;
     bool roomscaleEnabled = false;
     bool projectionCentered = false;
+    bool dualRenderReady = false;
+    bool continuousDualRender = false;
     bool hudVisible = false;
     bool reticleVisible = false;
     bool inputAvailable = false;

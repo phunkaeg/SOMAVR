@@ -184,6 +184,8 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLDualRenderAutoProbeCount=3\n"
         << "HPLDualRenderAutoProbeDelayFrames=180\n"
         << "HPLDualRenderAutoProbeIntervalFrames=180\n"
+        << "HPLDualRenderContinuousControl=0\n"
+        << "HPLDualRenderContinuousDefault=0\n"
         << "HPLPerEyePerformanceTelemetry=0\n"
         << "HPLPerEyeGpuTelemetry=0\n"
         << "HPLGpuQueryPoolSize=128\n"
@@ -466,6 +468,8 @@ void ConfigManager::LoadFromFile()
             else if (key == "hpldualrenderautoprobecount") config_.hplDualRenderAutoProbeCount = ParseInt(value, config_.hplDualRenderAutoProbeCount, 1, 10);
             else if (key == "hpldualrenderautoprobedelayframes") config_.hplDualRenderAutoProbeDelayFrames = ParseInt(value, config_.hplDualRenderAutoProbeDelayFrames, 30, 100000);
             else if (key == "hpldualrenderautoprobeintervalframes") config_.hplDualRenderAutoProbeIntervalFrames = ParseInt(value, config_.hplDualRenderAutoProbeIntervalFrames, 30, 100000);
+            else if (key == "hpldualrendercontinuouscontrol") config_.hplDualRenderContinuousControl = ParseBool(value, config_.hplDualRenderContinuousControl);
+            else if (key == "hpldualrendercontinuousdefault") config_.hplDualRenderContinuousDefault = ParseBool(value, config_.hplDualRenderContinuousDefault);
             else if (key == "hplpereyeperformancetelemetry") config_.hplPerEyePerformanceTelemetry = ParseBool(value, config_.hplPerEyePerformanceTelemetry);
             else if (key == "hplpereyegputelemetry") config_.hplPerEyeGpuTelemetry = ParseBool(value, config_.hplPerEyeGpuTelemetry);
             else if (key == "hplgpuquerypoolsize") config_.hplGpuQueryPoolSize = ParseInt(value, config_.hplGpuQueryPoolSize, 16, 512);

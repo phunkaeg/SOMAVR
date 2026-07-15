@@ -1,5 +1,16 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Continuous Dual Render Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x140298630` | `HPL3_Scene_RenderViewport` | Plate comment now records the `0.45.0` exact-player continuous replay: immediate eye-one cache, screen-GUI bit `2` removed on eye two, same-pose guard, bounded logging, and fail-closed rollback. |
+| `0x140298850` | `HPL3_Scene_RenderViewports` | Reconfirmed as the once-per-game-frame viewport owner. Its renderer frame increment/stat reset and enumeration are never duplicated. |
+| `0x1401f1480` | `HPL3_Renderer_RenderPostPostEffects` | Plate comment records that continuous eye two necessarily repeats this stateful phase; bounded diagnostic arms still snapshot it, while ordinary continuous frames do not. |
+
+The explicitly selected `Soma_NoSteam.exe` database was saved after all three
+plate-comment updates and decompilation rechecks.
+
 ## 2026-07-15 Inventory Presentation Sync
 
 | Address | Ghidra name | Evidence/use |

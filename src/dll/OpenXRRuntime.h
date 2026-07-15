@@ -93,6 +93,8 @@ struct OpenXRStatusPanelState {
     bool stereoEnabled = false;
     bool roomscaleEnabled = false;
     bool projectionCentered = false;
+    bool dualRenderReady = false;
+    bool continuousDualRender = false;
     bool hudVisible = false;
     bool reticleVisible = false;
     bool inputAvailable = false;

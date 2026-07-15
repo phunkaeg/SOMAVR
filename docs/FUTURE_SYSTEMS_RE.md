@@ -1,5 +1,21 @@
 # Future Systems Reverse Engineering
 
+## 0.45.0 Continuous Same-Frame Stereo Result
+
+Ghidra reconfirmed `HPL3_Scene_RenderViewport` at `0x140298630` as the narrowest
+complete player-eye boundary. `0.45.0` can now immediately preserve eye one and
+replay only that exact player viewport with screen-GUI bit `2` removed. The
+engine viewport enumerator at `0x140298850`, update/script lifecycle, renderer
+frame/stat reset, GUI, XR submission, and presentation remain once per game
+frame. The stateful post-post phase at `0x1401f1480` is necessarily repeated.
+
+`HPLDualRenderControl` keeps this path explicit, off by default, available from
+the F1 panel, and fail-closed. Eye-one cache failure or eye/pose-sequence mismatch
+immediately disables it and restores AFR. Bounded automatic/manual replay arms
+still take temporal mutation snapshots; ordinary continuous frames do not. This
+is a built prototype awaiting headset visual, temporal, performance, and rollback
+acceptance before it can replace AFR as the default.
+
 ## 0.44.0 Inventory Presentation Result
 
 Shipped source fixes the inventory user-module ID at `15` and
@@ -909,7 +925,7 @@ The immediate policy for the AFR test line should therefore be:
 - retain tone mapping, bloom, fog, and color grading;
 - retain fades/flash only after confirming they are captured identically for both eyes.
 
-Same-frame dual rendering can later restore more effects, but temporal effects still require independent per-eye history.
+Same-frame dual rendering can restore more stateless effects, but temporal effects still require independent per-eye history.
 
 ### Implementation Stages
 
@@ -920,7 +936,10 @@ Same-frame dual rendering can later restore more effects, but temporal effects s
    `Ctrl+F12` isolates one active effect, `Shift+F12` restores policy, and
    `Ctrl+F6` forces a paired resource capture during the bounded replay.
 2. **VR comfort policy:** first named policy built in `0.8.0`. It temporarily suppresses ImageTrail, ChromaticAberration, and RadialBlur during active stereo rendering and restores their native active bytes immediately after the compositor call.
-3. **Per-eye post chain:** ensure the scene and post composite execute inside each eye render before caching/submission.
+3. **Per-eye post chain:** opt-in prototype built in `0.45.0`; the exact player
+   scene and post composite execute for both eyes before ordinary submission,
+   while the upper frame owner remains single-shot. Live validation and temporal
+   policy still gate default promotion.
 4. **Per-eye history:** duplicate image-trail/temporal resources only if those effects are intentionally restored.
 5. **Overlay extraction:** move simple flashes, fades, and infection/HUD overlays to alpha-capable OpenXR layers.
 6. **Screen-material convergence:** built in `0.30.0`; four exact native

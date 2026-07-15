@@ -2,6 +2,29 @@
 
 ## 2026-07-15
 
+### 0.45.0-continuous-dual-render
+
+- Promoted the proven exact-player one-frame replay into an explicit opt-in
+  sustained same-frame stereo path. `HPLDualRenderControl` owns the configured,
+  ready, enabled, rejection, and fail-closed state; the existing exact
+  `HPL3_Scene_RenderViewport` hook remains the single native replay owner.
+- Continuous mode immediately preserves eye one, replays only the exact player
+  viewport with screen-GUI mask bit `2` removed, and lets the ordinary boundary
+  preserve eye two. `HPL3_Scene_RenderViewports`, engine update/script lifecycle,
+  renderer frame/stat reset, GUI, XR submission, and presentation still execute
+  once per game frame. Cache failure or eye/pose-sequence mismatch disables the
+  mode and returns to the proven AFR path.
+- Added `SAME FRAME STEREO` to the in-headset F1 panel. The active profile exposes
+  the control but starts it off; `HPLDualRenderContinuousControl=0` removes it
+  completely. Manual and automatic bounded replay samples still collect temporal
+  mutation evidence, while ordinary continuous frames avoid per-frame snapshots.
+  Ghidra and the native address ledger now record the exact replay contract and
+  the necessarily duplicated stateful post-post phase. Both Release flavors and
+  all three CTest suites pass; live headset acceptance remains. OpenXR DLL
+  SHA-256: `91DC8889E1531B118530CC5E022B78DF2141A77C93E9761B476B869F89523274`.
+  Package SHA-256:
+  `141B1E6AF7BC736C7459940BF523AEBA01096BE9FD5A94B477C19E5DAE6E45CB`.
+
 ### 0.44.0-inventory-presentation
 
 - Traced the shipped inventory input path from

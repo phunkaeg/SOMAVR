@@ -381,7 +381,7 @@ and immediately restores SOMA's authored listener fields.
 
 ## S12 - Safe dual rendering must remain below renderer frame ownership
 
-Status: PARTIALLY CONFIRMED (`0.5.1-compatprobe`)
+Status: BUILT AS OPT-IN PROTOTYPE (`0.45.0-continuous-dual-render`)
 
 Hypothesis: `0x140298850` must execute once because it advances renderer frame state,
 while selected scene/post work below `0x140298630` can execute once per eye after
@@ -395,9 +395,11 @@ Redirects if `0x1401f9790` or adjacent callbacks mutate once-per-frame state; sp
 the hook deeper or snapshot/restore only the proven render-local state.
 
 Live result: one stable viewport executes world `0 -> 11`, overlays on `11`, post
-`11 -> 0`, PostPostEffect on `0`, and GUI on `0`. The newly named pre/post-world
-callback dispatcher remains inside `HPL3_Scene_RenderViewport`, so whole-viewport
-duplication is still rejected.
+`11 -> 0`, PostPostEffect on `0`, and GUI on `0`. `0.45.0` replays only the exact
+player `HPL3_Scene_RenderViewport` with GUI bit `2` removed and never duplicates
+the renderer frame owner at `0x140298850`. Pre/post-world callbacks and the
+stateful post-post phase still repeat, so default promotion remains gated on live
+visual, temporal, and performance evidence.
 
 ## S13 - Post-chain bypass can classify the reported shader defects
 

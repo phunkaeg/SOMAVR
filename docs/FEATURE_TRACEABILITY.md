@@ -17,7 +17,7 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.XR_RESOURCE_RECREATION` | BUILT | `OpenXRRuntime`, `OpenXRGLBridge` | bound HDC/HGLRC identity, periodic `xrEnumerateViewConfigurationViews`, transactional frame-resource rebuild | `BUILD_HISTORY.md`, `VR_COMPATIBILITY_RE.md`, `TEST_CHECKLISTS.md` | Live-test GL context replacement and runtime view-size/sample changes without stale resources or a process restart |
 | `FEATURE.CLEAN_SHUTDOWN` | PROVEN | `HPLLifecycle`, `OpenXRRuntime` | `0x1403b16e0`, `0x1403b1803` | `RUNTIME_ANALYSIS_0.5.6.md`, `GHIDRA_SYNC.md` | Preserve clean exit across runtime/session-loss paths |
 | `FEATURE.VR_MODE_CONTROL` | EXPERIMENTAL | `HPLCameraBridge`, `OpenXRRuntime` | F10 pending activation, F8/F11 diagnostics | `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | One F10 reaches tracking, stereo, and full centering from a loaded save |
-| `FEATURE.VR_CONTROL_PANEL` | BUILT | `HPLStatusPanelBridge`, `OpenXRStatusPanelMath`, `OpenXRRuntime`, `OpenXRGLBridge` | F1, Menu+Secondary, VIEW-space alpha quad, guarded camera/runtime setters | `BUILD_HISTORY.md`, `ARCHITECTURE.md`, `TEST_CHECKLISTS.md` | Live-test layer orientation/alpha, exclusive input, every reversible action, and no stereo/world regression |
+| `FEATURE.VR_CONTROL_PANEL` | BUILT | `HPLStatusPanelBridge`, `OpenXRStatusPanelMath`, `OpenXRRuntime`, `OpenXRGLBridge` | F1, Menu+Secondary, VIEW-space alpha quad, guarded camera/runtime setters, same-frame stereo action | `BUILD_HISTORY.md`, `ARCHITECTURE.md`, `TEST_CHECKLISTS.md` | Live-test layer orientation/alpha, exclusive input, every reversible action, and no stereo/world regression |
 | `FEATURE.RECENTER` | BUILT | `HPLCameraBridge`, `HPLCameraMath`, `HPLInputBridge` | F2 or two-grip hold, stable neutral-pose latch | `BUILD_HISTORY.md`, `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | Live test confirms keyboard and controller recenter without stereo/session reset or height drift |
 | `FEATURE.XR_INPUT` | BUILT | `OpenXRInput`, `OpenXRRuntime` | OpenXR action set, Simple/Touch/Index/Motion bindings, grip/aim action spaces | `BUILD_HISTORY.md`, `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | Live log confirms active bindings, both tracked controllers, and stable predicted poses |
 | `FEATURE.XR_REFERENCE_SPACE` | BUILT | `OpenXRRuntime`, config | `XR_REFERENCE_SPACE_TYPE_LOCAL`, optional `STAGE`, runtime fallback | `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Compare seated/local and standing/stage calibration, eye height, recenter, and map transitions |
@@ -33,7 +33,7 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.DIEGETIC_GUI_POINTER` | BUILT | `HPLTerminalBridge`, `HPLInputBridge`, `HPLMenuMath`, `HPLPlayerState` | wall/handheld terminal states `8/9`, `0x1400cca70`, `0x1400cca90`, `0x140071f20`, `0x1402f0c90`, `cGuiSet +0x100..+0x10c/+0x139` | `ADDRESS_REGISTRY.md`, `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test both terminal classes, cursor alignment/clicks, unfocused handheld fallback, and rollback; refine to exact controller-ray/terminal-plane UV only if head-relative aim alignment is insufficient |
 | `FEATURE.HEAD_TRACKING` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | `0x140271b80`, `0x140270230` | `CURRENT_STATE.md`, `VR_COMPATIBILITY_RE.md` | Remain correct through every authored camera state |
 | `FEATURE.AFR_STEREO` | PROVEN | `HPLCameraBridge`, `OpenXRRuntime`, `OpenXRGLBridge` | F11, per-eye cache and submitted render pose | `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.1.md` | Preserve stability while shader/temporal compatibility is classified |
-| `FEATURE.DUAL_RENDER` | EXPERIMENTAL | `HPLCompatibilityProbe`, `HPLDualRenderMath`, `HPLDualRenderDiagnostics`, `OpenXRRuntime` | `0x140298850`, `0x140298630`, immediate first-eye cache, manual/automatic bounded one-frame replay with GUI bit removed | `VR_COMPATIBILITY_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live automatic samples prove same-pose opposite eyes and classify whether duplicated post-post mutation ranges are equivalent or eye-specific before any persistent path is enabled |
+| `FEATURE.DUAL_RENDER` | BUILT | `HPLDualRenderControl`, `HPLCompatibilityProbe`, `HPLDualRenderMath`, `HPLDualRenderDiagnostics`, `HPLStatusPanelBridge`, `OpenXRRuntime` | `0x140298850`, `0x140298630`, immediate first-eye cache, opt-in continuous exact-player replay with GUI bit removed, bounded diagnostic precedence, fail-closed AFR rollback | `VR_COMPATIBILITY_RE.md`, `ADDRESS_REGISTRY.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test frame pacing, post-post temporal behavior, shadows/reflections, HUD/presentation ownership, and panel on/off rollback before default promotion |
 | `FEATURE.DUAL_RENDER_TEMPORAL_PROBE` | BUILT | `HPLDualRenderDiagnostics`, `HPLTemporalMutationMath`, `HPLCompatibilityProbe` | `0x1401f1480`, renderer/current/history/settings snapshots, `*(renderer+0x20)+0x158 -> *(renderer+0x438)+0x80` | `ADDRESS_REGISTRY.md`, `VR_COMPATIBILITY_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Three automatic samples produce readable first/replay region summaries and correlated mutation ranges without crashes or visible state regression |
 | `FEATURE.VIEWPORT_OWNERSHIP` | BUILT | `HPLCompatibilityProbe`, `HPLCameraBridge`, `HPLPlayerState` | `0x140298630`, `0x140297f20`, `0x140297500`, viewport camera/world/renderer/post/FBO/settings fields | `ADDRESS_REGISTRY.md`, `VR_COMPATIBILITY_RE.md`, `TEST_CHECKLISTS.md` | Live logs classify reflection, terminal, loading, and save-transition viewports while only the exact player camera receives VR controls |
 | `FEATURE.PER_EYE_CPU_TELEMETRY` | BUILT | `HPLCompatibilityProbe`, `HPLCameraBridge` | six guarded render-stage hooks, active AFR eye identity, QPC totals | `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md`, `VR_COMPATIBILITY_RE.md` | Capture representative left/right stage budgets alongside GPU timestamps |
@@ -80,6 +80,7 @@ FEATURE.VR_CONTROL_PANEL requires FEATURE.VR_MODE_CONTROL
 FEATURE.VR_CONTROL_PANEL requires FEATURE.XR_INPUT
 FEATURE.VR_CONTROL_PANEL requires FEATURE.XR_GL_SUBMISSION
 FEATURE.VR_CONTROL_PANEL controls FEATURE.RECENTER
+FEATURE.VR_CONTROL_PANEL controls FEATURE.DUAL_RENDER
 FEATURE.VR_CONTROL_PANEL controls FEATURE.HUD_LAYER
 FEATURE.VR_CONTROL_PANEL controls FEATURE.INTERACTION_RETICLE
 FEATURE.RECENTER requires FEATURE.VR_MODE_CONTROL
@@ -165,6 +166,8 @@ HPLInputBridge requires OpenXRInput
 HPLInputBridge requires HPLCameraBridge
 HPLInputBridge requires HPLPlayerState
 HPLCompatibilityProbe consumes OpenGLHooks telemetry
+HPLDualRenderControl controls FEATURE.DUAL_RENDER
+HPLCompatibilityProbe executes FEATURE.DUAL_RENDER exact viewport replay
 HPLScreenEffectBridge requires HPLScreenEffectMath
 HPLScreenEffectBridge requires HPLCameraBridge
 HPLInputBridge requires HPLNativeLocomotion

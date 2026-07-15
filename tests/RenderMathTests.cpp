@@ -952,6 +952,8 @@ int main()
     panel.stereoEnabled = true;
     panel.roomscaleEnabled = true;
     panel.projectionCentered = true;
+    panel.dualRenderReady = true;
+    panel.continuousDualRender = true;
     panel.hudVisible = true;
     panel.reticleVisible = true;
     panel.inputAvailable = true;
@@ -969,6 +971,7 @@ int main()
     failures += Check(
         !status_panel_math::RasterizePanel(panel, 128, 128, panelPixels),
         "VR status panel rejects undersized targets");
+    failures += Check(status_panel_math::kActionCount == 7, "VR status panel action contract");
 
     if (failures == 0) {
         std::cout << "Render math tests passed\n";

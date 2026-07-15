@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.44.0-inventory-presentation`, layered on the
+The active build candidate is `0.45.0-continuous-dual-render`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
@@ -57,20 +57,22 @@ compatibility probes:
   It is enabled in the active test profile and has a one-line config rollback;
   headset/collision acceptance remains.
 
-- Same-frame stereo evidence collection is now automatic and bounded. After a
-  stable exact player viewport enters tracked stereo, three samples run 180
-  frames apart. Each replays one frame with screen GUI suppressed, captures the
-  first eye immediately, and records before/after mutation ranges around the
-  corrected stateful renderer post-post phase at `0x1401f1480`. The path remains
-  diagnostic-only and falls back to the proven AFR baseline after every sample;
-  `Ctrl+F6` remains available for a manually chosen scene.
+- Same-frame stereo is now available as an explicit opt-in sustained prototype.
+  It replays only the exact player viewport, suppresses screen GUI on eye two,
+  and leaves the engine viewport enumerator, update/script lifecycle, frame/stat
+  reset, GUI, XR submission, and presentation once per game frame. Immediate
+  cache failure or an eye/pose-sequence mismatch disables the mode and restores
+  AFR. The active profile exposes the F1 panel control but starts it off.
+  Automatic bounded samples and `Ctrl+F6` remain available for temporal mutation
+  evidence around the stateful post-post phase at `0x1401f1480`.
 
 - A dedicated head-locked OpenXR status/options panel is now available through
   `F1` or `Menu + Secondary`. It owns a separate alpha swapchain and reports
   tracking, stereo, input, player/authored-camera, roomscale, projection, HUD,
-  and reticle state. Stick plus select/trigger controls recenter and reversible
-  runtime options while exclusive input ownership prevents actions leaking into
-  SOMA. This is built and unit-tested but still needs headset acceptance.
+  and reticle state. Stick plus select/trigger controls recenter, same-frame
+  stereo, and reversible runtime options while exclusive input ownership prevents
+  actions leaking into SOMA. This is built and unit-tested but still needs headset
+  acceptance.
 
 - Exact wall/handheld terminal states `8/9` now route dominant-controller aim through
   SOMA's native virtual ImGui cursor boundary. Current-ImGui identity,
@@ -97,14 +99,12 @@ compatibility probes:
   torque, and every invalid/support-loss state immediately uses dominant-only
   or native behavior.
 
-- `Ctrl+F6` now arms the first bounded same-frame stereo experiment. Only the
-  next exact player viewport is eligible. Eye one is cached immediately, the
-  viewport is replayed once with screen GUI suppressed, and the ordinary frame
-  boundary captures eye two. The engine-wide viewport enumerator, update,
-  frame-counter reset, GUI, and presentation still run once. Logs require the
-  two renders to use opposite eyes from one tracked pose and expose replay cost
-  plus the unavoidable duplicated post-post callback. This is not yet a
-  sustained dual-render mode.
+- `Ctrl+F6` and the automatically spaced samples retain the bounded diagnostic
+  form of the exact-player replay. They force temporal mutation/resource capture
+  around both eyes. `0.45.0` adds a separate sustained toggle through the F1
+  panel; ordinary continuous frames use the same replay boundary without the
+  expensive snapshots. Logs require opposite eyes from one tracked pose and
+  expose the unavoidable duplicated post-post callback.
 
 - Optional compositor depth is now fully wired. The OpenXR runtime negotiates
   D24/D32F or matching depth-stencil formats, builds matching per-eye depth

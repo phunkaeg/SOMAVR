@@ -2370,6 +2370,8 @@ private:
             model.stereoEnabled = statusPanelState_.stereoEnabled;
             model.roomscaleEnabled = statusPanelState_.roomscaleEnabled;
             model.projectionCentered = statusPanelState_.projectionCentered;
+            model.dualRenderReady = statusPanelState_.dualRenderReady;
+            model.continuousDualRender = statusPanelState_.continuousDualRender;
             model.hudVisible = statusPanelState_.hudVisible;
             model.reticleVisible = statusPanelState_.reticleVisible;
             model.inputAvailable = statusPanelState_.inputAvailable;

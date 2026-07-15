@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.44.0-inventory-presentation")
+set(SOMAVR_BUILD_VERSION "0.45.0-continuous-dual-render")
 
 include(FetchContent)
 
@@ -89,6 +89,7 @@ target_compile_definitions(somavr_render_math PRIVATE WIN32_LEAN_AND_MEAN NOMINM
 add_library(somavr SHARED
     src/dll/DllMain.cpp
     src/dll/HPLCompatibilityProbe.cpp
+    src/dll/HPLDualRenderControl.cpp
     src/dll/HPLDualRenderDiagnostics.cpp
     src/dll/HPLCameraBridge.cpp
     src/dll/HPLComfortBridge.cpp

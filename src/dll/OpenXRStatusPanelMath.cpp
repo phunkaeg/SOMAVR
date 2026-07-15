@@ -139,10 +139,14 @@ bool RasterizePanel(
     canvas.Text(margin + 5 * scale, y, line, scale, 179, 193, 203);
     y += lineHeight + 2 * scale;
 
+    const std::string_view dualRenderAction = !model.dualRenderReady
+        ? "SAME FRAME STEREO: UNAVAILABLE"
+        : model.continuousDualRender ? "SAME FRAME STEREO: ON" : "SAME FRAME STEREO: OFF";
     const std::array<std::string_view, kActionCount> actions = {
         "RECENTER VR",
         model.roomscaleEnabled ? "ROOMSCALE: ON" : "ROOMSCALE: OFF",
         model.projectionCentered ? "CENTERED PROJECTION: ON" : "CENTERED PROJECTION: OFF",
+        dualRenderAction,
         model.hudVisible ? "HUD LAYER: ON" : "HUD LAYER: OFF",
         model.reticleVisible ? "INTERACTION RETICLE: ON" : "INTERACTION RETICLE: OFF",
         "CLOSE",

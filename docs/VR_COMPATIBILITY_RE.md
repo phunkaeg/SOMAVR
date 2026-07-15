@@ -424,8 +424,7 @@ effects, and the unconditional `PostPostEffects` renderer phase. Telemetry there
 records the exact replay mask, CPU/draw/clear cost, first/second eye indices,
 pose-frame identity, and explicitly labels duplicated post-post work. Any
 eligibility or immediate cache-capture failure consumes the arm without replay
-and leaves normal AFR in control. Sustained same-frame rendering remains gated
-on clean live evidence from this one-frame experiment.
+and leaves normal AFR in control.
 
 Decompilation of `0x1401f1480` corrected the earlier callback-only assumption.
 The phase performs substantial deferred GPU work, invokes callback lists, clears
@@ -437,6 +436,17 @@ the renderer (`0x800`), current state (`0x200`), history state (`0x100`), and
 settings (`0x180`) before and after each first-eye/replay phase. It logs hashes,
 changed-byte ranges, and whether both eyes mutate equivalent ranges. It does not
 restore or alter any captured state.
+
+`0.45.0-continuous-dual-render` promotes this exact boundary into an explicit
+opt-in sustained prototype. `HPLDualRenderContinuousControl=1` exposes the F1
+panel action while `HPLDualRenderContinuousDefault=0` keeps AFR as the startup
+path. The exact player viewport is replayed every eligible frame, screen GUI is
+still removed from eye two, and the once-per-frame enumerator and upper engine
+lifecycle remain untouched. Ordinary continuous frames do not take mutation
+snapshots; manual and automatic arms temporarily retain diagnostic precedence.
+Any immediate cache failure or eye/pose-sequence mismatch disables continuous
+mode and returns to AFR. Live evidence now gates promotion to a default, rather
+than the existence of a sustained implementation.
 
 Temporal resources such as image trail, previous view/projection matrices,
 exposure, and velocity history must either be isolated per eye or disabled. Sharing
@@ -491,7 +501,8 @@ matrix stream, draw/FBO order, and eye identity needed to prove or reject this.
 
 1. Prove F11 eye ordering, scale, FOV, and cache submission.
 2. Add render-stage/FBO telemetry without duplicating work.
-3. Implement same-frame scene rendering with post effects disabled or tightly bounded.
+3. Live-validate the opt-in `0.45.0` same-frame scene/post replay, especially the
+   necessarily duplicated stateful post-post phase and performance budget.
 4. Split flat HUD/menu from world GUI.
 5. Add player-state telemetry and authored-camera adapters.
 6. Add semantic OpenXR actions and locomotion.

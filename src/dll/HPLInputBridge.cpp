@@ -9,6 +9,7 @@
 #include "HPLPhysicalCrouchMath.h"
 #include "HPLPlayerState.h"
 #include "HPLPresentationBridge.h"
+#include "HPLTerminalBridge.h"
 #include "Logger.h"
 
 #include <Windows.h>
@@ -53,6 +54,7 @@ struct BridgeState {
     bool nativeTurnActive = false;
     bool paused = false;
     bool menuPointerActive = false;
+    bool terminalPointerActive = false;
     bool menuClickLatchedUntilRelease = false;
     crouch_math::PhysicalCrouchState physicalCrouch{};
     bool playerStateInitialized = false;
@@ -75,6 +77,8 @@ constexpr int kGrabPlayerState = 1;
 constexpr int kPushPlayerState = 2;
 constexpr int kWheelPlayerState = 3;
 constexpr int kLastPhysicalManipulationState = 7;
+constexpr int kTerminalPlayerState = 8;
+constexpr int kHandheldTerminalPlayerState = 9;
 
 Config g_config;
 OpenXRRuntime* g_openxr = nullptr;
@@ -99,6 +103,7 @@ std::atomic<uint64_t> g_flashlightActions = 0;
 std::atomic<uint64_t> g_inventoryActions = 0;
 std::atomic<uint64_t> g_pausedFrames = 0;
 std::atomic<uint64_t> g_menuPointerFrames = 0;
+std::atomic<uint64_t> g_terminalPointerFrames = 0;
 std::atomic<uint64_t> g_headRelativeMovementFrames = 0;
 std::atomic<uint64_t> g_physicalCrouchEntries = 0;
 std::atomic<uint64_t> g_physicalCrouchExits = 0;
@@ -375,7 +380,9 @@ void ReleaseAll()
 {
     ReleaseGameplayInputs();
     DeactivateHPLMenuPointer();
+    DeactivateHPLTerminalPointer();
     g_state.menuPointerActive = false;
+    g_state.terminalPointerActive = false;
     g_state.recenterStartMs = 0;
     g_state.recenterLatched = false;
     g_state.menuClickLatchedUntilRelease = false;
@@ -440,6 +447,31 @@ bool ApplyPausedMenuActions(const OpenXRInputSnapshot& input, const ControllerRo
     if (pressed) g_state.menuClickLatchedUntilRelease = true;
     SetMouseButton(g_state.interact, pressed);
     g_menuPointerFrames.fetch_add(1, std::memory_order_relaxed);
+    return true;
+}
+
+bool ApplyTerminalPointerActions(const OpenXRInputSnapshot& input, const ControllerRoles& roles)
+{
+    ReleaseGameplayExceptPointer();
+    DeactivateHPLMenuPointer();
+    const OpenXRHandInput& dominant = HandInput(input, roles.dominantHand);
+    OpenXRHeadPose headPose;
+    const bool pointerActive = g_config.hplControllerTerminalPointer
+        && g_openxr != nullptr
+        && g_openxr->GetLatestHeadPose(headPose)
+        && UpdateHPLTerminalPointer(headPose, dominant.aimPose);
+    if (!pointerActive) {
+        SetMouseButton(g_state.interact, false);
+        DeactivateHPLTerminalPointer();
+        return false;
+    }
+
+    const bool pressed = dominant.select || dominant.trigger >= 0.75f;
+    if (pressed && !g_state.interact.down) {
+        PulseHaptic(roles.dominantHand, "terminal_click");
+    }
+    SetMouseButton(g_state.interact, pressed);
+    g_terminalPointerFrames.fetch_add(1, std::memory_order_relaxed);
     return true;
 }
 
@@ -775,7 +807,7 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
     g_openxr = openxr;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d flashlight=%d inventory=%d menu=%d menuPointer=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d manipulationMappings=%d manipulationMotion=%d manipulationMotionScale=%.1f manipulationMotionDeadzone=%.4f manipulationMotionCap=%d manipulationMotionSigns=%.1f,%.1f suppressAuthoredCamera=%d comfortBlackoutFrames=%d stateTransitionBlackoutFrames=%d maxInputAgeFrames=%d",
+        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d flashlight=%d inventory=%d menu=%d menuPointer=%d terminalPointer=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d manipulationMappings=%d manipulationMotion=%d manipulationMotionScale=%.1f manipulationMotionDeadzone=%.4f manipulationMotionCap=%d manipulationMotionSigns=%.1f,%.1f suppressAuthoredCamera=%d comfortBlackoutFrames=%d stateTransitionBlackoutFrames=%d maxInputAgeFrames=%d",
         config.hplControllerInput ? 1 : 0,
         config.hplControllerMoveDeadzone,
         config.hplControllerNativeLocomotion ? 1 : 0,
@@ -794,6 +826,7 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplControllerInventory ? 1 : 0,
         config.hplControllerMenu ? 1 : 0,
         config.hplControllerMenuPointer ? 1 : 0,
+        config.hplControllerTerminalPointer ? 1 : 0,
         config.hplControllerRecenterChord ? 1 : 0,
         config.hplControllerHaptics ? 1 : 0,
         config.hplControllerHapticAmplitude,
@@ -863,20 +896,35 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
     const bool suppressGameplay = suppressForAuthoredCamera || paused;
     const bool previousPaused = g_state.paused;
     const bool previousMenuPointerActive = g_state.menuPointerActive;
+    const bool previousTerminalPointerActive = g_state.terminalPointerActive;
     if (paused) {
         g_pausedFrames.fetch_add(1, std::memory_order_relaxed);
+        DeactivateHPLTerminalPointer();
+        g_state.terminalPointerActive = false;
         g_state.menuPointerActive = ApplyPausedMenuActions(input, roles);
+        g_state.nativeMovementActive = false;
+        g_state.nativeTurnActive = false;
+    } else if (player.playerValid
+        && (player.playerStateId == kTerminalPlayerState
+            || player.playerStateId == kHandheldTerminalPlayerState)
+        && g_config.hplControllerTerminalPointer) {
+        g_state.menuPointerActive = false;
+        g_state.terminalPointerActive = ApplyTerminalPointerActions(input, roles);
         g_state.nativeMovementActive = false;
         g_state.nativeTurnActive = false;
     } else if (suppressForAuthoredCamera) {
         ReleaseGameplayInputs();
         DeactivateHPLMenuPointer();
+        DeactivateHPLTerminalPointer();
         g_state.menuPointerActive = false;
+        g_state.terminalPointerActive = false;
         g_state.nativeMovementActive = false;
         g_state.nativeTurnActive = false;
     } else {
         DeactivateHPLMenuPointer();
+        DeactivateHPLTerminalPointer();
         g_state.menuPointerActive = false;
+        g_state.terminalPointerActive = false;
         const bool nativeMovement = ApplyLocomotion(roles, player, camera);
         const bool nativeTurn = ApplyTurn(roles, player, nowMs);
         ApplyControllerManipulationMotion(input, roles, player);
@@ -899,16 +947,18 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
 
     if (suppressGameplay != g_state.gameplaySuppressed
         || paused != previousPaused
-        || g_state.menuPointerActive != previousMenuPointerActive) {
+        || g_state.menuPointerActive != previousMenuPointerActive
+        || g_state.terminalPointerActive != previousTerminalPointerActive) {
         Logger::Instance().Write(
             suppressGameplay ? LogLevel::Warn : LogLevel::Info,
-            "hpl_controller_gameplay_policy frame=%llu suppressed=%d authoredCamera=%d paused=%d pauseGateValid=%d menuPointer=%d rotateMode=%d cameraUpdateActive=%d playerState=%d moveState=%d",
+            "hpl_controller_gameplay_policy frame=%llu suppressed=%d authoredCamera=%d paused=%d pauseGateValid=%d menuPointer=%d terminalPointer=%d rotateMode=%d cameraUpdateActive=%d playerState=%d moveState=%d",
             static_cast<unsigned long long>(frameIndex),
             suppressGameplay ? 1 : 0,
             suppressForAuthoredCamera ? 1 : 0,
             paused ? 1 : 0,
             pauseStateValid ? 1 : 0,
             g_state.menuPointerActive ? 1 : 0,
+            g_state.terminalPointerActive ? 1 : 0,
             player.cameraRotateMode,
             player.cameraUpdateActive ? 1 : 0,
             player.playerStateId,
@@ -928,7 +978,7 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
         if (gripValid) g_worldGripPoseSamples.fetch_add(1, std::memory_order_relaxed);
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_controller frame=%llu inputFrame=%llu age=%llu dominant=%s oneHand=%d move=%.3f,%.3f movementReference=%s movementRoute=%s keys=%d%d%d%d run=%d jump=%d crouch=%d physicalCrouch=%d rotate=%d turn=%.3f mode=%s turnRoute=%s interact=%d menu=%d recenterChord=%d playerState=%d moveState=%d authoredCamera=%d paused=%d menuPointer=%d gameplaySuppressed=%d worldAim={valid=%d tracked=%d%d pos=%.4f,%.4f,%.4f forward=%.5f,%.5f,%.5f} worldGrip={valid=%d tracked=%d%d pos=%.4f,%.4f,%.4f forward=%.5f,%.5f,%.5f linearVelocityValid=%d linearVelocity=%.4f,%.4f,%.4f angularVelocityValid=%d angularVelocity=%.4f,%.4f,%.4f}",
+            "hpl_controller frame=%llu inputFrame=%llu age=%llu dominant=%s oneHand=%d move=%.3f,%.3f movementReference=%s movementRoute=%s keys=%d%d%d%d run=%d jump=%d crouch=%d physicalCrouch=%d rotate=%d turn=%.3f mode=%s turnRoute=%s interact=%d menu=%d recenterChord=%d playerState=%d moveState=%d authoredCamera=%d paused=%d menuPointer=%d terminalPointer=%d gameplaySuppressed=%d worldAim={valid=%d tracked=%d%d pos=%.4f,%.4f,%.4f forward=%.5f,%.5f,%.5f} worldGrip={valid=%d tracked=%d%d pos=%.4f,%.4f,%.4f forward=%.5f,%.5f,%.5f linearVelocityValid=%d linearVelocity=%.4f,%.4f,%.4f angularVelocityValid=%d angularVelocity=%.4f,%.4f,%.4f}",
             static_cast<unsigned long long>(frameIndex),
             static_cast<unsigned long long>(input.gameFrame),
             static_cast<unsigned long long>(age),
@@ -950,6 +1000,7 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
             player.authoredCameraActive ? 1 : 0,
             paused ? 1 : 0,
             g_state.menuPointerActive ? 1 : 0,
+            g_state.terminalPointerActive ? 1 : 0,
             suppressGameplay ? 1 : 0,
             aimValid ? 1 : 0,
             worldAim.orientationTracked ? 1 : 0,
@@ -987,7 +1038,7 @@ void LogHPLInputBridgeSummary()
     GetHPLPlayerStateSnapshot(player);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu loadingSuppressedFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu worldAimPoseSamples=%llu worldGripPoseSamples=%llu nativeMovementFrames=%llu headRelativeMovementFrames=%llu nativeTurnEvents=%llu semanticMovementFallbackFrames=%llu physicalCrouchEntries=%llu physicalCrouchExits=%llu manipulationRotateFrames=%llu manipulationMotionFrames=%llu manipulationMotionEntries=%llu manipulationMotionEvents=%llu manipulationMotionTrackingLosses=%llu manipulationMotionPixels=%lld,%lld nativeThrowActions=%llu flashlightActions=%llu inventoryActions=%llu pausedFrames=%llu menuPointerFrames=%llu playerStateTransitions=%llu playerStateBlackouts=%llu gameplaySuppressed=%d paused=%d menuPointerActive=%d physicalCrouch=%d rotate=%d manipulationMotionActive=%d manipulationMotionState=%d manipulationMotionLast=%d,%d player=%p camera=%p body=%p playerState=%d moveState=%d",
+        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu loadingSuppressedFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu worldAimPoseSamples=%llu worldGripPoseSamples=%llu nativeMovementFrames=%llu headRelativeMovementFrames=%llu nativeTurnEvents=%llu semanticMovementFallbackFrames=%llu physicalCrouchEntries=%llu physicalCrouchExits=%llu manipulationRotateFrames=%llu manipulationMotionFrames=%llu manipulationMotionEntries=%llu manipulationMotionEvents=%llu manipulationMotionTrackingLosses=%llu manipulationMotionPixels=%lld,%lld nativeThrowActions=%llu flashlightActions=%llu inventoryActions=%llu pausedFrames=%llu menuPointerFrames=%llu terminalPointerFrames=%llu playerStateTransitions=%llu playerStateBlackouts=%llu gameplaySuppressed=%d paused=%d menuPointerActive=%d terminalPointerActive=%d physicalCrouch=%d rotate=%d manipulationMotionActive=%d manipulationMotionState=%d manipulationMotionLast=%d,%d player=%p camera=%p body=%p playerState=%d moveState=%d",
         g_openxr != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_updates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_activeUpdates.load(std::memory_order_relaxed)),
@@ -1019,11 +1070,13 @@ void LogHPLInputBridgeSummary()
         static_cast<unsigned long long>(g_inventoryActions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_pausedFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_menuPointerFrames.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_terminalPointerFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_playerStateTransitions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_playerStateBlackouts.load(std::memory_order_relaxed)),
         g_state.gameplaySuppressed ? 1 : 0,
         g_state.paused ? 1 : 0,
         g_state.menuPointerActive ? 1 : 0,
+        g_state.terminalPointerActive ? 1 : 0,
         g_state.physicalCrouch.crouched ? 1 : 0,
         g_state.rotate.down ? 1 : 0,
         g_state.manipulationMotionActive ? 1 : 0,

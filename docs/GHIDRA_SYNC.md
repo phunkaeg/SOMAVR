@@ -103,6 +103,17 @@ Both functions are tagged `SOMAVR`, `VR-Roomscale`, and `Collision`; the wrapper
 also retains its AngelScript-wrapper identity. Exact wrapper bytes are enforced
 by the DLL before the optional control is enabled.
 
+## 2026-07-15 Diegetic Terminal Input Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1402f0b10` | `HPL3_ImGui_SendMousePosition` | Registered `SendMousePosition` wrapper; converts physical screen coordinates to the owned set's virtual size/offset. |
+| `0x1402f0c90` | `HPL3_ImGui_SendMouseVirtualPosition` | Registered virtual cursor wrapper and exact `0.38.0` detour. Prototype, field behavior, ownership policy, plate comment, and SOMAVR bookmark added. |
+| `0x1400f7f10` | `SOMA_ImGuiManager_UpdateInput` | Manager dispatch proves world GUI input calls the virtual wrapper directly while the ordinary screen owner receives the physical wrapper. |
+
+The explicitly selected `Soma_NoSteam.exe` program was saved after all three
+functions were renamed, typed, and documented.
+
 ## 2026-07-15 Controller Flashlight Sync
 
 | Address | Ghidra name | Evidence/use |

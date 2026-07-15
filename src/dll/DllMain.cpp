@@ -15,6 +15,7 @@
 #include "HPLPresentationBridge.h"
 #include "HPLScreenEffectBridge.h"
 #include "HPLSubtitleBridge.h"
+#include "HPLTerminalBridge.h"
 #include "Logger.h"
 #include "OpenGLHooks.h"
 #include "OpenXRRuntime.h"
@@ -362,6 +363,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     if (!somavr::InstallHPLMenuBridge(g_config->Get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_menu_bridge install_failed");
     }
+    if (!somavr::InstallHPLTerminalBridge(g_config->Get())) {
+        somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_terminal_bridge install_failed");
+    }
     if (!somavr::InstallHPLInputBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_input_bridge install_failed");
     }
@@ -430,6 +434,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::LogHPLCameraBridgeSummary();
     somavr::LogHPLInputBridgeSummary();
     somavr::RemoveHPLInputBridge();
+    somavr::LogHPLTerminalBridgeSummary();
+    somavr::RemoveHPLTerminalBridge();
     somavr::LogHPLMenuBridgeSummary();
     somavr::RemoveHPLMenuBridge();
     somavr::LogHPLNativeLocomotionSummary();

@@ -2,6 +2,29 @@
 
 ## 2026-07-15
 
+### 0.38.0-terminal-pointer
+
+- Added a signature-guarded detour at the exact 3D GUI input boundary,
+  `cImGui::SendMouseVirtualPosition` (`0x1402f0c90`). During shipped wall and
+  handheld terminal player states `8/9`, dominant-controller aim is projected relative to the HMD,
+  smoothed, converted through the current `cGuiSet` virtual size/offset, and
+  forwarded through SOMA's original ImGui update.
+- Ownership is deliberately narrow: the target must be the exact current ImGui,
+  must not be GameHudImGui, and must own a readable 3D `cGuiSet`. Pause, HUD,
+  ordinary gameplay, malformed layout, tracking loss, and every
+  signature failure retain the original native cursor path.
+- Dominant select/trigger uses SOMA's existing left-click input route, with
+  input release and pointer deactivation on every state/pause/tracking exit.
+  New bounded logs report projection, native-hook application, GUI identity,
+  virtual coordinates, and each fail-closed reason.
+- Ghidra now names/types the physical and virtual cImGui cursor wrappers plus
+  the manager update that proves world GUI dispatch. Both Release flavors and
+  all three CTest suites pass; live terminal alignment/click testing remains.
+  OpenXR DLL SHA-256:
+  `397ED05762E30CE55D7258ED1A7A2D88B3C9C33C5503AB30A732AACAE61CA883`.
+  Package SHA-256:
+  `6E8831ACBDF838B17FF006E5A9A5CF7C3684D2A880CCD2288624D219763320A2`.
+
 ### 0.37.0-post-resource-probe
 
 - Added an exact-signature hook at `HPL3_PostEffect_RenderOne` (`0x1402d7a40`)

@@ -83,6 +83,10 @@ struct Config {
     float hplControllerMenuPointerHorizontalDegrees = 70.0f;
     float hplControllerMenuPointerVerticalDegrees = 50.0f;
     float hplControllerMenuPointerSmoothing = 0.35f;
+    bool hplControllerTerminalPointer = true;
+    float hplControllerTerminalPointerHorizontalDegrees = 70.0f;
+    float hplControllerTerminalPointerVerticalDegrees = 50.0f;
+    float hplControllerTerminalPointerSmoothing = 0.35f;
     bool hplControllerRecenterChord = true;
     bool hplControllerHaptics = true;
     float hplControllerHapticAmplitude = 0.35f;

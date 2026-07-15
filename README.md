@@ -156,7 +156,14 @@ performance contracts before promotion. `0.36.0` also advances physical
 presence with bounded two-hand independent-tool and carried-object control.
 `0.37.0` maps each active post effect's bound GL textures, dimensions, formats,
 and framebuffer writes, and classifies same-pose left/right resources as shared
-or eye-distinct:
+or eye-distinct.
+
+`0.38.0` adds controller-addressable diegetic wall and handheld terminals.
+During exact terminal states `8/9`, dominant aim drives SOMA's native virtual ImGui cursor and
+select/trigger uses the native click route. Exact current-owner, GameHud
+exclusion, 3D-set, signature, tracking, and layout guards restore original
+behavior on every unsupported path. Configure this under `[Controller]` with
+`TerminalPointer` and its horizontal/vertical angle and smoothing controls.
 
 - signature-guarded native eye view/projection integration,
 - persistent per-eye OpenGL cache transfer,

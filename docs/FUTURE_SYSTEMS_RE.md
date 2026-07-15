@@ -1,5 +1,30 @@
 # Future Systems Reverse Engineering
 
+## 0.38.0 Diegetic Terminal Input Result
+
+Shipped `Prop_Terminal.hps` creates a world GUI, focuses it on interaction, and
+changes the player to exact state `8`. `PlayerState_Interact_Terminal.hps`
+moves/rotates the authored camera toward the terminal, suppresses look/move,
+and returns focus to the prop on exit. This establishes a semantic owner without
+guessing from draw calls.
+
+Ghidra confirms that `SOMA_ImGuiManager_UpdateInput` (`0x1400f7f10`) sends world
+GUI coordinates through `cImGui::SendMouseVirtualPosition` (`0x1402f0c90`), not
+the ordinary pixel wrapper at `0x1402f0b10`. `0.38.0` hooks that exact virtual
+boundary. Only states `8/9`, the exact current ImGui, a non-GameHud owner, and a
+readable 3D cGuiSet may receive controller-derived coordinates. Coordinates use
+the native virtual-size/offset transform; clicks remain SOMA's native left-mouse
+route. All failed gates forward the original arguments unchanged.
+
+`Prop_HandheldTerminal.hps` provides the equivalent high-confidence owner for
+state `9`: it creates an open world prop, calls `CreateAndSetupGui`, and focuses
+that prop when its authored lock-camera policy allows it. The same route is
+therefore enabled for `8/9`, while exact current-owner and 3D-set gates reject
+unfocused or differently authored variants. Exact controller-ray-to-terminal-
+plane UV remains a later refinement; the current implementation maps
+head-relative controller aim to the focused terminal's virtual surface while
+preserving native widget policy.
+
 ## 0.29.0 Presentation And Authored-Optics Result
 
 The registered FOV, FOV-multiplier, and aspect-multiplier functions are compact

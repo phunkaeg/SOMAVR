@@ -1,5 +1,30 @@
 # Test Checklists
 
+## 0.38.0 Diegetic Terminal Pointer
+
+1. Confirm `version=0.38.0-terminal-pointer`,
+   `hpl_terminal_bridge install_ok ... hooked=sendMouseVirtual`, and no signature
+   failure. Keep `TerminalPointer=1` for this pass.
+2. Enter F10 VR, focus a normal wall terminal, and confirm player state changes
+   to `terminal(8)`. The policy row must show `terminalPointer=1`; paused-menu
+   pointer and locomotion/turn routes must be inactive.
+3. Aim the dominant controller around the terminal. Confirm the native cursor
+   follows without moving the HMD and `hpl_terminal_pointer applied` reports the
+   exact current non-HUD ImGui, a 3D set, sane virtual size/offset, and bounded
+   relative deltas.
+4. Select several widgets with dominant select/trigger. Each physical press and
+   release must produce one native click transition and optional
+   `terminal_click` haptic; entering the terminal while trigger is held must not
+   create repeated clicks.
+5. Exit, pause, open inventory, and use ordinary gameplay. The terminal pointer
+   must disappear immediately and native menu/HUD/gameplay behavior must remain
+   unchanged. Repeat after temporary controller tracking loss, then repeat the
+   aim/click/exit checks with a handheld terminal in player state `9`.
+6. Set `TerminalPointer=0` and repeat. SOMA's original projected mouse path must
+   be restored completely. Stop on a HUD owner match, non-3D mutation, cursor
+   drift while the controller is still, reversed axes, or a click held after
+   terminal exit.
+
 ## 0.37.0 Post-Effect Resource Ownership
 
 1. Confirm `version=0.37.0-post-resource-probe`,

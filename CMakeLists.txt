@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.37.0-post-resource-probe")
+set(SOMAVR_BUILD_VERSION "0.38.0-terminal-pointer")
 
 include(FetchContent)
 
@@ -91,6 +91,7 @@ add_library(somavr SHARED
     src/dll/HPLLifecycle.cpp
     src/dll/HPLInputBridge.cpp
     src/dll/HPLMenuBridge.cpp
+    src/dll/HPLTerminalBridge.cpp
     src/dll/HPLPresentationBridge.cpp
     src/dll/HPLScreenEffectBridge.cpp
     src/dll/HPLSubtitleBridge.cpp

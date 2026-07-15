@@ -258,6 +258,10 @@ void ConfigManager::WriteDefaultConfig() const
         << "MenuPointerHorizontalDegrees=70\n"
         << "MenuPointerVerticalDegrees=50\n"
         << "MenuPointerSmoothing=0.35\n"
+        << "TerminalPointer=1\n"
+        << "TerminalPointerHorizontalDegrees=70\n"
+        << "TerminalPointerVerticalDegrees=50\n"
+        << "TerminalPointerSmoothing=0.35\n"
         << "RecenterChord=1\n"
         << "Haptics=1\n"
         << "HapticAmplitude=0.35\n"
@@ -577,6 +581,10 @@ void ConfigManager::LoadFromFile()
             else if (key == "menupointerhorizontaldegrees") config_.hplControllerMenuPointerHorizontalDegrees = ParseFloat(value, config_.hplControllerMenuPointerHorizontalDegrees, 10.0f, 170.0f);
             else if (key == "menupointerverticaldegrees") config_.hplControllerMenuPointerVerticalDegrees = ParseFloat(value, config_.hplControllerMenuPointerVerticalDegrees, 10.0f, 170.0f);
             else if (key == "menupointersmoothing") config_.hplControllerMenuPointerSmoothing = ParseFloat(value, config_.hplControllerMenuPointerSmoothing, 0.01f, 1.0f);
+            else if (key == "terminalpointer") config_.hplControllerTerminalPointer = ParseBool(value, config_.hplControllerTerminalPointer);
+            else if (key == "terminalpointerhorizontaldegrees") config_.hplControllerTerminalPointerHorizontalDegrees = ParseFloat(value, config_.hplControllerTerminalPointerHorizontalDegrees, 10.0f, 170.0f);
+            else if (key == "terminalpointerverticaldegrees") config_.hplControllerTerminalPointerVerticalDegrees = ParseFloat(value, config_.hplControllerTerminalPointerVerticalDegrees, 10.0f, 170.0f);
+            else if (key == "terminalpointersmoothing") config_.hplControllerTerminalPointerSmoothing = ParseFloat(value, config_.hplControllerTerminalPointerSmoothing, 0.01f, 1.0f);
             else if (key == "recenterchord") config_.hplControllerRecenterChord = ParseBool(value, config_.hplControllerRecenterChord);
             else if (key == "haptics") config_.hplControllerHaptics = ParseBool(value, config_.hplControllerHaptics);
             else if (key == "hapticamplitude") config_.hplControllerHapticAmplitude = ParseFloat(value, config_.hplControllerHapticAmplitude, 0.0f, 1.0f);

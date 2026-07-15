@@ -21,10 +21,16 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.37.0-post-resource-probe`, layered on the
+The active build candidate is `0.38.0-terminal-pointer`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Exact wall/handheld terminal states `8/9` now route dominant-controller aim through
+  SOMA's native virtual ImGui cursor boundary. Current-ImGui identity,
+  GameHud exclusion, 3D-set ownership, readable virtual layout, tracking, and
+  config gates all fail closed to the original engine path. Trigger/select
+  remains a native mouse click and releases on every terminal-state exit.
 
 - The exact `HPL3_PostEffect_RenderOne` boundary now wraps each active effect in
   a read-only GL resource capture. Bound textures are identified by target, GL

@@ -1,5 +1,21 @@
 # Test Checklists
 
+## 0.48.0 Controller Profiles
+
+1. Confirm `version=0.48.0-controller-profile-diagnostics` and five successful
+   `openxr_input bindings` rows: Simple `9`, Touch `19`, Index `18`, Microsoft
+   Motion `11`, and HTC Vive `15`.
+2. Start F10 VR with both controllers active. Expect one profile-change row per
+   hand naming the actual profile, not `none`, `unresolved`, or `query_failed`.
+3. Verify movement/turn, trigger select, squeeze, menu, grip/aim poses, and
+   haptics. On Vive, use trackpads for movement/turn. Existing Touch/Index/WMR
+   behavior must not change.
+4. Power off or hide one controller, restore it, and exercise runtime focus or
+   session recovery. Profile rows must update without stale hand identity,
+   stuck input, or an action-set/session error.
+5. At shutdown, confirm `openxrInteractionProfileEvents` is nonzero and the
+   final left/right profile names match the connected devices.
+
 ## 0.47.0 All-Stereo View History
 
 1. Confirm `version=0.47.0-stereo-view-history`, OpenXR flavor, configured

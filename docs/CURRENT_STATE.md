@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.47.0-stereo-view-history`, layered on the
+The active build candidate is `0.48.0-controller-profile-diagnostics`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
@@ -79,6 +79,12 @@ compatibility probes:
   immediately preceding previous-view matrix. Recenter generation changes and
   pose gaps over eight frames reseed from native state, preventing stale motion
   after calibration, loading, or tracking recovery.
+
+- OpenXR controller coverage now includes the standard HTC Vive profile in
+  addition to Simple, Touch, Index, and Microsoft Motion. Runtime interaction-
+  profile change events resolve and log the exact active profile independently
+  for each hand, making reconnect, one-hand fallback, and runtime/headset matrix
+  results directly attributable.
 
 - A dedicated head-locked OpenXR status/options panel is now available through
   `F1` or `Menu + Secondary`. It owns a separate alpha swapchain and reports
@@ -624,7 +630,7 @@ The OpenXR build now asks for:
 & "D:\Dev Debug\SOMAVR\build-openxr\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.47.0-stereo-view-history`,
+2. Confirm `version=0.48.0-controller-profile-diagnostics`,
    `hpl_per_eye_view_history initialized configured=1 packetBytes=0x40`, and no
    hook/signature failure. Load a save, face forward, and press F10 once.
 3. Confirm the proven rigid world, eye height, centered projection, depth,
@@ -643,3 +649,5 @@ The OpenXR build now asks for:
    show `UNAVAILABLE` and native shared history must remain untouched.
 8. Confirm the build manifest version/flavor/hash, exit normally, and attach the
    full log with final dual-render and per-eye-history summaries.
+   Include the two `openxr_input interaction_profile` rows and verify they name
+   the controller profile actually in use.

@@ -163,11 +163,16 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
   for damage, scripted tools/actions, death, and environmental effects through
   bounded bilateral OpenXR segments. These prototypes remain opt-in live-acceptance features rather
   than generated-config defaults.
+  Suggested bindings cover Khronos Simple, Oculus Touch, Valve Index,
+  Microsoft Motion Controller, and HTC Vive profiles. Runtime profile-change
+  events log the exact active profile for each hand, including reconnects and
+  profile switches.
 
 ## Current Goal
 
 The proven default remains OpenXR transport, native head tracking, and AFR stereo
-geometry. `0.47.0` applies the first opt-in per-eye temporal resource to every
+geometry. `0.48.0` adds HTC Vive controller bindings and exact per-hand active
+interaction-profile diagnostics. `0.47.0` applies the first opt-in per-eye temporal resource to every
 active stereo mode: HPL3's confirmed previous-view matrix is banked by eye in
 both AFR fallback and same-frame rendering, with recenter and stale-gap resets.
 `0.45.0` introduced the sustained

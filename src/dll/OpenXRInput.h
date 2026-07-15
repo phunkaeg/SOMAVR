@@ -13,6 +13,7 @@ class OpenXRInput {
 public:
     bool Initialize(XrInstance instance, bool enabled, int logInterval);
     bool AttachSession(XrSession session);
+    void LogInteractionProfiles(XrSession session, uint64_t gameFrame, const char* source);
     void Sync(XrSession session, XrSpace baseSpace, XrTime displayTime, uint64_t gameFrame);
     bool ApplyHaptic(XrSession session, uint32_t hand, float amplitude, int durationMs);
     bool StopHaptic(XrSession session, uint32_t hand);
@@ -37,6 +38,7 @@ private:
     uint64_t hapticRequestCount_ = 0;
     uint64_t hapticFailureCount_ = 0;
     uint64_t hapticStopCount_ = 0;
+    uint64_t interactionProfileEventCount_ = 0;
     uint64_t gripLinearVelocitySamples_[2] = {};
     uint64_t gripAngularVelocitySamples_[2] = {};
     bool focusSuppressed_ = false;
@@ -54,6 +56,8 @@ private:
     XrAction aimPoseAction_ = XR_NULL_HANDLE;
     XrAction hapticAction_ = XR_NULL_HANDLE;
     XrPath handPaths_[2] = {XR_NULL_PATH, XR_NULL_PATH};
+    XrPath interactionProfiles_[2] = {XR_NULL_PATH, XR_NULL_PATH};
+    std::string interactionProfileNames_[2] = {"none", "none"};
     XrSpace gripSpaces_[2] = {XR_NULL_HANDLE, XR_NULL_HANDLE};
     XrSpace aimSpaces_[2] = {XR_NULL_HANDLE, XR_NULL_HANDLE};
     OpenXRInputSnapshot snapshot_{};

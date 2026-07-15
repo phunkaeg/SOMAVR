@@ -1,5 +1,18 @@
 # Future Systems Reverse Engineering
 
+## 0.48.0 Controller Profile Result
+
+OpenXR input now suggests five standard profiles: Khronos Simple, Oculus Touch,
+Valve Index, Microsoft Motion Controller, and HTC Vive. Vive receives trackpad
+locomotion/turn, trigger, squeeze, menu, poses, and haptics without changing the
+existing dominant/support-hand policy.
+
+`XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED` now triggers exact per-hand
+`xrGetCurrentInteractionProfile` logging. The resolved profile survives in the
+shutdown summary and resets with the session, providing direct evidence for
+runtime switches, reconnects, and one-controller fallback. Device-specific
+button tuning still requires live hardware evidence.
+
 ## 0.47.0 All-Stereo Previous-View Result
 
 The confirmed previous-view bank now covers both stereo schedules. In AFR, the

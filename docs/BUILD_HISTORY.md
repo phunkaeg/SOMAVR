@@ -2,6 +2,26 @@
 
 ## 2026-07-15
 
+### 0.48.0-controller-profile-diagnostics
+
+- Added standard HTC Vive controller suggested bindings for trackpad movement
+  and turn, trigger select/value, squeeze, menu, grip/aim poses, and bilateral
+  haptics. Existing Simple, Touch, Index, and Microsoft Motion bindings remain,
+  raising explicit profile coverage from four to five.
+- Handles `XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED` and queries
+  `xrGetCurrentInteractionProfile` for both top-level hand paths. Each event logs
+  frame, source, hand, numeric path, resolved profile string, and result; final
+  input summaries retain event count and last left/right profiles. Session
+  teardown clears profile state so reconnect evidence cannot appear current
+  when it is stale.
+- This is passive diagnostics plus suggested bindings: it does not alter SOMA
+  semantics or controller-role policy. Both Release flavors and all CTest suites
+  pass; live Vive/WMR/Touch/Index/runtime-switch acceptance remains. OpenXR DLL
+  SHA-256:
+  `4A9DD72EA15E2A39D5A69FD92B850C8FA128C9DE2385FDDE3B103297F54D8156`.
+  Package SHA-256:
+  `68D48CD7A0F33F899CA1410D1190A8EA1C77496C1040074B75034F1C836B11EF`.
+
 ### 0.47.0-stereo-view-history
 
 - Extended the guarded previous-view bank from continuous dual render to every

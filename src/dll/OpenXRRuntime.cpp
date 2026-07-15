@@ -2604,6 +2604,8 @@ private:
                         }
                     }
                 }
+            } else if (event.type == XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED) {
+                input_.LogInteractionProfiles(session_, frameIndex, "runtime_event");
             } else if (event.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) {
                 frameSubmitFailed_ = true;
                 sessionRunning_ = false;

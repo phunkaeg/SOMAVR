@@ -122,7 +122,7 @@ lifecycle.
 | `OpenGLHooks` | Hook registration, GL/WGL interception, frame-boundary dispatch | New gameplay systems or OpenXR session policy |
 | `OpenGLMatrixAnalysis` | Pure matrix classification and formatting | GL state, logging lifecycle, hooks |
 | `OpenXRRuntime` | Instance/system/session state, delayed loss recovery, frame pacing, view snapshots, projection/quad layer submission and bounded comfort-black frames | HPL camera transforms or gameplay input semantics |
-| `OpenXRInput` | OpenXR action set, suggested bindings, action synchronization, grip/aim spaces, immutable input snapshots | SOMA movement, interaction, hand placement, or camera policy |
+| `OpenXRInput` | OpenXR action set, five standard suggested profiles, active per-hand interaction-profile diagnostics, action synchronization, grip/aim spaces, immutable input snapshots | SOMA movement, interaction, hand placement, or camera policy |
 | `OpenXRHelpers` | OpenXR names, format strings, pose/view conversion | Handles, session lifetime, swapchain ownership |
 | `OpenXRGLBridge` | OpenGL projection/HUD/reticle swapchain images, FBOs, invalidatable eye caches, transparent HUD capture, reticle drawing, image transfer, and state-preserving spectator backbuffer blit | OpenXR event/session, spectator selection policy, or HPL GUI/interaction identity policy |
 | `OpenXRStatusPanelMath` | Pure fixed-glyph status/options rasterization into an OpenGL-oriented RGBA buffer | OpenXR/GL handles, input state, native pointers, or runtime policy |

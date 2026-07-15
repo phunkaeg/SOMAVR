@@ -34,6 +34,7 @@ Created: 2026-07-09. Status: early reverse-engineering notes. Keep confirmed add
 | `xrWaitFrame` / `xrBeginFrame` / `xrEndFrame` | Runtime confirmed | Synchronize SOMA presentation with OpenXR | Live `0.3.0` completed at least `938` consecutive submissions. |
 | `xrLocateViews` | Runtime confirmed | Capture per-eye pose and FOV at predicted display time | Live eye positions changed across the successful run. |
 | F9 matrix call-stack capture | Runtime confirmed | Turn GLSL camera uploads into stable executable RVAs | Two captures completed; sequence 2 cleanly separated HMD motion from the unchanged SOMA camera. |
+| `XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED` | Built in `0.48.0` | Attribute each hand to the runtime-selected controller profile | Queries and resolves both top-level hand profiles; session teardown clears stale identity. |
 
 ## Native HPL3 Camera Candidates
 

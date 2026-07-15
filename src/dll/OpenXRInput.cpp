@@ -28,6 +28,16 @@ bool StringToPath(XrInstance instance, const char* text, XrPath& path)
     return true;
 }
 
+std::string PathToString(XrInstance instance, XrPath path)
+{
+    if (instance == XR_NULL_HANDLE || path == XR_NULL_PATH) return "none";
+    char buffer[XR_MAX_PATH_LENGTH] = {};
+    uint32_t count = 0;
+    const XrResult result = xrPathToString(
+        instance, path, static_cast<uint32_t>(sizeof(buffer)), &count, buffer);
+    return XR_SUCCEEDED(result) && count > 0 ? buffer : "unresolved";
+}
+
 bool CreateAction(
     XrActionSet actionSet,
     XrActionType type,
@@ -249,8 +259,27 @@ bool OpenXRInput::Initialize(XrInstance instance, bool enabled, int logInterval)
     }};
     SuggestBindings(instance_, "/interaction_profiles/microsoft/motion_controller", motionBindings.data(), static_cast<uint32_t>(motionBindings.size()));
 
+    const std::array<XrActionSuggestedBinding, 15> viveBindings{{
+        {moveAction_, path("/user/hand/left/input/trackpad")},
+        {turnAction_, path("/user/hand/right/input/trackpad")},
+        {selectAction_, path("/user/hand/left/input/trigger/click")},
+        {selectAction_, path("/user/hand/right/input/trigger/click")},
+        {triggerAction_, path("/user/hand/left/input/trigger/value")},
+        {triggerAction_, path("/user/hand/right/input/trigger/value")},
+        {squeezeAction_, path("/user/hand/left/input/squeeze/click")},
+        {squeezeAction_, path("/user/hand/right/input/squeeze/click")},
+        {menuAction_, path("/user/hand/left/input/menu/click")},
+        {gripPoseAction_, path("/user/hand/left/input/grip/pose")},
+        {gripPoseAction_, path("/user/hand/right/input/grip/pose")},
+        {aimPoseAction_, path("/user/hand/left/input/aim/pose")},
+        {aimPoseAction_, path("/user/hand/right/input/aim/pose")},
+        {hapticAction_, path("/user/hand/left/output/haptic")},
+        {hapticAction_, path("/user/hand/right/output/haptic")},
+    }};
+    SuggestBindings(instance_, "/interaction_profiles/htc/vive_controller", viveBindings.data(), static_cast<uint32_t>(viveBindings.size()));
+
     initialized_ = true;
-    Logger::Instance().Write(LogLevel::Info, "openxr_input initialized actions=11 profiles=4 haptics=1 logInterval=%d", logInterval_);
+    Logger::Instance().Write(LogLevel::Info, "openxr_input initialized actions=11 profiles=5 haptics=1 logInterval=%d", logInterval_);
     return true;
 }
 
@@ -316,6 +345,33 @@ bool OpenXRInput::AttachSession(XrSession session)
         aimSpaces_[0] != XR_NULL_HANDLE ? 1 : 0,
         aimSpaces_[1] != XR_NULL_HANDLE ? 1 : 0);
     return attached_;
+}
+
+void OpenXRInput::LogInteractionProfiles(
+    XrSession session, uint64_t gameFrame, const char* source)
+{
+    if (!enabled_ || !initialized_ || session == XR_NULL_HANDLE) return;
+
+    ++interactionProfileEventCount_;
+    for (uint32_t hand = 0; hand < 2; ++hand) {
+        XrInteractionProfileState state{XR_TYPE_INTERACTION_PROFILE_STATE};
+        const XrResult result = xrGetCurrentInteractionProfile(
+            session, handPaths_[hand], &state);
+        if (XR_SUCCEEDED(result)) {
+            interactionProfiles_[hand] = state.interactionProfile;
+            interactionProfileNames_[hand] = PathToString(instance_, state.interactionProfile);
+        }
+        Logger::Instance().Write(
+            XR_SUCCEEDED(result) ? LogLevel::Info : LogLevel::Warn,
+            "openxr_input interaction_profile event=%llu frame=%llu source=%s hand=%s profile=%s path=0x%llx result=%s",
+            static_cast<unsigned long long>(interactionProfileEventCount_),
+            static_cast<unsigned long long>(gameFrame),
+            source != nullptr ? source : "unknown",
+            hand == 0 ? "left" : "right",
+            XR_SUCCEEDED(result) ? interactionProfileNames_[hand].c_str() : "query_failed",
+            static_cast<unsigned long long>(state.interactionProfile),
+            XrResultString(result).c_str());
+    }
 }
 
 void OpenXRInput::Sync(XrSession session, XrSpace baseSpace, XrTime displayTime, uint64_t gameFrame)
@@ -504,6 +560,10 @@ void OpenXRInput::ShutdownSession()
     attached_ = false;
     focusSuppressed_ = false;
     snapshot_ = {};
+    interactionProfiles_[0] = XR_NULL_PATH;
+    interactionProfiles_[1] = XR_NULL_PATH;
+    interactionProfileNames_[0] = "none";
+    interactionProfileNames_[1] = "none";
 }
 
 void OpenXRInput::Shutdown()
@@ -535,6 +595,9 @@ std::string OpenXRInput::SummaryString() const
         << " openxrHapticRequests=" << hapticRequestCount_
         << " openxrHapticFailures=" << hapticFailureCount_
         << " openxrHapticStops=" << hapticStopCount_
+        << " openxrInteractionProfileEvents=" << interactionProfileEventCount_
+        << " openxrInteractionProfiles=" << interactionProfileNames_[0]
+        << ',' << interactionProfileNames_[1]
         << " openxrGripLinearVelocitySamples=" << gripLinearVelocitySamples_[0]
         << ',' << gripLinearVelocitySamples_[1]
         << " openxrGripAngularVelocitySamples=" << gripAngularVelocitySamples_[0]

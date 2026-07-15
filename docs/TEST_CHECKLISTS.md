@@ -1,5 +1,32 @@
 # Test Checklists
 
+## 0.36.0 Two-Hand Tools And Grab Rotation
+
+1. Confirm `version=0.36.0-two-hand-tools`, `twoHandHudObject=1`, and
+   `twoHandRotation=1` in the hands/grab install rows. Enter F10 VR with both
+   grip poses tracked.
+2. Trigger an interaction that creates exact `HudObject`. Move it with the
+   dominant controller, squeeze the support grip, and move only the support
+   controller. The object should remain rooted at the dominant hand and aim
+   along the hand-to-hand line without changing native scale, animation, depth,
+   collision, identity, or callbacks.
+3. Release support squeeze, cross the minimum/maximum hand separation, and
+   briefly lose support tracking. Each case must return immediately to the
+   dominant-grip basis without a snap, stale direction, or unrelated entity
+   override. Check `twoHandHudCandidates/Overrides/Fallbacks`.
+4. Grab a movable physics body. Engage support squeeze, pause for the re-anchor
+   call, then rotate the support hand around the dominant hand. Expect
+   `hpl_grab_two_hand transition=engaged`, bounded
+   `mode=two_hand_direction` torque rows, and native translation/physics.
+5. Release and re-engage support squeeze while holding light and heavy bodies.
+   Each transition must log `policy=reanchor_before_torque`; stop on a torque
+   spike, object teleport, joint/collision break, oscillation, or persistent
+   rotation after release.
+6. Roll back independently with `TwoHandHudObject=0` or
+   `TwoHandGrabRotation=0`. Dominant-only HudObject and Grab translation,
+   rotation, throw, interaction, one-hand fallback, and authored-camera behavior
+   must remain unchanged.
+
 ## 0.35.0 Same-Frame Dual-Render Probe
 
 1. Confirm `version=0.35.0-dual-render-probe`,

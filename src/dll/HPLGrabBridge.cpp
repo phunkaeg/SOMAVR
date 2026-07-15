@@ -3,6 +3,7 @@
 #include "HPLCameraBridge.h"
 #include "HPLGrabMath.h"
 #include "HPLPlayerState.h"
+#include "HPLTwoHandMath.h"
 #include "Logger.h"
 
 #include <Windows.h>
@@ -52,6 +53,8 @@ struct GrabAnchor {
     float relativeZ = 0.0f;
     camera_math::Quaternion gripOrientation{};
     bool gripOrientationTracked = false;
+    bool twoHandActive = false;
+    camera_math::Vector3 twoHandAnchorDirection{};
     uint64_t lastInputFrame = 0;
 };
 
@@ -83,6 +86,11 @@ std::atomic<uint64_t> g_fallbackPose = 0;
 std::atomic<uint64_t> g_fallbackStale = 0;
 std::atomic<uint64_t> g_fallbackCamera = 0;
 std::atomic<uint64_t> g_rotationSubstitutions = 0;
+std::atomic<uint64_t> g_twoHandGrabCandidates = 0;
+std::atomic<uint64_t> g_twoHandGrabEngagements = 0;
+std::atomic<uint64_t> g_twoHandGrabSubstitutions = 0;
+std::atomic<uint64_t> g_twoHandGrabReleases = 0;
+std::atomic<uint64_t> g_twoHandGrabFallbacks = 0;
 std::atomic<uint64_t> g_throwArms = 0;
 std::atomic<uint64_t> g_throwRedirects = 0;
 std::atomic<uint64_t> g_throwFallbacks = 0;
@@ -130,14 +138,67 @@ bool IsGrabTorquePid(const void* pid)
         && (std::fabs(d - 0.4f) <= 0.01f || std::fabs(d - 0.1f) <= 0.01f);
 }
 
-const OpenXRHandInput* SelectDominantHand(const OpenXRInputSnapshot& input)
+const OpenXRHandInput* SelectDominantHand(
+    const OpenXRInputSnapshot& input,
+    uint32_t* selectedHandIndex = nullptr)
 {
-    const bool left = g_config.hplControllerDominantHand == "left";
-    const OpenXRHandInput* preferred = left ? &input.left : &input.right;
-    if (preferred->active) return preferred;
+    uint32_t handIndex = g_config.hplControllerDominantHand == "left" ? 0u : 1u;
+    const OpenXRHandInput* preferred = handIndex == 0 ? &input.left : &input.right;
+    if (preferred->active) {
+        if (selectedHandIndex != nullptr) *selectedHandIndex = handIndex;
+        return preferred;
+    }
     if (!g_config.hplControllerOneHandFallback) return nullptr;
-    const OpenXRHandInput* fallback = left ? &input.right : &input.left;
+    handIndex ^= 1u;
+    const OpenXRHandInput* fallback = handIndex == 0 ? &input.left : &input.right;
+    if (fallback->active && selectedHandIndex != nullptr) *selectedHandIndex = handIndex;
     return fallback->active ? fallback : nullptr;
+}
+
+bool ResolveTwoHandGrabBasis(
+    const OpenXRInputSnapshot& input,
+    uint32_t dominantHandIndex,
+    two_hand_math::TwoHandBasis& basis,
+    bool& requested,
+    float& supportSqueeze)
+{
+    basis = {};
+    requested = false;
+    supportSqueeze = 0.0f;
+    if (!g_config.hplControllerTwoHandGrabRotation) return false;
+
+    const OpenXRHandInput& dominant = dominantHandIndex == 0 ? input.left : input.right;
+    const OpenXRHandInput& support = dominantHandIndex == 0 ? input.right : input.left;
+    supportSqueeze = support.squeeze;
+    requested = support.active
+        && supportSqueeze >= g_config.hplControllerTwoHandSqueezeThreshold;
+    if (!requested) return false;
+
+    g_twoHandGrabCandidates.fetch_add(1, std::memory_order_relaxed);
+    HPLTrackedPoseWorld dominantGrip{};
+    HPLTrackedPoseWorld supportGrip{};
+    const bool valid = dominant.gripPose.valid
+        && dominant.gripPose.orientationTracked
+        && dominant.gripPose.positionTracked
+        && support.gripPose.valid
+        && support.gripPose.orientationTracked
+        && support.gripPose.positionTracked
+        && ResolveHPLTrackedPoseWorld(dominant.gripPose, input.gameFrame, dominantGrip)
+        && ResolveHPLTrackedPoseWorld(support.gripPose, input.gameFrame, supportGrip)
+        && dominantGrip.orientationTracked
+        && dominantGrip.positionTracked
+        && supportGrip.positionTracked
+        && two_hand_math::BuildTwoHandBasis(
+            {dominantGrip.positionX, dominantGrip.positionY, dominantGrip.positionZ},
+            {dominantGrip.forwardX, dominantGrip.forwardY, dominantGrip.forwardZ},
+            {dominantGrip.upX, dominantGrip.upY, dominantGrip.upZ},
+            {supportGrip.positionX, supportGrip.positionY, supportGrip.positionZ},
+            g_config.hplControllerTwoHandDirectionBlend,
+            g_config.hplControllerTwoHandMinSeparationMeters * g_config.hplWorldScale,
+            g_config.hplControllerTwoHandMaxSeparationMeters * g_config.hplWorldScale,
+            basis);
+    if (!valid) g_twoHandGrabFallbacks.fetch_add(1, std::memory_order_relaxed);
+    return valid;
 }
 
 void ResetAnchor()
@@ -196,7 +257,9 @@ bool ResolveGrabRelativePosition(
 float* HookPidVectorOutput(void* pid, float* output, const float* error, float timeStep)
 {
     const uint64_t call = g_calls.fetch_add(1, std::memory_order_relaxed) + 1;
-    if ((!g_config.hplControllerGrabTranslation && !g_config.hplControllerGrabRotation)
+    if ((!g_config.hplControllerGrabTranslation
+            && !g_config.hplControllerGrabRotation
+            && !g_config.hplControllerTwoHandGrabRotation)
         || error == nullptr
         || !std::isfinite(error[0]) || !std::isfinite(error[1]) || !std::isfinite(error[2])) {
         return g_originalPidOutput(pid, output, error, timeStep);
@@ -214,12 +277,14 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
 
     if (IsGrabTorquePid(pid)) {
         g_torquePidMatches.fetch_add(1, std::memory_order_relaxed);
-        if (!g_config.hplControllerGrabRotation) {
+        if (!g_config.hplControllerGrabRotation
+            && !g_config.hplControllerTwoHandGrabRotation) {
             return g_originalPidOutput(pid, output, error, timeStep);
         }
 
         OpenXRInputSnapshot input;
         const OpenXRHandInput* hand = nullptr;
+        uint32_t dominantHandIndex = 1;
         GrabAnchor anchor;
         {
             std::lock_guard lock(g_stateMutex);
@@ -230,7 +295,7 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
             || !g_openxr->GetLatestInput(input) || !input.active
             || (input.gameFrame > anchor.lastInputFrame
                 && input.gameFrame - anchor.lastInputFrame > 4)
-            || (hand = SelectDominantHand(input)) == nullptr
+            || (hand = SelectDominantHand(input, &dominantHandIndex)) == nullptr
             || !hand->gripPose.valid || !hand->gripPose.orientationTracked) {
             g_fallbackPose.fetch_add(1, std::memory_order_relaxed);
             return g_originalPidOutput(pid, output, error, timeStep);
@@ -242,43 +307,97 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
             hand->gripPose.orientationZ,
             hand->gripPose.orientationW,
         };
-        const camera_math::Vector3 referenceCorrection = grab_math::ResolveAngularTargetVelocity(
-            anchor.gripOrientation,
-            current,
-            g_config.hplControllerGrabRotationGain,
-            g_config.hplControllerGrabRotationSign,
-            g_config.hplControllerGrabMaxAngularSpeed);
-        float correctionX = 0.0f;
-        float correctionY = 0.0f;
-        float correctionZ = 0.0f;
-        if (!ResolveHPLReferenceVectorWorld(
-                referenceCorrection.x,
-                referenceCorrection.y,
-                referenceCorrection.z,
-                false,
-                correctionX,
-                correctionY,
-                correctionZ)) {
-            g_fallbackCamera.fetch_add(1, std::memory_order_relaxed);
+        two_hand_math::TwoHandBasis twoHandBasis{};
+        bool twoHandRequested = false;
+        float supportSqueeze = 0.0f;
+        const bool twoHandValid = ResolveTwoHandGrabBasis(
+            input,
+            dominantHandIndex,
+            twoHandBasis,
+            twoHandRequested,
+            supportSqueeze);
+        bool modeTransition = false;
+        {
+            std::lock_guard lock(g_stateMutex);
+            if (twoHandValid && !g_anchor.twoHandActive) {
+                g_anchor.twoHandActive = true;
+                g_anchor.twoHandAnchorDirection = twoHandBasis.forward;
+                modeTransition = true;
+                g_twoHandGrabEngagements.fetch_add(1, std::memory_order_relaxed);
+            } else if (!twoHandValid && g_anchor.twoHandActive) {
+                g_anchor.twoHandActive = false;
+                g_anchor.twoHandAnchorDirection = {};
+                g_anchor.gripOrientation = current;
+                modeTransition = true;
+                g_twoHandGrabReleases.fetch_add(1, std::memory_order_relaxed);
+            }
+            anchor = g_anchor;
+        }
+        if (modeTransition) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_grab_two_hand transition=%s frame=%llu dominant=%s support=%s squeeze=%.3f separation=%.4f policy=reanchor_before_torque",
+                twoHandValid ? "engaged" : "released",
+                static_cast<unsigned long long>(input.gameFrame),
+                dominantHandIndex == 0 ? "left" : "right",
+                dominantHandIndex == 0 ? "right" : "left",
+                supportSqueeze,
+                twoHandBasis.separation);
             return g_originalPidOutput(pid, output, error, timeStep);
         }
+        if (!twoHandValid && !g_config.hplControllerGrabRotation) {
+            return g_originalPidOutput(pid, output, error, timeStep);
+        }
+
+        camera_math::Vector3 correction{};
+        if (twoHandValid) {
+            correction = two_hand_math::ResolveDirectionAngularTargetVelocity(
+                anchor.twoHandAnchorDirection,
+                twoHandBasis.forward,
+                g_config.hplControllerGrabRotationGain,
+                g_config.hplControllerGrabRotationSign,
+                g_config.hplControllerGrabMaxAngularSpeed);
+            g_twoHandGrabSubstitutions.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            const camera_math::Vector3 referenceCorrection =
+                grab_math::ResolveAngularTargetVelocity(
+                    anchor.gripOrientation,
+                    current,
+                    g_config.hplControllerGrabRotationGain,
+                    g_config.hplControllerGrabRotationSign,
+                    g_config.hplControllerGrabMaxAngularSpeed);
+            if (!ResolveHPLReferenceVectorWorld(
+                    referenceCorrection.x,
+                    referenceCorrection.y,
+                    referenceCorrection.z,
+                    false,
+                    correction.x,
+                    correction.y,
+                    correction.z)) {
+                g_fallbackCamera.fetch_add(1, std::memory_order_relaxed);
+                return g_originalPidOutput(pid, output, error, timeStep);
+            }
+        }
         const float modifiedError[3] = {
-            error[0] + correctionX,
-            error[1] + correctionY,
-            error[2] + correctionZ,
+            error[0] + correction.x,
+            error[1] + correction.y,
+            error[2] + correction.z,
         };
         const uint64_t substitution = g_rotationSubstitutions.fetch_add(1, std::memory_order_relaxed) + 1;
         if (substitution <= 8
             || substitution % static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1)) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "hpl_grab_rotation call=%llu applied=1 nativeError=%.4f,%.4f,%.4f controllerTarget=%.4f,%.4f,%.4f modifiedError=%.4f,%.4f,%.4f gain=%.2f maxSpeed=%.2f",
+                "hpl_grab_rotation call=%llu applied=1 mode=%s nativeError=%.4f,%.4f,%.4f controllerTarget=%.4f,%.4f,%.4f modifiedError=%.4f,%.4f,%.4f gain=%.2f maxSpeed=%.2f supportSqueeze=%.3f separation=%.4f",
                 static_cast<unsigned long long>(call),
+                twoHandValid ? "two_hand_direction" : "dominant_grip_orientation",
                 error[0], error[1], error[2],
-                correctionX, correctionY, correctionZ,
+                correction.x, correction.y, correction.z,
                 modifiedError[0], modifiedError[1], modifiedError[2],
                 g_config.hplControllerGrabRotationGain,
-                g_config.hplControllerGrabMaxAngularSpeed);
+                g_config.hplControllerGrabMaxAngularSpeed,
+                supportSqueeze,
+                twoHandBasis.separation);
         }
         return g_originalPidOutput(pid, output, modifiedError, timeStep);
     }
@@ -341,6 +460,8 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
                 gripPose.orientationW,
             };
             g_anchor.gripOrientationTracked = gripPose.orientationTracked;
+            g_anchor.twoHandActive = false;
+            g_anchor.twoHandAnchorDirection = {};
             g_anchor.lastInputFrame = inputFrame;
             anchored = true;
         } else {
@@ -571,7 +692,9 @@ bool InstallHPLGrabBridge(const Config& config, OpenXRRuntime* openxr)
     std::lock_guard lock(g_installMutex);
     g_config = config;
     g_openxr = openxr;
-    const bool pidEnabled = config.hplControllerGrabTranslation || config.hplControllerGrabRotation;
+    const bool pidEnabled = config.hplControllerGrabTranslation
+        || config.hplControllerGrabRotation
+        || config.hplControllerTwoHandGrabRotation;
     if (!pidEnabled && !config.hplControllerThrowRedirect) {
         Logger::Instance().Write(LogLevel::Info, "hpl_grab_bridge disabled config=0");
         return true;
@@ -629,11 +752,16 @@ bool InstallHPLGrabBridge(const Config& config, OpenXRRuntime* openxr)
     g_pidOutputTarget = target;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_grab_bridge install_ok pidOutputRva=0x%llx target=%p playerState=1 translation=%d rotation=%d throwRedirect=%d addImpulseRva=0x%llx pidGains={force=400,0,40 torque=40,0,0.4|0.1} translationScale=%.3f maxOffsetMeters=%.3f rotationGain=%.2f rotationSign=%.1f maxAngularSpeed=%.2f policy=modify_target_error_preserve_native_pid_and_impulse",
+        "hpl_grab_bridge install_ok pidOutputRva=0x%llx target=%p playerState=1 translation=%d rotation=%d twoHandRotation=%d twoHand={squeeze=%.3f separationMeters=%.3f,%.3f blend=%.3f} throwRedirect=%d addImpulseRva=0x%llx pidGains={force=400,0,40 torque=40,0,0.4|0.1} translationScale=%.3f maxOffsetMeters=%.3f rotationGain=%.2f rotationSign=%.1f maxAngularSpeed=%.2f policy=modify_target_error_preserve_native_pid_and_impulse",
         static_cast<unsigned long long>(kPidVectorOutputRva),
         target,
         config.hplControllerGrabTranslation ? 1 : 0,
         config.hplControllerGrabRotation ? 1 : 0,
+        config.hplControllerTwoHandGrabRotation ? 1 : 0,
+        config.hplControllerTwoHandSqueezeThreshold,
+        config.hplControllerTwoHandMinSeparationMeters,
+        config.hplControllerTwoHandMaxSeparationMeters,
+        config.hplControllerTwoHandDirectionBlend,
         config.hplControllerThrowRedirect ? 1 : 0,
         static_cast<unsigned long long>(kAddImpulseThunkRva),
         config.hplControllerGrabTranslationScale,
@@ -678,7 +806,7 @@ void LogHPLGrabBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_grab_bridge_summary installed=%d pidInstalled=%d impulsePatchInstalled=%d calls=%llu forcePidMatches=%llu torquePidMatches=%llu anchors=%llu translationSubstitutions=%llu rotationSubstitutions=%llu throwArms=%llu throwRedirects=%llu throwFallbacks=%llu fallbackState=%llu fallbackPid=%llu fallbackPose=%llu fallbackStale=%llu fallbackCamera=%llu",
+        "hpl_grab_bridge_summary installed=%d pidInstalled=%d impulsePatchInstalled=%d calls=%llu forcePidMatches=%llu torquePidMatches=%llu anchors=%llu translationSubstitutions=%llu rotationSubstitutions=%llu twoHand={candidates=%llu engagements=%llu substitutions=%llu releases=%llu fallbacks=%llu} throwArms=%llu throwRedirects=%llu throwFallbacks=%llu fallbackState=%llu fallbackPid=%llu fallbackPose=%llu fallbackStale=%llu fallbackCamera=%llu",
         (g_pidOutputTarget != nullptr || g_addImpulseTarget != nullptr) ? 1 : 0,
         g_pidOutputTarget != nullptr ? 1 : 0,
         g_addImpulseTarget != nullptr ? 1 : 0,
@@ -688,6 +816,11 @@ void LogHPLGrabBridgeSummary()
         static_cast<unsigned long long>(g_anchors.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_substitutions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_rotationSubstitutions.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_twoHandGrabCandidates.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_twoHandGrabEngagements.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_twoHandGrabSubstitutions.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_twoHandGrabReleases.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_twoHandGrabFallbacks.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_throwArms.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_throwRedirects.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_throwFallbacks.load(std::memory_order_relaxed)),

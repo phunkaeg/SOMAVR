@@ -125,7 +125,11 @@ toggle from tracked height with hysteresis. `GrabTranslation=1` augments only
 the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
   mass, collision, constraints, gravity, and callbacks. `GrabRotation=1` extends
   that contract through SOMA's torque PID, while `ThrowRedirect=1` redirects one
-  native Grab impulse along tracked release velocity. The compositor HUD can
+  native Grab impulse along tracked release velocity. `TwoHandHudObject=1`
+  optionally points an independent held tool from the dominant grip toward a
+  squeezed support grip. `TwoHandGrabRotation=1` applies the same bounded
+  direction contract to Grab-state torque without replacing native physics.
+  The compositor HUD can
   suppress the fixed gaze crosshair with `HudSuppressCenterCrosshair=1`.
   `HPLComfortCameraAddControl=1` removes semantic Bob, Shake, and optional Sway
   only while F10 tracking is active. `HPLComfortCameraRollControl=1` separately
@@ -146,9 +150,10 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
 ## Current Goal
 
 This is not yet a sustained simultaneous dual-eye renderer. OpenXR transport,
-native head tracking, and AFR stereo geometry are proven; `0.35.0` adds a
+native head tracking, and AFR stereo geometry are proven. `0.35.0` adds a
 one-frame exact-player replay to validate the remaining callback, temporal, and
-performance contracts before promotion:
+performance contracts before promotion. `0.36.0` also advances physical
+presence with bounded two-hand independent-tool and carried-object control:
 
 - signature-guarded native eye view/projection integration,
 - persistent per-eye OpenGL cache transfer,
@@ -308,6 +313,12 @@ GrabRotation=1
 GrabRotationGain=100.0
 GrabRotationSign=1.0
 GrabMaxAngularSpeed=6.0
+TwoHandHudObject=1
+TwoHandGrabRotation=1
+TwoHandSqueezeThreshold=0.75
+TwoHandMinSeparationMeters=0.08
+TwoHandMaxSeparationMeters=1.2
+TwoHandDirectionBlend=1.0
 ThrowRedirect=1
 ThrowVelocityScale=1
 ThrowVelocityThreshold=0.35

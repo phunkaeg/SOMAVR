@@ -641,7 +641,13 @@ The preferred long-term path is full-scale geometry at a physically plausible co
    identity cache before SOMA queues native destruction, making script
    destroy/recreate and allocator reuse fail closed.
 5. **Interaction ray:** source focus/pick checks from the dominant controller while leaving native interaction callbacks intact.
-6. **Two-hand and physics interaction:** add support for doors, wheels, levers, grabbed bodies, Omnitool insertion, ladders, and carried objects.
+6. **Two-hand and physics interaction:** first two-hand owner built in `0.36.0`.
+   Exact independent `HudObject` tools aim from dominant grip to squeezed support
+   grip, and Grab-state bodies reuse the direction delta through the confirmed
+   native torque PID. Both enforce tracked-pose age and hand-separation bounds,
+   and re-anchor on engage/release. Doors, wheels, levers, Omnitool insertion,
+   ladders, per-tool support sockets, and campaign tuning remain native or need
+   identity-specific evidence before broader two-hand policy.
 
 ## HUD And GUI
 

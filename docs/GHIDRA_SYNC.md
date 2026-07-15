@@ -1,5 +1,16 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Two-Hand Tool And Grab Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1400bcd90` | `SOMA_iLuxEntity_SetMatrix` | Existing exact `HudObject` boundary retained. The plate comment now records `0.36.0` support-grip aim composition: dominant position, squeezed fresh support direction, bounded separation, native uniform scale, and dominant-only/native fallback on every failed gate. |
+| `0x140238750` | `HPL3_PidControllerVec3_Output` | Existing exact Grab force/torque PID boundary retained. The plate comment now records optional two-hand direction-delta torque, one-call engagement/release re-anchoring, and continued native ownership of PID integration and body physics. |
+
+The explicitly selected `Soma_NoSteam.exe` database was saved after both plate
+comment updates. No generic entity transform or generic physics-body ownership
+is claimed by this feature.
+
 ## 2026-07-15 Subtitle Presentation Sync
 
 | Address | Ghidra name | Evidence/use |

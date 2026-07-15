@@ -159,7 +159,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrTrackingRecoveryBlackoutFrames);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d flashlight=%d inventory=%d menu=%d menuPointer=%d menuPointerFov=%.1f,%.1f menuPointerSmoothing=%.3f recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d suppressAuthoredCamera=%d interactionRay=%d interactionRayOriginTolerance=%.3f grabTranslation=%d grabTranslationScale=%.3f grabMaxOffsetMeters=%.3f grabRotation=%d grabRotationGain=%.2f grabRotationSign=%.1f grabMaxAngularSpeed=%.2f throwRedirect=%d throwVelocityScale=%d throwVelocityThreshold=%.3f throwVelocityReference=%.3f manipulationMappings=%d handTrackingProbe=%d handControllerRoot=%d handRootOffset=%.4f,%.4f,%.4f handRootRotationDegrees=%.2f,%.2f,%.2f controllerHudObject=%d hudObjectOffset=%.4f,%.4f,%.4f hudObjectRotationDegrees=%.2f,%.2f,%.2f flashlightAim=%d flashlightOffset=%.4f,%.4f,%.4f flashlightRotationDegrees=%.2f,%.2f,%.2f comfortBlackoutFrames=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
+        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d flashlight=%d inventory=%d menu=%d menuPointer=%d menuPointerFov=%.1f,%.1f menuPointerSmoothing=%.3f recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d suppressAuthoredCamera=%d interactionRay=%d interactionRayOriginTolerance=%.3f grabTranslation=%d grabTranslationScale=%.3f grabMaxOffsetMeters=%.3f grabRotation=%d grabRotationGain=%.2f grabRotationSign=%.1f grabMaxAngularSpeed=%.2f twoHandHudObject=%d twoHandGrabRotation=%d twoHandSqueeze=%.3f twoHandSeparationMeters=%.3f,%.3f twoHandBlend=%.3f throwRedirect=%d throwVelocityScale=%d throwVelocityThreshold=%.3f throwVelocityReference=%.3f manipulationMappings=%d handTrackingProbe=%d handControllerRoot=%d handRootOffset=%.4f,%.4f,%.4f handRootRotationDegrees=%.2f,%.2f,%.2f controllerHudObject=%d hudObjectOffset=%.4f,%.4f,%.4f hudObjectRotationDegrees=%.2f,%.2f,%.2f flashlightAim=%d flashlightOffset=%.4f,%.4f,%.4f flashlightRotationDegrees=%.2f,%.2f,%.2f comfortBlackoutFrames=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
         g_config->Get().hplControllerInput ? 1 : 0,
         g_config->Get().hplControllerMoveDeadzone,
         g_config->Get().hplControllerMoveReleaseDeadzone,
@@ -202,6 +202,12 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplControllerGrabRotationGain,
         g_config->Get().hplControllerGrabRotationSign,
         g_config->Get().hplControllerGrabMaxAngularSpeed,
+        g_config->Get().hplControllerTwoHandHudObject ? 1 : 0,
+        g_config->Get().hplControllerTwoHandGrabRotation ? 1 : 0,
+        g_config->Get().hplControllerTwoHandSqueezeThreshold,
+        g_config->Get().hplControllerTwoHandMinSeparationMeters,
+        g_config->Get().hplControllerTwoHandMaxSeparationMeters,
+        g_config->Get().hplControllerTwoHandDirectionBlend,
         g_config->Get().hplControllerThrowRedirect ? 1 : 0,
         g_config->Get().hplControllerThrowVelocityScale ? 1 : 0,
         g_config->Get().hplControllerThrowVelocityThreshold,

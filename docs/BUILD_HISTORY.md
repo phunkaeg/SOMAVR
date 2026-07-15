@@ -2,6 +2,29 @@
 
 ## 2026-07-15
 
+### 0.36.0-two-hand-tools
+
+- Added support-hand pose composition for exact independent `HudObject` tools.
+  While the support controller is squeezed and both grips are fresh and within
+  configured separation limits, the native uniform-scale object remains rooted
+  at the dominant grip but aims toward the support grip. Releasing squeeze,
+  losing either pose, unsafe separation, authored-camera ownership, or malformed
+  native scale immediately restores the dominant-only or native path.
+- Extended the exact Grab-state torque PID bridge with optional two-hand
+  direction rotation. Engagement captures a direction anchor; subsequent
+  support-hand motion becomes a bounded shortest-arc world angular target while
+  SOMA retains its native torque PID, force caps, mass, inertia, collision,
+  joints, gravity, and callbacks. Engagement and release each spend one native
+  torque call re-anchoring before any correction, preventing mode-change spikes.
+- Added independent tool/grab rollback switches, squeeze/separation/blend
+  controls, bounded transition/fallback telemetry, a dedicated pure math module,
+  and basis/shortest-arc tests. Generated defaults remain disabled; the active
+  development profile enables both paths for live acceptance.
+- Both Release flavors and all three CTest suites pass. OpenXR DLL SHA-256:
+  `8F3D2A5685DE9D8AED98A05756124116F81F9B270E7CAC0519CE94B4BEFF4712`.
+  Package SHA-256:
+  `6BEC50FDC4C57E3CC4814C25D34B9846395F815CFD282D0BC60C9E6EAAC683DE`.
+
 ### 0.35.0-dual-render-probe
 
 - Added the first executable `FEATURE.DUAL_RENDER` experiment. `Ctrl+F6` arms

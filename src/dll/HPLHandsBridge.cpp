@@ -4,6 +4,7 @@
 #include "HPLFlashlightMath.h"
 #include "HPLHandsMath.h"
 #include "HPLPlayerState.h"
+#include "HPLTwoHandMath.h"
 #include "Logger.h"
 
 #include <Windows.h>
@@ -124,6 +125,9 @@ std::atomic<uint64_t> g_hudObjectAuthoredFallbacks = 0;
 std::atomic<uint64_t> g_hudObjectPoseFallbacks = 0;
 std::atomic<uint64_t> g_hudObjectStaleFallbacks = 0;
 std::atomic<uint64_t> g_hudObjectMathFallbacks = 0;
+std::atomic<uint64_t> g_twoHandHudCandidates = 0;
+std::atomic<uint64_t> g_twoHandHudOverrides = 0;
+std::atomic<uint64_t> g_twoHandHudFallbacks = 0;
 std::atomic<uint64_t> g_flashlightIdentities = 0;
 std::atomic<uint64_t> g_flashlightCalls = 0;
 std::atomic<uint64_t> g_flashlightOverrideAttempts = 0;
@@ -596,8 +600,14 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
         const HPLCameraBridgeStatus camera = GetHPLCameraBridgeStatus();
         OpenXRInputSnapshot input{};
         HPLTrackedPoseWorld worldGrip{};
+        HPLTrackedPoseWorld worldSupport{};
+        two_hand_math::TwoHandBasis twoHandBasis{};
         uint32_t handIndex = 1;
+        uint32_t supportHandIndex = 0;
         bool gripValid = false;
+        bool twoHandRequested = false;
+        bool twoHandValid = false;
+        float supportSqueeze = 0.0f;
         uint64_t inputAge = UINT64_MAX;
         if (g_openxr != nullptr && g_openxr->GetLatestInput(input) && input.active) {
             const OpenXRHandInput* hand = SelectDominantHand(input, handIndex);
@@ -606,6 +616,36 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                 && ResolveHPLTrackedPoseWorld(hand->gripPose, input.gameFrame, worldGrip)
                 && worldGrip.orientationTracked
                 && worldGrip.positionTracked;
+            supportHandIndex = handIndex ^ 1u;
+            const OpenXRHandInput* support = supportHandIndex == 0 ? &input.left : &input.right;
+            supportSqueeze = support->squeeze;
+            twoHandRequested = g_config.hplControllerTwoHandHudObject
+                && gripValid
+                && support->active
+                && supportSqueeze >= g_config.hplControllerTwoHandSqueezeThreshold;
+            if (twoHandRequested) {
+                g_twoHandHudCandidates.fetch_add(1, std::memory_order_relaxed);
+                twoHandValid = support->gripPose.valid
+                    && support->gripPose.orientationTracked
+                    && support->gripPose.positionTracked
+                    && ResolveHPLTrackedPoseWorld(
+                        support->gripPose, input.gameFrame, worldSupport)
+                    && worldSupport.positionTracked
+                    && two_hand_math::BuildTwoHandBasis(
+                        {worldGrip.positionX, worldGrip.positionY, worldGrip.positionZ},
+                        {worldGrip.forwardX, worldGrip.forwardY, worldGrip.forwardZ},
+                        {worldGrip.upX, worldGrip.upY, worldGrip.upZ},
+                        {worldSupport.positionX, worldSupport.positionY, worldSupport.positionZ},
+                        g_config.hplControllerTwoHandDirectionBlend,
+                        g_config.hplControllerTwoHandMinSeparationMeters
+                            * g_config.hplWorldScale,
+                        g_config.hplControllerTwoHandMaxSeparationMeters
+                            * g_config.hplWorldScale,
+                        twoHandBasis);
+                if (!twoHandValid) {
+                    g_twoHandHudFallbacks.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
             if (player.frame != 0 && input.gameFrame != 0) {
                 inputAge = player.frame >= input.gameFrame ? player.frame - input.gameFrame : 0;
             }
@@ -640,14 +680,23 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                 };
                 hudObjectOverridden = hands_math::BuildControllerHudObjectMatrix(
                     {worldGrip.positionX, worldGrip.positionY, worldGrip.positionZ},
-                    {worldGrip.forwardX, worldGrip.forwardY, worldGrip.forwardZ},
-                    {worldGrip.upX, worldGrip.upY, worldGrip.upZ},
+                    twoHandValid
+                        ? twoHandBasis.forward
+                        : camera_math::Vector3{
+                            worldGrip.forwardX, worldGrip.forwardY, worldGrip.forwardZ},
+                    twoHandValid
+                        ? twoHandBasis.up
+                        : camera_math::Vector3{
+                            worldGrip.upX, worldGrip.upY, worldGrip.upZ},
                     averageScale,
                     calibration,
                     controllerMatrix);
                 if (hudObjectOverridden) {
                     submittedMatrix = controllerMatrix.data();
                     g_hudObjectOverrides.fetch_add(1, std::memory_order_relaxed);
+                    if (twoHandValid) {
+                        g_twoHandHudOverrides.fetch_add(1, std::memory_order_relaxed);
+                    }
                 } else {
                     g_hudObjectMathFallbacks.fetch_add(1, std::memory_order_relaxed);
                 }
@@ -658,7 +707,7 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
         if (hudObjectCall <= 12 || hudObjectCall % interval == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "hpl_hud_object_pose call=%llu entity=%p matrixValid=%d nativePos=%.4f,%.4f,%.4f scale=%.4f,%.4f,%.4f gripValid=%d gripHand=%s gripPos=%.4f,%.4f,%.4f inputAge=%llu requested=%d overridden=%d finalPos=%.4f,%.4f,%.4f tracking=%d authoredCamera=%d playerState=%d moveState=%d",
+                "hpl_hud_object_pose call=%llu entity=%p matrixValid=%d nativePos=%.4f,%.4f,%.4f scale=%.4f,%.4f,%.4f gripValid=%d gripHand=%s gripPos=%.4f,%.4f,%.4f inputAge=%llu requested=%d overridden=%d finalPos=%.4f,%.4f,%.4f twoHand={enabled=%d requested=%d valid=%d supportHand=%s squeeze=%.3f separation=%.4f blend=%.3f} tracking=%d authoredCamera=%d playerState=%d moveState=%d",
                 static_cast<unsigned long long>(hudObjectCall),
                 entity,
                 matrixValid ? 1 : 0,
@@ -675,6 +724,13 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                 hudObjectOverridden ? controllerMatrix[3] : (matrixValid ? matrix[3] : 0.0f),
                 hudObjectOverridden ? controllerMatrix[7] : (matrixValid ? matrix[7] : 0.0f),
                 hudObjectOverridden ? controllerMatrix[11] : (matrixValid ? matrix[11] : 0.0f),
+                g_config.hplControllerTwoHandHudObject ? 1 : 0,
+                twoHandRequested ? 1 : 0,
+                twoHandValid ? 1 : 0,
+                supportHandIndex == 0 ? "left" : "right",
+                supportSqueeze,
+                twoHandBasis.separation,
+                g_config.hplControllerTwoHandDirectionBlend,
                 camera.trackingEnabled ? 1 : 0,
                 player.authoredCameraActive ? 1 : 0,
                 player.playerStateId,
@@ -970,7 +1026,7 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
     }
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_hands_bridge install_ok setMatrixRva=0x%llx getNameRva=0x%llx destroyEntityRva=0x%llx getClosestBodyRva=0x%llx probe=%d controllerRoot=%d controllerHudObject=%d flashlightAim=%d flashlightGameplayRay=%d handOffset=%.4f,%.4f,%.4f handRotationDegrees=%.2f,%.2f,%.2f hudObjectOffset=%.4f,%.4f,%.4f hudObjectRotationDegrees=%.2f,%.2f,%.2f flashlightOffset=%.4f,%.4f,%.4f flashlightRotationDegrees=%.2f,%.2f,%.2f policy=exact_identity_guarded_tracked_pose lifecyclePolicy=evict_on_native_destroy gameplayRayPolicy=ray_length_camera_origin_preserve_cone cacheLimit=%llu identityLogLimit=%llu",
+        "hpl_hands_bridge install_ok setMatrixRva=0x%llx getNameRva=0x%llx destroyEntityRva=0x%llx getClosestBodyRva=0x%llx probe=%d controllerRoot=%d controllerHudObject=%d twoHandHudObject=%d twoHand={squeeze=%.3f separationMeters=%.3f,%.3f blend=%.3f} flashlightAim=%d flashlightGameplayRay=%d handOffset=%.4f,%.4f,%.4f handRotationDegrees=%.2f,%.2f,%.2f hudObjectOffset=%.4f,%.4f,%.4f hudObjectRotationDegrees=%.2f,%.2f,%.2f flashlightOffset=%.4f,%.4f,%.4f flashlightRotationDegrees=%.2f,%.2f,%.2f policy=exact_identity_guarded_tracked_pose lifecyclePolicy=evict_on_native_destroy gameplayRayPolicy=ray_length_camera_origin_preserve_cone cacheLimit=%llu identityLogLimit=%llu",
         static_cast<unsigned long long>(kLuxEntitySetMatrixRva),
         static_cast<unsigned long long>(kLuxEntityGetNameRva),
         static_cast<unsigned long long>(kLuxMapDestroyEntityRva),
@@ -978,6 +1034,11 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplHandTrackingProbe ? 1 : 0,
         config.hplHandControllerRoot ? 1 : 0,
         config.hplControllerHudObject ? 1 : 0,
+        config.hplControllerTwoHandHudObject ? 1 : 0,
+        config.hplControllerTwoHandSqueezeThreshold,
+        config.hplControllerTwoHandMinSeparationMeters,
+        config.hplControllerTwoHandMaxSeparationMeters,
+        config.hplControllerTwoHandDirectionBlend,
         config.hplControllerFlashlightAim ? 1 : 0,
         config.hplControllerFlashlightGameplayRay ? 1 : 0,
         config.hplHandRootOffsetX,
@@ -1043,7 +1104,7 @@ void LogHPLHandsBridgeSummary()
     }
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_hands_bridge_summary installed=%d destroyLifecycleInstalled=%d gameplayRayInstalled=%d calls=%llu destroyEntityCalls=%llu identityInvalidations=%llu cachedIdentities=%llu identityReads=%llu identityReadFailures=%llu playerHandsIdentities=%llu playerHandsCalls=%llu hudObjectIdentities=%llu socketedHudObjectIdentities=%llu hudObjectCalls=%llu hudObjectOverrideAttempts=%llu hudObjectOverrides=%llu hudObjectScaleFallbacks=%llu hudObjectStateFallbacks=%llu hudObjectAuthoredFallbacks=%llu hudObjectPoseFallbacks=%llu hudObjectStaleFallbacks=%llu hudObjectMathFallbacks=%llu flashlightIdentities=%llu flashlightCalls=%llu matrixReadFailures=%llu quarterScaleSamples=%llu fullScaleSamples=%llu otherScaleSamples=%llu trackedGripSamples=%llu authoredCameraSamples=%llu rootOverrideAttempts=%llu rootOverrides=%llu rootScaleFallbacks=%llu rootStateFallbacks=%llu rootAuthoredFallbacks=%llu rootPoseFallbacks=%llu rootStaleFallbacks=%llu rootMathFallbacks=%llu flashlightOverrideAttempts=%llu flashlightOverrides=%llu flashlightStateFallbacks=%llu flashlightAuthoredFallbacks=%llu flashlightPoseFallbacks=%llu flashlightStaleFallbacks=%llu flashlightMathFallbacks=%llu gameplayRayCalls=%llu gameplayRayCandidates=%llu gameplayRayRedirects=%llu gameplayRayHits=%llu gameplayRayOriginFallbacks=%llu gameplayRayPoseFallbacks=%llu gameplayRayStaleFallbacks=%llu gameplayRayMathFallbacks=%llu",
+        "hpl_hands_bridge_summary installed=%d destroyLifecycleInstalled=%d gameplayRayInstalled=%d calls=%llu destroyEntityCalls=%llu identityInvalidations=%llu cachedIdentities=%llu identityReads=%llu identityReadFailures=%llu playerHandsIdentities=%llu playerHandsCalls=%llu hudObjectIdentities=%llu socketedHudObjectIdentities=%llu hudObjectCalls=%llu hudObjectOverrideAttempts=%llu hudObjectOverrides=%llu hudObjectScaleFallbacks=%llu hudObjectStateFallbacks=%llu hudObjectAuthoredFallbacks=%llu hudObjectPoseFallbacks=%llu hudObjectStaleFallbacks=%llu hudObjectMathFallbacks=%llu twoHandHudCandidates=%llu twoHandHudOverrides=%llu twoHandHudFallbacks=%llu flashlightIdentities=%llu flashlightCalls=%llu matrixReadFailures=%llu quarterScaleSamples=%llu fullScaleSamples=%llu otherScaleSamples=%llu trackedGripSamples=%llu authoredCameraSamples=%llu rootOverrideAttempts=%llu rootOverrides=%llu rootScaleFallbacks=%llu rootStateFallbacks=%llu rootAuthoredFallbacks=%llu rootPoseFallbacks=%llu rootStaleFallbacks=%llu rootMathFallbacks=%llu flashlightOverrideAttempts=%llu flashlightOverrides=%llu flashlightStateFallbacks=%llu flashlightAuthoredFallbacks=%llu flashlightPoseFallbacks=%llu flashlightStaleFallbacks=%llu flashlightMathFallbacks=%llu gameplayRayCalls=%llu gameplayRayCandidates=%llu gameplayRayRedirects=%llu gameplayRayHits=%llu gameplayRayOriginFallbacks=%llu gameplayRayPoseFallbacks=%llu gameplayRayStaleFallbacks=%llu gameplayRayMathFallbacks=%llu",
         g_setMatrixTarget != nullptr ? 1 : 0,
         g_destroyEntityTarget != nullptr ? 1 : 0,
         g_getClosestBodyTarget != nullptr ? 1 : 0,
@@ -1066,6 +1127,9 @@ void LogHPLHandsBridgeSummary()
         static_cast<unsigned long long>(g_hudObjectPoseFallbacks.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hudObjectStaleFallbacks.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hudObjectMathFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_twoHandHudCandidates.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_twoHandHudOverrides.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_twoHandHudFallbacks.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_flashlightIdentities.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_flashlightCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_matrixReadFailures.load(std::memory_order_relaxed)),

@@ -10,6 +10,7 @@
 #include "HPLScreenEffectMath.h"
 #include "HPLSubtitleMath.h"
 #include "HPLDualRenderMath.h"
+#include "HPLTwoHandMath.h"
 #include "OpenGLMatrixAnalysis.h"
 #include "OpenXRSpectatorMath.h"
 #include "OpenXRDepthMath.h"
@@ -42,6 +43,52 @@ int main()
     using namespace somavr;
 
     int failures = 0;
+    two_hand_math::TwoHandBasis twoHandBasis;
+    failures += Check(
+        two_hand_math::BuildTwoHandBasis(
+            {0.0f, 0.0f, 0.0f},
+            {0.0f, 0.0f, 1.0f},
+            {0.0f, 1.0f, 0.0f},
+            {0.5f, 0.0f, 0.0f},
+            1.0f,
+            0.08f,
+            1.2f,
+            twoHandBasis)
+            && Near(twoHandBasis.forward.x, 1.0f)
+            && Near(twoHandBasis.forward.y, 0.0f)
+            && Near(twoHandBasis.forward.z, 0.0f)
+            && Near(twoHandBasis.up.y, 1.0f)
+            && Near(twoHandBasis.separation, 0.5f),
+        "two-hand basis aims from dominant grip to support grip and preserves roll up");
+    failures += Check(
+        !two_hand_math::BuildTwoHandBasis(
+            {0.0f, 0.0f, 0.0f},
+            {0.0f, 0.0f, 1.0f},
+            {0.0f, 1.0f, 0.0f},
+            {0.01f, 0.0f, 0.0f},
+            1.0f,
+            0.08f,
+            1.2f,
+            twoHandBasis),
+        "two-hand basis rejects unsafe hand separation");
+    const camera_math::Vector3 twoHandAngular =
+        two_hand_math::ResolveDirectionAngularTargetVelocity(
+            {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f}, 2.0f, 1.0f, 10.0f);
+    failures += Check(
+        Near(twoHandAngular.x, 0.0f)
+            && Near(twoHandAngular.y, 3.14159265f, 1.0e-4f)
+            && Near(twoHandAngular.z, 0.0f),
+        "two-hand direction rotation returns bounded shortest-arc angular velocity");
+    const camera_math::Vector3 oppositeTwoHandAngular =
+        two_hand_math::ResolveDirectionAngularTargetVelocity(
+            {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, -1.0f}, 100.0f, 1.0f, 1.5f);
+    const float oppositeTwoHandSpeed = std::sqrt(
+        oppositeTwoHandAngular.x * oppositeTwoHandAngular.x
+        + oppositeTwoHandAngular.y * oppositeTwoHandAngular.y
+        + oppositeTwoHandAngular.z * oppositeTwoHandAngular.z);
+    failures += Check(
+        std::isfinite(oppositeTwoHandSpeed) && Near(oppositeTwoHandSpeed, 1.5f),
+        "two-hand opposite direction selects a finite capped fallback axis");
     failures += Check(
         dual_render_math::BuildReplayMask(0x7) == 0x5
             && dual_render_math::BuildReplayMask(UINT64_MAX) == (UINT64_MAX & ~2ull),

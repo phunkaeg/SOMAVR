@@ -104,6 +104,12 @@ struct Config {
     float hplControllerGrabRotationGain = 100.0f;
     float hplControllerGrabRotationSign = 1.0f;
     float hplControllerGrabMaxAngularSpeed = 6.0f;
+    bool hplControllerTwoHandHudObject = false;
+    bool hplControllerTwoHandGrabRotation = false;
+    float hplControllerTwoHandSqueezeThreshold = 0.75f;
+    float hplControllerTwoHandMinSeparationMeters = 0.08f;
+    float hplControllerTwoHandMaxSeparationMeters = 1.2f;
+    float hplControllerTwoHandDirectionBlend = 1.0f;
     bool hplControllerThrowRedirect = false;
     bool hplControllerThrowVelocityScale = false;
     float hplControllerThrowVelocityThreshold = 0.35f;

@@ -278,6 +278,12 @@ void ConfigManager::WriteDefaultConfig() const
         << "GrabRotationGain=100.0\n"
         << "GrabRotationSign=1.0\n"
         << "GrabMaxAngularSpeed=6.0\n"
+        << "TwoHandHudObject=0\n"
+        << "TwoHandGrabRotation=0\n"
+        << "TwoHandSqueezeThreshold=0.75\n"
+        << "TwoHandMinSeparationMeters=0.08\n"
+        << "TwoHandMaxSeparationMeters=1.2\n"
+        << "TwoHandDirectionBlend=1.0\n"
         << "ThrowRedirect=0\n"
         << "ThrowVelocityScale=0\n"
         << "ThrowVelocityThreshold=0.35\n"
@@ -593,6 +599,12 @@ void ConfigManager::LoadFromFile()
             else if (key == "grabrotationgain") config_.hplControllerGrabRotationGain = ParseFloat(value, config_.hplControllerGrabRotationGain, 0.1f, 200.0f);
             else if (key == "grabrotationsign") config_.hplControllerGrabRotationSign = ParseFloat(value, config_.hplControllerGrabRotationSign, -1.0f, 1.0f);
             else if (key == "grabmaxangularspeed") config_.hplControllerGrabMaxAngularSpeed = ParseFloat(value, config_.hplControllerGrabMaxAngularSpeed, 0.1f, 20.0f);
+            else if (key == "twohandhudobject") config_.hplControllerTwoHandHudObject = ParseBool(value, config_.hplControllerTwoHandHudObject);
+            else if (key == "twohandgrabrotation") config_.hplControllerTwoHandGrabRotation = ParseBool(value, config_.hplControllerTwoHandGrabRotation);
+            else if (key == "twohandsqueezethreshold") config_.hplControllerTwoHandSqueezeThreshold = ParseFloat(value, config_.hplControllerTwoHandSqueezeThreshold, 0.1f, 1.0f);
+            else if (key == "twohandminseparationmeters") config_.hplControllerTwoHandMinSeparationMeters = ParseFloat(value, config_.hplControllerTwoHandMinSeparationMeters, 0.01f, 1.0f);
+            else if (key == "twohandmaxseparationmeters") config_.hplControllerTwoHandMaxSeparationMeters = ParseFloat(value, config_.hplControllerTwoHandMaxSeparationMeters, 0.05f, 3.0f);
+            else if (key == "twohanddirectionblend") config_.hplControllerTwoHandDirectionBlend = ParseFloat(value, config_.hplControllerTwoHandDirectionBlend, 0.0f, 1.0f);
             else if (key == "throwredirect") config_.hplControllerThrowRedirect = ParseBool(value, config_.hplControllerThrowRedirect);
             else if (key == "throwvelocityscale") config_.hplControllerThrowVelocityScale = ParseBool(value, config_.hplControllerThrowVelocityScale);
             else if (key == "throwvelocitythreshold") config_.hplControllerThrowVelocityThreshold = ParseFloat(value, config_.hplControllerThrowVelocityThreshold, 0.0f, 5.0f);

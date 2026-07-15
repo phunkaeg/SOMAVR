@@ -70,6 +70,9 @@ int main()
         out << "[Comfort]\nPreset=maximum\n"
             << "[Hooks]\nHPLComfortSuppressScriptRoll=0\nHPLPerEyeImageTrailControl=1\nHPLToneMappingFrameControl=1\nHPLPerEyeSSAOTemporalControl=1\nHPLSSAOFrameOwnerControl=1\n"
             << "[Controller]\nComfortBlackoutFrames=7\n"
+            << "ContactHaptics=1\nContactHapticMinSpeed=-1\nContactHapticMaxSpeed=99\n"
+            << "ContactHapticMaxDistanceMeters=9\nContactHapticMinAmplitude=-1\n"
+            << "ContactHapticMaxAmplitude=2\nContactHapticDurationMs=999\nContactHapticCooldownMs=-1\n"
             << "[OpenXR]\nHudShape=CYLINDER\nHudCylinderAngleDegrees=80\n"
             << "Foveation=1\nFoveationLevel=9\nFoveationDynamic=1\nFoveationVerticalOffset=-1.5\n"
             << "ComfortVignette=0\nComfortVignetteStrength=0.33\n";
@@ -84,6 +87,14 @@ int main()
             && manager.Get().hplPerEyeSSAOTemporalControl
             && manager.Get().hplSSAOFrameOwnerControl
             && manager.Get().hplControllerComfortBlackoutFrames == 7
+            && manager.Get().hplControllerContactHaptics
+            && manager.Get().hplControllerContactHapticMinSpeed == 0.0f
+            && manager.Get().hplControllerContactHapticMaxSpeed == 50.0f
+            && manager.Get().hplControllerContactHapticMaxDistanceMeters == 3.0f
+            && manager.Get().hplControllerContactHapticMinAmplitude == 0.0f
+            && manager.Get().hplControllerContactHapticMaxAmplitude == 1.0f
+            && manager.Get().hplControllerContactHapticDurationMs == 250
+            && manager.Get().hplControllerContactHapticCooldownMs == 0
             && manager.Get().openxrHudShape == "cylinder"
             && manager.Get().openxrHudCylinderAngleDegrees == 80.0f
             && manager.Get().openxrFoveation
@@ -99,6 +110,7 @@ int main()
     }
     failures += Check(manager.InitializeAtPath(configPath)
             && manager.Get().comfortPreset == "custom"
+            && !manager.Get().hplControllerContactHaptics
             && !manager.Get().hplComfortSuppressSway,
         "reloading a manager resets stale preset state before parsing");
     std::error_code ec;

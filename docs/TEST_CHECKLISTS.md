@@ -1,5 +1,32 @@
 # Test Checklists
 
+## 0.58.0 Native Grab-Contact Haptics
+
+1. Run packaged doctor and require
+   `version=0.58.0-grab-contact-haptics`, OpenXR flavor, and `fail=0`. Keep
+   `ContactHaptics=1` and require `hpl_contact_haptics install_ok` at RVA
+   `0x32f0e0` without a signature error.
+2. Grab a movable object with the dominant controller. Tap it lightly, then
+   strike a wall or floor more firmly. Require increasing native `speed` and
+   bounded `amplitude` in `hpl_contact_haptics pulse` rows on the configured
+   hand while native impact audio, particles, motion, and collision remain
+   unchanged.
+3. Repeat a single hard impact against a two-material surface. Require no rapid
+   double pulse; `cooldown` rejects may rise. Hold an object still against a
+   surface and require no continuous buzz from weak/resting contacts.
+4. Cause unrelated impacts outside Grab state, beyond the configured grip
+   radius, during tracking loss, and during an authored camera state. Require no
+   pulse and increasing state/pose/stale/distance rejection evidence where
+   applicable. Test a nearby unrelated impact while grabbing and report any
+   false positive.
+5. Release and re-grab, swap dominant hand, exercise authored gameplay rumble,
+   and use a physical gamepad if available. Contact output must follow only the
+   configured dominant hand; bilateral authored rumble and native gamepad
+   behavior must remain independent.
+6. Hard rollback: set `ContactHaptics=0`. Require the disabled row, no impact
+   hook/pulse rows, and otherwise identical grab physics, sound, haptics, and
+   shutdown. Attach the full contact summary and representative pulse rows.
+
 ## 0.57.0 Fixed Foveation
 
 1. Run packaged doctor and require `version=0.57.0-fixed-foveation`, OpenXR

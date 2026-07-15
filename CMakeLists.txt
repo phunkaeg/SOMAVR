@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.57.0-fixed-foveation")
+set(SOMAVR_BUILD_VERSION "0.58.0-grab-contact-haptics")
 
 include(FetchContent)
 
@@ -68,6 +68,7 @@ add_library(somavr_render_math STATIC
     src/dll/HPLFlashlightMath.cpp
     src/dll/HPLGrabMath.cpp
     src/dll/HPLGameplayHapticsMath.cpp
+    src/dll/HPLContactHapticsMath.cpp
     src/dll/HPLPhysicalCrouchMath.cpp
     src/dll/HPLRoomscaleReconciliationMath.cpp
     src/dll/HPLHudMath.cpp
@@ -120,6 +121,7 @@ add_library(somavr SHARED
     src/dll/HPLHandsBridge.cpp
     src/dll/HPLGrabBridge.cpp
     src/dll/HPLGameplayHapticsBridge.cpp
+    src/dll/HPLContactHapticsBridge.cpp
     src/dll/HPLPlayerState.cpp
     src/dll/OpenGLHooks.cpp
     src/dll/OpenXRGLBridge.cpp

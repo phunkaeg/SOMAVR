@@ -21,10 +21,19 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.57.0-fixed-foveation`, layered on the
+The active build candidate is `0.58.0-grab-contact-haptics`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Native grabbed-object impacts now have an opt-in dominant-hand haptic path.
+  Ghidra plus released HPL2 source confirm `cSurfaceData::OnImpact` at
+  `0x14032f0e0` receives normal collision speed, contact position/count, and a
+  physics body after Newton simulation. The exact-signature hook always runs
+  SOMA first, then requires Grab state, a fresh tracked dominant grip, and a
+  contact point within a bounded radius before mapping speed to one OpenXR
+  pulse. A 45 ms cooldown collapses duplicate material callbacks. Generated
+  configs remain off; the active profile enables it for live evidence.
 
 - Optional fixed foveation is now an OpenXR swapchain feature rather than a
   SOMA shader experiment. The runtime requires `XR_FB_swapchain_update_state`,
@@ -113,6 +122,11 @@ compatibility probes:
   strength/duration semantics as bilateral segmented VR haptics. The original
   physical-gamepad path is always called, repeated script updates are
   throttled, and explicit falling edges stop both OpenXR outputs.
+- Grab-state collision feedback is independent of authored rumble. The native
+  surface-impact function, sound creation, particles, physics, body callbacks,
+  and physical-gamepad path remain untouched. Weak, distant, stale, untracked,
+  authored-camera, and cooldown-duplicate events are rejected with bounded
+  counters; `ContactHaptics=0` removes the hook completely.
 
 - Sustained physical roomscale displacement can now advance the native player
   capsule through exact-signature guarded feet-position wrappers. The path is

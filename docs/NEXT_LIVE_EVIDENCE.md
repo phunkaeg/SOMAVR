@@ -61,6 +61,9 @@ Required evidence:
 - no capsule tunnelling or body catch-up while authored camera ownership is set;
 - controller ray hit depth/semantic icon agreement and stable reticle depth;
 - native physics remains authoritative for grab, torque, throw, and mechanisms;
+- light/hard grabbed-object impacts produce speed-scaled dominant-hand pulses,
+  duplicate material callbacks are cooled down, and unrelated impacts stay
+  silent; preserve native impact sound, particles, collision, and gamepad rumble;
 - HUD/current-ImGui ownership is limited to its confirmed semantic surfaces;
 - listener orientation follows the HMD during a directional near-field source.
 

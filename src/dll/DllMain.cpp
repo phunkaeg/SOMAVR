@@ -2,6 +2,7 @@
 #include "HPLCameraBridge.h"
 #include "HPLComfortBridge.h"
 #include "HPLCompatibilityProbe.h"
+#include "HPLContactHapticsBridge.h"
 #include "HPLCrosshairBridge.h"
 #include "HPLLifecycle.h"
 #include "HPLInputBridge.h"
@@ -434,6 +435,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     if (!somavr::InstallHPLGameplayHapticsBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_gameplay_haptics install_failed");
     }
+    if (!somavr::InstallHPLContactHapticsBridge(g_config->Get(), g_openxr.get())) {
+        somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_contact_haptics install_failed");
+    }
     if (!somavr::InstallHPLCrosshairBridge(g_config->Get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_crosshair_bridge install_failed");
     }
@@ -490,6 +494,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::RemoveHPLUserModuleBridge();
     somavr::LogHPLInteractionBridgeSummary();
     somavr::RemoveHPLInteractionBridge();
+    somavr::LogHPLContactHapticsBridgeSummary();
+    somavr::RemoveHPLContactHapticsBridge();
     somavr::LogHPLGameplayHapticsBridgeSummary();
     somavr::RemoveHPLGameplayHapticsBridge();
     somavr::LogHPLPresentationBridgeSummary();

@@ -320,6 +320,14 @@ void ConfigManager::WriteDefaultConfig() const
         << "GameplayHapticRetriggerDelta=0.08\n"
         << "GameplayHapticRefreshMs=80\n"
         << "GameplayHapticSegmentMs=100\n"
+        << "ContactHaptics=0\n"
+        << "ContactHapticMinSpeed=0.5\n"
+        << "ContactHapticMaxSpeed=5.0\n"
+        << "ContactHapticMaxDistanceMeters=0.75\n"
+        << "ContactHapticMinAmplitude=0.08\n"
+        << "ContactHapticMaxAmplitude=0.55\n"
+        << "ContactHapticDurationMs=35\n"
+        << "ContactHapticCooldownMs=45\n"
         << "FocusHaptics=0\n"
         << "FocusHapticAmplitude=0.12\n"
         << "FocusHapticDurationMs=15\n"
@@ -746,6 +754,14 @@ void ConfigManager::LoadFromFile()
             else if (key == "gameplayhapticretriggerdelta") config_.hplControllerGameplayHapticRetriggerDelta = ParseFloat(value, config_.hplControllerGameplayHapticRetriggerDelta, 0.0f, 1.0f);
             else if (key == "gameplayhapticrefreshms") config_.hplControllerGameplayHapticRefreshMs = ParseInt(value, config_.hplControllerGameplayHapticRefreshMs, 10, 1000);
             else if (key == "gameplayhapticsegmentms") config_.hplControllerGameplayHapticSegmentMs = ParseInt(value, config_.hplControllerGameplayHapticSegmentMs, 1, 1000);
+            else if (key == "contacthaptics") config_.hplControllerContactHaptics = ParseBool(value, config_.hplControllerContactHaptics);
+            else if (key == "contacthapticminspeed") config_.hplControllerContactHapticMinSpeed = ParseFloat(value, config_.hplControllerContactHapticMinSpeed, 0.0f, 20.0f);
+            else if (key == "contacthapticmaxspeed") config_.hplControllerContactHapticMaxSpeed = ParseFloat(value, config_.hplControllerContactHapticMaxSpeed, 0.01f, 50.0f);
+            else if (key == "contacthapticmaxdistancemeters") config_.hplControllerContactHapticMaxDistanceMeters = ParseFloat(value, config_.hplControllerContactHapticMaxDistanceMeters, 0.05f, 3.0f);
+            else if (key == "contacthapticminamplitude") config_.hplControllerContactHapticMinAmplitude = ParseFloat(value, config_.hplControllerContactHapticMinAmplitude, 0.0f, 1.0f);
+            else if (key == "contacthapticmaxamplitude") config_.hplControllerContactHapticMaxAmplitude = ParseFloat(value, config_.hplControllerContactHapticMaxAmplitude, 0.0f, 1.0f);
+            else if (key == "contacthapticdurationms") config_.hplControllerContactHapticDurationMs = ParseInt(value, config_.hplControllerContactHapticDurationMs, 1, 250);
+            else if (key == "contacthapticcooldownms") config_.hplControllerContactHapticCooldownMs = ParseInt(value, config_.hplControllerContactHapticCooldownMs, 0, 1000);
             else if (key == "focushaptics") config_.hplControllerFocusHaptics = ParseBool(value, config_.hplControllerFocusHaptics);
             else if (key == "focushapticamplitude") config_.hplControllerFocusHapticAmplitude = ParseFloat(value, config_.hplControllerFocusHapticAmplitude, 0.0f, 1.0f);
             else if (key == "focushapticdurationms") config_.hplControllerFocusHapticDurationMs = ParseInt(value, config_.hplControllerFocusHapticDurationMs, 1, 1000);

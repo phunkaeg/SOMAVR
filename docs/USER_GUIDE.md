@@ -92,6 +92,26 @@ foveation extensions and automatically keeps native swapchains when unsupported.
 Set `Foveation=0` for hard rollback. Compare GPU telemetry and peripheral image
 quality before keeping it enabled.
 
+Grabbed objects can produce dominant-hand feedback from SOMA's native surface
+impacts:
+
+```ini
+[Controller]
+ContactHaptics=1
+ContactHapticMinSpeed=0.5
+ContactHapticMaxSpeed=5.0
+ContactHapticMaxDistanceMeters=0.75
+ContactHapticMinAmplitude=0.08
+ContactHapticMaxAmplitude=0.55
+ContactHapticDurationMs=35
+ContactHapticCooldownMs=45
+```
+
+The pulse requires Grab state and a fresh tracked dominant grip near the native
+contact point. It does not replace collision physics, impact sounds, particles,
+or gamepad rumble. Increase the minimum speed or reduce the distance if weak or
+nearby unrelated impacts feel noisy. Set `ContactHaptics=0` for hard rollback.
+
 ## Comfort Presets
 
 Set one value under `[Comfort]` in `somavr.ini`:
@@ -130,6 +150,8 @@ headset, GPU, and relevant timestamps with every report.
 - Restore `Preset=custom` to use only explicit comfort settings.
 - Set `ComfortVignette=0` or use its F1 action to remove dynamic tunneling.
 - Set `Foveation=0` to restore ordinary color swapchains.
+- Set `ContactHaptics=0` to remove native surface-impact observation and retain
+  only focus/authored haptics.
 - Keep `somavr.defaults.ini` for comparison; do not replace a tuned config
   blindly during updates.
 

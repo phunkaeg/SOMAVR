@@ -2,6 +2,28 @@
 
 ## 2026-07-15
 
+### 0.58.0-grab-contact-haptics
+
+- Confirmed HPL3's native physics-contact path from Newton update
+  `0x1405548b0` to surface impact `0x14032f0e0` and slide `0x14032f380`.
+  Released HPL2 source independently matches the function signatures, material-
+  priority dispatch, contact record, and impact/scrape semantics.
+- Added exact-signature `HPLContactHapticsBridge`. SOMA's impact handler always
+  runs unchanged; Grab state, authored ownership, input age, dominant-grip
+  tracking, and contact proximity gate one-hand OpenXR feedback afterward.
+- Added bounded speed-to-amplitude mapping, configurable distance/speed/
+  amplitude/duration controls, duplicate-material cooldown, per-reason summary
+  counters, hard rollback, and deterministic math/config tests. Generated
+  configs remain off while the active test profile enables the feature.
+- Renamed, typed, tagged, documented, and saved all three native functions in
+  the `Soma_NoSteam.exe` Ghidra database. Added a dedicated RE note and updated
+  traceability, architecture, live-evidence, user-guide, and test ledgers.
+- Both default and OpenXR Release trees pass all four CTest suites. The packaged
+  doctor reports `pass=7 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `90487A3BCC49240EDCBC716B0EF2F17016E773BA301B2FC07E79CA3E8B7AD9BC`.
+  Package SHA-256:
+  `4A98C516B1C618EF4789EB8562811F8F3B0AEE533DA08AD1FB9A477D9326C7AA`.
+
 ### 0.57.0-fixed-foveation
 
 - Added opt-in OpenXR fixed foveation with no SOMA render mutation. Instance

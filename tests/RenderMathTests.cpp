@@ -1,5 +1,6 @@
 #include "HPLCameraMath.h"
 #include "HPLComfortMath.h"
+#include "HPLContactHapticsMath.h"
 #include "HPLFlashlightMath.h"
 #include "HPLHandsMath.h"
 #include "HPLGrabMath.h"
@@ -186,6 +187,44 @@ int main()
         hapticDecision.action == gameplay_haptics_math::Action::Pulse
             && hapticDecision.durationMs == 100,
         "gameplay haptics bound extreme finite authored durations");
+    contact_haptics_math::Settings contactSettings;
+    contactSettings.minSpeed = 0.5f;
+    contactSettings.maxSpeed = 4.5f;
+    contactSettings.maxDistance = 0.75f;
+    contactSettings.minAmplitude = 0.1f;
+    contactSettings.maxAmplitude = 0.6f;
+    contactSettings.durationMs = 35;
+    contactSettings.cooldownMs = 50;
+    contact_haptics_math::State contactState;
+    auto contactDecision = contact_haptics_math::Evaluate(
+        contactState, true, 0.4f, 0.2f, 100, contactSettings);
+    failures += Check(
+        !contactDecision.pulse
+            && contactDecision.reject == contact_haptics_math::RejectReason::BelowSpeed,
+        "contact haptics reject weak native impacts");
+    contactDecision = contact_haptics_math::Evaluate(
+        contactState, true, 4.5f, 0.2f, 101, contactSettings);
+    failures += Check(
+        contactDecision.pulse && Near(contactDecision.amplitude, 0.6f)
+            && contactDecision.durationMs == 35,
+        "contact haptics map a strong nearby impact to the configured maximum");
+    contactDecision = contact_haptics_math::Evaluate(
+        contactState, true, 4.5f, 0.2f, 120, contactSettings);
+    failures += Check(
+        !contactDecision.pulse
+            && contactDecision.reject == contact_haptics_math::RejectReason::Cooldown,
+        "contact haptics suppress duplicate material callbacks");
+    contactDecision = contact_haptics_math::Evaluate(
+        contactState, true, 2.5f, 0.2f, 151, contactSettings);
+    failures += Check(
+        contactDecision.pulse && Near(contactDecision.amplitude, 0.35f),
+        "contact haptics scale intermediate collision speed linearly");
+    contactDecision = contact_haptics_math::Evaluate(
+        contactState, true, 4.5f, 0.8f, 250, contactSettings);
+    failures += Check(
+        !contactDecision.pulse
+            && contactDecision.reject == contact_haptics_math::RejectReason::TooFar,
+        "contact haptics reject impacts outside the dominant-grip neighborhood");
     const post_effect_resource_math::TextureResource postTextures[] = {
         {0x84f5u, 17u, 1920, 1080, 1, 0x8058},
         {0x0de1u, 9u, 256, 16, 1, 0x8058},

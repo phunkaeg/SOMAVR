@@ -1,5 +1,18 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Native Contact Haptics Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x14032f0e0` | `HPL3_cSurfaceData_OnImpact` | Renamed, typed, tagged, and documented exact normal-speed/contact-position surface-effect boundary hooked by `0.58.0`. |
+| `0x14032f380` | `HPL3_cSurfaceData_OnSlide` | Renamed, typed, tagged, and documented tangent-speed continuous scrape owner; retained as a future evidence point without mutation. |
+| `0x1405548b0` | `HPL3_cPhysicsWorldNewton_Update` | Renamed, typed, tagged, and documented native contact-record consumer and paired material/body dispatcher. |
+
+Released HPL2 `PhysicsMaterialNewton.cpp` and `SurfaceData.cpp` independently
+match the three-function call order, argument meanings, material-priority rule,
+and impact/slide behavior. The explicitly selected `Soma_NoSteam.exe` database
+was saved after all renames, prototypes, plate comments, and tags.
+
 ## 2026-07-15 Temporal SSAO Sync
 
 | Address | Ghidra name | Evidence/use |

@@ -205,8 +205,12 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
   `FocusHaptics=1` adds a bounded intent-scaled pulse when confirmed entity/body
   focus changes. `GameplayHaptics=1` also mirrors SOMA's authored global rumble
   for damage, scripted tools/actions, death, and environmental effects through
-  bounded bilateral OpenXR segments. These prototypes remain opt-in live-acceptance features rather
-  than generated-config defaults.
+  bounded bilateral OpenXR segments. `ContactHaptics=1` separately observes
+  SOMA's native surface-impact speed and contact point, then pulses only the
+  dominant hand while a freshly tracked Grab-state grip is near the collision.
+  Native physics, impact audio/effects, and physical-gamepad output remain
+  authoritative. Contact and focus feedback remain generated-off,
+  live-acceptance features.
   Suggested bindings cover Khronos Simple, Oculus Touch, Valve Index,
   Microsoft Motion Controller, and HTC Vive profiles. Runtime profile-change
   events log the exact active profile for each hand, including reconnects and
@@ -423,6 +427,14 @@ GameplayHapticMinAmplitude=0.05
 GameplayHapticRetriggerDelta=0.08
 GameplayHapticRefreshMs=80
 GameplayHapticSegmentMs=100
+ContactHaptics=1
+ContactHapticMinSpeed=0.5
+ContactHapticMaxSpeed=5.0
+ContactHapticMaxDistanceMeters=0.75
+ContactHapticMinAmplitude=0.08
+ContactHapticMaxAmplitude=0.55
+ContactHapticDurationMs=35
+ContactHapticCooldownMs=45
 FocusHaptics=1
 FocusHapticAmplitude=0.12
 FocusHapticDurationMs=15

@@ -1,5 +1,31 @@
 # Future Systems Reverse Engineering
 
+## 0.58.0 Native Grab-Contact Haptics Result
+
+Ghidra confirms `cPhysicsWorldNewton::Update` at `0x1405548b0` consumes each
+`0x60`-byte contact record after Newton simulation. Normal speed at `+0x18`,
+tangent speed at `+0x1c`, contact position at `+0x2c`, body pointers at
+`+0x38/+0x40`, material pointers at `+0x48/+0x50`, and contact count at `+0x58`
+feed material-priority dispatch. Released HPL2 source independently matches the
+same `OnImpact` and `OnSlide` call sequence and signatures.
+
+`HPL3_cSurfaceData_OnImpact` (`0x14032f0e0`) is the narrow, low-frequency event
+boundary. `0.58.0` preserves it completely, then requires exact Grab state `1`,
+a fresh tracked dominant grip, non-authored camera ownership, and a contact
+point within a configurable radius. Native normal speed maps linearly to one
+bounded OpenXR pulse; a short cooldown folds the possible two material-side
+callbacks into one contact. Weak, distant, stale, and invalid events remain
+silent. This supplies physical-object contact feedback without manufacturing
+physics or touching SOMA's sound, particles, callbacks, or gamepad behavior.
+
+Material priority means the `OnImpact` body argument is not guaranteed to be
+the grabbed side for every pair, so proximity is intentionally part of the
+ownership contract. Live false-positive evidence should precede any deeper
+Grab-state layout mutation. `HPL3_cSurfaceData_OnSlide` (`0x14032f380`) exposes
+tangent speed and both bodies for possible sustained scrape haptics, but remains
+unhooked until impact feedback proves useful and a quiet refresh policy is
+measured.
+
 ## 0.48.0 Controller Profile Result
 
 OpenXR input now suggests five standard profiles: Khronos Simple, Oculus Touch,

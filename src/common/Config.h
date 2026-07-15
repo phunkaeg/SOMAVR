@@ -118,6 +118,14 @@ struct Config {
     float hplControllerGameplayHapticRetriggerDelta = 0.08f;
     int hplControllerGameplayHapticRefreshMs = 80;
     int hplControllerGameplayHapticSegmentMs = 100;
+    bool hplControllerContactHaptics = false;
+    float hplControllerContactHapticMinSpeed = 0.5f;
+    float hplControllerContactHapticMaxSpeed = 5.0f;
+    float hplControllerContactHapticMaxDistanceMeters = 0.75f;
+    float hplControllerContactHapticMinAmplitude = 0.08f;
+    float hplControllerContactHapticMaxAmplitude = 0.55f;
+    int hplControllerContactHapticDurationMs = 35;
+    int hplControllerContactHapticCooldownMs = 45;
     bool hplControllerFocusHaptics = false;
     float hplControllerFocusHapticAmplitude = 0.12f;
     int hplControllerFocusHapticDurationMs = 15;

@@ -1,5 +1,39 @@
 # Test Checklists
 
+## 0.61.0 Native Manipulation
+
+1. Run packaged doctor and require `version=0.61.0-native-manipulation`, OpenXR
+   flavor, and `fail=0`. Press F10 once. First confirm the accepted rigid world,
+   same-frame stereo, eye height, shadows, reflections, and positional tracking.
+2. Aim at several props before interacting. Require valid
+   `hpl_interaction_ray ... hitSnapshot=1` rows with plausible positive distance,
+   entity, and body fields; semantic reticle updates should no longer be held at
+   zero by payload-distance rejects.
+3. Grab a drawer handle and move the controller toward/away from the cabinet.
+   Grab a curtain and move laterally. Require `hpl_slide_anchor` followed by
+   `hpl_slide_target` rows. Physical motion should follow each joint axis without
+   depending on camera angle or snap turn. Release must preserve native sounds,
+   limits, gravity restoration, and state exit.
+4. During Slide and Read, move the turn stick. It must not rotate the player,
+   rotate the object, black out the display, or reset the view.
+5. Inspect a readable. Hold dominant grip and rotate the controller through
+   yaw/pitch; the object should rotate smoothly through a useful range. Press
+   right-controller A to put it away; B remains an alternate cancel. Preserve
+   the `hpl_manipulation_session` orientation totals.
+6. While Read is active, preserve all `hpl_read_entity_candidate` rows and show
+   the readable plus description background. These rows identify the open prop
+   for controller attachment; report whether matching the HUD to `1920x1080`
+   fixes the left-edge text crop.
+7. Move the physical mouse vertically in Normal state. The VR horizon must stay
+   HMD-owned and visually level; controller ray and HMD pitch must remain usable.
+   Confirm native yaw/snap turn still works in Normal state.
+8. Compare text and fine geometry with the prior build. The current source is
+   still a `1920x1080`, one-sample SOMA render upscaled into `2688x2880` runtime
+   eye images, so record softness and edge aliasing separately from HUD clipping.
+9. Exercise ordinary Grab translation/rotation and release. It should remain
+   controller-relative and native-physics constrained. Exit normally and attach
+   the complete log, including bridge summaries.
+
 ## 0.60.0 Evidence Capture
 
 1. Run packaged doctor and require `version=0.60.0-evidence-capture`, OpenXR

@@ -47,7 +47,9 @@ struct BridgeState {
     bool manipulationMotionActive = false;
     int manipulationMotionState = -1;
     camera_math::Vector3 manipulationHandRelativePosition{};
+    camera_math::Quaternion manipulationGripLocalOrientation{};
     input_math::ManipulationMotionState manipulationMotionAccumulator{};
+    input_math::ManipulationMotionState manipulationRotationAccumulator{};
     int manipulationMotionLastX = 0;
     int manipulationMotionLastY = 0;
     uint64_t manipulationMotionStartFrame = 0;
@@ -56,6 +58,8 @@ struct BridgeState {
     uint64_t manipulationMotionSessionEvents = 0;
     float manipulationMotionSessionRightMeters = 0.0f;
     float manipulationMotionSessionUpMeters = 0.0f;
+    float manipulationMotionSessionYawRadians = 0.0f;
+    float manipulationMotionSessionPitchRadians = 0.0f;
     float manipulationMotionSessionAbsoluteMeters = 0.0f;
     float manipulationMotionSessionMaxMeters = 0.0f;
     int64_t manipulationMotionSessionPixelsX = 0;
@@ -346,7 +350,7 @@ void ResetManipulationMotion(const char* reason = "reset")
             1, std::memory_order_relaxed) + 1;
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_manipulation_session summary=%llu reason=%s state=%s(%d) hand=%s startInputFrame=%llu frames=%llu events=%llu displacementMeters={signed=%.5f,%.5f absolute=%.5f maxFrame=%.5f} mousePixels=%lld,%lld",
+            "hpl_manipulation_session summary=%llu reason=%s state=%s(%d) hand=%s startInputFrame=%llu frames=%llu events=%llu displacementMeters={signed=%.5f,%.5f absolute=%.5f maxFrame=%.5f} rotationRadians={yaw=%.5f pitch=%.5f} mousePixels=%lld,%lld",
             static_cast<unsigned long long>(summary),
             reason != nullptr ? reason : "reset",
             PhysicalManipulationStateName(g_state.manipulationMotionState),
@@ -359,13 +363,17 @@ void ResetManipulationMotion(const char* reason = "reset")
             g_state.manipulationMotionSessionUpMeters,
             g_state.manipulationMotionSessionAbsoluteMeters,
             g_state.manipulationMotionSessionMaxMeters,
+            g_state.manipulationMotionSessionYawRadians,
+            g_state.manipulationMotionSessionPitchRadians,
             static_cast<long long>(g_state.manipulationMotionSessionPixelsX),
             static_cast<long long>(g_state.manipulationMotionSessionPixelsY));
     }
     g_state.manipulationMotionActive = false;
     g_state.manipulationMotionState = -1;
     g_state.manipulationHandRelativePosition = {};
+    g_state.manipulationGripLocalOrientation = {};
     g_state.manipulationMotionAccumulator = {};
+    g_state.manipulationRotationAccumulator = {};
     g_state.manipulationMotionLastX = 0;
     g_state.manipulationMotionLastY = 0;
     g_state.manipulationMotionStartFrame = 0;
@@ -374,6 +382,8 @@ void ResetManipulationMotion(const char* reason = "reset")
     g_state.manipulationMotionSessionEvents = 0;
     g_state.manipulationMotionSessionRightMeters = 0.0f;
     g_state.manipulationMotionSessionUpMeters = 0.0f;
+    g_state.manipulationMotionSessionYawRadians = 0.0f;
+    g_state.manipulationMotionSessionPitchRadians = 0.0f;
     g_state.manipulationMotionSessionAbsoluteMeters = 0.0f;
     g_state.manipulationMotionSessionMaxMeters = 0.0f;
     g_state.manipulationMotionSessionPixelsX = 0;
@@ -834,7 +844,9 @@ void ApplyControllerManipulationMotion(
 {
     const OpenXRHandInput& dominant = HandInput(input, roles.dominantHand);
     const bool physicalState = player.playerStateId >= kWheelPlayerState
-        && player.playerStateId <= kLastPhysicalManipulationState;
+        && player.playerStateId <= kLastPhysicalManipulationState
+        && !(player.playerStateId == kSlidePlayerState
+            && g_config.hplControllerSlideDirectVelocity);
     const bool inspectionState = player.playerStateId == kReadPlayerState
         && dominant.squeeze >= 0.75f;
     if (!g_config.hplControllerManipulationMotion
@@ -875,41 +887,65 @@ void ApplyControllerManipulationMotion(
         head.orientationZ,
         head.orientationW,
     };
+    const camera_math::Quaternion gripOrientation{
+        dominant.gripPose.orientationX,
+        dominant.gripPose.orientationY,
+        dominant.gripPose.orientationZ,
+        dominant.gripPose.orientationW,
+    };
+    const camera_math::Quaternion gripLocalOrientation = camera_math::Normalize(gripOrientation);
     if (!g_state.manipulationMotionActive
         || g_state.manipulationMotionState != player.playerStateId) {
         ResetManipulationMotion("state_changed");
         g_state.manipulationMotionActive = true;
         g_state.manipulationMotionState = player.playerStateId;
         g_state.manipulationHandRelativePosition = handRelativePosition;
+        g_state.manipulationGripLocalOrientation = gripLocalOrientation;
         g_state.manipulationMotionStartFrame = input.gameFrame;
         g_state.manipulationMotionHand = roles.dominantHand;
         g_manipulationMotionEntries.fetch_add(1, std::memory_order_relaxed);
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_manipulation_motion entered state=%s(%d) hand=%s inputFrame=%llu relativePosition=%.4f,%.4f,%.4f route=head_relative_grip_to_native_mouse",
+            "hpl_manipulation_motion entered state=%s(%d) hand=%s inputFrame=%llu relativePosition=%.4f,%.4f,%.4f route=%s",
             PhysicalManipulationStateName(player.playerStateId),
             player.playerStateId,
             roles.dominantHand == 0 ? "left" : "right",
             static_cast<unsigned long long>(input.gameFrame),
             handRelativePosition.x,
             handRelativePosition.y,
-            handRelativePosition.z);
+            handRelativePosition.z,
+            player.playerStateId == kReadPlayerState
+                ? "reference_space_grip_orientation_to_native_look"
+                : "head_relative_grip_translation_to_native_look");
         return;
     }
 
-    const float pixelsPerMeter = player.playerStateId == kSlidePlayerState
-        ? g_config.hplControllerManipulationSlidePixelsPerMeter
-        : g_config.hplControllerManipulationMotionPixelsPerMeter;
-    const input_math::ManipulationMouseDelta motion = input_math::ComputeManipulationMouseDelta(
-        g_state.manipulationHandRelativePosition,
-        handRelativePosition,
-        headOrientation,
-        pixelsPerMeter,
-        g_config.hplControllerManipulationMotionDeadzoneMeters,
-        g_config.hplControllerManipulationMotionMaxPixelsPerFrame,
-        g_config.hplControllerManipulationMotionHorizontalSign,
-        g_config.hplControllerManipulationMotionVerticalSign,
-        g_state.manipulationMotionAccumulator);
+    input_math::ManipulationMouseDelta motion;
+    input_math::ManipulationRotationDelta rotation;
+    if (player.playerStateId == kReadPlayerState) {
+        rotation = input_math::ComputeManipulationRotationDelta(
+            g_state.manipulationGripLocalOrientation,
+            gripLocalOrientation,
+            g_config.hplControllerManipulationReadPixelsPerRadian,
+            g_config.hplControllerManipulationMotionMaxPixelsPerFrame,
+            g_config.hplControllerManipulationMotionHorizontalSign,
+            g_config.hplControllerManipulationMotionVerticalSign,
+            g_state.manipulationRotationAccumulator);
+    } else {
+        const float pixelsPerMeter = player.playerStateId == kSlidePlayerState
+            ? g_config.hplControllerManipulationSlidePixelsPerMeter
+            : g_config.hplControllerManipulationMotionPixelsPerMeter;
+        motion = input_math::ComputeManipulationMouseDelta(
+            g_state.manipulationHandRelativePosition,
+            handRelativePosition,
+            headOrientation,
+            pixelsPerMeter,
+            g_config.hplControllerManipulationMotionDeadzoneMeters,
+            g_config.hplControllerManipulationMotionMaxPixelsPerFrame,
+            g_config.hplControllerManipulationMotionHorizontalSign,
+            g_config.hplControllerManipulationMotionVerticalSign,
+            g_state.manipulationMotionAccumulator);
+    }
     const float motionMagnitude = std::sqrt(
         motion.rightMeters * motion.rightMeters + motion.upMeters * motion.upMeters);
     if (std::isfinite(motionMagnitude)
@@ -921,24 +957,29 @@ void ApplyControllerManipulationMotion(
         g_state.manipulationMotionSessionMaxMeters = std::max(
             g_state.manipulationMotionSessionMaxMeters, motionMagnitude);
     }
-    g_state.manipulationMotionLastX = motion.x;
-    g_state.manipulationMotionLastY = motion.y;
+    g_state.manipulationGripLocalOrientation = gripLocalOrientation;
+    g_state.manipulationMotionSessionYawRadians += rotation.yawRadians;
+    g_state.manipulationMotionSessionPitchRadians += rotation.pitchRadians;
+    const int outputX = rotation.x != 0 || rotation.y != 0 ? rotation.x : motion.x;
+    const int outputY = rotation.x != 0 || rotation.y != 0 ? rotation.y : motion.y;
+    g_state.manipulationMotionLastX = outputX;
+    g_state.manipulationMotionLastY = outputY;
     ++g_state.manipulationMotionSessionFrames;
     g_manipulationMotionFrames.fetch_add(1, std::memory_order_relaxed);
-    if (motion.x == 0 && motion.y == 0) return;
+    if (outputX == 0 && outputY == 0) return;
 
-    SendMouseMove(motion.x, motion.y);
+    SendMouseMove(outputX, outputY);
     const uint64_t event = g_manipulationMotionEvents.fetch_add(1, std::memory_order_relaxed) + 1;
-    g_manipulationMotionPixelsX.fetch_add(motion.x, std::memory_order_relaxed);
-    g_manipulationMotionPixelsY.fetch_add(motion.y, std::memory_order_relaxed);
+    g_manipulationMotionPixelsX.fetch_add(outputX, std::memory_order_relaxed);
+    g_manipulationMotionPixelsY.fetch_add(outputY, std::memory_order_relaxed);
     ++g_state.manipulationMotionSessionEvents;
-    g_state.manipulationMotionSessionPixelsX += motion.x;
-    g_state.manipulationMotionSessionPixelsY += motion.y;
+    g_state.manipulationMotionSessionPixelsX += outputX;
+    g_state.manipulationMotionSessionPixelsY += outputY;
     const uint64_t interval = static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1));
     if (event <= 16 || event % interval == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_manipulation_motion event=%llu state=%s(%d) hand=%s inputFrame=%llu displacementMeters=%.5f,%.5f mouseDelta=%d,%d scale=%.1f signs=%.1f,%.1f",
+            "hpl_manipulation_motion event=%llu state=%s(%d) hand=%s inputFrame=%llu displacementMeters=%.5f,%.5f rotationRadians=%.5f,%.5f mouseDelta=%d,%d scale=%.1f signs=%.1f,%.1f",
             static_cast<unsigned long long>(event),
             PhysicalManipulationStateName(player.playerStateId),
             player.playerStateId,
@@ -946,9 +987,13 @@ void ApplyControllerManipulationMotion(
             static_cast<unsigned long long>(input.gameFrame),
             motion.rightMeters,
             motion.upMeters,
-            motion.x,
-            motion.y,
-            pixelsPerMeter,
+            rotation.yawRadians,
+            rotation.pitchRadians,
+            outputX,
+            outputY,
+            player.playerStateId == kReadPlayerState
+                ? g_config.hplControllerManipulationReadPixelsPerRadian
+                : g_config.hplControllerManipulationMotionPixelsPerMeter,
             g_config.hplControllerManipulationMotionHorizontalSign,
             g_config.hplControllerManipulationMotionVerticalSign);
     }
@@ -997,14 +1042,15 @@ void ApplyGameplayActions(
             dominant.gripPose.angularVelocityX,
             dominant.gripPose.angularVelocityY,
             dominant.gripPose.angularVelocityZ);
-    } else if (!manipulationState && !recenterChord
+    } else if (!manipulationState && !inspectionState && !recenterChord
         && dominant.primary && dominant.primaryChanged) {
         TapKey(VK_SPACE);
         PulseHaptic(roles.dominantHand, "jump");
     }
     const bool physicalCrouchOwns = ApplyPhysicalCrouch(player, camera, roles.dominantHand);
-    if (inspectionState && !recenterChord
-        && dominant.secondary && dominant.secondaryChanged) {
+    const bool inspectionExitPressed = (dominant.primary && dominant.primaryChanged)
+        || (dominant.secondary && dominant.secondaryChanged);
+    if (inspectionState && !recenterChord && inspectionExitPressed) {
         SetMouseButton(g_state.interact, false);
         TapMouseButton(MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP);
         g_state.menuClickLatchedUntilRelease = true;
@@ -1053,7 +1099,7 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
     g_openxr = openxr;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d aimGuide=%d aimGuideLength=%.2f flashlight=%d inventory=%d menu=%d menuPointer=%d terminalPointer=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d manipulationMappings=%d manipulationMotion=%d manipulationMotionScale=%.1f slideScale=%.1f manipulationMotionDeadzone=%.4f manipulationMotionCap=%d manipulationMotionSigns=%.1f,%.1f suppressAuthoredCamera=%d comfortBlackoutFrames=%d stateTransitionBlackoutFrames=%d maxInputAgeFrames=%d comfortVignette=%d comfortVignetteSmoothTurn=%d",
+        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d aimGuide=%d aimGuideLength=%.2f flashlight=%d inventory=%d menu=%d menuPointer=%d terminalPointer=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d manipulationMappings=%d manipulationMotion=%d manipulationMotionScale=%.1f slideScale=%.1f readRotationScale=%.1f slideDirectVelocity=%d manipulationMotionDeadzone=%.4f manipulationMotionCap=%d manipulationMotionSigns=%.1f,%.1f suppressAuthoredCamera=%d comfortBlackoutFrames=%d stateTransitionBlackoutFrames=%d maxInputAgeFrames=%d comfortVignette=%d comfortVignetteSmoothTurn=%d",
         config.hplControllerInput ? 1 : 0,
         config.hplControllerMoveDeadzone,
         config.hplControllerNativeLocomotion ? 1 : 0,
@@ -1086,6 +1132,8 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplControllerManipulationMotion ? 1 : 0,
         config.hplControllerManipulationMotionPixelsPerMeter,
         config.hplControllerManipulationSlidePixelsPerMeter,
+        config.hplControllerManipulationReadPixelsPerRadian,
+        config.hplControllerSlideDirectVelocity ? 1 : 0,
         config.hplControllerManipulationMotionDeadzoneMeters,
         config.hplControllerManipulationMotionMaxPixelsPerFrame,
         config.hplControllerManipulationMotionHorizontalSign,
@@ -1231,7 +1279,13 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
         g_state.terminalPointerActive = false;
         UpdateControllerAimGuide(input, roles, true);
         const bool nativeMovement = ApplyLocomotion(input, roles, player, camera);
-        const bool nativeTurn = ApplyTurn(roles, player, nowMs);
+        const bool turnAllowed = !player.playerValid
+            || player.playerStateId == kNormalPlayerState;
+        const bool nativeTurn = turnAllowed ? ApplyTurn(roles, player, nowMs) : false;
+        if (!turnAllowed) {
+            g_state.snapLatched = false;
+            g_state.smoothTurnRemainder = 0.0;
+        }
         ApplyControllerManipulationMotion(input, roles, player);
         if (nativeMovement != g_state.nativeMovementActive || nativeTurn != g_state.nativeTurnActive)
         {

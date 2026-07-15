@@ -1,5 +1,38 @@
 # Future Systems Reverse Engineering
 
+## 0.61.0 Native Manipulation Result
+
+The 0.60 log resolved the Slide failure. `PlayerState_Interact_Slide.hps`
+converts only mouse X/Y into camera right/up before projecting that vector onto
+the joint pin. A drawer or curtain whose pin contains camera-forward therefore
+cannot be driven by real controller depth; changing camera yaw alters the basis,
+which is why snap turn appeared to move the object.
+
+Native decompilation closes the 3D route. The closest-entity wrapper's true
+output order is distance `+0x18`, physics body `+0x20`, entity `+0x28`.
+`iPhysicsBody::GetJoint(0)` reads the pointer vector at `+0x168/+0x170`, and
+registered `iPhysicsJoint::GetPinDir()` returns `joint+0xe8`. Slide's force PID
+is the exact `6/0/0.1` tuple already crossing `0x140238750`. Version 0.61 adds
+controller velocity projected onto that pin to the native velocity error, while
+leaving the script's PID and all body/joint ownership intact.
+
+Read state now maps reference-space grip orientation deltas to native Look and
+records unique non-special entities receiving `SetMatrix` within 1.5 world units
+of the camera. The resulting `hpl_read_entity_candidate` identity/matrix rows
+are the required evidence for safely replacing only the generated open prop's
+matrix with a right-controller grip transform. The shipped constants
+`gfReadableDistScale=0.5` and `gvReadableScale=(0.5,0.5,0.5)` explain the current
+small, close presentation; they remain native until open-prop ownership is
+confirmed.
+
+The runtime requests `2688x2880` per eye with recommended sample count 1, but
+each stereo cache is populated from SOMA's `1920x1080` backbuffer. Future image
+quality work needs a larger native or offscreen HPL render target (plus measured
+post-AA compatibility), not a larger compositor swapchain alone. The active
+SOMA profile has `EdgeSmooth="false"`, and the game menu exposes Off/FXAA, so
+source anti-aliasing was disabled during this capture; that is separate from the
+OpenXR swapchain's one-sample recommendation.
+
 ## 0.60.0 Evidence Capture Plan
 
 Static ownership is now sufficient to instrument the remaining uncertain live

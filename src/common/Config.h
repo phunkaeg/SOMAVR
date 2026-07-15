@@ -46,8 +46,8 @@ struct Config {
     bool openxrHudLayer = false;
     std::string openxrHudShape = "quad";
     float openxrHudCylinderAngleDegrees = 70.0f;
-    int openxrHudWidthPixels = 1600;
-    int openxrHudHeightPixels = 900;
+    int openxrHudWidthPixels = 1920;
+    int openxrHudHeightPixels = 1080;
     float openxrHudDistanceMeters = 1.5f;
     float openxrHudWidthMeters = 1.6f;
     float openxrHudVerticalOffsetMeters = 0.0f;
@@ -159,10 +159,14 @@ struct Config {
     bool hplControllerManipulationMotion = false;
     float hplControllerManipulationMotionPixelsPerMeter = 900.0f;
     float hplControllerManipulationSlidePixelsPerMeter = 2700.0f;
+    float hplControllerManipulationReadPixelsPerRadian = 900.0f;
     float hplControllerManipulationMotionDeadzoneMeters = 0.0005f;
     int hplControllerManipulationMotionMaxPixelsPerFrame = 80;
     float hplControllerManipulationMotionHorizontalSign = 1.0f;
     float hplControllerManipulationMotionVerticalSign = -1.0f;
+    bool hplControllerSlideDirectVelocity = true;
+    float hplControllerSlideVelocityScale = 1.0f;
+    float hplControllerSlideMaxVelocityMetersPerSecond = 2.5f;
     bool hplHandTrackingProbe = false;
     bool hplHandControllerRoot = false;
     float hplHandRootOffsetX = 0.0f;
@@ -230,6 +234,7 @@ struct Config {
     bool hplRecenterControl = false;
     bool hplReflectionFadeControl = false;
     bool hplNativeCameraRollSuppression = false;
+    bool hplNativeCameraPitchSuppression = true;
     bool hplComfortCameraAddControl = false;
     bool hplComfortSuppressHeadBob = true;
     bool hplComfortSuppressCameraShake = true;

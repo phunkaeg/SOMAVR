@@ -25,6 +25,14 @@ struct ManipulationMouseDelta
     float upMeters = 0.0f;
 };
 
+struct ManipulationRotationDelta
+{
+    int x = 0;
+    int y = 0;
+    float yawRadians = 0.0f;
+    float pitchRadians = 0.0f;
+};
+
 Axis2 ApplyRadialDeadzone(float x, float y, float deadzone);
 Axis2 ApplyHeadRelativeMovement(
     float right,
@@ -37,6 +45,14 @@ ManipulationMouseDelta ComputeManipulationMouseDelta(
     const camera_math::Quaternion& headOrientation,
     float pixelsPerMeter,
     float deadzoneMeters,
+    int maxPixelsPerFrame,
+    float horizontalSign,
+    float verticalSign,
+    ManipulationMotionState& state);
+ManipulationRotationDelta ComputeManipulationRotationDelta(
+    const camera_math::Quaternion& previousLocalOrientation,
+    const camera_math::Quaternion& currentLocalOrientation,
+    float pixelsPerRadian,
     int maxPixelsPerFrame,
     float horizontalSign,
     float verticalSign,

@@ -114,14 +114,14 @@ bool PublishHitSnapshot(
         return false;
     }
 
-    // Confirmed cLuxClosestEntityData payload: entity +0x18, body +0x20, distance +0x28.
+    // Inner raycast writes distance +0x18, body +0x20, entity +0x28.
     const auto* bytes = static_cast<const std::byte*>(output);
     void* entity = nullptr;
     void* body = nullptr;
     float distance = 0.0f;
-    std::memcpy(&entity, bytes + 0x18, sizeof(entity));
+    std::memcpy(&distance, bytes + 0x18, sizeof(distance));
     std::memcpy(&body, bytes + 0x20, sizeof(body));
-    std::memcpy(&distance, bytes + 0x28, sizeof(distance));
+    std::memcpy(&entity, bytes + 0x28, sizeof(entity));
     if (entity == nullptr && body == nullptr) {
         g_hitPayloadNullTargets.fetch_add(1, std::memory_order_relaxed);
     }

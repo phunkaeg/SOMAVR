@@ -159,6 +159,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLRecenterControl=0\n"
         << "HPLReflectionFadeControl=0\n"
         << "HPLNativeCameraRollSuppression=0\n"
+        << "HPLNativeCameraPitchSuppression=1\n"
         << "HPLComfortCameraAddControl=0\n"
         << "HPLComfortSuppressHeadBob=1\n"
         << "HPLComfortSuppressCameraShake=1\n"
@@ -247,8 +248,8 @@ void ConfigManager::WriteDefaultConfig() const
         << "HudLayer=0\n"
         << "HudShape=quad\n"
         << "HudCylinderAngleDegrees=70\n"
-        << "HudWidthPixels=1600\n"
-        << "HudHeightPixels=900\n"
+        << "HudWidthPixels=1920\n"
+        << "HudHeightPixels=1080\n"
         << "HudDistanceMeters=1.5\n"
         << "HudWidthMeters=1.6\n"
         << "HudVerticalOffsetMeters=0.0\n"
@@ -361,10 +362,14 @@ void ConfigManager::WriteDefaultConfig() const
         << "ManipulationMotion=0\n"
         << "ManipulationMotionPixelsPerMeter=900\n"
         << "ManipulationSlidePixelsPerMeter=2700\n"
+        << "ManipulationReadPixelsPerRadian=900\n"
         << "ManipulationMotionDeadzoneMeters=0.0005\n"
         << "ManipulationMotionMaxPixelsPerFrame=80\n"
         << "ManipulationMotionHorizontalSign=1\n"
         << "ManipulationMotionVerticalSign=-1\n"
+        << "SlideDirectVelocity=1\n"
+        << "SlideVelocityScale=1\n"
+        << "SlideMaxVelocityMetersPerSecond=2.5\n"
         << "HandTrackingProbe=0\n"
         << "HandControllerRoot=0\n"
         << "HandRootOffsetX=0.0\n"
@@ -508,6 +513,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplrecentercontrol") config_.hplRecenterControl = ParseBool(value, config_.hplRecenterControl);
             else if (key == "hplreflectionfadecontrol") config_.hplReflectionFadeControl = ParseBool(value, config_.hplReflectionFadeControl);
             else if (key == "hplnativecamerarollsuppression") config_.hplNativeCameraRollSuppression = ParseBool(value, config_.hplNativeCameraRollSuppression);
+            else if (key == "hplnativecamerapitchsuppression") config_.hplNativeCameraPitchSuppression = ParseBool(value, config_.hplNativeCameraPitchSuppression);
             else if (key == "hplcomfortcameraaddcontrol") config_.hplComfortCameraAddControl = ParseBool(value, config_.hplComfortCameraAddControl);
             else if (key == "hplcomfortsuppressheadbob") config_.hplComfortSuppressHeadBob = ParseBool(value, config_.hplComfortSuppressHeadBob);
             else if (key == "hplcomfortsuppresscamerashake") config_.hplComfortSuppressCameraShake = ParseBool(value, config_.hplComfortSuppressCameraShake);
@@ -803,10 +809,14 @@ void ConfigManager::LoadFromFile()
             else if (key == "manipulationmotion") config_.hplControllerManipulationMotion = ParseBool(value, config_.hplControllerManipulationMotion);
             else if (key == "manipulationmotionpixelspermeter") config_.hplControllerManipulationMotionPixelsPerMeter = ParseFloat(value, config_.hplControllerManipulationMotionPixelsPerMeter, 10.0f, 10000.0f);
             else if (key == "manipulationslidepixelspermeter") config_.hplControllerManipulationSlidePixelsPerMeter = ParseFloat(value, config_.hplControllerManipulationSlidePixelsPerMeter, 10.0f, 20000.0f);
+            else if (key == "manipulationreadpixelsperradian") config_.hplControllerManipulationReadPixelsPerRadian = ParseFloat(value, config_.hplControllerManipulationReadPixelsPerRadian, 10.0f, 10000.0f);
             else if (key == "manipulationmotiondeadzonemeters") config_.hplControllerManipulationMotionDeadzoneMeters = ParseFloat(value, config_.hplControllerManipulationMotionDeadzoneMeters, 0.0f, 0.05f);
             else if (key == "manipulationmotionmaxpixelsperframe") config_.hplControllerManipulationMotionMaxPixelsPerFrame = ParseInt(value, config_.hplControllerManipulationMotionMaxPixelsPerFrame, 1, 1000);
             else if (key == "manipulationmotionhorizontalsign") config_.hplControllerManipulationMotionHorizontalSign = ParseFloat(value, config_.hplControllerManipulationMotionHorizontalSign, -1.0f, 1.0f);
             else if (key == "manipulationmotionverticalsign") config_.hplControllerManipulationMotionVerticalSign = ParseFloat(value, config_.hplControllerManipulationMotionVerticalSign, -1.0f, 1.0f);
+            else if (key == "slidedirectvelocity") config_.hplControllerSlideDirectVelocity = ParseBool(value, config_.hplControllerSlideDirectVelocity);
+            else if (key == "slidevelocityscale") config_.hplControllerSlideVelocityScale = ParseFloat(value, config_.hplControllerSlideVelocityScale, 0.05f, 5.0f);
+            else if (key == "slidemaxvelocitymeterspersecond") config_.hplControllerSlideMaxVelocityMetersPerSecond = ParseFloat(value, config_.hplControllerSlideMaxVelocityMetersPerSecond, 0.1f, 10.0f);
             else if (key == "handtrackingprobe") config_.hplHandTrackingProbe = ParseBool(value, config_.hplHandTrackingProbe);
             else if (key == "handcontrollerroot") config_.hplHandControllerRoot = ParseBool(value, config_.hplHandControllerRoot);
             else if (key == "handrootoffsetx") config_.hplHandRootOffsetX = ParseFloat(value, config_.hplHandRootOffsetX, -5.0f, 5.0f);

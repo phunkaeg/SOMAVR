@@ -87,13 +87,25 @@ AimGuide=1
 AimGuideLengthMeters=1.2
 ManipulationMotionPixelsPerMeter=900
 ManipulationSlidePixelsPerMeter=2700
+ManipulationReadPixelsPerRadian=900
+SlideDirectVelocity=1
+SlideVelocityScale=1
+SlideMaxVelocityMetersPerSecond=2.5
 ```
 
 Use `MovementReference=head` for HMD-relative direction or `body` for SOMA's
 native body-relative input. Set `AimGuide=0` to remove the diagnostic markers.
-In Read views, hold dominant grip while moving the controller to rotate and use
-dominant Secondary to exit. Slide has its own scale so drawer travel can be
-tuned without changing wheels, doors, levers, or tear interactions.
+In Read views, hold dominant grip and rotate the controller to rotate the object;
+right-controller A or B exits. Turn input is ignored while SOMA owns a physical
+manipulation or Read state. Slide projects controller world velocity onto the
+actual drawer/curtain joint. Set `SlideDirectVelocity=0` to restore the old 2D
+mouse route; tune `SlideVelocityScale` without changing wheels, doors, levers,
+or tear interactions.
+
+The active profile captures HUD content at the observed `1920x1080` SOMA target.
+Quest currently requests `2688x2880` per eye, but world detail still originates
+from SOMA's `1920x1080` backbuffer and is upscaled; `ResolutionScalePercent`
+changes compositor target size, not native source detail.
 
 Supporting runtimes can apply fixed foveation directly to the OpenXR eye
 swapchains:

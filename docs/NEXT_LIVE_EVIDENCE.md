@@ -2,11 +2,12 @@
 
 Date: 2026-07-15
 
-Use `0.60.0-evidence-capture` for the next run. It preserves the accepted 0.59
-behavior while automatically adding eye-cache timing, controller-direction,
-interaction hit/semantic, Read/Zoom GUI-owner, and manipulation-session records.
-No separate diagnostic hotkey is required; follow the 0.60 checklist and attach
-the complete shutdown log.
+Use `0.61.0-native-manipulation` for the next run. It consumes the 0.60 evidence:
+corrected interaction payload, native 3D Slide joint velocity, orientation-based
+Read rotation, A/B cancel, non-Normal turn exclusion, VR horizon pitch policy,
+and `1920x1080` HUD capture. No diagnostic hotkey is required. Follow the 0.61
+checklist and attach the complete shutdown log, especially `hpl_slide_*`,
+`hpl_interaction_*`, and `hpl_read_entity_candidate` rows.
 
 SOMAVR has reached the point where the feature registry contains no unimplemented
 VR system with enough static evidence for another responsible native mutation.

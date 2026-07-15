@@ -2,6 +2,40 @@
 
 ## 2026-07-15
 
+### 0.61.0-native-manipulation
+
+- Corrected the closest-entity result ABI from live evidence and native
+  decompilation: distance is `+0x18`, physics body `+0x20`, and Lux entity
+  `+0x28`. Controller reticle depth, semantic focus, and selected-body identity
+  now consume the actual fields instead of rejecting pointer bits as distance.
+- Added native Slide joint control. The existing PID hook recognizes Slide's
+  exact `6/0/0.1` force tuple, resolves selected body joint 0, reads its pin at
+  `+0xe8`, and projects dominant-controller world velocity onto that pin. SOMA
+  retains its PID, force limits, constraints, gravity, sounds, callbacks, and
+  state lifecycle. This is the first camera-independent drawer/curtain route.
+- Read rotation now uses incremental controller orientation rather than hand
+  translation. Dominant A or B sends native inspection cancel, and snap/smooth
+  turn is suppressed outside Normal state so it cannot rotate readables or
+  mechanisms and cannot request an unrelated blackout.
+- Added active-camera native pitch suppression at frustum evaluation while VR
+  owns the camera. Native pitch state is restored immediately after evaluation;
+  visual pitch comes from the HMD, while yaw/body ownership remains unchanged.
+- Matched the HUD target to the observed `1920x1080` SOMA backbuffer and added
+  bounded unique near-camera Read-entity matrix diagnostics for identifying the
+  separate open-prop owner required by controller-attached inspection.
+- Runtime evidence confirms Quest requests `2688x2880` per eye at one sample,
+  while SOMA currently supplies a `1920x1080` eye render that is upscaled. A
+  native/offscreen higher-resolution eye target remains the image-quality task;
+  increasing only the OpenXR swapchain scale cannot recover source detail.
+- The active SOMA profile reports `EdgeSmooth="false"`; the game exposes FXAA
+  rather than a multisample source path. Source anti-aliasing was therefore off
+  for this capture and should be tested independently from OpenXR sample count.
+- Both default and OpenXR Release trees pass all four CTest suites. The packaged
+  doctor reports `pass=7 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `40FDF5CE3038DFDD0217D6F4C8F15D576AB20BC70B09C754ED2ED71F491E5362`.
+  Package SHA-256:
+  `6BA58A782C6387E50168B8744A40C01DC95E6596639CC5E5A505DB20032F870B`.
+
 ### 0.60.0-evidence-capture
 
 - Added behavior-neutral stereo timing evidence. OpenXR now records the

@@ -627,6 +627,27 @@ int main()
         deadzoneManipulation.x == 0 && deadzoneManipulation.y == 0,
         "physical manipulation ignores sub-deadzone jitter");
 
+    input_math::ManipulationMotionState rotationState;
+    constexpr float kFiveDegrees = 0.0871557427f;
+    constexpr float kCosFiveDegrees = 0.9961946981f;
+    const input_math::ManipulationRotationDelta manipulationYaw =
+        input_math::ComputeManipulationRotationDelta(
+            {}, {0.0f, kFiveDegrees, 0.0f, kCosFiveDegrees},
+            900.0f, 200, 1.0f, -1.0f, rotationState);
+    failures += Check(
+        manipulationYaw.x == 157 && manipulationYaw.y == 0
+            && Near(manipulationYaw.yawRadians, input_math::DegreesToRadians(10.0f), 0.0001f),
+        "inspection rotation maps controller yaw to native look pixels");
+    input_math::ManipulationMotionState pitchRotationState;
+    const input_math::ManipulationRotationDelta manipulationPitch =
+        input_math::ComputeManipulationRotationDelta(
+            {}, {kFiveDegrees, 0.0f, 0.0f, kCosFiveDegrees},
+            900.0f, 200, 1.0f, -1.0f, pitchRotationState);
+    failures += Check(
+        manipulationPitch.x == 0 && manipulationPitch.y == -157
+            && Near(manipulationPitch.pitchRadians, input_math::DegreesToRadians(10.0f), 0.0001f),
+        "inspection rotation maps controller pitch with configured vertical sign");
+
     crouch_math::PhysicalCrouchState crouchState;
     failures += Check(
         crouch_math::UpdatePhysicalCrouch(crouchState, 1.70f, true, 1, 0.35f, 0.25f)

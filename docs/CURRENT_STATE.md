@@ -21,17 +21,28 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.60.0-evidence-capture`, layered on the
+The active build candidate is `0.61.0-native-manipulation`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
 
-- The 0.60 candidate keeps all 0.59 behavior unchanged and adds event-driven
-  evidence for the next live pass: eye-cache capture/submission timing,
-  controller-reference transforms, interaction hit/semantic transitions,
-  Read/Zoom current-ImGui ownership, and per-session physical-manipulation
-  travel-to-pixel summaries. These records are bounded and automatic, so the
-  normal 0.59 checklist produces the data needed for subsequent feature builds.
+- The 0.60 live pass proved same-frame stereo removes the perceived eye delay,
+  controller-relative locomotion is stable, and Slide's mouse projection is the
+  wrong abstraction for drawers and curtains. It also exposed an incorrect
+  closest-entity output decode. The native ABI is now distance `+0x18`, body
+  `+0x20`, entity `+0x28`.
+
+- Slide state `4` now uses controller world velocity projected onto selected
+  body joint 0's native pin through the existing vector PID hook. Read state
+  `10` uses controller orientation, A/B native cancel, and no locomotion turn.
+  A bounded Read-entity probe records the open prop needed for a later direct
+  right-controller attachment.
+
+- Visual native pitch is suppressed only while the active VR frustum is built,
+  leaving HMD pitch as the horizon owner. The HUD capture now matches the live
+  `1920x1080` game target. Quest requests `2688x2880` one-sample eye images, so
+  the remaining softness is source-render resolution rather than swapchain
+  allocation or an accidentally low OpenXR scale.
 
 - The first broad 0.58 headset pass accepted the rigid world, tracking, eye
   height, same-frame shader compatibility, F1 panel, analog movement, input

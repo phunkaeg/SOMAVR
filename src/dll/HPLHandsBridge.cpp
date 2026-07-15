@@ -21,6 +21,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace somavr {
 namespace {
@@ -106,6 +107,7 @@ void* g_getClosestBodyTarget = nullptr;
 std::mutex g_installMutex;
 std::mutex g_identityMutex;
 std::unordered_map<void*, EntityIdentity> g_identityCache;
+std::unordered_set<void*> g_readCandidateEntities;
 std::atomic<uint64_t> g_calls = 0;
 std::atomic<uint64_t> g_identityReads = 0;
 std::atomic<uint64_t> g_identityReadFailures = 0;
@@ -161,6 +163,8 @@ std::atomic<uint64_t> g_rootAuthoredFallbacks = 0;
 std::atomic<uint64_t> g_rootPoseFallbacks = 0;
 std::atomic<uint64_t> g_rootStaleFallbacks = 0;
 std::atomic<uint64_t> g_rootMathFallbacks = 0;
+std::atomic<uint64_t> g_readCandidateCalls = 0;
+std::atomic<uint64_t> g_readCandidateUnique = 0;
 
 bool IsInsideImage(HMODULE module, uintptr_t rva, size_t bytes)
 {
@@ -836,6 +840,43 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                 player.playerStateId,
                 player.moveStateId);
         }
+    } else {
+        HPLPlayerStateSnapshot player{};
+        if (GetHPLPlayerStateSnapshot(player)
+            && player.playerValid
+            && player.playerStateId == 10) {
+            g_readCandidateCalls.fetch_add(1, std::memory_order_relaxed);
+            std::array<float, 16> matrix{};
+            const HPLCameraBridgeStatus camera = GetHPLCameraBridgeStatus();
+            if (ReadMemory(matrixPointer, matrix.data(), sizeof(matrix))
+                && camera.cameraWorldPositionValid) {
+                const float dx = matrix[3] - camera.cameraWorldPositionX;
+                const float dy = matrix[7] - camera.cameraWorldPositionY;
+                const float dz = matrix[11] - camera.cameraWorldPositionZ;
+                const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+                bool firstCandidate = false;
+                {
+                    std::lock_guard lock(g_identityMutex);
+                    if (g_readCandidateEntities.size() < 64 && distance <= 1.5f) {
+                        firstCandidate = g_readCandidateEntities.insert(entity).second;
+                    }
+                }
+                if (firstCandidate) {
+                    const uint64_t unique = g_readCandidateUnique.fetch_add(
+                        1, std::memory_order_relaxed) + 1;
+                    Logger::Instance().Write(
+                        LogLevel::Info,
+                        "hpl_read_entity_candidate unique=%llu frame=%llu entity=%p name=%s cameraDistance=%.4f pos=%.4f,%.4f,%.4f scale=%.4f,%.4f,%.4f policy=unique_non_special_set_matrix_within_1.5_world_units",
+                        static_cast<unsigned long long>(unique),
+                        static_cast<unsigned long long>(player.frame),
+                        entity,
+                        identity.name.c_str(),
+                        distance,
+                        matrix[3], matrix[7], matrix[11],
+                        ColumnLength(matrix, 0), ColumnLength(matrix, 1), ColumnLength(matrix, 2));
+                }
+            }
+        }
     }
 
     g_originalSetMatrix(entity, submittedMatrix);
@@ -854,6 +895,7 @@ void HookLuxMapDestroyEntity(void* map, void* entity)
             g_identityCache.erase(found);
             invalidated = true;
         }
+        g_readCandidateEntities.erase(entity);
     }
     if (invalidated) {
         g_identityInvalidations.fetch_add(1, std::memory_order_relaxed);
@@ -1091,6 +1133,7 @@ void RemoveHPLHandsBridge()
     {
         std::lock_guard identityLock(g_identityMutex);
         g_identityCache.clear();
+        g_readCandidateEntities.clear();
     }
     Logger::Instance().Write(LogLevel::Info, "hpl_hands_bridge removed");
 }
@@ -1104,7 +1147,7 @@ void LogHPLHandsBridgeSummary()
     }
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_hands_bridge_summary installed=%d destroyLifecycleInstalled=%d gameplayRayInstalled=%d calls=%llu destroyEntityCalls=%llu identityInvalidations=%llu cachedIdentities=%llu identityReads=%llu identityReadFailures=%llu playerHandsIdentities=%llu playerHandsCalls=%llu hudObjectIdentities=%llu socketedHudObjectIdentities=%llu hudObjectCalls=%llu hudObjectOverrideAttempts=%llu hudObjectOverrides=%llu hudObjectScaleFallbacks=%llu hudObjectStateFallbacks=%llu hudObjectAuthoredFallbacks=%llu hudObjectPoseFallbacks=%llu hudObjectStaleFallbacks=%llu hudObjectMathFallbacks=%llu twoHandHudCandidates=%llu twoHandHudOverrides=%llu twoHandHudFallbacks=%llu flashlightIdentities=%llu flashlightCalls=%llu matrixReadFailures=%llu quarterScaleSamples=%llu fullScaleSamples=%llu otherScaleSamples=%llu trackedGripSamples=%llu authoredCameraSamples=%llu rootOverrideAttempts=%llu rootOverrides=%llu rootScaleFallbacks=%llu rootStateFallbacks=%llu rootAuthoredFallbacks=%llu rootPoseFallbacks=%llu rootStaleFallbacks=%llu rootMathFallbacks=%llu flashlightOverrideAttempts=%llu flashlightOverrides=%llu flashlightStateFallbacks=%llu flashlightAuthoredFallbacks=%llu flashlightPoseFallbacks=%llu flashlightStaleFallbacks=%llu flashlightMathFallbacks=%llu gameplayRayCalls=%llu gameplayRayCandidates=%llu gameplayRayRedirects=%llu gameplayRayHits=%llu gameplayRayOriginFallbacks=%llu gameplayRayPoseFallbacks=%llu gameplayRayStaleFallbacks=%llu gameplayRayMathFallbacks=%llu",
+        "hpl_hands_bridge_summary installed=%d destroyLifecycleInstalled=%d gameplayRayInstalled=%d calls=%llu destroyEntityCalls=%llu identityInvalidations=%llu cachedIdentities=%llu identityReads=%llu identityReadFailures=%llu playerHandsIdentities=%llu playerHandsCalls=%llu hudObjectIdentities=%llu socketedHudObjectIdentities=%llu hudObjectCalls=%llu hudObjectOverrideAttempts=%llu hudObjectOverrides=%llu hudObjectScaleFallbacks=%llu hudObjectStateFallbacks=%llu hudObjectAuthoredFallbacks=%llu hudObjectPoseFallbacks=%llu hudObjectStaleFallbacks=%llu hudObjectMathFallbacks=%llu twoHandHudCandidates=%llu twoHandHudOverrides=%llu twoHandHudFallbacks=%llu flashlightIdentities=%llu flashlightCalls=%llu matrixReadFailures=%llu quarterScaleSamples=%llu fullScaleSamples=%llu otherScaleSamples=%llu trackedGripSamples=%llu authoredCameraSamples=%llu rootOverrideAttempts=%llu rootOverrides=%llu rootScaleFallbacks=%llu rootStateFallbacks=%llu rootAuthoredFallbacks=%llu rootPoseFallbacks=%llu rootStaleFallbacks=%llu rootMathFallbacks=%llu readCandidates={calls=%llu unique=%llu} flashlightOverrideAttempts=%llu flashlightOverrides=%llu flashlightStateFallbacks=%llu flashlightAuthoredFallbacks=%llu flashlightPoseFallbacks=%llu flashlightStaleFallbacks=%llu flashlightMathFallbacks=%llu gameplayRayCalls=%llu gameplayRayCandidates=%llu gameplayRayRedirects=%llu gameplayRayHits=%llu gameplayRayOriginFallbacks=%llu gameplayRayPoseFallbacks=%llu gameplayRayStaleFallbacks=%llu gameplayRayMathFallbacks=%llu",
         g_setMatrixTarget != nullptr ? 1 : 0,
         g_destroyEntityTarget != nullptr ? 1 : 0,
         g_getClosestBodyTarget != nullptr ? 1 : 0,
@@ -1146,6 +1189,8 @@ void LogHPLHandsBridgeSummary()
         static_cast<unsigned long long>(g_rootPoseFallbacks.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_rootStaleFallbacks.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_rootMathFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_readCandidateCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_readCandidateUnique.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_flashlightOverrideAttempts.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_flashlightOverrides.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_flashlightStateFallbacks.load(std::memory_order_relaxed)),

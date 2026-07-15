@@ -96,4 +96,58 @@ ManipulationMouseDelta ComputeManipulationMouseDelta(
     return result;
 }
 
+ManipulationRotationDelta ComputeManipulationRotationDelta(
+    const camera_math::Quaternion& previousLocalOrientation,
+    const camera_math::Quaternion& currentLocalOrientation,
+    float pixelsPerRadian,
+    int maxPixelsPerFrame,
+    float horizontalSign,
+    float verticalSign,
+    ManipulationMotionState& state)
+{
+    ManipulationRotationDelta result;
+    camera_math::Quaternion delta = camera_math::Normalize(camera_math::Multiply(
+        camera_math::Normalize(currentLocalOrientation),
+        camera_math::Conjugate(camera_math::Normalize(previousLocalOrientation))));
+    if (delta.w < 0.0f) {
+        delta.x = -delta.x;
+        delta.y = -delta.y;
+        delta.z = -delta.z;
+        delta.w = -delta.w;
+    }
+
+    const float halfAngleSin = std::sqrt(std::max(
+        0.0f,
+        delta.x * delta.x + delta.y * delta.y + delta.z * delta.z));
+    if (!std::isfinite(halfAngleSin) || halfAngleSin < 1.0e-7f
+        || !std::isfinite(pixelsPerRadian) || pixelsPerRadian <= 0.0f
+        || !std::isfinite(horizontalSign) || !std::isfinite(verticalSign)
+        || maxPixelsPerFrame <= 0) {
+        return result;
+    }
+
+    const float angle = 2.0f * std::atan2(
+        halfAngleSin,
+        std::clamp(delta.w, -1.0f, 1.0f));
+    const float axisScale = angle / halfAngleSin;
+    result.pitchRadians = delta.x * axisScale;
+    result.yawRadians = delta.y * axisScale;
+    const double cap = static_cast<double>(maxPixelsPerFrame);
+    const double outputX = std::clamp(
+        state.remainderX + static_cast<double>(result.yawRadians)
+            * static_cast<double>(pixelsPerRadian) * static_cast<double>(horizontalSign),
+        -cap,
+        cap);
+    const double outputY = std::clamp(
+        state.remainderY + static_cast<double>(result.pitchRadians)
+            * static_cast<double>(pixelsPerRadian) * static_cast<double>(verticalSign),
+        -cap,
+        cap);
+    result.x = static_cast<int>(std::trunc(outputX));
+    result.y = static_cast<int>(std::trunc(outputY));
+    state.remainderX = outputX - static_cast<double>(result.x);
+    state.remainderY = outputY - static_cast<double>(result.y);
+    return result;
+}
+
 } // namespace somavr::input_math

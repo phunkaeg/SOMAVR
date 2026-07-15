@@ -1,5 +1,18 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Native Slide And Interaction ABI Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1400cd750` | `SOMA_GetClosestEntity` | Corrected plate/disassembly comments: output distance `+0x18`, physics body `+0x20`, Lux entity `+0x28`; the prior ledger order was wrong and caused the 0.60 runtime rejects. |
+| `0x1401438c0` | `SOMA_Lux_GetClosestEntityRaycast` | Renamed/documented native ray owner and three out-parameter order. |
+| `0x140273510` | `HPL3_PhysicsBody_GetJoint` | Renamed/documented vector lookup at body `+0x168/+0x170`, consumed for Slide joint 0. |
+| `0x1401822f0` | `HPL3_PhysicsJoint_GetPinDir` | Created/documented eight-byte leaf returning joint `+0xe8`, consumed by the 0.61 world-velocity projection. |
+
+The explicitly selected `Soma_NoSteam.exe` database was updated through Ghidra
+MCP. Released `PlayerState_Interact_Slide.hps` independently confirms joint 0,
+pin projection, and force PID tuple `6/0/0.1`.
+
 ## 2026-07-15 Native Contact Haptics Sync
 
 | Address | Ghidra name | Evidence/use |
@@ -274,7 +287,7 @@ All three functions now have explicit prototypes and plate comments plus
 | --- | --- | --- |
 | `0x140159360` | `HPL3_Script_cLuxPlayer_SetCameraPosAdd` | Registered setter with type in EDX and vector in R8. `0.19.0` zeros only semantic Bob/Shake/optional Sway while VR is active. |
 | `0x140156f00` | `HPL3_Script_cLuxPlayer_SetCameraRoll` | Confirmed roll-current/goal array setter; documented as a future policy anchor and deliberately unhooked. |
-| `0x1400cd750` | `SOMA_GetClosestEntity` | Plate comment records finalized output payload entity `+0x18`, body `+0x20`, distance `+0x28`, the world-hit snapshot, and its `0.20.0` OpenXR depth-reticle/focus-haptic consumers. |
+| `0x1400cd750` | `SOMA_GetClosestEntity` | Historical entry corrected by the 0.61 sync above: distance `+0x18`, body `+0x20`, entity `+0x28`. |
 
 The two player wrappers were renamed and tagged `SOMAVR`, `VR-comfort`, and
 `AngelScript-wrapper`; the existing picker received interaction/result tags and

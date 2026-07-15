@@ -64,6 +64,7 @@ constexpr size_t kCameraSecondaryRotationXOffset = 0x60;
 constexpr size_t kCameraSecondaryRotationYOffset = 0x64;
 constexpr size_t kCameraSecondaryRotationZOffset = 0x68;
 constexpr size_t kCameraBaseRollOffset = 0x4c;
+constexpr size_t kCameraBasePitchOffset = 0x44;
 constexpr size_t kCameraViewDirtyOffset = 0x709;
 constexpr size_t kCameraProjectionDirtyOffset = 0x70b;
 constexpr size_t kCameraBaseFrustumDirtyOffset = 0x70c;
@@ -170,6 +171,8 @@ std::atomic<uint64_t> g_trackingFallbackFrames = 0;
 std::atomic<uint64_t> g_trackingRecoveryEvents = 0;
 std::atomic<uint64_t> g_nativeRollObservedCalls = 0;
 std::atomic<uint64_t> g_nativeRollSuppressedCalls = 0;
+std::atomic<uint64_t> g_nativePitchObservedCalls = 0;
+std::atomic<uint64_t> g_nativePitchSuppressedCalls = 0;
 std::atomic<uint64_t> g_roomscaleSafetySamples = 0;
 std::atomic<uint64_t> g_roomscaleSafetyQueries = 0;
 std::atomic<uint64_t> g_roomscaleSafetyProbes = 0;
@@ -458,7 +461,7 @@ void WriteField(void* object, size_t offset, const T& value)
     std::memcpy(static_cast<std::byte*>(object) + offset, &value, sizeof(value));
 }
 
-void MarkCameraRollDirty(void* camera)
+void MarkCameraRotationDirty(void* camera)
 {
     constexpr uint8_t dirty = 1;
     WriteField(camera, kCameraViewDirtyOffset, dirty);
@@ -759,26 +762,48 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
     }
 
     const bool wasDirty = camera != nullptr && WasFrustumDirty(camera);
+    const float nativeBasePitch = camera != nullptr ? ReadField<float>(camera, kCameraBasePitchOffset) : 0.0f;
+    const float nativeSecondaryPitch = camera != nullptr ? ReadField<float>(camera, kCameraSecondaryRotationXOffset) : 0.0f;
     const float nativeBaseRoll = camera != nullptr ? ReadField<float>(camera, kCameraBaseRollOffset) : 0.0f;
     const float nativeSecondaryRoll = camera != nullptr ? ReadField<float>(camera, kCameraSecondaryRotationZOffset) : 0.0f;
     const bool nativeRollActive = std::isfinite(nativeBaseRoll) && std::isfinite(nativeSecondaryRoll)
         && (nativeBaseRoll != 0.0f || nativeSecondaryRoll != 0.0f);
     bool suppressNativeRoll = false;
-    if (camera != nullptr && nativeRollActive && g_config.hplNativeCameraRollSuppression) {
+    const bool nativePitchActive = std::isfinite(nativeBasePitch) && std::isfinite(nativeSecondaryPitch)
+        && (nativeBasePitch != 0.0f || nativeSecondaryPitch != 0.0f);
+    bool suppressNativePitch = false;
+    bool trackingOwnsCamera = false;
+    if (camera != nullptr && (nativeRollActive || nativePitchActive)) {
         std::lock_guard lock(g_stateMutex);
-        suppressNativeRoll = g_state.trackingEnabled && g_state.activeCamera == camera;
+        trackingOwnsCamera = g_state.trackingEnabled && g_state.activeCamera == camera;
+    }
+    suppressNativeRoll = trackingOwnsCamera && nativeRollActive
+        && g_config.hplNativeCameraRollSuppression;
+    suppressNativePitch = trackingOwnsCamera && nativePitchActive
+        && g_config.hplNativeCameraPitchSuppression;
+    if (suppressNativePitch) {
+        constexpr float zero = 0.0f;
+        WriteField(camera, kCameraBasePitchOffset, zero);
+        WriteField(camera, kCameraSecondaryRotationXOffset, zero);
+        MarkCameraRotationDirty(camera);
     }
     if (suppressNativeRoll) {
         constexpr float zero = 0.0f;
         WriteField(camera, kCameraBaseRollOffset, zero);
         WriteField(camera, kCameraSecondaryRotationZOffset, zero);
-        MarkCameraRollDirty(camera);
+        MarkCameraRotationDirty(camera);
     }
     void* frustum = g_originalCameraGetFrustum(camera, projectionFlag);
+    if (suppressNativePitch) {
+        WriteField(camera, kCameraBasePitchOffset, nativeBasePitch);
+        WriteField(camera, kCameraSecondaryRotationXOffset, nativeSecondaryPitch);
+        MarkCameraRotationDirty(camera);
+        g_nativePitchSuppressedCalls.fetch_add(1, std::memory_order_relaxed);
+    }
     if (suppressNativeRoll) {
         WriteField(camera, kCameraBaseRollOffset, nativeBaseRoll);
         WriteField(camera, kCameraSecondaryRotationZOffset, nativeSecondaryRoll);
-        MarkCameraRollDirty(camera);
+        MarkCameraRotationDirty(camera);
         g_nativeRollSuppressedCalls.fetch_add(1, std::memory_order_relaxed);
     }
     if (camera == nullptr || frustum == nullptr || g_setupPerspectiveFrustum == nullptr) {
@@ -797,11 +822,15 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
     if (nativeRollActive) {
         g_nativeRollObservedCalls.fetch_add(1, std::memory_order_relaxed);
     }
+    if (nativePitchActive) {
+        g_nativePitchObservedCalls.fetch_add(1, std::memory_order_relaxed);
+    }
     const uint64_t candidateLogInterval = static_cast<uint64_t>(std::max(g_config.hplCameraLogInterval, 1));
-    if (candidate <= 8 || (nativeRollActive && candidate % candidateLogInterval == 0)) {
+    if (candidate <= 8
+        || ((nativeRollActive || nativePitchActive) && candidate % candidateLogInterval == 0)) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_camera candidate=%llu callerRva=0x%llx camera=%p frustum=%p dirtyBefore=%d projectionFlag=%d far=%.5f near=%.5f fov=%.5f aspect=%.5f nativeBaseRoll=%.6f nativeExtendedRoll=%.6f rollSuppressed=%d",
+            "hpl_camera candidate=%llu callerRva=0x%llx camera=%p frustum=%p dirtyBefore=%d projectionFlag=%d far=%.5f near=%.5f fov=%.5f aspect=%.5f nativeBasePitch=%.6f nativeExtendedPitch=%.6f pitchSuppressed=%d nativeBaseRoll=%.6f nativeExtendedRoll=%.6f rollSuppressed=%d",
             static_cast<unsigned long long>(candidate),
             static_cast<unsigned long long>(callerRva),
             camera,
@@ -812,6 +841,9 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
             parameters.nearPlane,
             parameters.fov,
             parameters.aspect,
+            nativeBasePitch,
+            nativeSecondaryPitch,
+            suppressNativePitch ? 1 : 0,
             nativeBaseRoll,
             nativeSecondaryRoll,
             suppressNativeRoll ? 1 : 0);
@@ -1435,6 +1467,8 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
     g_stereoEyeCalls[1].store(0, std::memory_order_relaxed);
     g_nativeRollObservedCalls.store(0, std::memory_order_relaxed);
     g_nativeRollSuppressedCalls.store(0, std::memory_order_relaxed);
+    g_nativePitchObservedCalls.store(0, std::memory_order_relaxed);
+    g_nativePitchSuppressedCalls.store(0, std::memory_order_relaxed);
     g_roomscaleSafetySamples.store(0, std::memory_order_relaxed);
     g_roomscaleSafetyQueries.store(0, std::memory_order_relaxed);
     g_roomscaleSafetyProbes.store(0, std::memory_order_relaxed);
@@ -1468,7 +1502,7 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         LogLevel::Warn,
-        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx lineOfSightRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 recenterKey=F2 projectionKey=F5 roomscaleKey=F4 recenterControl=%d stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d verticalRoomscale=%d roomscaleSafety=%d roomscaleSafetyDynamic=%d roomscaleBodyReconciliation=%d roomscaleClearanceMeters=%.3f roomscaleRadiusMeters=%.3f roomscaleVerticalRadiusMeters=%.3f roomscaleRadialSamples=%d roomscaleIterations=%d roomscaleStaticOnly=%d eyeHeightOffsetMeters=%.4f nativeRollSuppression=%d nativeRollOffsets=0x%zx,0x%zx worldScale=%.4f activationStableFrames=%u activationMaxPositionStep=%.3f activationMaxOrientationStepDeg=%.1f logInterval=%d",
+        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx lineOfSightRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 recenterKey=F2 projectionKey=F5 roomscaleKey=F4 recenterControl=%d stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d verticalRoomscale=%d roomscaleSafety=%d roomscaleSafetyDynamic=%d roomscaleBodyReconciliation=%d roomscaleClearanceMeters=%.3f roomscaleRadiusMeters=%.3f roomscaleVerticalRadiusMeters=%.3f roomscaleRadialSamples=%d roomscaleIterations=%d roomscaleStaticOnly=%d eyeHeightOffsetMeters=%.4f nativePitchSuppression=%d nativePitchOffsets=0x%zx,0x%zx nativeRollSuppression=%d nativeRollOffsets=0x%zx,0x%zx worldScale=%.4f activationStableFrames=%u activationMaxPositionStep=%.3f activationMaxOrientationStepDeg=%.1f logInterval=%d",
         ModulePath(executable).c_str(),
         executable,
         static_cast<unsigned long long>(kCameraGetFrustumRva),
@@ -1490,6 +1524,9 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
         g_config.hplRoomscaleSafetyIterations,
         g_config.hplRoomscaleSafetyDynamic ? 0 : 1,
         g_config.hplEyeHeightOffsetMeters,
+        g_config.hplNativeCameraPitchSuppression ? 1 : 0,
+        kCameraBasePitchOffset,
+        kCameraSecondaryRotationXOffset,
         g_config.hplNativeCameraRollSuppression ? 1 : 0,
         kCameraBaseRollOffset,
         kCameraSecondaryRotationZOffset,
@@ -1506,7 +1543,7 @@ void LogHPLCameraBridgeSummary()
     std::lock_guard lock(g_stateMutex);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu secondaryCameraCandidates=%llu secondaryCameraControlSkips=%llu authoredCameraOwnershipChanges=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyProbes=%llu roomscaleSafetySkippedProbes=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu roomscaleBodyShiftProbes=%llu roomscaleBodyShiftBlocks=%llu roomscaleBodyShiftCommits=%llu",
+        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu secondaryCameraCandidates=%llu secondaryCameraControlSkips=%llu authoredCameraOwnershipChanges=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativePitchObserved=%llu nativePitchSuppressed=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyProbes=%llu roomscaleSafetySkippedProbes=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu roomscaleBodyShiftProbes=%llu roomscaleBodyShiftBlocks=%llu roomscaleBodyShiftCommits=%llu",
         static_cast<unsigned long long>(g_getFrustumCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_candidateCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_secondaryCameraCandidates.load(std::memory_order_relaxed)),
@@ -1527,6 +1564,8 @@ void LogHPLCameraBridgeSummary()
         static_cast<unsigned long long>(g_poseMisses.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_trackingFallbackFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_trackingRecoveryEvents.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_nativePitchObservedCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_nativePitchSuppressedCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_nativeRollObservedCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_nativeRollSuppressedCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_roomscaleSafetySamples.load(std::memory_order_relaxed)),

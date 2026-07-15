@@ -38,6 +38,55 @@ bool BuildHeadLockedQuadPose(
     return std::isfinite(pose.heightMeters) && pose.heightMeters > 0.0f;
 }
 
+bool BuildHeadLockedCylinderPose(
+    const camera_math::Vector3& headPosition,
+    const camera_math::Quaternion& headOrientation,
+    float distanceMeters,
+    float verticalOffsetMeters,
+    float widthMeters,
+    float textureAspect,
+    float centralAngleDegrees,
+    HudCylinderPose& pose)
+{
+    constexpr float kPi = 3.14159265358979323846f;
+    if (!std::isfinite(distanceMeters)
+        || !std::isfinite(verticalOffsetMeters)
+        || !std::isfinite(widthMeters)
+        || !std::isfinite(textureAspect)
+        || !std::isfinite(centralAngleDegrees)
+        || distanceMeters <= 0.0f
+        || widthMeters <= 0.0f
+        || textureAspect <= 0.0f
+        || centralAngleDegrees <= 0.0f
+        || centralAngleDegrees >= 360.0f) {
+        return false;
+    }
+
+    const float centralAngleRadians = centralAngleDegrees * kPi / 180.0f;
+    const float radiusMeters = widthMeters / centralAngleRadians;
+    if (!std::isfinite(radiusMeters) || radiusMeters <= 0.0f) return false;
+
+    const camera_math::Quaternion orientation = camera_math::Normalize(headOrientation);
+    // OpenXR's cylinder pose is its axis. Offset the axis toward the viewer by
+    // the radius so the center of the visible arc remains at distanceMeters.
+    const camera_math::Vector3 localOffset{
+        0.0f,
+        verticalOffsetMeters,
+        -distanceMeters + radiusMeters,
+    };
+    const camera_math::Vector3 worldOffset = camera_math::RotateVector(orientation, localOffset);
+    pose.position = {
+        headPosition.x + worldOffset.x,
+        headPosition.y + worldOffset.y,
+        headPosition.z + worldOffset.z,
+    };
+    pose.orientation = orientation;
+    pose.radiusMeters = radiusMeters;
+    pose.centralAngleRadians = centralAngleRadians;
+    pose.aspectRatio = textureAspect;
+    return true;
+}
+
 bool ComputeAngularQuadSize(
     float distanceMeters,
     float angularSizeDegrees,

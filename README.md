@@ -114,9 +114,12 @@ before each player-eye viewport, captures after SOMA's native update, resets on
 recenter or stale-pose gaps, and falls back to shared native history on any
 pointer or eye-sequence failure.
 With `HudLayer=1`, the exact gameplay HUD set is removed from the eye render and
-submitted once as a transparent, compositor head-locked OpenXR quad. Menus,
-ImGui, subtitles not owned by that set, and diegetic terminal GUIs remain on
-their native paths until separately classified.
+submitted once as a transparent, compositor head-locked OpenXR layer.
+`HudShape=cylinder` requests `XR_KHR_composition_layer_cylinder` and preserves
+the configured center distance, physical width, and texture aspect; unsupported
+or rejected cylinder layers fall back to the existing quad. The F1 panel can
+switch `HUD SHAPE` live when the extension is available. Diegetic terminal GUIs
+remain in the stereo world.
 With `HandControllerRoot=1`, F10 also enables a guarded controller-owned root
 for the exact `PlayerHands_*` entity. Only uniform quarter-scale hands in the
 normal player/move state are replaced; full-scale/authored animations, stale or
@@ -183,7 +186,8 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
 ## Current Goal
 
 The proven default remains OpenXR transport, native head tracking, and AFR stereo
-geometry. `0.49.0` adds deterministic comfort presets, a non-invasive readiness
+geometry. `0.50.0` adds an extension-negotiated curved HUD with live F1
+quad/curved switching and automatic fallback. `0.49.0` adds deterministic comfort presets, a non-invasive readiness
 doctor, and a packaged end-user guide. `0.48.0` adds HTC Vive controller bindings and exact per-hand active
 interaction-profile diagnostics. `0.47.0` applies the first opt-in per-eye temporal resource to every
 active stereo mode: HPL3's confirmed previous-view matrix is banked by eye in
@@ -200,7 +204,7 @@ or eye-distinct.
 `0.39.0` adds a head-locked in-VR status and control panel. Press `F1` or
 `Menu + Secondary`, navigate with the movement stick, and activate with dominant
   select/trigger. It exposes recenter plus reversible roomscale, centered
-  projection, same-frame stereo, HUD-layer, and interaction-reticle controls
+  projection, same-frame stereo, HUD-layer, HUD-shape, and interaction-reticle controls
   while suppressing all underlying gameplay input.
 
 `0.38.0` adds controller-addressable diegetic wall and handheld terminals.
@@ -217,7 +221,7 @@ behavior on every unsupported path. Configure this under `[Controller]` with
 - head-relative FMOD listener orientation,
 - deferred reconstruction UBO attribution and eye-invariant shadow/reflection state,
 - selective post-effect classification using active object/vtable inventories and reversible per-effect isolation,
-- gameplay HUD extraction into a configurable OpenXR quad layer,
+- gameplay HUD extraction into configurable OpenXR quad/cylinder layers,
 - controller-owned native hands with calibration and authored-state fallback,
 - paused-menu aim pointer and hard gameplay-input suppression,
 - live-validate and tune the opt-in same-frame renderer before default promotion.

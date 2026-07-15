@@ -40,6 +40,8 @@ struct Config {
     int openxrTrackingHoldFrames = 30;
     int openxrTrackingRecoveryBlackoutFrames = 2;
     bool openxrHudLayer = false;
+    std::string openxrHudShape = "quad";
+    float openxrHudCylinderAngleDegrees = 70.0f;
     int openxrHudWidthPixels = 1600;
     int openxrHudHeightPixels = 900;
     float openxrHudDistanceMeters = 1.5f;

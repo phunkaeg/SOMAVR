@@ -146,12 +146,16 @@ bool RasterizePanel(
     const std::string_view dualRenderAction = !model.dualRenderReady
         ? "SAME FRAME STEREO: UNAVAILABLE"
         : model.continuousDualRender ? "SAME FRAME STEREO: ON" : "SAME FRAME STEREO: OFF";
+    const std::string_view hudShapeAction = !model.hudCylinderAvailable
+        ? "HUD SHAPE: QUAD ONLY"
+        : model.hudCylinderActive ? "HUD SHAPE: CURVED" : "HUD SHAPE: QUAD";
     const std::array<std::string_view, kActionCount> actions = {
         "RECENTER VR",
         model.roomscaleEnabled ? "ROOMSCALE: ON" : "ROOMSCALE: OFF",
         model.projectionCentered ? "CENTERED PROJECTION: ON" : "CENTERED PROJECTION: OFF",
         dualRenderAction,
         model.hudVisible ? "HUD LAYER: ON" : "HUD LAYER: OFF",
+        hudShapeAction,
         model.reticleVisible ? "INTERACTION RETICLE: ON" : "INTERACTION RETICLE: OFF",
         "CLOSE",
     };

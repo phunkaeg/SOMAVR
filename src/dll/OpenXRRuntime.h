@@ -130,6 +130,11 @@ struct OpenXRStereoViewSnapshot {
     OpenXREyeView eyes[2];
 };
 
+struct OpenXRHudLayerShapeStatus {
+    bool cylinderAvailable = false;
+    bool cylinderActive = false;
+};
+
 class OpenXRRuntime {
 public:
     OpenXRRuntime();
@@ -157,6 +162,8 @@ public:
         int trackingHoldFrames,
         int trackingRecoveryBlackoutFrames,
         bool hudLayerEnabled,
+        const std::string& hudShape,
+        float hudCylinderAngleDegrees,
         int hudWidthPixels,
         int hudHeightPixels,
         float hudDistanceMeters,
@@ -206,6 +213,8 @@ public:
     void ClearInteractionReticle();
     void SetStatusPanel(const OpenXRStatusPanelState& state);
     void SetHudRuntimeVisible(bool visible);
+    bool ToggleHudLayerShape();
+    OpenXRHudLayerShapeStatus GetHudLayerShapeStatus() const;
     void SetInteractionReticleRuntimeVisible(bool visible);
 
 private:

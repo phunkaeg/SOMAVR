@@ -1,5 +1,29 @@
 # Test Checklists
 
+## 0.50.0 Curved HUD
+
+1. Run the packaged doctor and confirm `version=0.50.0-curved-hud`, then launch,
+   load a save, and press F10. Require `khrCompositionLayerCylinder=1`,
+   `hudCylinderRequested=1`, and no instance/session/frame failure. If the
+   extension is unavailable, require one `shape_fallback ... extension_unavailable`
+   row and continue on the quad.
+2. Open F1. Supported runtimes must show `HUD SHAPE: CURVED`; unsupported ones
+   must show `HUD SHAPE: QUAD ONLY`. Confirm the added row does not overlap the
+   footer or clip at the configured 1024x512 panel size.
+3. Compare curved and quad modes in gameplay, pause, inventory, subtitles,
+   wake eyelids, game over, and credits. Content, alpha, vertical placement,
+   center distance, pointer alignment, capture age, and native fallback must be
+   identical; only horizontal curvature may change.
+4. Toggle shape repeatedly while turning and translating the HMD. Expect
+   `openxr_hud shape_toggle effective=cylinder|quad`, continuous stereo, no
+   swapchain rebuild, and `openxr_frame ... hudShape=` matching the selection.
+5. Set `HudCylinderAngleDegrees` to 45 and 120 in separate runs. The visible arc
+   width and aspect-derived height must remain stable while curvature changes.
+   Restore 70 after comparison.
+6. Set `HudShape=quad` and relaunch for the hard rollback. No cylinder extension
+   is required for submission; the HUD must match the prior flat baseline.
+   Any layer validation failure must log fallback and recover on the next frame.
+
 ## 0.49.0 Readiness And Presets
 
 1. Run packaged `somavr_injector --doctor <Soma_NoSteam.exe>`. Require OpenXR

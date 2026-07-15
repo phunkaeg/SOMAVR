@@ -64,14 +64,17 @@ int main()
         std::ofstream out(configPath, std::ios::trunc);
         out << "[Comfort]\nPreset=maximum\n"
             << "[Hooks]\nHPLComfortSuppressScriptRoll=0\n"
-            << "[Controller]\nComfortBlackoutFrames=7\n";
+            << "[Controller]\nComfortBlackoutFrames=7\n"
+            << "[OpenXR]\nHudShape=CYLINDER\nHudCylinderAngleDegrees=80\n";
     }
     ConfigManager manager;
     failures += Check(manager.InitializeAtPath(configPath)
             && manager.Get().comfortPreset == "maximum"
             && manager.Get().hplComfortSuppressSway
             && !manager.Get().hplComfortSuppressScriptRoll
-            && manager.Get().hplControllerComfortBlackoutFrames == 7,
+            && manager.Get().hplControllerComfortBlackoutFrames == 7
+            && manager.Get().openxrHudShape == "cylinder"
+            && manager.Get().openxrHudCylinderAngleDegrees == 80.0f,
         "explicit INI keys override preset values after the pre-scan");
     {
         std::ofstream out(configPath, std::ios::trunc);

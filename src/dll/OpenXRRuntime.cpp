@@ -129,6 +129,8 @@ struct OpenXRRuntime::Impl {
         int trackingHoldFrames,
         int trackingRecoveryBlackoutFrames,
         bool hudLayerEnabled,
+        const std::string& hudShape,
+        float hudCylinderAngleDegrees,
         int hudWidthPixels,
         int hudHeightPixels,
         float hudDistanceMeters,
@@ -188,6 +190,11 @@ struct OpenXRRuntime::Impl {
         trackingHoldFrames_ = std::max(trackingHoldFrames, 0);
         trackingRecoveryBlackoutFrames_ = std::max(trackingRecoveryBlackoutFrames, 0);
         hudLayerEnabled_ = hudLayerEnabled;
+        hudCylinderRequested_ = hudShape == "cylinder";
+        hudCylinderAngleDegrees_ = std::clamp(hudCylinderAngleDegrees, 15.0f, 180.0f);
+        hudCylinderExtensionAvailable_ = false;
+        hudCylinderExtensionEnabled_ = false;
+        hudCylinderSubmissionDisabled_ = false;
         hudWidthPixels_ = std::clamp(hudWidthPixels, 256, 4096);
         hudHeightPixels_ = std::clamp(hudHeightPixels, 256, 4096);
         hudDistanceMeters_ = std::clamp(hudDistanceMeters, 0.25f, 10.0f);
@@ -244,7 +251,7 @@ struct OpenXRRuntime::Impl {
             statusPanelVerticalOffsetMeters_);
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d desktopMirrorEye=%s desktopMirrorAspect=%s depth={probe=%d submit=%d} resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
+            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d desktopMirrorEye=%s desktopMirrorAspect=%s depth={probe=%d submit=%d} resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d shape=%s cylinderAngleDegrees=%.3f size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -266,6 +273,8 @@ struct OpenXRRuntime::Impl {
             trackingHoldFrames_,
             trackingRecoveryBlackoutFrames_,
             hudLayerEnabled_ ? 1 : 0,
+            hudCylinderRequested_ ? "cylinder" : "quad",
+            hudCylinderAngleDegrees_,
             hudWidthPixels_,
             hudHeightPixels_,
             hudDistanceMeters_,
@@ -515,6 +524,14 @@ struct OpenXRRuntime::Impl {
             << " openxrStereoCapturedEyes=" << static_cast<unsigned long long>(stereoCapturedEyeCount_)
             << " openxrStereoSubmittedFrames=" << static_cast<unsigned long long>(stereoSubmittedFrameCount_)
             << " openxrHudLayer=" << (hudLayerEnabled_ ? 1 : 0)
+            << " openxrHudShapeRequested=" << (hudCylinderRequested_ ? "cylinder" : "quad")
+            << " openxrHudShapeEffective=" << (hudCylinderRequested_
+                && hudCylinderExtensionEnabled_ && !hudCylinderSubmissionDisabled_
+                    ? "cylinder" : "quad")
+            << " openxrHudCylinderAngleDegrees=" << hudCylinderAngleDegrees_
+            << " openxrHudCylinderExtensionAvailable=" << (hudCylinderExtensionAvailable_ ? 1 : 0)
+            << " openxrHudCylinderExtensionEnabled=" << (hudCylinderExtensionEnabled_ ? 1 : 0)
+            << " openxrHudCylinderSubmissionDisabled=" << (hudCylinderSubmissionDisabled_ ? 1 : 0)
             << " openxrHudRuntimeVisible=" << (hudRuntimeVisible_ ? 1 : 0)
             << " openxrHudReady=" << (glBridge_.HudReady() ? 1 : 0)
             << " openxrHudSuspended=" << (hudSubmissionSuspended_ ? 1 : 0)
@@ -720,6 +737,38 @@ struct OpenXRRuntime::Impl {
         Logger::Instance().Write(LogLevel::Info,
             "openxr_hud runtime_visible=%d configured=%d",
             hudRuntimeVisible_ ? 1 : 0, hudLayerEnabled_ ? 1 : 0);
+    }
+
+    bool ToggleHudLayerShape()
+    {
+        std::lock_guard lock(mutex_);
+        if (!hudLayerEnabled_ || !hudCylinderExtensionEnabled_) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_hud shape_toggle unavailable configured=%d extensionEnabled=%d",
+                hudLayerEnabled_ ? 1 : 0,
+                hudCylinderExtensionEnabled_ ? 1 : 0);
+            return false;
+        }
+        hudCylinderRequested_ = !hudCylinderRequested_;
+        if (hudCylinderRequested_) hudCylinderSubmissionDisabled_ = false;
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "openxr_hud shape_toggle effective=%s angleDegrees=%.3f",
+            hudCylinderRequested_ ? "cylinder" : "quad",
+            hudCylinderAngleDegrees_);
+        return true;
+    }
+
+    OpenXRHudLayerShapeStatus GetHudLayerShapeStatus() const
+    {
+        std::lock_guard lock(mutex_);
+        OpenXRHudLayerShapeStatus status;
+        status.cylinderAvailable = hudLayerEnabled_
+            && hudCylinderExtensionEnabled_
+            && !hudCylinderSubmissionDisabled_;
+        status.cylinderActive = hudCylinderRequested_ && status.cylinderAvailable;
+        return status;
     }
 
     void SetInteractionReticleRuntimeVisible(bool visible)
@@ -987,10 +1036,16 @@ private:
         std::vector<const char*> enabledExtensions = {
             XR_KHR_OPENGL_ENABLE_EXTENSION_NAME,
         };
+        depthExtensionEnabled_ = false;
         if ((depthCompositionProbeEnabled_ || depthCompositionSubmitEnabled_)
             && depthExtensionAvailable_) {
             enabledExtensions.push_back("XR_KHR_composition_layer_depth");
             depthExtensionEnabled_ = true;
+        }
+        hudCylinderExtensionEnabled_ = false;
+        if (hudLayerEnabled_ && hudCylinderExtensionAvailable_) {
+            enabledExtensions.push_back(XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME);
+            hudCylinderExtensionEnabled_ = true;
         }
         createInfo.enabledExtensionCount = static_cast<uint32_t>(enabledExtensions.size());
         createInfo.enabledExtensionNames = enabledExtensions.data();
@@ -1175,6 +1230,9 @@ private:
         renderedStereoViewValid_[0] = false;
         renderedStereoViewValid_[1] = false;
         latestPoseValid_ = false;
+        depthExtensionEnabled_ = false;
+        hudCylinderExtensionEnabled_ = false;
+        hudCylinderSubmissionDisabled_ = false;
         trackingDegraded_ = false;
         trackingLost_ = false;
         consecutiveFrameFailures_ = 0;
@@ -1259,16 +1317,26 @@ private:
         const bool hasOpenGL = ExtensionPresent(extensions, XR_KHR_OPENGL_ENABLE_EXTENSION_NAME);
         const bool hasWin32Time = ExtensionPresent(extensions, "XR_KHR_win32_convert_performance_counter_time");
         depthExtensionAvailable_ = ExtensionPresent(extensions, "XR_KHR_composition_layer_depth");
+        hudCylinderExtensionAvailable_ = ExtensionPresent(
+            extensions, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME);
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_extensions count=%u khrOpenGL=%d khrWin32Time=%d khrCompositionLayerDepth=%d depthProbeRequested=%d depthSubmitRequested=%d sample=\"%s\"",
+            "openxr_extensions count=%u khrOpenGL=%d khrWin32Time=%d khrCompositionLayerDepth=%d khrCompositionLayerCylinder=%d depthProbeRequested=%d depthSubmitRequested=%d hudCylinderRequested=%d sample=\"%s\"",
             extensionCount,
             hasOpenGL ? 1 : 0,
             hasWin32Time ? 1 : 0,
             depthExtensionAvailable_ ? 1 : 0,
+            hudCylinderExtensionAvailable_ ? 1 : 0,
             depthCompositionProbeEnabled_ ? 1 : 0,
             depthCompositionSubmitEnabled_ ? 1 : 0,
+            hudCylinderRequested_ ? 1 : 0,
             ExtensionSample(extensions).c_str());
+
+        if (hudCylinderRequested_ && !hudCylinderExtensionAvailable_) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_hud shape_fallback requested=cylinder effective=quad reason=extension_unavailable");
+        }
 
         if (!hasOpenGL) {
             Logger::Instance().Write(LogLevel::Warn, "openxr_bootstrap missing_required_extension name=%s", XR_KHR_OPENGL_ENABLE_EXTENSION_NAME);
@@ -2047,6 +2115,7 @@ private:
         std::array<XrCompositionLayerDepthInfoKHR, 2> depthViews{};
         XrCompositionLayerProjection projectionLayer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
         XrCompositionLayerQuad hudLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
+        XrCompositionLayerCylinderKHR hudCylinderLayer{XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
         XrCompositionLayerQuad interactionReticleLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
         XrCompositionLayerQuad statusPanelLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
         const XrCompositionLayerBaseHeader* layers[4] = {};
@@ -2056,6 +2125,7 @@ private:
         bool submittedStereo = false;
         bool submittedDepth = false;
         bool submittedHud = false;
+        bool submittedHudCylinder = false;
         bool submittedInteractionReticle = false;
         bool submittedStatusPanel = false;
         bool viewsLocatedValid = false;
@@ -2217,40 +2287,81 @@ private:
             && stereoSubmissionEnabled_
             && viewSpace_ != XR_NULL_HANDLE
             && glBridge_.HudCaptureFresh(frameIndex, static_cast<uint64_t>(hudMaxAgeFrames_))) {
-            hud_math::HudQuadPose quadPose;
-            const bool poseValid = hud_math::BuildHeadLockedQuadPose(
-                {},
-                {},
-                hudDistanceMeters_,
-                hudVerticalOffsetMeters_,
-                hudWidthMeters_,
-                static_cast<float>(glBridge_.Hud().width) / static_cast<float>(glBridge_.Hud().height),
-                quadPose);
+            const float hudAspect = static_cast<float>(glBridge_.Hud().width)
+                / static_cast<float>(glBridge_.Hud().height);
+            const bool useCylinder = hudCylinderRequested_
+                && hudCylinderExtensionEnabled_
+                && !hudCylinderSubmissionDisabled_;
+            const XrCompositionLayerBaseHeader* hudLayerHeader = nullptr;
+            bool poseValid = false;
+            if (useCylinder) {
+                hud_math::HudCylinderPose cylinderPose;
+                poseValid = hud_math::BuildHeadLockedCylinderPose(
+                    {}, {}, hudDistanceMeters_, hudVerticalOffsetMeters_, hudWidthMeters_,
+                    hudAspect, hudCylinderAngleDegrees_, cylinderPose);
+                if (poseValid) {
+                    hudCylinderLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                    hudCylinderLayer.space = viewSpace_;
+                    hudCylinderLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                    hudCylinderLayer.pose.orientation = {
+                        cylinderPose.orientation.x,
+                        cylinderPose.orientation.y,
+                        cylinderPose.orientation.z,
+                        cylinderPose.orientation.w,
+                    };
+                    hudCylinderLayer.pose.position = {
+                        cylinderPose.position.x,
+                        cylinderPose.position.y,
+                        cylinderPose.position.z,
+                    };
+                    hudCylinderLayer.radius = cylinderPose.radiusMeters;
+                    hudCylinderLayer.centralAngle = cylinderPose.centralAngleRadians;
+                    hudCylinderLayer.aspectRatio = cylinderPose.aspectRatio;
+                    hudCylinderLayer.subImage.swapchain = glBridge_.Hud().handle;
+                    hudCylinderLayer.subImage.imageRect.offset = {0, 0};
+                    hudCylinderLayer.subImage.imageRect.extent = {
+                        glBridge_.Hud().width,
+                        glBridge_.Hud().height,
+                    };
+                    hudCylinderLayer.subImage.imageArrayIndex = 0;
+                    hudLayerHeader = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
+                        &hudCylinderLayer);
+                }
+            } else {
+                hud_math::HudQuadPose quadPose;
+                poseValid = hud_math::BuildHeadLockedQuadPose(
+                    {}, {}, hudDistanceMeters_, hudVerticalOffsetMeters_, hudWidthMeters_,
+                    hudAspect, quadPose);
+                if (poseValid) {
+                    hudLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                    hudLayer.space = viewSpace_;
+                    hudLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                    hudLayer.pose.orientation = {
+                        quadPose.orientation.x,
+                        quadPose.orientation.y,
+                        quadPose.orientation.z,
+                        quadPose.orientation.w,
+                    };
+                    hudLayer.pose.position = {
+                        quadPose.position.x,
+                        quadPose.position.y,
+                        quadPose.position.z,
+                    };
+                    hudLayer.size = {quadPose.widthMeters, quadPose.heightMeters};
+                    hudLayer.subImage.swapchain = glBridge_.Hud().handle;
+                    hudLayer.subImage.imageRect.offset = {0, 0};
+                    hudLayer.subImage.imageRect.extent = {
+                        glBridge_.Hud().width,
+                        glBridge_.Hud().height,
+                    };
+                    hudLayer.subImage.imageArrayIndex = 0;
+                    hudLayerHeader = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&hudLayer);
+                }
+            }
             if (poseValid && glBridge_.CopyHudCaptureToSwapchain()) {
-                hudLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
-                hudLayer.space = viewSpace_;
-                hudLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-                hudLayer.pose.orientation = {
-                    quadPose.orientation.x,
-                    quadPose.orientation.y,
-                    quadPose.orientation.z,
-                    quadPose.orientation.w,
-                };
-                hudLayer.pose.position = {
-                    quadPose.position.x,
-                    quadPose.position.y,
-                    quadPose.position.z,
-                };
-                hudLayer.size = {quadPose.widthMeters, quadPose.heightMeters};
-                hudLayer.subImage.swapchain = glBridge_.Hud().handle;
-                hudLayer.subImage.imageRect.offset = {0, 0};
-                hudLayer.subImage.imageRect.extent = {
-                    glBridge_.Hud().width,
-                    glBridge_.Hud().height,
-                };
-                hudLayer.subImage.imageArrayIndex = 0;
-                layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&hudLayer);
+                layers[layerCount++] = hudLayerHeader;
                 submittedHud = true;
+                submittedHudCylinder = useCylinder;
                 hudConsecutiveFailures_ = 0;
                 ++hudSubmittedFrames_;
             } else {
@@ -2376,6 +2487,10 @@ private:
             model.viewHistoryActive = statusPanelState_.viewHistoryActive;
             model.viewHistoryFaulted = statusPanelState_.viewHistoryFaulted;
             model.hudVisible = statusPanelState_.hudVisible;
+            model.hudCylinderAvailable = hudCylinderExtensionEnabled_
+                && !hudCylinderSubmissionDisabled_;
+            model.hudCylinderActive = hudCylinderRequested_
+                && model.hudCylinderAvailable;
             model.reticleVisible = statusPanelState_.reticleVisible;
             model.inputAvailable = statusPanelState_.inputAvailable;
             model.controllerTracked = statusPanelState_.controllerTracked;
@@ -2458,6 +2573,16 @@ private:
         endInfo.layers = layerCount > 0 ? layers : nullptr;
         result = xrEndFrame(session_, &endInfo);
         if (XR_FAILED(result)) {
+            if (submittedHudCylinder
+                && (result == XR_ERROR_LAYER_INVALID
+                    || result == XR_ERROR_VALIDATION_FAILURE)) {
+                hudCylinderSubmissionDisabled_ = true;
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "openxr_hud shape_fallback requested=cylinder effective=quad reason=xrEndFrame result=%s frame=%llu",
+                    XrResultString(result).c_str(),
+                    static_cast<unsigned long long>(frameIndex));
+            }
             RecordFrameFailureLocked("xrEndFrame", result, frameIndex);
             return;
         }
@@ -2511,7 +2636,7 @@ private:
         if (completedXrFrameCount_ == 1 || (completedXrFrameCount_ % 300) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d depth=%d hud=%d reticle=%d statusPanel=%d spectatorFrames=%llu stereoCaptured=%llu stereoSubmitted=%llu depthSubmitted=%llu depthFailures=%llu hudSubmitted=%llu reticleSubmitted=%llu panelSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
+                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d depth=%d hud=%d hudShape=%s reticle=%d statusPanel=%d spectatorFrames=%llu stereoCaptured=%llu stereoSubmitted=%llu depthSubmitted=%llu depthFailures=%llu hudSubmitted=%llu reticleSubmitted=%llu panelSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
                 static_cast<unsigned long long>(frameIndex),
                 static_cast<unsigned long long>(completedXrFrameCount_),
                 frameState.shouldRender == XR_TRUE ? 1 : 0,
@@ -2520,6 +2645,7 @@ private:
                 submittedStereo ? 1 : 0,
                 submittedDepth ? 1 : 0,
                 submittedHud ? 1 : 0,
+                submittedHud ? (submittedHudCylinder ? "cylinder" : "quad") : "none",
                 submittedInteractionReticle ? 1 : 0,
                 submittedStatusPanel ? 1 : 0,
                 static_cast<unsigned long long>(desktopMirrorFrames_),
@@ -2681,6 +2807,11 @@ private:
     int trackingHoldFrames_ = 30;
     int trackingRecoveryBlackoutFrames_ = 2;
     bool hudLayerEnabled_ = false;
+    bool hudCylinderRequested_ = false;
+    bool hudCylinderExtensionAvailable_ = false;
+    bool hudCylinderExtensionEnabled_ = false;
+    bool hudCylinderSubmissionDisabled_ = false;
+    float hudCylinderAngleDegrees_ = 70.0f;
     bool hudSubmissionSuspended_ = false;
     int hudWidthPixels_ = 1600;
     int hudHeightPixels_ = 900;
@@ -2821,6 +2952,8 @@ struct OpenXRRuntime::Impl {
         int trackingHoldFrames,
         int trackingRecoveryBlackoutFrames,
         bool hudLayerEnabled,
+        const std::string& hudShape,
+        float hudCylinderAngleDegrees,
         int hudWidthPixels,
         int hudHeightPixels,
         float hudDistanceMeters,
@@ -2868,12 +3001,14 @@ struct OpenXRRuntime::Impl {
         trackingHoldFrames_ = trackingHoldFrames;
         trackingRecoveryBlackoutFrames_ = trackingRecoveryBlackoutFrames;
         hudLayerEnabled_ = hudLayerEnabled;
+        hudCylinderRequested_ = hudShape == "cylinder";
+        hudCylinderAngleDegrees_ = hudCylinderAngleDegrees;
         statusPanelEnabled_ = statusPanelEnabled;
         manualStartArmed_ = false;
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d desktopMirrorEye=%s desktopMirrorAspect=%s depth={probe=%d submit=%d} resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
+            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d desktopMirrorEye=%s desktopMirrorAspect=%s depth={probe=%d submit=%d} resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d shape=%s cylinderAngleDegrees=%.3f size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -2895,6 +3030,8 @@ struct OpenXRRuntime::Impl {
             trackingHoldFrames_,
             trackingRecoveryBlackoutFrames_,
             hudLayerEnabled_ ? 1 : 0,
+            hudCylinderRequested_ ? "cylinder" : "quad",
+            hudCylinderAngleDegrees_,
             hudWidthPixels,
             hudHeightPixels,
             hudDistanceMeters,
@@ -2957,6 +3094,10 @@ struct OpenXRRuntime::Impl {
             << " openxrManualStartArmed=" << (manualStartArmed_ ? 1 : 0)
             << " openxrManualStartFrame=0"
             << " openxrFrameSubmit=" << (frameSubmitEnabled_ ? 1 : 0)
+            << " openxrHudLayer=" << (hudLayerEnabled_ ? 1 : 0)
+            << " openxrHudShapeRequested=" << (hudCylinderRequested_ ? "cylinder" : "quad")
+            << " openxrHudShapeEffective=quad"
+            << " openxrHudCylinderAngleDegrees=" << hudCylinderAngleDegrees_
             << " openxrDepthCompositionProbe=" << (depthCompositionProbeEnabled_ ? 1 : 0)
             << " openxrDepthCompositionSubmit=" << (depthCompositionSubmitEnabled_ ? 1 : 0)
             << " openxrMirrorBackbuffer=" << (mirrorBackbufferEnabled_ ? 1 : 0)
@@ -3013,6 +3154,8 @@ struct OpenXRRuntime::Impl {
     void ClearInteractionReticle() {}
     void SetStatusPanel(const OpenXRStatusPanelState&) {}
     void SetHudRuntimeVisible(bool) {}
+    bool ToggleHudLayerShape() { return false; }
+    OpenXRHudLayerShapeStatus GetHudLayerShapeStatus() const { return {}; }
     void SetInteractionReticleRuntimeVisible(bool) {}
 
     void SetStereoSubmissionEnabled(bool) {}
@@ -3052,6 +3195,8 @@ private:
     int trackingHoldFrames_ = 30;
     int trackingRecoveryBlackoutFrames_ = 2;
     bool hudLayerEnabled_ = false;
+    bool hudCylinderRequested_ = false;
+    float hudCylinderAngleDegrees_ = 70.0f;
     bool statusPanelEnabled_ = false;
     bool mirrorBackbufferEnabled_ = true;
     std::string desktopMirrorEye_ = "native";
@@ -3092,6 +3237,8 @@ void OpenXRRuntime::Configure(
     int trackingHoldFrames,
     int trackingRecoveryBlackoutFrames,
     bool hudLayerEnabled,
+    const std::string& hudShape,
+    float hudCylinderAngleDegrees,
     int hudWidthPixels,
     int hudHeightPixels,
     float hudDistanceMeters,
@@ -3139,6 +3286,8 @@ void OpenXRRuntime::Configure(
         trackingHoldFrames,
         trackingRecoveryBlackoutFrames,
         hudLayerEnabled,
+        hudShape,
+        hudCylinderAngleDegrees,
         hudWidthPixels,
         hudHeightPixels,
         hudDistanceMeters,
@@ -3233,6 +3382,16 @@ void OpenXRRuntime::SetStatusPanel(const OpenXRStatusPanelState& state)
 void OpenXRRuntime::SetHudRuntimeVisible(bool visible)
 {
     impl_->SetHudRuntimeVisible(visible);
+}
+
+bool OpenXRRuntime::ToggleHudLayerShape()
+{
+    return impl_->ToggleHudLayerShape();
+}
+
+OpenXRHudLayerShapeStatus OpenXRRuntime::GetHudLayerShapeStatus() const
+{
+    return impl_->GetHudLayerShapeStatus();
 }
 
 void OpenXRRuntime::SetInteractionReticleRuntimeVisible(bool visible)

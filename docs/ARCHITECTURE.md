@@ -31,7 +31,7 @@ HPLInputBridge
 
 HPLStatusPanelBridge
   -> immutable player/camera/input snapshots
-  -> guarded recenter, roomscale, projection, same-frame stereo, HUD, and reticle controls
+  -> guarded recenter, roomscale, projection, same-frame stereo, HUD visibility/shape, and reticle controls
   -> OpenXRRuntime status model publication
 
 HPLDualRenderControl
@@ -92,7 +92,7 @@ HPLUserModuleBridge
   -> HPLPresentationBridge bounded inventory activity publication
 
 HPLHudMath
-  -> tested head/aim-locked quad pose, aspect, angular-size, semantic color,
+  -> tested head/aim-locked quad/cylinder pose, physical aspect, angular-size, semantic color,
      and semantic haptic-profile calculation
 
 OpenXRRuntime
@@ -121,7 +121,7 @@ lifecycle.
 | `DllMain` | DLL attach worker, ordered subsystem install/shutdown | Feature logic, OpenGL/OpenXR calls, native camera policy |
 | `OpenGLHooks` | Hook registration, GL/WGL interception, frame-boundary dispatch | New gameplay systems or OpenXR session policy |
 | `OpenGLMatrixAnalysis` | Pure matrix classification and formatting | GL state, logging lifecycle, hooks |
-| `OpenXRRuntime` | Instance/system/session state, delayed loss recovery, frame pacing, view snapshots, projection/quad layer submission and bounded comfort-black frames | HPL camera transforms or gameplay input semantics |
+| `OpenXRRuntime` | Instance/system/session state, delayed loss recovery, frame pacing, extension negotiation, view snapshots, projection/quad/cylinder layer submission and bounded comfort-black frames | HPL camera transforms or gameplay input semantics |
 | `OpenXRInput` | OpenXR action set, five standard suggested profiles, active per-hand interaction-profile diagnostics, action synchronization, grip/aim spaces, immutable input snapshots | SOMA movement, interaction, hand placement, or camera policy |
 | `ConfigPreset` | Pure named comfort-profile parsing and application before ordinary INI overrides | File I/O, native hooks, runtime toggles, or experimental feature activation |
 | Injector doctor | Non-invasive build/config/runtime/game/proxy readiness report with failing exit status for hard prerequisites | Launch, injection, runtime instance creation, or headset hardware acceptance |
@@ -154,7 +154,7 @@ lifecycle.
 | `HPLHandsMath` | Pure HPL basis reconstruction, scale preservation, and configurable root calibration | Native pointers, entity identity, tracking policy, or logging |
 | `HPLFlashlightMath` | Pure OpenXR aim to HPL negative-Z spotlight basis, local calibration, and source-to-target cone-direction preservation | Native pointers, light identity/lifetime, tracking policy, ray classification, or logging |
 | `HPLHudBridge` | Signature-guarded GameHudSet/GameHudImGui capture plus exact pause, wake, dead-state, and inventory current-ImGui routing with per-set telemetry | OpenXR swapchain/session ownership, broad current-ImGui capture, or diegetic GUI policy |
-| `HPLHudMath` | Pure quad pose, angular size, and aspect validation | GL state, OpenXR handles, native pointers, or logging |
+| `HPLHudMath` | Pure quad/cylinder pose, physical arc, angular size, and aspect validation | GL state, OpenXR handles, native pointers, or logging |
 | `HPLSubtitleBridge` | Signature-guarded scoped override/restore of native voice subtitle layout during active stereo | Subtitle content, localization, timing, enable state, font resources, or HUD swapchains |
 | `HPLSubtitleMath` | Pure validated subtitle width/font/Y/shadow scaling | Native pointers, hooks, camera state, or logging |
 | `HPLCompatibilityProbe` | Bounded render/audio/post-effect telemetry, left/right/mono CPU stage totals, temporary probes, and the single exact-player viewport replay hook shared by bounded and continuous dual render; shared pose math comes from `HPLCameraMath` | Permanent dual-render user policy, GUI/HUD feature policy, GPU timing ownership, or unrelated gameplay systems |
@@ -193,7 +193,7 @@ The maintenance passes now include eleven focused extractions:
   guarded source instead of duplicating executable offsets.
 - `HPLHudBridge` owns the GUI-set hook and exact gameplay-HUD capture policy,
   removing permanent HUD behavior from `HPLCompatibilityProbe`.
-- `HPLHudMath` owns testable VIEW-space quad placement and sizing while
+- `HPLHudMath` owns testable VIEW-space quad/cylinder placement and sizing while
   `OpenXRGLBridge` owns only GL/swapchain resources.
 - `HPLHandsMath` owns testable controller-grip to HPL root reconstruction while
   `HPLHandsBridge` owns exact identity and native-state policy.
@@ -209,7 +209,7 @@ The maintenance passes now include eleven focused extractions:
 
 `somavr_render_math_tests` now protects symmetric tangent-span preservation,
 zero projection offsets, projection construction, temporal mutation ranges,
-pose/matrix basics, HUD quad
+pose/matrix basics, HUD quad/cylinder
 placement/aspect validation, controller-hand basis/calibration, paused-menu aim
 projection, radial stick scaling, turn-angle conversion, and OpenGL projection classification in
 both build flavors.

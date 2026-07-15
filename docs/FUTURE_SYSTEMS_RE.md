@@ -670,7 +670,7 @@ flowchart LR
     F --> G[SwapBuffers]
     B --> H[Left/right eye cache]
     H --> I[OpenXR projection layer]
-    F --> J[Future OpenXR quad layer]
+    F --> J[OpenXR quad or cylinder HUD layer]
 ```
 
 ## Locomotion
@@ -829,7 +829,7 @@ This is the narrow capture boundary now owned by `HPLHudBridge`:
 ```text
 first exact gameplay or paused-menu set -> clear transparent capture FBO
 later exact set in same frame            -> append without clearing
-combined texture -> HUD OpenXR swapchain  -> VIEW-space alpha quad
+combined texture -> HUD OpenXR swapchain  -> VIEW-space alpha quad/cylinder
 ```
 
 The bridge restores incoming framebuffer/viewport/buffer state after each exact
@@ -882,13 +882,16 @@ the exact gameplay set during final GUI iteration at `0x1402981e0`, redirects
 its 2D draw at `0x140213970` to a transparent HUD framebuffer, then restores
 the world eye target before the next set and presentation.
 
-The HUD texture can be submitted as an `XrCompositionLayerQuad`:
+The HUD texture can be submitted as an `XrCompositionLayerQuad` or, when the
+instance exposes `XR_KHR_composition_layer_cylinder`, as a curved layer:
 
 - default head-locked distance around 1.5 to 2.0 meters;
 - configurable angular size and vertical offset;
 - alpha-preserving format;
 - no reprojection of the HUD through the scene camera;
-- optional curved geometry later if a flat quad is uncomfortable at wide sizes.
+- built `0.50.0` curved geometry derives radius from physical arc width and angle,
+  preserves texture aspect and center distance, toggles live through F1, and
+  falls back to the quad on missing-extension or validation failure.
 
 Menus should pause or suppress locomotion and use the controller ray as a mouse pointer. Controller buttons should still enter SOMA's existing menu actions so navigation logic remains native.
 
@@ -906,7 +909,10 @@ Use that state to select feedback at the controller ray hit:
 
 1. **GUI target probe:** built in `0.7.2` and moved into `HPLHudBridge` in `0.15.0`; exact matches preserve virtual metrics, GL state, and draw deltas.
 2. **HUD-only framebuffer:** built in `0.15.0`; exact GameHudSet draws into a transparent target while the per-eye scene and nonmatching sets remain untouched.
-3. **OpenXR quad layer:** gameplay HUD submission in VIEW space is built in `0.15.0`; exact gameplay ImGui joined in `0.31.0` and pause-gated current ImGui joined in `0.34.0`.
+3. **OpenXR compositor layer:** gameplay HUD submission in VIEW space is built
+   in `0.15.0`; exact gameplay ImGui joined in `0.31.0`, pause-gated current
+   ImGui joined in `0.34.0`, and `0.50.0` adds extension-negotiated curved
+   geometry with live quad fallback.
 4. **Controller pointer:** paused native-window pointer and click routing are
    built in `0.16.0`; direct virtual-GUI coordinates and non-pausing ImGui
    surfaces still need identity/presentation classification.
@@ -1012,7 +1018,7 @@ These probes are ordered to minimize runtime risk and maximize reusable informat
 5. GUI-set final target and alpha behavior. **GL state/flow probe built; transparent-target redirection remains.**
 6. OpenXR controller action set and semantic input bridge. **Built; `0.14.0`
    adds a guarded native normal-state fast path with semantic fallback.**
-7. HUD quad-layer extraction.
+7. HUD quad/cylinder-layer extraction.
 8. Controller-driven hands and interaction ray.
 
 ## Graphify Seed

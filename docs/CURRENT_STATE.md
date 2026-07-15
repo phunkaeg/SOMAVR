@@ -21,10 +21,17 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.49.0-readiness-presets`, layered on the
+The active build candidate is `0.50.0-curved-hud`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- The compositor HUD now supports both flat and curved presentation. When
+  `XR_KHR_composition_layer_cylinder` is available, the active profile submits
+  the captured alpha HUD on a 70-degree head-locked cylinder whose physical arc
+  width, aspect-derived height, and center distance match the quad contract.
+  The F1 panel switches shape live. Missing-extension and layer-validation paths
+  retain or restore the quad without changing HUD capture or scene stereo.
 
 - Inventory presentation now has an exact native activity authority. The
   signature-guarded `cLuxUserModule::OnAction` wrapper admits current ImGui to
@@ -638,11 +645,14 @@ The OpenXR build now asks for:
 ```
 
 2. Run `somavr_injector --doctor <Soma_NoSteam.exe>` and require zero failures,
-   then confirm `version=0.49.0-readiness-presets`,
+   then confirm `version=0.50.0-curved-hud`,
    `hpl_per_eye_view_history initialized configured=1 packetBytes=0x40`, and no
    hook/signature failure. Load a save, face forward, and press F10 once.
 3. Confirm the proven rigid world, eye height, centered projection, depth,
    shadows, reflections, controller input, HUD, and audio before changing mode.
+   Open F1 and confirm `HUD SHAPE: CURVED`; toggle to `QUAD` and back while
+   checking identical alpha, center distance, vertical placement, and content.
+   An unsupported runtime must show `HUD SHAPE: QUAD ONLY` without XR failures.
 4. Before changing modes, `VIEW HISTORY` must already be `ACTIVE` in F10 AFR.
    Expect alternating eye `0/1` restores/captures. Recenter once and confirm a
    single generation reseed. Then enable `SAME FRAME STEREO` and confirm both

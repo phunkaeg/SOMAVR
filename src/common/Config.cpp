@@ -237,6 +237,8 @@ void ConfigManager::WriteDefaultConfig() const
         << "TrackingHoldFrames=30\n"
         << "TrackingRecoveryBlackoutFrames=2\n"
         << "HudLayer=0\n"
+        << "HudShape=quad\n"
+        << "HudCylinderAngleDegrees=70\n"
         << "HudWidthPixels=1600\n"
         << "HudHeightPixels=900\n"
         << "HudDistanceMeters=1.5\n"
@@ -583,6 +585,12 @@ void ConfigManager::LoadFromFile()
                 config_.openxrTrackingRecoveryBlackoutFrames = ParseInt(value, config_.openxrTrackingRecoveryBlackoutFrames, 0, 120);
             } else if (key == "hudlayer") {
                 config_.openxrHudLayer = ParseBool(value, config_.openxrHudLayer);
+            } else if (key == "hudshape") {
+                const std::string shape = Lower(value);
+                config_.openxrHudShape = shape == "cylinder" ? "cylinder" : "quad";
+            } else if (key == "hudcylinderangledegrees") {
+                config_.openxrHudCylinderAngleDegrees = ParseFloat(
+                    value, config_.openxrHudCylinderAngleDegrees, 15.0f, 180.0f);
             } else if (key == "hudwidthpixels") {
                 config_.openxrHudWidthPixels = ParseInt(value, config_.openxrHudWidthPixels, 256, 4096);
             } else if (key == "hudheightpixels") {

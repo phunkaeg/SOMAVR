@@ -117,12 +117,15 @@ void ActivateSelected(HPLCameraBridgeStatus& camera)
         if (g_openxr != nullptr) g_openxr->SetHudRuntimeVisible(g_state.hudVisible);
         break;
     case 5:
+        if (g_openxr != nullptr) g_openxr->ToggleHudLayerShape();
+        break;
+    case 6:
         g_state.reticleVisible = !g_state.reticleVisible;
         if (g_openxr != nullptr) {
             g_openxr->SetInteractionReticleRuntimeVisible(g_state.reticleVisible);
         }
         break;
-    case 6:
+    case 7:
         SetVisible(false, "close_action");
         break;
     default:
@@ -130,15 +133,19 @@ void ActivateSelected(HPLCameraBridgeStatus& camera)
     }
     g_actions.fetch_add(1, std::memory_order_relaxed);
     const HPLDualRenderControlStatus dualRender = GetHPLDualRenderControlStatus();
+    const OpenXRHudLayerShapeStatus hudShape = g_openxr != nullptr
+        ? g_openxr->GetHudLayerShapeStatus() : OpenXRHudLayerShapeStatus{};
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_status_panel action=%d roomscale=%d centered=%d continuousDualRender=%d dualRenderReady=%d hud=%d reticle=%d visible=%d",
+        "hpl_status_panel action=%d roomscale=%d centered=%d continuousDualRender=%d dualRenderReady=%d hud=%d hudCylinderAvailable=%d hudCylinderActive=%d reticle=%d visible=%d",
         g_state.selectedAction,
         camera.roomscaleEnabled ? 1 : 0,
         camera.projectionCentered ? 1 : 0,
         dualRender.enabled ? 1 : 0,
         dualRender.ready ? 1 : 0,
         g_state.hudVisible ? 1 : 0,
+        hudShape.cylinderAvailable ? 1 : 0,
+        hudShape.cylinderActive ? 1 : 0,
         g_state.reticleVisible ? 1 : 0,
         g_state.visible ? 1 : 0);
 }
@@ -235,9 +242,11 @@ void LogHPLStatusPanelBridgeSummary()
 {
     std::lock_guard lock(g_mutex);
     const HPLDualRenderControlStatus dualRender = GetHPLDualRenderControlStatus();
+    const OpenXRHudLayerShapeStatus hudShape = g_openxr != nullptr
+        ? g_openxr->GetHudLayerShapeStatus() : OpenXRHudLayerShapeStatus{};
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_status_panel_summary installed=%d visible=%d selected=%d updates=%llu visibleFrames=%llu opens=%llu actions=%llu continuousDualRender=%d dualRenderReady=%d hud=%d reticle=%d",
+        "hpl_status_panel_summary installed=%d visible=%d selected=%d updates=%llu visibleFrames=%llu opens=%llu actions=%llu continuousDualRender=%d dualRenderReady=%d hud=%d hudCylinderAvailable=%d hudCylinderActive=%d reticle=%d",
         g_state.installed ? 1 : 0,
         g_state.visible ? 1 : 0,
         g_state.selectedAction,
@@ -248,6 +257,8 @@ void LogHPLStatusPanelBridgeSummary()
         dualRender.enabled ? 1 : 0,
         dualRender.ready ? 1 : 0,
         g_state.hudVisible ? 1 : 0,
+        hudShape.cylinderAvailable ? 1 : 0,
+        hudShape.cylinderActive ? 1 : 0,
         g_state.reticleVisible ? 1 : 0);
 }
 

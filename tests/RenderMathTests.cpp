@@ -524,6 +524,31 @@ int main()
         !hud_math::BuildHeadLockedQuadPose({}, {}, 0.0f, 0.0f, 1.0f, 1.0f, hudPose),
         "head-locked HUD rejects invalid distance");
 
+    hud_math::HudCylinderPose cylinderPose;
+    failures += Check(
+        hud_math::BuildHeadLockedCylinderPose(
+            {1.0f, 2.0f, 3.0f}, {}, 1.5f, 0.1f, 1.6f, 16.0f / 9.0f,
+            60.0f, cylinderPose),
+        "head-locked curved HUD pose construction");
+    failures += Check(
+        Near(cylinderPose.radiusMeters, 1.527887f, 0.00001f)
+            && Near(cylinderPose.centralAngleRadians, 1.047198f, 0.00001f)
+            && Near(cylinderPose.aspectRatio, 16.0f / 9.0f),
+        "curved HUD derives radius and angle from physical arc width");
+    failures += Check(
+        Near(cylinderPose.position.x, 1.0f)
+            && Near(cylinderPose.position.y, 2.1f)
+            && Near(cylinderPose.position.z, 3.027887f, 0.00001f)
+            && Near(
+                cylinderPose.radiusMeters * cylinderPose.centralAngleRadians
+                    / cylinderPose.aspectRatio,
+                0.9f),
+        "curved HUD preserves center distance and texture aspect height");
+    failures += Check(
+        !hud_math::BuildHeadLockedCylinderPose(
+            {}, {}, 1.5f, 0.0f, 1.6f, 1.0f, 360.0f, cylinderPose),
+        "curved HUD rejects a full-circle layer");
+
     camera_math::Vector3 screenEffectPosition;
     failures += Check(
         screen_effect_math::ScaleCameraRelativePosition(
@@ -1040,6 +1065,8 @@ int main()
     panel.viewHistoryConfigured = true;
     panel.viewHistoryActive = true;
     panel.hudVisible = true;
+    panel.hudCylinderAvailable = true;
+    panel.hudCylinderActive = true;
     panel.reticleVisible = true;
     panel.inputAvailable = true;
     panel.controllerTracked = true;
@@ -1056,7 +1083,7 @@ int main()
     failures += Check(
         !status_panel_math::RasterizePanel(panel, 128, 128, panelPixels),
         "VR status panel rejects undersized targets");
-    failures += Check(status_panel_math::kActionCount == 7, "VR status panel action contract");
+    failures += Check(status_panel_math::kActionCount == 8, "VR status panel action contract");
 
     if (failures == 0) {
         std::cout << "Render math tests passed\n";

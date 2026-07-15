@@ -268,8 +268,10 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplControllerGameplayHapticSegmentMs);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "hud_config enabled=%d size=%dx%d distanceMeters=%.3f widthMeters=%.3f verticalOffsetMeters=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d",
+        "hud_config enabled=%d shape=%s cylinderAngleDegrees=%.3f size=%dx%d distanceMeters=%.3f widthMeters=%.3f verticalOffsetMeters=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d",
         g_config->Get().openxrHudLayer ? 1 : 0,
+        g_config->Get().openxrHudShape.c_str(),
+        g_config->Get().openxrHudCylinderAngleDegrees,
         g_config->Get().openxrHudWidthPixels,
         g_config->Get().openxrHudHeightPixels,
         g_config->Get().openxrHudDistanceMeters,
@@ -342,6 +344,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrTrackingHoldFrames,
         g_config->Get().openxrTrackingRecoveryBlackoutFrames,
         g_config->Get().openxrHudLayer,
+        g_config->Get().openxrHudShape,
+        g_config->Get().openxrHudCylinderAngleDegrees,
         g_config->Get().openxrHudWidthPixels,
         g_config->Get().openxrHudHeightPixels,
         g_config->Get().openxrHudDistanceMeters,

@@ -5,7 +5,7 @@
 
 namespace somavr::status_panel_math {
 
-constexpr int kActionCount = 7;
+constexpr int kActionCount = 8;
 
 struct PanelModel {
     bool visible = false;
@@ -20,6 +20,8 @@ struct PanelModel {
     bool viewHistoryActive = false;
     bool viewHistoryFaulted = false;
     bool hudVisible = false;
+    bool hudCylinderAvailable = false;
+    bool hudCylinderActive = false;
     bool reticleVisible = false;
     bool inputAvailable = false;
     bool controllerTracked = false;

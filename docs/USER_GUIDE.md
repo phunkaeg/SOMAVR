@@ -44,7 +44,20 @@ game failures before injection.
 Load a save on the monitor, face forward, and press `F10` once. F10 enters or
 leaves the complete VR camera/stereo path. `F2` recenters. `F1` opens the
 head-locked status/options panel. Same-frame stereo remains an explicit panel
-option; AFR remains the fallback.
+option; AFR remains the fallback. When supported, `HUD SHAPE` switches the
+gameplay HUD between a flat quad and curved cylinder without restarting.
+
+The packaged profile requests a 70-degree curve. To select it explicitly:
+
+```ini
+[OpenXR]
+HudShape=cylinder
+HudCylinderAngleDegrees=70
+```
+
+Use `HudShape=quad` for the original presentation. A runtime without
+`XR_KHR_composition_layer_cylinder`, or one that rejects the layer, uses the
+quad automatically.
 
 ## Comfort Presets
 

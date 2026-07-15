@@ -2,6 +2,31 @@
 
 ## 2026-07-15
 
+### 0.50.0-curved-hud
+
+- Added optional `XR_KHR_composition_layer_cylinder` HUD submission. The runtime
+  enumerates and enables the instance extension when the configured HUD can use
+  it, while unsupported runtimes retain the existing alpha quad automatically.
+- Added tested physical geometry derived from the existing HUD width, texture
+  aspect, configured center distance, and `HudCylinderAngleDegrees`. Radius is
+  arc width divided by angle; the cylinder axis is offset by that radius so the
+  center of the visible surface remains at the same distance as the flat HUD.
+  This follows the proven UEVR overlay approach and the Khronos cylinder-layer
+  height/aspect contract.
+- Added `HUD SHAPE: CURVED/QUAD` to the F1 panel. Shape changes are immediate
+  and do not rebuild the HUD swapchain. An unavailable extension reports
+  `QUAD ONLY`; an `XR_ERROR_LAYER_INVALID` or validation rejection disables
+  cylinder submission and returns to the quad on the following frame. The
+  active test profile requests a 70-degree curve; generated configs remain on
+  `quad`.
+- Added configuration/parser, cylinder geometry, physical aspect, invalid-angle,
+  and eight-action panel tests. Both default and OpenXR Release trees pass all
+  four CTest suites. The packaged doctor reports `pass=7 warn=0 fail=0`.
+  OpenXR DLL SHA-256:
+  `3B123116D1E18BE4E1C5F3A0A1E59FDC3279305B8588AD98B4B915E2447D72D5`.
+  Package SHA-256:
+  `938BE2A691C5BA2ED57027809554D5C28EAEBDF39E1A9EA501903D9670381F4C`.
+
 ### 0.49.0-readiness-presets
 
 - Added `[Comfort] Preset=custom|minimal|balanced|maximum`. The loader pre-scans

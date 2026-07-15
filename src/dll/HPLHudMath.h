@@ -11,6 +11,14 @@ struct HudQuadPose {
     float heightMeters = 0.0f;
 };
 
+struct HudCylinderPose {
+    camera_math::Vector3 position{};
+    camera_math::Quaternion orientation{};
+    float radiusMeters = 0.0f;
+    float centralAngleRadians = 0.0f;
+    float aspectRatio = 0.0f;
+};
+
 struct InteractionReticleColor {
     float red = 0.30f;
     float green = 0.95f;
@@ -26,6 +34,16 @@ bool BuildHeadLockedQuadPose(
     float widthMeters,
     float textureAspect,
     HudQuadPose& pose);
+
+bool BuildHeadLockedCylinderPose(
+    const camera_math::Vector3& headPosition,
+    const camera_math::Quaternion& headOrientation,
+    float distanceMeters,
+    float verticalOffsetMeters,
+    float widthMeters,
+    float textureAspect,
+    float centralAngleDegrees,
+    HudCylinderPose& pose);
 
 bool ComputeAngularQuadSize(
     float distanceMeters,

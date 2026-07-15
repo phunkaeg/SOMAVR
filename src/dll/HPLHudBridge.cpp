@@ -32,6 +32,8 @@ constexpr uintptr_t kImGuiGetSetRva = 0x071f20;
 constexpr GLenum kGlDrawFramebufferBinding = 0x8ca6;
 constexpr GLenum kGlCurrentProgram = 0x8b8d;
 constexpr int kDeadPlayerState = 17;
+constexpr int kReadPlayerState = 10;
+constexpr int kZoomAreaPlayerState = 18;
 
 using GuiSetRenderFn = void (*)(void*, void*);
 using GetImGuiFn = void* (*)();
@@ -51,6 +53,7 @@ std::mutex g_mutex;
 std::vector<void*> g_seenGuiSets;
 void* g_lastCurrentImGui = nullptr;
 void* g_lastCurrentImGuiSet = nullptr;
+int g_lastCurrentImGuiPlayerState = -1;
 std::atomic<uint64_t> g_renderCalls = 0;
 std::atomic<uint64_t> g_gameHudMatches = 0;
 std::atomic<uint64_t> g_currentImGuiSetMatches = 0;
@@ -66,6 +69,9 @@ std::atomic<uint64_t> g_wakeCurrentImGuiMatches = 0;
 std::atomic<uint64_t> g_wakeCurrentImGuiCaptureCompletions = 0;
 std::atomic<uint64_t> g_inventoryCurrentImGuiMatches = 0;
 std::atomic<uint64_t> g_inventoryCurrentImGuiCaptureCompletions = 0;
+std::atomic<uint64_t> g_readCurrentImGuiMatches = 0;
+std::atomic<uint64_t> g_zoomCurrentImGuiMatches = 0;
+std::atomic<uint64_t> g_currentImGuiPlayerStateTransitions = 0;
 std::atomic<uint64_t> g_captureAttempts = 0;
 std::atomic<uint64_t> g_captureStarts = 0;
 std::atomic<uint64_t> g_captureCompletions = 0;
@@ -258,6 +264,10 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
         && isCurrentImGuiSet && isFlatGuiSet && IsHPLWakePresentationActive();
     const bool isInventoryCurrentImGuiSet = g_config.hplInventoryPresentationControl
         && isCurrentImGuiSet && isFlatGuiSet && IsHPLInventoryPresentationActive();
+    const bool isReadCurrentImGuiSet = isCurrentImGuiSet && isFlatGuiSet
+        && playerStateValid && player.playerStateId == kReadPlayerState;
+    const bool isZoomCurrentImGuiSet = isCurrentImGuiSet && isFlatGuiSet
+        && playerStateValid && player.playerStateId == kZoomAreaPlayerState;
     if (isCurrentImGuiSet) {
         g_currentImGuiSetMatches.fetch_add(1, std::memory_order_relaxed);
     }
@@ -275,6 +285,12 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     }
     if (isInventoryCurrentImGuiSet) {
         g_inventoryCurrentImGuiMatches.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (isReadCurrentImGuiSet) {
+        g_readCurrentImGuiMatches.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (isZoomCurrentImGuiSet) {
+        g_zoomCurrentImGuiMatches.fetch_add(1, std::memory_order_relaxed);
     }
 
     GLint framebufferBefore = 0;
@@ -328,6 +344,7 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
 
     bool newlySeen = false;
     bool imGuiIdentityChanged = false;
+    bool currentImGuiPlayerStateChanged = false;
     {
         std::lock_guard lock(g_mutex);
         if (std::find(g_seenGuiSets.begin(), g_seenGuiSets.end(), guiSet) == g_seenGuiSets.end()
@@ -340,9 +357,15 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
             g_lastCurrentImGuiSet = currentImGuiSet;
             imGuiIdentityChanged = true;
         }
+        if (playerStateValid && player.playerStateId != g_lastCurrentImGuiPlayerState) {
+            g_lastCurrentImGuiPlayerState = player.playerStateId;
+            currentImGuiPlayerStateChanged = true;
+            g_currentImGuiPlayerStateTransitions.fetch_add(1, std::memory_order_relaxed);
+        }
     }
     const uint64_t interval = static_cast<uint64_t>(std::max(g_config.hplCompatibilityLogInterval, 1));
-    if (newlySeen || imGuiIdentityChanged || call <= 16 || call % interval == 0
+    if (newlySeen || imGuiIdentityChanged || currentImGuiPlayerStateChanged
+        || call <= 16 || call % interval == 0
         || (isCapturedHudSet && captureStarted != captureCompleted)) {
         uint8_t depthLayer = 0;
         float virtualWidth = 0.0f;
@@ -362,7 +385,7 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
         ReadField(guiSet, 0x188, priority);
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_gui_set frame=%llu call=%llu stage=%s set=%p target=%p gameHud=%d gameHudSet=%p imGui={current=%p currentSet=%p currentMatch=%d gameHud=%p gameHudSet=%p gameHudMatch=%d} pause={enabled=%d valid=%d paused=%d capturedCurrent=%d} scripted={enabled=%d playerStateValid=%d playerState=%d dead=%d wake=%d wakeAsleep=%d inventoryEnabled=%d inventory=%d} is3d=%d depthLayer=%d virtualSize=%.1f,%.1f offset=%.1f,%.1f depthRange=%.3f,%.3f priority=%d hudMetrics={virtualCenterSize=%.1f,%.1f virtualSize=%.1f,%.1f virtualStart=%.1f,%.1f,%.1f centerScreenSize=%.1f,%.1f centerScreenStart=%.1f,%.1f,%.1f} hudCapture={enabled=%d started=%d completed=%d} calls={drawElements=%llu drawArrays=%llu framebuffer=%llu program=%llu} gl={fbo=%d->%d program=%d->%d}",
+            "hpl_gui_set frame=%llu call=%llu stage=%s set=%p target=%p gameHud=%d gameHudSet=%p imGui={current=%p currentSet=%p currentMatch=%d gameHud=%p gameHudSet=%p gameHudMatch=%d stateChanged=%d} pause={enabled=%d valid=%d paused=%d capturedCurrent=%d} scripted={enabled=%d playerStateValid=%d playerState=%d dead=%d wake=%d wakeAsleep=%d inventoryEnabled=%d inventory=%d read=%d zoom=%d} is3d=%d depthLayer=%d virtualSize=%.1f,%.1f offset=%.1f,%.1f depthRange=%.3f,%.3f priority=%d hudMetrics={virtualCenterSize=%.1f,%.1f virtualSize=%.1f,%.1f virtualStart=%.1f,%.1f,%.1f centerScreenSize=%.1f,%.1f centerScreenStart=%.1f,%.1f,%.1f} hudCapture={enabled=%d started=%d completed=%d} calls={drawElements=%llu drawArrays=%llu framebuffer=%llu program=%llu} gl={fbo=%d->%d program=%d->%d}",
             static_cast<unsigned long long>(frame),
             static_cast<unsigned long long>(call),
             GetHPLRenderStageName(GetActiveHPLRenderStage()),
@@ -376,6 +399,7 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
             gameHudImGui,
             gameHudImGuiSet,
             isGameHudImGuiSet ? 1 : 0,
+            currentImGuiPlayerStateChanged ? 1 : 0,
             g_config.openxrHudCapturePausedMenu ? 1 : 0,
             pauseStateValid ? 1 : 0,
             paused ? 1 : 0,
@@ -388,6 +412,8 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
             IsHPLWakeAsleep() ? 1 : 0,
             g_config.hplInventoryPresentationControl ? 1 : 0,
             isInventoryCurrentImGuiSet ? 1 : 0,
+            isReadCurrentImGuiSet ? 1 : 0,
+            isZoomCurrentImGuiSet ? 1 : 0,
             is3d != 0 ? 1 : 0,
             depthLayer != 0 ? 1 : 0,
             virtualWidth,
@@ -523,7 +549,7 @@ void LogHPLHudBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_hud_summary calls=%llu gameHudMatches=%llu currentImGuiSetMatches=%llu gameHudImGuiSetMatches=%llu gameHudImGuiCaptures=%llu pauseQueries=%llu pauseQueryFallbacks=%llu pausedCurrentImGuiMatches=%llu pausedMenuCaptures=%llu deadCurrentImGuiMatches=%llu deadCurrentImGuiCaptures=%llu wakeCurrentImGuiMatches=%llu wakeCurrentImGuiCaptures=%llu inventoryCurrentImGuiMatches=%llu inventoryCurrentImGuiCaptures=%llu captureAttempts=%llu captureStarts=%llu captureCompletions=%llu captureFallbacks=%llu installed=%d",
+        "hpl_hud_summary calls=%llu gameHudMatches=%llu currentImGuiSetMatches=%llu gameHudImGuiSetMatches=%llu gameHudImGuiCaptures=%llu pauseQueries=%llu pauseQueryFallbacks=%llu pausedCurrentImGuiMatches=%llu pausedMenuCaptures=%llu deadCurrentImGuiMatches=%llu deadCurrentImGuiCaptures=%llu wakeCurrentImGuiMatches=%llu wakeCurrentImGuiCaptures=%llu inventoryCurrentImGuiMatches=%llu inventoryCurrentImGuiCaptures=%llu readCurrentImGuiMatches=%llu zoomCurrentImGuiMatches=%llu currentImGuiPlayerStateTransitions=%llu lastCurrentImGuiPlayerState=%d captureAttempts=%llu captureStarts=%llu captureCompletions=%llu captureFallbacks=%llu installed=%d",
         static_cast<unsigned long long>(g_renderCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_gameHudMatches.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_currentImGuiSetMatches.load(std::memory_order_relaxed)),
@@ -539,6 +565,10 @@ void LogHPLHudBridgeSummary()
         static_cast<unsigned long long>(g_wakeCurrentImGuiCaptureCompletions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_inventoryCurrentImGuiMatches.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_inventoryCurrentImGuiCaptureCompletions.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_readCurrentImGuiMatches.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_zoomCurrentImGuiMatches.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_currentImGuiPlayerStateTransitions.load(std::memory_order_relaxed)),
+        g_lastCurrentImGuiPlayerState,
         static_cast<unsigned long long>(g_captureAttempts.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_captureStarts.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_captureCompletions.load(std::memory_order_relaxed)),
@@ -564,6 +594,7 @@ void RemoveHPLHudBridge()
     g_seenGuiSets.clear();
     g_lastCurrentImGui = nullptr;
     g_lastCurrentImGuiSet = nullptr;
+    g_lastCurrentImGuiPlayerState = -1;
     Logger::Instance().Write(LogLevel::Info, "hpl_hud_bridge removed");
 }
 

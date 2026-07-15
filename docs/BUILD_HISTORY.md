@@ -2,6 +2,32 @@
 
 ## 2026-07-15
 
+### 0.60.0-evidence-capture
+
+- Added behavior-neutral stereo timing evidence. OpenXR now records the
+  microsecond delta between eye-cache captures, same-frame pair counts, samples
+  over 20 ms, and each cached eye's age at XR submission alongside pose-frame
+  gaps. This separates render sequencing from stale-pose/cache latency.
+- Added bounded controller-relative locomotion records containing raw stick,
+  transformed/deadzoned axes, movement-controller source, calibrated head and
+  controller quaternions, native camera basis, and explicit reference fallback
+  counters. Mouse/snap-yaw reports can now be diagnosed from one normal run.
+- Interaction diagnostics now log every hit/no-hit/payload-validity transition,
+  malformed closest-entity payload reasons, and native semantic-state changes
+  with the correlated entity/body/distance/world-hit snapshot.
+- Read and Zoom current-ImGui ownership transitions are now explicit in GUI-set
+  telemetry without broadening HUD capture. Each physical manipulation session
+  emits one exit summary with signed/absolute hand travel, peak frame motion,
+  emitted mouse pixels, state, hand, and exit reason.
+- No native addresses, rendering policy, controls, or gameplay behavior changed.
+  This build exists to make the next headset pass unlock interaction, readable
+  presentation, manipulation tuning, locomotion, and stereo follow-up work.
+- Both default and OpenXR Release trees pass all four CTest suites. The packaged
+  doctor reports `pass=7 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `C56C62D3702DADC9C25649E362B3B4F8E2659A506EF4E622A486DF49268671F0`.
+  Package SHA-256:
+  `AFC37537578FC7D1696636A0F8DB6FFD7DB04C32F8F9EC80A68CD13B7D201CC7`.
+
 ### 0.59.0-live-usability
 
 - Promoted continuous same-frame stereo in the packaged test profile after the

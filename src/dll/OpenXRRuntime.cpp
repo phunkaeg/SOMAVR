@@ -66,6 +66,25 @@ using xr_helpers::XrVersionString;
 
 constexpr uint64_t kViewConfigurationCheckIntervalFrames = 300;
 
+int64_t QpcNow()
+{
+    LARGE_INTEGER value = {};
+    QueryPerformanceCounter(&value);
+    return value.QuadPart;
+}
+
+uint64_t QpcDeltaMicroseconds(int64_t start, int64_t end)
+{
+    static const int64_t frequency = [] {
+        LARGE_INTEGER value = {};
+        return QueryPerformanceFrequency(&value) ? value.QuadPart : int64_t{0};
+    }();
+    if (frequency <= 0 || start <= 0 || end < start) return 0;
+    return static_cast<uint64_t>(
+        static_cast<long double>(end - start) * 1000000.0L
+        / static_cast<long double>(frequency));
+}
+
 std::wstring Win32ErrorMessage(DWORD error)
 {
     wchar_t* buffer = nullptr;
@@ -496,6 +515,10 @@ struct OpenXRRuntime::Impl {
         pendingRenderedEyeValid_ = false;
         renderedStereoViewValid_[0] = false;
         renderedStereoViewValid_[1] = false;
+        stereoCaptureQpc_[0] = 0;
+        stereoCaptureQpc_[1] = 0;
+        stereoCacheAgeUsLatest_[0] = 0;
+        stereoCacheAgeUsLatest_[1] = 0;
         recoveryRequested_ = false;
         comfortBlackoutUntilFrame_ = 0;
         presentationBlackoutActive_ = false;
@@ -598,6 +621,15 @@ struct OpenXRRuntime::Impl {
             << " openxrStereoPoseFrameGapMax=" << static_cast<unsigned long long>(stereoPoseFrameGapMax_)
             << " openxrStereoPoseFrameGapNonzero=" << static_cast<unsigned long long>(stereoPoseFrameGapNonzero_)
             << " openxrStereoPoseFrameGapSamples=" << static_cast<unsigned long long>(stereoPoseFrameGapSamples_)
+            << " openxrStereoCaptureDeltaUsLatest=" << static_cast<unsigned long long>(stereoCaptureDeltaUsLatest_)
+            << " openxrStereoCaptureDeltaUsMax=" << static_cast<unsigned long long>(stereoCaptureDeltaUsMax_)
+            << " openxrStereoCaptureDeltaSamples=" << static_cast<unsigned long long>(stereoCaptureDeltaSamples_)
+            << " openxrStereoCaptureDeltaSameFrameSamples=" << static_cast<unsigned long long>(stereoCaptureDeltaSameFrameSamples_)
+            << " openxrStereoCaptureDeltaOver20ms=" << static_cast<unsigned long long>(stereoCaptureDeltaOver20ms_)
+            << " openxrStereoCacheAgeUsLatest="
+                << static_cast<unsigned long long>(stereoCacheAgeUsLatest_[0]) << ","
+                << static_cast<unsigned long long>(stereoCacheAgeUsLatest_[1])
+            << " openxrStereoCacheAgeUsMax=" << static_cast<unsigned long long>(stereoCacheAgeUsMax_)
             << " openxrHudLayer=" << (hudLayerEnabled_ ? 1 : 0)
             << " openxrHudShapeRequested=" << (hudCylinderRequested_ ? "cylinder" : "quad")
             << " openxrHudShapeEffective=" << (hudCylinderRequested_
@@ -976,6 +1008,10 @@ struct OpenXRRuntime::Impl {
         pendingRenderedEyeValid_ = false;
         renderedStereoViewValid_[0] = false;
         renderedStereoViewValid_[1] = false;
+        stereoCaptureQpc_[0] = 0;
+        stereoCaptureQpc_[1] = 0;
+        stereoCacheAgeUsLatest_[0] = 0;
+        stereoCacheAgeUsLatest_[1] = 0;
         stereoCaptureFailures_ = 0;
         stereoWarmupLogged_ = false;
         Logger::Instance().Write(
@@ -1010,6 +1046,10 @@ struct OpenXRRuntime::Impl {
         pendingRenderedEyeValid_ = false;
         renderedStereoViewValid_[0] = false;
         renderedStereoViewValid_[1] = false;
+        stereoCaptureQpc_[0] = 0;
+        stereoCaptureQpc_[1] = 0;
+        stereoCacheAgeUsLatest_[0] = 0;
+        stereoCacheAgeUsLatest_[1] = 0;
         stereoWarmupLogged_ = false;
         ++stereoCacheInvalidations_;
         Logger::Instance().Write(
@@ -2369,21 +2409,46 @@ private:
         if (captured) {
             renderedStereoViews_[eyeIndex] = renderedView;
             renderedStereoViewValid_[eyeIndex] = true;
+            const int64_t captureQpc = QpcNow();
+            stereoCaptureQpc_[eyeIndex] = captureQpc;
+            const uint32_t otherEye = eyeIndex ^ 1u;
+            uint64_t captureDeltaUs = 0;
+            uint64_t captureFrameGap = 0;
+            bool sameFramePair = false;
+            if (renderedStereoViewValid_[otherEye] && stereoCaptureQpc_[otherEye] > 0) {
+                const int64_t firstQpc = std::min(captureQpc, stereoCaptureQpc_[otherEye]);
+                const int64_t secondQpc = std::max(captureQpc, stereoCaptureQpc_[otherEye]);
+                captureDeltaUs = QpcDeltaMicroseconds(firstQpc, secondQpc);
+                const uint64_t otherFrame = renderedStereoViews_[otherEye].gameFrame;
+                captureFrameGap = renderedView.gameFrame >= otherFrame
+                    ? renderedView.gameFrame - otherFrame
+                    : otherFrame - renderedView.gameFrame;
+                sameFramePair = captureFrameGap == 0;
+                stereoCaptureDeltaUsLatest_ = captureDeltaUs;
+                stereoCaptureDeltaUsMax_ = std::max(
+                    stereoCaptureDeltaUsMax_, captureDeltaUs);
+                ++stereoCaptureDeltaSamples_;
+                if (sameFramePair) ++stereoCaptureDeltaSameFrameSamples_;
+                if (captureDeltaUs > 20000) ++stereoCaptureDeltaOver20ms_;
+            }
             lastCapturedStereoEye_ = eyeIndex;
             ++stereoCapturedEyeCount_;
             stereoCaptureFailures_ = 0;
-            if (stereoCapturedEyeCount_ <= 2
+            if (stereoCapturedEyeCount_ <= 4
                 || (stereoCapturedEyeCount_ % 120) == 0
-                || std::strcmp(captureSource, "frame_boundary") != 0) {
+                || captureDeltaUs > 20000) {
                 Logger::Instance().Write(
                     LogLevel::Info,
-                    "openxr_stereo_cache captured=%llu eye=%u poseFrame=%llu cachesReady=%d source=%s frame=%llu",
+                    "openxr_stereo_cache captured=%llu eye=%u poseFrame=%llu cachesReady=%d source=%s frame=%llu pairDeltaUs=%llu pairFrameGap=%llu sameFramePair=%d",
                     static_cast<unsigned long long>(stereoCapturedEyeCount_),
                     eyeIndex,
                     static_cast<unsigned long long>(renderedView.gameFrame),
                     glBridge_.StereoCachesReady() ? 1 : 0,
                     captureSource,
-                    static_cast<unsigned long long>(frameIndex));
+                    static_cast<unsigned long long>(frameIndex),
+                    static_cast<unsigned long long>(captureDeltaUs),
+                    static_cast<unsigned long long>(captureFrameGap),
+                    sameFramePair ? 1 : 0);
             }
             return true;
         }
@@ -2531,6 +2596,16 @@ private:
                     if (gap != 0) ++stereoPoseFrameGapNonzero_;
                     stereoPoseFrameGapMax_ = std::max(stereoPoseFrameGapMax_, gap);
                     stereoPoseFrameGapLatest_ = gap;
+                    const int64_t submitQpc = QpcNow();
+                    stereoCacheAgeUsLatest_[0] = QpcDeltaMicroseconds(
+                        stereoCaptureQpc_[0], submitQpc);
+                    stereoCacheAgeUsLatest_[1] = QpcDeltaMicroseconds(
+                        stereoCaptureQpc_[1], submitQpc);
+                    stereoCacheAgeUsMax_ = std::max({
+                        stereoCacheAgeUsMax_,
+                        stereoCacheAgeUsLatest_[0],
+                        stereoCacheAgeUsLatest_[1],
+                    });
                 }
                 if (stereoSubmissionEnabled_ && !stereoReady) {
                     copied = false;
@@ -3144,7 +3219,7 @@ private:
         if (completedXrFrameCount_ == 1 || (completedXrFrameCount_ % 300) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d stereoPoseFrames=%llu,%llu stereoPoseGap=%llu depth=%d hud=%d hudShape=%s reticle=%d aimGuide=%d statusPanel=%d comfortVignette=%d comfortVignetteLevel=%.3f spectatorFrames=%llu stereoCaptured=%llu stereoSubmitted=%llu depthSubmitted=%llu depthFailures=%llu hudSubmitted=%llu reticleSubmitted=%llu aimGuideSubmitted=%llu panelSubmitted=%llu vignetteSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
+                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d stereoPoseFrames=%llu,%llu stereoPoseGap=%llu stereoCaptureDeltaUs=%llu stereoCacheAgeUs=%llu,%llu depth=%d hud=%d hudShape=%s reticle=%d aimGuide=%d statusPanel=%d comfortVignette=%d comfortVignetteLevel=%.3f spectatorFrames=%llu stereoCaptured=%llu stereoSubmitted=%llu depthSubmitted=%llu depthFailures=%llu hudSubmitted=%llu reticleSubmitted=%llu aimGuideSubmitted=%llu panelSubmitted=%llu vignetteSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
                 static_cast<unsigned long long>(frameIndex),
                 static_cast<unsigned long long>(completedXrFrameCount_),
                 frameState.shouldRender == XR_TRUE ? 1 : 0,
@@ -3154,6 +3229,9 @@ private:
                 static_cast<unsigned long long>(renderedStereoViews_[0].gameFrame),
                 static_cast<unsigned long long>(renderedStereoViews_[1].gameFrame),
                 static_cast<unsigned long long>(stereoPoseFrameGapLatest_),
+                static_cast<unsigned long long>(stereoCaptureDeltaUsLatest_),
+                static_cast<unsigned long long>(stereoCacheAgeUsLatest_[0]),
+                static_cast<unsigned long long>(stereoCacheAgeUsLatest_[1]),
                 submittedDepth ? 1 : 0,
                 submittedHud ? 1 : 0,
                 submittedHud ? (submittedHudCylinder ? "cylinder" : "quad") : "none",
@@ -3396,6 +3474,14 @@ private:
     uint64_t stereoPoseFrameGapMax_ = 0;
     uint64_t stereoPoseFrameGapNonzero_ = 0;
     uint64_t stereoPoseFrameGapSamples_ = 0;
+    int64_t stereoCaptureQpc_[2] = {};
+    uint64_t stereoCaptureDeltaUsLatest_ = 0;
+    uint64_t stereoCaptureDeltaUsMax_ = 0;
+    uint64_t stereoCaptureDeltaSamples_ = 0;
+    uint64_t stereoCaptureDeltaSameFrameSamples_ = 0;
+    uint64_t stereoCaptureDeltaOver20ms_ = 0;
+    uint64_t stereoCacheAgeUsLatest_[2] = {};
+    uint64_t stereoCacheAgeUsMax_ = 0;
     uint64_t depthSubmittedFrameCount_ = 0;
     uint64_t depthSubmissionFailures_ = 0;
     uint64_t foveationApplications_ = 0;

@@ -21,10 +21,17 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.59.0-live-usability`, layered on the
+The active build candidate is `0.60.0-evidence-capture`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- The 0.60 candidate keeps all 0.59 behavior unchanged and adds event-driven
+  evidence for the next live pass: eye-cache capture/submission timing,
+  controller-reference transforms, interaction hit/semantic transitions,
+  Read/Zoom current-ImGui ownership, and per-session physical-manipulation
+  travel-to-pixel summaries. These records are bounded and automatic, so the
+  normal 0.59 checklist produces the data needed for subsequent feature builds.
 
 - The first broad 0.58 headset pass accepted the rigid world, tracking, eye
   height, same-frame shader compatibility, F1 panel, analog movement, input

@@ -1,5 +1,20 @@
 # Future Systems Reverse Engineering
 
+## 0.60.0 Evidence Capture Plan
+
+Static ownership is now sufficient to instrument the remaining uncertain live
+boundaries without adding another native mutation. The 0.60 build preserves the
+accepted 0.59 path and records four missing correlations automatically:
+
+- eye-cache capture separation and per-eye age at XR submission;
+- raw versus calibrated controller-relative movement transforms;
+- closest-entity hit/payload transitions paired with native crosshair semantics;
+- current-ImGui player-state ownership and hand-travel-to-mouse-pixel sessions.
+
+This evidence decides whether the next implementation belongs in XR scheduling,
+interaction payload decoding, Read/Zoom HUD capture/presentation, or per-state
+manipulation scaling. It also prevents tuning from subjective symptoms alone.
+
 ## 0.59.0 Live Usability Result
 
 The 0.58 live run is the first broad acceptance pass over the integrated VR

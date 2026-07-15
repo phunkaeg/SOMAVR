@@ -1,5 +1,34 @@
 # Test Checklists
 
+## 0.60.0 Evidence Capture
+
+1. Run packaged doctor and require `version=0.60.0-evidence-capture`, OpenXR
+   flavor, and `fail=0`. Press F10 once in a loaded save and repeat the 0.59
+   visual/interaction pass. Require no regression; this build intentionally
+   changes telemetry only.
+2. Keep Same Frame Stereo enabled, then toggle it off/on once in F1. Move near
+   fine geometry in both modes. Preserve periodic `openxr_frame` rows and the
+   shutdown fields `openxrStereoCaptureDeltaUs*`, `openxrStereoCacheAgeUs*`,
+   and pose-frame gaps. Report any visible eye latency with the active mode.
+3. Walk forward while aiming the left controller forward, left, right, and at
+   steep pitch angles; repeat after mouse or snap yaw. Preserve bounded
+   `hpl_controller_direction` rows. Direction must follow horizontal controller
+   aim and `controllerReferenceFallbacks` should remain zero while tracked.
+4. Aim at empty space, then several interactable props, doors, drawers, and a
+   terminal until the native icon changes. Preserve `hpl_interaction_ray`,
+   `hpl_interaction_payload`, and `hpl_interaction_semantic` transitions. These
+   should reveal whether the remaining reticle gap is query, payload, or
+   semantic ownership.
+5. Enter Read and Zoom states and show any clipped description/background.
+   Preserve state-transition `hpl_gui_set` rows with `read=1` or `zoom=1`, plus
+   nearby GameHud rows. No additional current-ImGui surface should be captured.
+6. Exercise Slide, Wheel, Door, Lever, Tear, and grip-held Read rotation with
+   deliberate short and long hand motions. Each exit should emit exactly one
+   `hpl_manipulation_session` summary; describe whether physical travel felt
+   too weak, correct, or too strong for that state.
+7. Exit normally and attach the complete log so subsystem summaries retain
+   counts even when no transition row was triggered.
+
 ## 0.59.0 Live Usability
 
 1. Run packaged doctor and require `version=0.59.0-live-usability`, OpenXR

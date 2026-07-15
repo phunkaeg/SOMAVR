@@ -2,6 +2,12 @@
 
 Date: 2026-07-15
 
+Use `0.60.0-evidence-capture` for the next run. It preserves the accepted 0.59
+behavior while automatically adding eye-cache timing, controller-direction,
+interaction hit/semantic, Read/Zoom GUI-owner, and manipulation-session records.
+No separate diagnostic hotkey is required; follow the 0.60 checklist and attach
+the complete shutdown log.
+
 SOMAVR has reached the point where the feature registry contains no unimplemented
 VR system with enough static evidence for another responsible native mutation.
 The remaining gates require headset, campaign-state, controller, runtime, or GPU

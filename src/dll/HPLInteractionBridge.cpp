@@ -52,6 +52,9 @@ std::atomic<uint64_t> g_fallbackInput = 0;
 std::atomic<uint64_t> g_fallbackTracking = 0;
 std::atomic<uint64_t> g_fallbackOrigin = 0;
 std::atomic<uint64_t> g_hitSnapshots = 0;
+std::atomic<uint64_t> g_hitPayloadRejects = 0;
+std::atomic<uint64_t> g_hitPayloadDistanceRejects = 0;
+std::atomic<uint64_t> g_hitPayloadNullTargets = 0;
 std::atomic<uint64_t> g_reticleUpdates = 0;
 std::atomic<uint64_t> g_semanticStates = 0;
 std::atomic<uint64_t> g_semanticAccepted = 0;
@@ -59,6 +62,8 @@ std::atomic<uint64_t> g_focusHapticRequests = 0;
 std::atomic<uint64_t> g_focusHapticApplied = 0;
 std::atomic<uintptr_t> g_lastFocusTarget = 0;
 std::atomic<uint64_t> g_lastFocusHapticFrame = 0;
+std::atomic<int> g_lastSubstitutionHitState = -1;
+std::atomic<int> g_lastSemanticState = -1;
 std::mutex g_hitMutex;
 HPLInteractionHitSnapshot g_latestHit;
 
@@ -104,6 +109,7 @@ bool PublishHitSnapshot(
     float rayLength)
 {
     if (output == nullptr || !IsFiniteVector(start) || !IsFiniteVector(direction)) {
+        g_hitPayloadRejects.fetch_add(1, std::memory_order_relaxed);
         ClearHitSnapshot();
         return false;
     }
@@ -116,6 +122,9 @@ bool PublishHitSnapshot(
     std::memcpy(&entity, bytes + 0x18, sizeof(entity));
     std::memcpy(&body, bytes + 0x20, sizeof(body));
     std::memcpy(&distance, bytes + 0x28, sizeof(distance));
+    if (entity == nullptr && body == nullptr) {
+        g_hitPayloadNullTargets.fetch_add(1, std::memory_order_relaxed);
+    }
 
     const float directionLength = std::sqrt(
         direction[0] * direction[0]
@@ -126,6 +135,24 @@ bool PublishHitSnapshot(
         || distance > std::max(rayLength, 0.0f) + 0.01f
         || !std::isfinite(directionLength)
         || directionLength < 1.0e-5f) {
+        const uint64_t rejected = g_hitPayloadRejects.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+        g_hitPayloadDistanceRejects.fetch_add(1, std::memory_order_relaxed);
+        if (rejected <= 12
+            || rejected % static_cast<uint64_t>(
+                std::max(g_config.hplControllerLogInterval, 1)) == 0) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_interaction_payload rejected=%llu reason=distance_or_direction entity=%p body=%p distance=%.6f rayLength=%.6f directionLength=%.6f frame=%llu hand=%s",
+                static_cast<unsigned long long>(rejected),
+                entity,
+                body,
+                distance,
+                rayLength,
+                directionLength,
+                static_cast<unsigned long long>(gameFrame),
+                handIndex == 0 ? "left" : "right");
+        }
         ClearHitSnapshot();
         return false;
     }
@@ -286,20 +313,29 @@ bool HookGetClosestEntity(
             rayLength)
         : (ClearHitSnapshot(), false);
 
+    const int hitState = hit ? (hitSnapshot ? 2 : 1) : 0;
+    const int previousHitState = g_lastSubstitutionHitState.exchange(
+        hitState, std::memory_order_relaxed);
+    const bool hitStateChanged = previousHitState != hitState;
+
     HPLInteractionHitSnapshot snapshot;
     if (hitSnapshot) {
         GetHPLInteractionHitSnapshot(snapshot);
     }
 
-    if (substitution <= 8
+    if (hitStateChanged
+        || substitution <= 8
         || substitution % static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1)) == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_interaction_ray call=%llu inputFrame=%llu applied=1 hit=%d hitSnapshot=%d hand=%s nativeStart=%.4f,%.4f,%.4f controllerStart=%.4f,%.4f,%.4f controllerDir=%.5f,%.5f,%.5f hitDistance=%.4f hitWorld=%.4f,%.4f,%.4f entity=%p body=%p originDelta=%.4f rayLength=%.4f type=%d los=%d",
+            "hpl_interaction_ray call=%llu inputFrame=%llu applied=1 hit=%d hitSnapshot=%d transition=%d previousState=%d currentState=%d hand=%s nativeStart=%.4f,%.4f,%.4f controllerStart=%.4f,%.4f,%.4f controllerDir=%.5f,%.5f,%.5f hitDistance=%.4f hitWorld=%.4f,%.4f,%.4f entity=%p body=%p originDelta=%.4f rayLength=%.4f type=%d los=%d",
             static_cast<unsigned long long>(call),
             static_cast<unsigned long long>(input.gameFrame),
             hit ? 1 : 0,
             hitSnapshot ? 1 : 0,
+            hitStateChanged ? 1 : 0,
+            previousHitState,
+            hitState,
             handIndex == 0 ? "left" : "right",
             start[0], start[1], start[2],
             controllerStart[0], controllerStart[1], controllerStart[2],
@@ -393,12 +429,15 @@ void LogHPLInteractionBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_interaction_bridge_summary installed=%d calls=%llu substitutions=%llu hits=%llu hitSnapshots=%llu reticleUpdates=%llu semanticStates=%llu semanticAccepted=%llu focusHapticRequests=%llu focusHapticApplied=%llu fallbackDisabled=%llu fallbackQueryType=%llu fallbackAuthoredCamera=%llu fallbackCamera=%llu fallbackInput=%llu fallbackTracking=%llu fallbackOrigin=%llu",
+        "hpl_interaction_bridge_summary installed=%d calls=%llu substitutions=%llu hits=%llu hitSnapshots=%llu hitPayloadRejects=%llu hitPayloadDistanceRejects=%llu hitPayloadNullTargets=%llu reticleUpdates=%llu semanticStates=%llu semanticAccepted=%llu focusHapticRequests=%llu focusHapticApplied=%llu fallbackDisabled=%llu fallbackQueryType=%llu fallbackAuthoredCamera=%llu fallbackCamera=%llu fallbackInput=%llu fallbackTracking=%llu fallbackOrigin=%llu lastHitState=%d lastSemanticState=%d",
         g_getClosestEntityTarget != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_calls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_substitutions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_substitutionHits.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hitSnapshots.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hitPayloadRejects.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hitPayloadDistanceRejects.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_hitPayloadNullTargets.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_reticleUpdates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_semanticStates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_semanticAccepted.load(std::memory_order_relaxed)),
@@ -410,7 +449,9 @@ void LogHPLInteractionBridgeSummary()
         static_cast<unsigned long long>(g_fallbackCamera.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_fallbackInput.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_fallbackTracking.load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_fallbackOrigin.load(std::memory_order_relaxed)));
+        static_cast<unsigned long long>(g_fallbackOrigin.load(std::memory_order_relaxed)),
+        g_lastSubstitutionHitState.load(std::memory_order_relaxed),
+        g_lastSemanticState.load(std::memory_order_relaxed));
 }
 
 bool GetHPLInteractionHitSnapshot(HPLInteractionHitSnapshot& snapshot)
@@ -423,16 +464,33 @@ bool GetHPLInteractionHitSnapshot(HPLInteractionHitSnapshot& snapshot)
 void PublishHPLInteractionCrosshairState(int crosshairState)
 {
     g_semanticStates.fetch_add(1, std::memory_order_relaxed);
+    const int previousSemanticState = g_lastSemanticState.exchange(
+        crosshairState, std::memory_order_relaxed);
+    const bool semanticChanged = previousSemanticState != crosshairState;
     if (g_openxr != nullptr) {
         g_openxr->SetInteractionReticleSemantic(crosshairState);
     }
     if (crosshairState <= 1 || crosshairState >= 35) {
         g_lastFocusTarget.store(0, std::memory_order_relaxed);
+        if (semanticChanged) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_interaction_semantic transition=1 previous=%d current=%d accepted=0 reason=inactive_or_out_of_range hitValid=0",
+                previousSemanticState,
+                crosshairState);
+        }
         return;
     }
 
     HPLInteractionHitSnapshot snapshot;
     if (!GetHPLInteractionHitSnapshot(snapshot)) {
+        if (semanticChanged) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_interaction_semantic transition=1 previous=%d current=%d accepted=0 reason=no_hit_snapshot hitValid=0",
+                previousSemanticState,
+                crosshairState);
+        }
         return;
     }
     g_semanticAccepted.fetch_add(1, std::memory_order_relaxed);
@@ -470,6 +528,21 @@ void PublishHPLInteractionCrosshairState(int crosshairState)
                 "interaction_semantic_focus_profile")) {
             g_focusHapticApplied.fetch_add(1, std::memory_order_relaxed);
         }
+    }
+    if (semanticChanged) {
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_interaction_semantic transition=1 previous=%d current=%d accepted=1 hitValid=1 frame=%llu hand=%s distance=%.4f world=%.4f,%.4f,%.4f entity=%p body=%p",
+            previousSemanticState,
+            crosshairState,
+            static_cast<unsigned long long>(snapshot.gameFrame),
+            snapshot.handIndex == 0 ? "left" : "right",
+            snapshot.distance,
+            snapshot.worldX,
+            snapshot.worldY,
+            snapshot.worldZ,
+            snapshot.entity,
+            snapshot.body);
     }
 }
 

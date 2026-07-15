@@ -9,6 +9,7 @@ namespace somavr {
 
 struct Config {
     LogLevel logLevel = LogLevel::Info;
+    std::string comfortPreset = "custom";
 
     bool hookSwapBuffers = true;
     bool hookWglMakeCurrent = true;
@@ -263,6 +264,7 @@ struct Config {
 class ConfigManager {
 public:
     bool Initialize();
+    bool InitializeAtPath(const std::filesystem::path& path);
 
     const Config& Get() const;
     const std::filesystem::path& Path() const;

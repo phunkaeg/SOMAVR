@@ -148,6 +148,17 @@ std::vector<CompatibilityFinding> ScanCompatibility(DWORD processId)
     return findings;
 }
 
+std::vector<CompatibilityFinding> ScanCompatibilityDirectory(
+    const std::filesystem::path& directory)
+{
+    std::vector<CompatibilityFinding> findings;
+    AddDirectoryFindings(directory, findings);
+    std::sort(findings.begin(), findings.end(), [](const auto& left, const auto& right) {
+        return left.path.wstring() < right.path.wstring();
+    });
+    return findings;
+}
+
 bool PrintCompatibilityFindings(const std::vector<CompatibilityFinding>& findings)
 {
     bool blocked = false;

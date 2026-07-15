@@ -1,4 +1,5 @@
 #include "Config.h"
+#include "ConfigPreset.h"
 
 #include <algorithm>
 #include <cctype>
@@ -70,7 +71,13 @@ float ParseFloat(const std::string& value, float fallback, float minValue, float
 
 bool ConfigManager::Initialize()
 {
-    path_ = ConfigPath();
+    return InitializeAtPath(ConfigPath());
+}
+
+bool ConfigManager::InitializeAtPath(const std::filesystem::path& path)
+{
+    config_ = Config{};
+    path_ = path;
 
     std::error_code ec;
     std::filesystem::create_directories(path_.parent_path(), ec);
@@ -104,6 +111,9 @@ void ConfigManager::WriteDefaultConfig() const
         << "# Experimental OpenXR and native camera paths are disabled by default.\n\n"
         << "[Logging]\n"
         << "Level=info\n\n"
+        << "[Comfort]\n"
+        << "# custom, minimal, balanced, or maximum; explicit keys below override the preset.\n"
+        << "Preset=custom\n\n"
         << "[Hooks]\n"
         << "SwapBuffers=1\n"
         << "WglMakeCurrent=1\n"
@@ -359,6 +369,29 @@ void ConfigManager::LoadFromFile()
 
     std::string section;
     std::string line;
+    ComfortPreset requestedPreset = ComfortPreset::Custom;
+    while (std::getline(in, line)) {
+        const size_t comment = line.find_first_of("#;");
+        if (comment != std::string::npos) line.erase(comment);
+        line = Trim(line);
+        if (line.empty()) continue;
+        if (line.front() == '[' && line.back() == ']') {
+            section = Lower(Trim(line.substr(1, line.size() - 2)));
+            continue;
+        }
+        const size_t equals = line.find('=');
+        if (section == "comfort" && equals != std::string::npos
+            && Lower(Trim(line.substr(0, equals))) == "preset") {
+            requestedPreset = ParseComfortPreset(Trim(line.substr(equals + 1)));
+        }
+    }
+    if (requestedPreset == ComfortPreset::Invalid) requestedPreset = ComfortPreset::Custom;
+    config_.comfortPreset = ComfortPresetName(requestedPreset);
+    ApplyComfortPreset(config_, requestedPreset);
+
+    in.clear();
+    in.seekg(0, std::ios::beg);
+    section.clear();
     while (std::getline(in, line)) {
         const size_t comment = line.find_first_of("#;");
         if (comment != std::string::npos) {
@@ -382,7 +415,13 @@ void ConfigManager::LoadFromFile()
         const std::string key = Lower(Trim(line.substr(0, equals)));
         const std::string value = Trim(line.substr(equals + 1));
 
-        if (section == "logging") {
+        if (section == "comfort") {
+            if (key == "preset") {
+                const ComfortPreset parsed = ParseComfortPreset(value);
+                config_.comfortPreset = ComfortPresetName(
+                    parsed == ComfortPreset::Invalid ? ComfortPreset::Custom : parsed);
+            }
+        } else if (section == "logging") {
             if (key == "level") {
                 config_.logLevel = Logger::ParseLevel(value, config_.logLevel);
             }

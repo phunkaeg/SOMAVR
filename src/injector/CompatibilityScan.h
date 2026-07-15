@@ -27,6 +27,8 @@ bool ClassifyCompatibilityName(
     CompatibilityFinding& finding);
 
 std::vector<CompatibilityFinding> ScanCompatibility(DWORD processId);
+std::vector<CompatibilityFinding> ScanCompatibilityDirectory(
+    const std::filesystem::path& directory);
 bool PrintCompatibilityFindings(const std::vector<CompatibilityFinding>& findings);
 
 } // namespace somavr::injector

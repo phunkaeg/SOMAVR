@@ -2,6 +2,30 @@
 
 ## 2026-07-15
 
+### 0.49.0-readiness-presets
+
+- Added `[Comfort] Preset=custom|minimal|balanced|maximum`. The loader pre-scans
+  only the preset, applies established comfort-owned defaults, rewinds, and then
+  parses the complete INI normally. Explicit settings therefore always win.
+  Presets cover snap/smooth turning, bounded transition/recovery black frames,
+  semantic camera add/roll/optics policy, screen-effect distance, and named
+  incompatible post effects without changing scale, height, hands, locomotion
+  direction, stereo mode, or experimental feature controls.
+- Added `somavr_injector --doctor [game] [dll]`. Without launching or injecting,
+  it checks x64 PE identity, OpenXR build metadata, loader/config presence,
+  probe/session/submission config, active 64-bit OpenXR runtime registration and
+  JSON existence, optional SOMA executable identity, and known local proxies.
+  Developer work-root config is an explicit warning; packaged missing config is
+  a failure. The actual machine passes seven checks with one expected developer
+  warning and resolves Virtual Desktop's runtime JSON.
+- Added parser/precedence and directory-scan tests, bringing both builds to four
+  deterministic CTest suites. Added the checksum-packaged `USER_GUIDE.md` for
+  install, doctor, launch, controls, presets, rollback, and troubleshooting.
+  The packaged doctor reports `pass=7 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `05580E757FF353E6B0C5EE9A664E93671832FDBB73706CE82205C0CA91DD5733`.
+  Package SHA-256:
+  `5F57C396D72E02504FB551CB09EE1D19F15FE1C465C35A41C4768858188BA8B9`.
+
 ### 0.48.0-controller-profile-diagnostics
 
 - Added standard HTC Vive controller suggested bindings for trackpad movement

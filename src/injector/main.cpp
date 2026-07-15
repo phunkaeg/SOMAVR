@@ -191,6 +191,51 @@ struct DllBuildFlavor {
     std::filesystem::path sourcePath;
 };
 
+struct DoctorSummary {
+    int passed = 0;
+    int warnings = 0;
+    int failures = 0;
+};
+
+void DoctorResult(DoctorSummary& summary, const char* status, const std::wstring& message)
+{
+    std::wcout << Widen(status) << L": " << message << L"\n";
+    if (std::string_view(status) == "PASS") ++summary.passed;
+    else if (std::string_view(status) == "WARN") ++summary.warnings;
+    else ++summary.failures;
+}
+
+std::filesystem::path QueryActiveOpenXRRuntime()
+{
+    wchar_t value[32768] = {};
+    DWORD bytes = sizeof(value);
+    const LSTATUS result = RegGetValueW(
+        HKEY_LOCAL_MACHINE,
+        L"SOFTWARE\\Khronos\\OpenXR\\1",
+        L"ActiveRuntime",
+        RRF_RT_REG_SZ,
+        nullptr,
+        value,
+        &bytes);
+    return result == ERROR_SUCCESS ? std::filesystem::path(value) : std::filesystem::path{};
+}
+
+bool IsX64PortableExecutable(const std::filesystem::path& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    IMAGE_DOS_HEADER dos{};
+    if (!in.read(reinterpret_cast<char*>(&dos), sizeof(dos)) || dos.e_magic != IMAGE_DOS_SIGNATURE) {
+        return false;
+    }
+    in.seekg(dos.e_lfanew, std::ios::beg);
+    DWORD signature = 0;
+    IMAGE_FILE_HEADER header{};
+    return in.read(reinterpret_cast<char*>(&signature), sizeof(signature))
+        && signature == IMAGE_NT_SIGNATURE
+        && in.read(reinterpret_cast<char*>(&header), sizeof(header))
+        && header.Machine == IMAGE_FILE_MACHINE_AMD64;
+}
+
 DllBuildFlavor ReadDllBuildFlavor(const std::filesystem::path& dllPath)
 {
     DllBuildFlavor result = {};
@@ -235,6 +280,98 @@ DllBuildFlavor ReadDllBuildFlavor(const std::filesystem::path& dllPath)
     }
 
     return result;
+}
+
+int RunDoctor(
+    const std::filesystem::path& dllPath,
+    const std::filesystem::path& gamePath)
+{
+    DoctorSummary summary;
+    const std::filesystem::path absoluteDll = std::filesystem::absolute(dllPath);
+    const std::filesystem::path packageDirectory = absoluteDll.parent_path();
+    std::wcout << L"SOMAVR readiness diagnostic\n"
+               << L"Package: " << packageDirectory.wstring() << L"\n";
+
+    if (!std::filesystem::exists(absoluteDll)) {
+        DoctorResult(summary, "FAIL", L"SOMAVR DLL missing: " + absoluteDll.wstring());
+    } else if (!IsX64PortableExecutable(absoluteDll)) {
+        DoctorResult(summary, "FAIL", L"SOMAVR DLL is not a readable x64 PE: " + absoluteDll.wstring());
+    } else {
+        DoctorResult(summary, "PASS", L"x64 SOMAVR DLL found: " + absoluteDll.wstring());
+    }
+
+    const DllBuildFlavor flavor = ReadDllBuildFlavor(absoluteDll);
+    if (!flavor.known || !flavor.openxr) {
+        DoctorResult(summary, "FAIL", L"selected DLL is not identified as an OpenXR build");
+    } else {
+        DoctorResult(summary, "PASS",
+            L"build flavor=" + Widen(flavor.flavor.c_str())
+            + L" version=" + Widen(flavor.version.c_str()));
+    }
+
+    const std::filesystem::path loaderPath = packageDirectory / L"openxr_loader.dll";
+    DoctorResult(summary,
+        std::filesystem::exists(loaderPath) ? "PASS" : "FAIL",
+        std::filesystem::exists(loaderPath)
+            ? L"packaged OpenXR loader found"
+            : L"openxr_loader.dll is missing beside somavr.dll");
+
+    std::filesystem::path configPath = packageDirectory / L"somavr.ini";
+    if (!std::filesystem::exists(configPath)
+        && std::filesystem::exists(somavr::ConfigPath())) {
+        configPath = somavr::ConfigPath();
+        DoctorResult(summary, "WARN",
+            L"using developer work-root config because somavr.ini is not beside the DLL: "
+            + configPath.wstring());
+    }
+    if (!std::filesystem::exists(configPath)) {
+        DoctorResult(summary, "FAIL", L"somavr.ini is missing beside somavr.dll and from the developer work root");
+    } else {
+        somavr::ConfigManager configManager;
+        configManager.InitializeAtPath(configPath);
+        const somavr::Config& config = configManager.Get();
+        const bool ready = config.openxrProbe && config.openxrSessionProbe
+            && config.openxrFrameSubmit;
+        DoctorResult(summary, ready ? "PASS" : "FAIL",
+            L"config OpenXR probe/session/frameSubmit="
+            + std::to_wstring(config.openxrProbe ? 1 : 0) + L"/"
+            + std::to_wstring(config.openxrSessionProbe ? 1 : 0) + L"/"
+            + std::to_wstring(config.openxrFrameSubmit ? 1 : 0)
+            + L" comfortPreset=" + Widen(config.comfortPreset.c_str()));
+    }
+
+    const std::filesystem::path runtimePath = QueryActiveOpenXRRuntime();
+    if (runtimePath.empty()) {
+        DoctorResult(summary, "FAIL", L"no 64-bit OpenXR ActiveRuntime is registered");
+    } else if (!std::filesystem::exists(runtimePath)) {
+        DoctorResult(summary, "FAIL", L"registered OpenXR runtime JSON is missing: " + runtimePath.wstring());
+    } else {
+        DoctorResult(summary, "PASS", L"active OpenXR runtime: " + runtimePath.wstring());
+    }
+
+    if (gamePath.empty()) {
+        DoctorResult(summary, "WARN", L"game path not supplied; SOMA executable and proxy scan skipped");
+    } else {
+        const std::filesystem::path absoluteGame = std::filesystem::absolute(gamePath);
+        if (!std::filesystem::exists(absoluteGame) || !IsX64PortableExecutable(absoluteGame)) {
+            DoctorResult(summary, "FAIL", L"SOMA executable is missing or not x64: " + absoluteGame.wstring());
+        } else {
+            DoctorResult(summary, "PASS", L"x64 SOMA executable found: " + absoluteGame.wstring());
+            const auto findings = somavr::injector::ScanCompatibilityDirectory(absoluteGame.parent_path());
+            if (findings.empty()) {
+                DoctorResult(summary, "PASS", L"no known game-directory graphics or injection proxies found");
+            } else {
+                somavr::injector::PrintCompatibilityFindings(findings);
+                DoctorResult(summary, "WARN",
+                    std::to_wstring(findings.size()) + L" game-directory compatibility warning(s) found");
+            }
+        }
+    }
+
+    std::wcout << L"SUMMARY: pass=" << summary.passed
+               << L" warn=" << summary.warnings
+               << L" fail=" << summary.failures << L"\n";
+    return summary.failures == 0 ? 0 : 1;
 }
 
 void WarnIfConfigDllMismatch(const std::filesystem::path& dllPath)
@@ -405,7 +542,8 @@ void PrintUsage()
     std::cerr
         << "usage:\n"
         << "  somavr_injector <pid|Soma_NoSteam.exe|SOMA.exe> [path-to-somavr.dll]\n"
-        << "  somavr_injector --launch <path-to-Soma_NoSteam.exe> [path-to-somavr.dll] [-- game-args...]\n";
+        << "  somavr_injector --launch <path-to-Soma_NoSteam.exe> [path-to-somavr.dll] [-- game-args...]\n"
+        << "  somavr_injector --doctor [path-to-Soma_NoSteam.exe] [path-to-somavr.dll]\n";
 }
 
 } // namespace
@@ -415,6 +553,18 @@ int main(int argc, char** argv)
     if (argc >= 2 && (IsOption(argv[1], "--help") || IsOption(argv[1], "-h") || IsOption(argv[1], "/?"))) {
         PrintUsage();
         return 0;
+    }
+
+    if (argc >= 2 && IsOption(argv[1], "--doctor")) {
+        if (argc > 4) {
+            PrintUsage();
+            return 2;
+        }
+        const std::filesystem::path gamePath = argc >= 3
+            ? std::filesystem::path(Widen(argv[2])) : std::filesystem::path{};
+        const std::filesystem::path dllPath = argc >= 4
+            ? std::filesystem::path(Widen(argv[3])) : DefaultDllPath(argv[0]);
+        return RunDoctor(dllPath, gamePath);
     }
 
     if (argc >= 3 && IsOption(argv[1], "--launch")) {

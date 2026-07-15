@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.48.0-controller-profile-diagnostics`, layered on the
+The active build candidate is `0.49.0-readiness-presets`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
@@ -85,6 +85,13 @@ compatibility probes:
   profile change events resolve and log the exact active profile independently
   for each hand, making reconnect, one-hand fallback, and runtime/headset matrix
   results directly attributable.
+
+- Configuration and startup diagnosis now have user-facing ownership. Comfort
+  presets apply before explicit keys, preserving every tuned override. The
+  injector doctor checks the complete launch prerequisites without starting the
+  game; the local OpenXR build currently reports seven passes, one expected
+  developer-layout warning, and zero failures. `USER_GUIDE.md` is included in
+  the release checksum ledger.
 
 - A dedicated head-locked OpenXR status/options panel is now available through
   `F1` or `Menu + Secondary`. It owns a separate alpha swapchain and reports
@@ -630,7 +637,8 @@ The OpenXR build now asks for:
 & "D:\Dev Debug\SOMAVR\build-openxr\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.48.0-controller-profile-diagnostics`,
+2. Run `somavr_injector --doctor <Soma_NoSteam.exe>` and require zero failures,
+   then confirm `version=0.49.0-readiness-presets`,
    `hpl_per_eye_view_history initialized configured=1 packetBytes=0x40`, and no
    hook/signature failure. Load a save, face forward, and press F10 once.
 3. Confirm the proven rigid world, eye height, centered projection, depth,

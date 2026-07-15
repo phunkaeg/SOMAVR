@@ -34,6 +34,7 @@ Create a validated versioned OpenXR bundle and ZIP:
 The packager rejects non-OpenXR build metadata, stages the injector, DLL,
 OpenXR loader, active config, diagnostics, and core docs, then writes
 `SHA256SUMS.txt` beside the runtime files. Output is under `out\`.
+The concise player-facing instructions are in `docs\USER_GUIDE.md`.
 
 Install or update a packaged build into a dedicated directory:
 
@@ -57,6 +58,13 @@ injection.
 
 ## Run
 
+Check the selected build, config, OpenXR runtime, game executable, architecture,
+and game-directory hook conflicts without launching SOMA:
+
+```powershell
+& ".\somavr_injector.exe" --doctor "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
+```
+
 Launch suspended and inject before OpenGL/GLEW initialization:
 
 ```powershell
@@ -76,6 +84,10 @@ Attach to an already-running process:
 ```
 
 Logs are written to `logs\somavr.log`. On first DLL load, `somavr.ini` is created with probe settings.
+`[Comfort] Preset` accepts `custom`, `minimal`, `balanced`, or `maximum`.
+The preset is applied first, then every explicit INI key overrides it, so existing
+hand-tuned configs remain authoritative. The packaged development profile stays
+on `custom`.
 
 Each build folder now carries `somavr_build_flavor.txt`. If `[OpenXR] Probe=1` and the injector is pointed at a non-OpenXR DLL, it prints a warning before injection.
 The OpenXR DLL also preloads `openxr_loader.dll` from its own folder before the first OpenXR call; check `openxr_loader_load ok/failed` in the log.
@@ -171,7 +183,8 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
 ## Current Goal
 
 The proven default remains OpenXR transport, native head tracking, and AFR stereo
-geometry. `0.48.0` adds HTC Vive controller bindings and exact per-hand active
+geometry. `0.49.0` adds deterministic comfort presets, a non-invasive readiness
+doctor, and a packaged end-user guide. `0.48.0` adds HTC Vive controller bindings and exact per-hand active
 interaction-profile diagnostics. `0.47.0` applies the first opt-in per-eye temporal resource to every
 active stereo mode: HPL3's confirmed previous-view matrix is banked by eye in
 both AFR fallback and same-frame rendering, with recenter and stale-gap resets.

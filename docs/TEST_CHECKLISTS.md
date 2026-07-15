@@ -1,5 +1,23 @@
 # Test Checklists
 
+## 0.49.0 Readiness And Presets
+
+1. Run packaged `somavr_injector --doctor <Soma_NoSteam.exe>`. Require OpenXR
+   DLL/flavor, loader, adjacent config, active runtime JSON, x64 game, and clean
+   proxy scan passes with `fail=0`. A packaged config fallback warning is a bug.
+2. Place a known proxy name in a temporary game-folder copy and confirm a warning;
+   select a standard/non-OpenXR DLL or remove the runtime JSON path and confirm a
+   nonzero doctor exit. Do not alter the real SOMA/runtime installation.
+3. Set `Preset=minimal`, `balanced`, and `maximum` on separate launches. Confirm
+   `hook_config comfortPreset=...` and the documented snap/blackout/camera/post
+   policy. World scale, eye height, hands, and experimental stereo toggles must
+   not change between presets.
+4. Under `Preset=maximum`, explicitly set `HPLComfortSuppressScriptRoll=0` and
+   `ComfortBlackoutFrames=7`. The log/runtime must use the explicit values.
+5. Restore `Preset=custom` and the active profile. Run F10, F1, recenter,
+   same-frame toggle, controller profile, loading, pause, and normal-exit smoke
+   paths. Confirm all four CTest suites and packaged `USER_GUIDE.md`/hash ledger.
+
 ## 0.48.0 Controller Profiles
 
 1. Confirm `version=0.48.0-controller-profile-diagnostics` and five successful

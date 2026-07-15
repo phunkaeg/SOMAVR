@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.48.0-controller-profile-diagnostics")
+set(SOMAVR_BUILD_VERSION "0.49.0-readiness-presets")
 
 include(FetchContent)
 
@@ -54,6 +54,7 @@ endif()
 
 add_library(somavr_common STATIC
     src/common/Config.cpp
+    src/common/ConfigPreset.cpp
     src/common/Logger.cpp
 )
 target_include_directories(somavr_common PUBLIC src/common)
@@ -152,7 +153,7 @@ target_include_directories(somavr_injector_support PUBLIC src/injector)
 target_compile_definitions(somavr_injector_support PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
 add_executable(somavr_injector src/injector/main.cpp)
-target_link_libraries(somavr_injector PRIVATE somavr_common somavr_injector_support)
+target_link_libraries(somavr_injector PRIVATE somavr_common somavr_injector_support advapi32)
 
 add_executable(somavr_dumper
     src/dumper/main.cpp
@@ -171,6 +172,12 @@ if(BUILD_TESTING)
     )
     target_link_libraries(somavr_injector_compatibility_tests PRIVATE somavr_injector_support)
     add_test(NAME somavr_injector_compatibility COMMAND somavr_injector_compatibility_tests)
+
+    add_executable(somavr_config_preset_tests
+        tests/ConfigPresetTests.cpp
+    )
+    target_link_libraries(somavr_config_preset_tests PRIVATE somavr_common)
+    add_test(NAME somavr_config_presets COMMAND somavr_config_preset_tests)
 
     add_test(
         NAME somavr_installer_lifecycle

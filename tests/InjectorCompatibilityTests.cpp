@@ -1,6 +1,8 @@
 #include "CompatibilityScan.h"
 
 #include <iostream>
+#include <filesystem>
+#include <fstream>
 
 namespace {
 
@@ -44,6 +46,18 @@ int main()
     failures += Check(
         !ClassifyCompatibilityName(L"SDL2.dll", false, finding),
         "normal SOMA dependency is not classified");
+    const std::filesystem::path scanDirectory =
+        std::filesystem::temp_directory_path() / "somavr-compatibility-scan-test";
+    std::error_code ec;
+    std::filesystem::create_directories(scanDirectory, ec);
+    std::ofstream(scanDirectory / "opengl32.dll").put('\0');
+    std::ofstream(scanDirectory / "SDL2.dll").put('\0');
+    const auto directoryFindings =
+        somavr::injector::ScanCompatibilityDirectory(scanDirectory);
+    failures += Check(directoryFindings.size() == 1
+            && directoryFindings[0].path.filename() == L"opengl32.dll",
+        "directory-only readiness scan reports proxies without a process");
+    std::filesystem::remove_all(scanDirectory, ec);
 
     if (failures == 0) {
         std::cout << "Injector compatibility tests passed\n";

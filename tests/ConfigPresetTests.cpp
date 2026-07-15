@@ -1,0 +1,87 @@
+#include "Config.h"
+#include "ConfigPreset.h"
+
+#include <iostream>
+#include <filesystem>
+#include <fstream>
+
+namespace {
+
+int Check(bool condition, const char* message)
+{
+    if (condition) return 0;
+    std::cerr << "FAILED: " << message << '\n';
+    return 1;
+}
+
+} // namespace
+
+int main()
+{
+    using namespace somavr;
+    int failures = 0;
+    failures += Check(ParseComfortPreset("  BALANCED ") == ComfortPreset::Balanced,
+        "preset parsing is trimmed and case insensitive");
+    failures += Check(ParseComfortPreset("unknown") == ComfortPreset::Invalid,
+        "unknown preset is rejected");
+
+    Config minimal;
+    failures += Check(ApplyComfortPreset(minimal, ComfortPreset::Minimal)
+            && !minimal.hplControllerSnapTurn
+            && minimal.hplControllerComfortBlackoutFrames == 0
+            && !minimal.hplComfortCameraAddControl
+            && minimal.hplPostEffectControl
+            && minimal.hplPostEffectDisableImageTrail
+            && !minimal.hplPostEffectDisableVideoDistortion,
+        "minimal preset keeps only the worst temporal effect suppressed");
+
+    Config balanced;
+    failures += Check(ApplyComfortPreset(balanced, ComfortPreset::Balanced)
+            && balanced.hplControllerSnapTurn
+            && balanced.hplControllerComfortBlackoutFrames == 2
+            && balanced.hplComfortSuppressHeadBob
+            && balanced.hplComfortCameraRollControl
+            && !balanced.hplComfortSuppressScriptRoll
+            && balanced.hplComfortOpticsControl
+            && balanced.hplPostEffectDisableRadialBlur,
+        "balanced preset enables established comfort policy without script roll");
+
+    Config maximum;
+    failures += Check(ApplyComfortPreset(maximum, ComfortPreset::Maximum)
+            && maximum.hplControllerComfortBlackoutFrames == 4
+            && maximum.hplComfortSuppressSway
+            && maximum.hplComfortSuppressScriptRoll
+            && maximum.openxrTrackingRecoveryBlackoutFrames == 4,
+        "maximum preset enables the strongest bounded comfort policy");
+
+    maximum.hplControllerComfortBlackoutFrames = 9;
+    failures += Check(maximum.hplControllerComfortBlackoutFrames == 9,
+        "explicit settings can override a previously applied preset");
+
+    const std::filesystem::path configPath =
+        std::filesystem::temp_directory_path() / "somavr-config-preset-test.ini";
+    {
+        std::ofstream out(configPath, std::ios::trunc);
+        out << "[Comfort]\nPreset=maximum\n"
+            << "[Hooks]\nHPLComfortSuppressScriptRoll=0\n"
+            << "[Controller]\nComfortBlackoutFrames=7\n";
+    }
+    ConfigManager manager;
+    failures += Check(manager.InitializeAtPath(configPath)
+            && manager.Get().comfortPreset == "maximum"
+            && manager.Get().hplComfortSuppressSway
+            && !manager.Get().hplComfortSuppressScriptRoll
+            && manager.Get().hplControllerComfortBlackoutFrames == 7,
+        "explicit INI keys override preset values after the pre-scan");
+    {
+        std::ofstream out(configPath, std::ios::trunc);
+        out << "[Comfort]\nPreset=custom\n";
+    }
+    failures += Check(manager.InitializeAtPath(configPath)
+            && manager.Get().comfortPreset == "custom"
+            && !manager.Get().hplComfortSuppressSway,
+        "reloading a manager resets stale preset state before parsing");
+    std::error_code ec;
+    std::filesystem::remove(configPath, ec);
+    return failures == 0 ? 0 : 1;
+}

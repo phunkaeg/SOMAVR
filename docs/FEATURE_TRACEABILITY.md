@@ -63,6 +63,9 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.BUILD_IDENTITY` | BUILT | CMake build manifest, `scripts/Package-Release.ps1` | version, flavor, OpenXR bit, DLL/package SHA-256 | `BUILD_HISTORY.md`, `SMOKE_TEST_MATRIX.md` | Promote only OpenXR-validated versioned bundles; add CI/reproducibility checks before public release |
 | `FEATURE.RELEASE_LIFECYCLE` | BUILT | install/update/uninstall PowerShell scripts, installer lifecycle CTest | package SHA-256 ledger, `.somavr-install.json`, preserved `somavr.ini` | `README.md`, `BUILD_HISTORY.md` | Test a real packaged update and uninstall from the user-selected deployment directory |
 | `FEATURE.CONFLICT_DIAGNOSTICS` | BUILT | `src/injector/CompatibilityScan.cpp` | target modules, game-directory proxy DLLs, duplicate `somavr.dll` block | `README.md`, `TEST_CHECKLISTS.md` | Validate warning quality with ReShade/API-layer configurations and extend only from observed conflicts |
+| `FEATURE.READINESS_DIAGNOSTICS` | BUILT | injector `--doctor`, `CompatibilityScan`, `ConfigManager` | x64 PE check, build flavor, loader/config, active runtime registry/JSON, SOMA path, directory proxy scan, machine-readable exit | `USER_GUIDE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Run from packaged install on each supported runtime and preserve zero-failure evidence with release logs |
+| `FEATURE.COMFORT_PRESETS` | BUILT | `ConfigPreset`, `ConfigManager`, INI | custom/minimal/balanced/maximum pre-scan, explicit-key precedence, deterministic tests | `USER_GUIDE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live compare all presets through turn, recenter, transitions, authored cameras, and named effects; tune only from evidence |
+| `FEATURE.END_USER_GUIDE` | BUILT | `docs/USER_GUIDE.md`, release packager | install, doctor, launch, controls, presets, rollback, logs, troubleshooting | `README.md`, `BUILD_HISTORY.md` | Keep commands and defaults synchronized with every release package |
 | `FEATURE.SMOKE_MATRIX` | BUILT | `docs/SMOKE_TEST_MATRIX.md`, bounded subsystem summaries | 12 representative startup/gameplay/UI/transition/recovery/shutdown scenarios | `SMOKE_TEST_MATRIX.md`, `TEST_CHECKLISTS.md` | Assign stable campaign saves/checkpoints and run the promotion subset on each feature build |
 | `FEATURE.TELEMETRY` | PROVEN | `OpenGLHooks`, `OpenGLMatrixAnalysis`, `HPLCompatibilityProbe`, `HPLPlayerState`, `HPLInputBridge`, logger, config | Swap/FBO/matrix/runtime/stage/audio/player-state/post-effect bounded logs | all current docs | Correlate authored-camera transitions, stage-tagged draws, GUI state, and per-effect identities in a live run |
 
@@ -109,6 +112,9 @@ FEATURE.XR_REFERENCE_SPACE requires FEATURE.XR_BOOTSTRAP
 FEATURE.XR_DEPTH_CAPABILITY requires FEATURE.XR_GL_SUBMISSION
 FEATURE.RELEASE_LIFECYCLE requires FEATURE.BUILD_IDENTITY
 FEATURE.CONFLICT_DIAGNOSTICS requires FEATURE.INJECTION
+FEATURE.READINESS_DIAGNOSTICS requires FEATURE.CONFLICT_DIAGNOSTICS
+FEATURE.COMFORT_PRESETS requires FEATURE.COMFORT_POLICY
+FEATURE.END_USER_GUIDE requires FEATURE.RELEASE_LIFECYCLE
 FEATURE.TRACKING_RESILIENCE requires FEATURE.XR_GL_SUBMISSION
 FEATURE.TRACKING_RESILIENCE constrains FEATURE.HEAD_TRACKING
 FEATURE.TRACKING_RESILIENCE constrains FEATURE.AFR_STEREO

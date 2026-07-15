@@ -15,6 +15,8 @@ void PublishHPLWakeSetAsleep(bool asleep);
 void PublishHPLWakeStart(float durationSeconds);
 bool IsHPLWakePresentationActive();
 bool IsHPLWakeAsleep();
+void PublishHPLInventoryOpen();
+bool IsHPLInventoryPresentationActive();
 void LogHPLPresentationBridgeSummary();
 
 } // namespace somavr

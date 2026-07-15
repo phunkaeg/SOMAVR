@@ -1,5 +1,28 @@
 # Future Systems Reverse Engineering
 
+## 0.44.0 Inventory Presentation Result
+
+Shipped source fixes the inventory user-module ID at `15` and
+`eAction_OpenInventory` at `12`. `InventoryHandler::OnAction` reacts only to a
+pressed action `12`, calls `AutoEnable(3)`, and then fades its current-ImGui
+surface at `0.6` alpha per second. A five-second capture authorization therefore
+covers the complete authored hold and fade with a small scheduling margin.
+
+Ghidra confirms the native `cLuxUserModule::OnAction` wrapper at `0x1401378e0`.
+Its 26-byte body loads the script object from module `+0x90` and forwards action
+and pressed state to the AngelScript dispatcher at `0x140129a40`. Registration
+at `0x1401ae870` independently proves `int mlId` at module `+0x158`.
+`HPLUserModuleBridge` preserves native dispatch, then publishes inventory
+activity only for `(mlId=15, action=12, pressed=true)`. `HPLHudBridge` admits the
+exact flat current-ImGui set only during that bounded window.
+
+Main-menu activation calls `SetMenuActive`, which owns native pause state, so
+the existing exact paused-current-ImGui route already covers it. Hints and
+credits draw through GameHudImGui; descriptions, infection, crosshair, and
+fullscreen white flashes draw through GameHudSet. `LightFlashHandler` owns a
+world point light and must remain in stereo world rendering. These findings
+avoid adding broad GUI or light interception for already-covered surfaces.
+
 ## 0.43.0 Scripted Presentation Result
 
 Shipped script source establishes separate user modules for GameOver `10`, Wake
@@ -756,9 +779,10 @@ The bridge restores incoming framebuffer/viewport/buffer state after each exact
 set and keeps every nonmatching set on the original path. `0.31.0` promotes the
 signature-guarded `SOMA_GetGameHudImGui()->GetSet()` identity from telemetry to
 the same capture transaction. `0.34.0` additionally captures the exact current
-ImGui set only while `SOMA_GetGamePaused()` confirms pause ownership. Load,
-wake, death/game-over, main-menu, and all 3D/diegetic GUI remain native pending
-their own state authorities.
+ImGui set only while `SOMA_GetGamePaused()` confirms pause ownership. `0.43.0`
+adds exact wake/death authorities and `0.44.0` adds exact inventory activity;
+main menu is pause-owned. Load and all 3D/diegetic GUI retain their dedicated
+native/presentation paths.
 
 ### Surface Classes
 
@@ -767,7 +791,7 @@ SOMA does not have one monolithic HUD.
 | Surface | Examples | Current path | VR destination |
 | --- | --- | --- | --- |
 | Gameplay HUD | crosshair, descriptions, infection border, white flashes | `cLux_GetGameHudSet()` queued in `OnDraw` | Extract to a transparent texture; submit as a configurable OpenXR quad/curved layer. |
-| ImGui HUD | hints, inventory, menus, wake/game-over, credits | `cLux_GetGameHudImGui()` / module `OnGui`; exact current owner is pause-gated in `0.34.0` | Gameplay owner and paused current owner share the HUD texture; classify other states before admitting them. |
+| ImGui HUD | hints, inventory, menus, wake/game-over, credits | GameHudImGui for hints/credits; exact current ImGui gated by pause, wake/dead state, or module `15` action `12` inventory activity | All confirmed flat owners share the HUD texture; diegetic current ImGui remains excluded. |
 | Diegetic GUI | terminals, handheld terminals, screens | world `cGuiSetEntity`/terminal callbacks | Keep in the stereo world and drive with a controller ray. |
 | Interaction reticle | native picker result now; crosshair state enum still pending | application-space OpenXR quad at hit depth | Keep generic marker bounded; map icon/availability semantics and assess world occlusion. |
 | Subtitle/dialog text | `SOMA_VoiceSubtitle_Render` queues localized text through the native game GUI | Native draw receives scoped width/font/Y/shadow scaling and then lands in the HUD layer. |

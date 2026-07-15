@@ -92,12 +92,13 @@ and `docs\VR_COMPATIBILITY_RE.md`. Stable graph nodes and acceptance gates are i
 | `Soma_NoSteam.exe+0x0bcd90` | Guarded control hook built | Shared Lux entity SetMatrix boundary | `0.16.0` handles exact normal quarter-scale `PlayerHands_*` grip roots; `0.23.0` handles only exact `Flashlight` dominant-aim matrices. All authored/stale/special/failure states remain native. |
 | `Soma_NoSteam.exe+0x00fb60` | Static confirmed, identity gate built | Inherited Lux entity GetName accessor | Returns native name at entity `+0x120`; exact `PlayerHands_*` and `Flashlight` gates avoid broad SetMatrix mutation. |
 | `Soma_NoSteam.exe+0x1297c0` | Static confirmed | Attribute module `OnGui` dispatch | Module `mlId` is `+0x158` (GameOver `10`, Wake `12`, Credits `19`), but callback presence is not active-state proof because shipped handlers can return immediately. |
+| `Soma_NoSteam.exe+0x1378e0` | Guarded observer hook built | Exact user-module action activity | Preserves native dispatch; module `15`, action `12`, pressed edges authorize the shipped inventory hold/fade current-ImGui capture window. Registration at `+0x1ae870` proves `mlId +0x158`. |
 | `Soma_NoSteam.exe+0x484ea0/+0x485200/+0x485720` | Guarded scripted-presentation observer built | Exact wake sleep/start activity and typed arguments | Sleep arbitrates XR blackout; authored wake duration authorizes flat current-ImGui capture. Native dispatch remains authoritative. |
 | Player hands `PostUpdate` transform | Guarded controller root built | Replace camera-follow hands with controller pose | Tune configurable root calibration and per-tool profiles from live output while preserving mesh, animations, `R_Hand` attachments, tool callbacks, and camera attachments. |
 | `Player.hps::UpdateFlashLightLOS` camera-ray sample | Guarded control built | Align randomized agent-gobo gameplay rays with the moved controller flashlight | The three low-frequency rays now share the visual light origin and controller-relative randomized cone; all general frustum/sensor behavior remains shipped script logic. |
 | `Soma_NoSteam.exe+0x0ccc90` plus HMD/aim pose | Guarded menu control built | Hard pause suppression and native menu pointer | True pause releases every gameplay route; dominant aim projects to SOMA's client cursor and trigger/select remains native left click. |
 | OpenXR action set | Design ready | Semantic movement, turn, interaction, and menu input | Snap turn first; body yaw and HMD-local pose remain separate. |
-| `XrCompositionLayerQuad` HUD | Gameplay layer built | Head-locked gameplay HUD presentation | Exact GameHudSet capture is built; ImGui/menu/subtitle layers remain future work and terminals stay in the stereo world. |
+| `XrCompositionLayerQuad` HUD | Flat HUD routes built | Head-locked gameplay and confirmed flat-ImGui presentation | Exact GameHudSet/GameHudImGui plus pause, wake/dead, and inventory current-ImGui owners are captured; terminals stay in the stereo world. |
 | `Soma_NoSteam.exe+0x159360` | Guarded comfort control built | Suppress semantic native camera Bob/Shake/Sway | Registered SetCameraPosAdd wrapper; preserve all other authored channels and activate only with VR tracking. |
 | `Soma_NoSteam.exe+0x156d90/+0x156f00` | Guarded comfort control built | Semantic authored camera-roll policy | Fade and direct setters independently suppress Script/Lean/Move/Climb roll; active profile preserves Script and zeros Lean/Move/Climb only during VR. |
 | `Soma_NoSteam.exe+0x071f80` | Guarded reversible patch built | Suppress world depth of field during VR | Exact seven-byte setter plus nine padding bytes; emulates the native `world+0x264` write and rejects only active requests while tracking. |
@@ -131,7 +132,7 @@ Initial node groups for a future graph view:
 - Pose ownership: `body yaw` + `authored camera base` + `HMD local pose` -> `cCamera::GetFrustum`
 - Viewmodel: `PlayerHandsHandler` -> `hands entity` -> `R_Hand socket` -> `tool HudObject`
 - Viewport order: `scene render` -> `post composite` -> stateful `PostPostEffects` phase -> `GUI sets`
-- HUD layer: `GameHudSet/cImGui` -> `HUD framebuffer` -> `XrCompositionLayerQuad`
+- HUD layer: `GameHudSet/GameHudImGui` + exact flat current-ImGui authorities -> `HUD framebuffer` -> `XrCompositionLayerQuad`
 - Interaction: `controller ray` -> `native pick` -> `crosshair semantic state` -> `native callback`
 
 Useful edge labels:

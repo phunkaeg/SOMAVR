@@ -312,7 +312,10 @@ Evidence:
 
 - The main loop queues `OnDraw` before `0x140298850` renders viewports.
 - `0x140298630` runs scene, post composite, `PostPostEffect`, then `0x1402981e0`.
-- Crosshair, descriptions, flashes, and infection draw through `GameHudSet`; inventory, hints, menus, wake, and game-over use ImGui.
+- Crosshair, descriptions, flashes, and infection draw through `GameHudSet`;
+  inventory, hints, menus, wake, and game-over use ImGui. Later RE established
+  exact flat authorities: pause owns main menu, module `15` action `12` owns
+  inventory, wake/dead have dedicated state, and hints/credits use GameHudImGui.
 
 The `0.15.0` build implements that transaction and submits the result as a
 VIEW-space alpha quad. It confirms if live output contains gameplay HUD pixels

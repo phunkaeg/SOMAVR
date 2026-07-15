@@ -221,6 +221,7 @@ struct Config {
     bool hplLoadingScreenControl = false;
     int hplLoadingScreenExitBlackoutFrames = 2;
     bool hplScriptedPresentationControl = false;
+    bool hplInventoryPresentationControl = false;
     bool hplVideoLifecycleProbe = false;
     bool hplScreenEffectControl = false;
     float hplScreenEffectDistanceMeters = 1.5f;

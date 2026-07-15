@@ -21,10 +21,18 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.43.0-scripted-presentation`, layered on the
+The active build candidate is `0.44.0-inventory-presentation`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Inventory presentation now has an exact native activity authority. The
+  signature-guarded `cLuxUserModule::OnAction` wrapper admits current ImGui to
+  the HUD capture only for user-module ID `15`, open-inventory action `12`, and
+  a pressed edge. Its five-second authorization covers the shipped three-second
+  display plus `0.6/s` fade-out without broad GUI interception. Main menu is
+  already owned by the exact pause gate; hints and credits use GameHudImGui,
+  while crosshair, descriptions, infection, and flashes use GameHudSet.
 
 - Shipped wake, game-over, and credits presentation ownership is now explicit.
   Exact `WakeHandler` global dispatch controls XR sleep blackout and a bounded

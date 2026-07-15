@@ -18,6 +18,7 @@
 #include "HPLSubtitleBridge.h"
 #include "HPLStatusPanelBridge.h"
 #include "HPLTerminalBridge.h"
+#include "HPLUserModuleBridge.h"
 #include "Logger.h"
 #include "OpenGLHooks.h"
 #include "OpenXRRuntime.h"
@@ -407,6 +408,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     if (!somavr::InstallHPLCrosshairBridge(g_config->Get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_crosshair_bridge install_failed");
     }
+    if (!somavr::InstallHPLUserModuleBridge(g_config->Get())) {
+        somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_user_module_bridge install_failed");
+    }
     if (!somavr::InstallHPLGrabBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_grab_bridge install_failed");
     }
@@ -453,6 +457,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::RemoveHPLGrabBridge();
     somavr::LogHPLCrosshairBridgeSummary();
     somavr::RemoveHPLCrosshairBridge();
+    somavr::LogHPLUserModuleBridgeSummary();
+    somavr::RemoveHPLUserModuleBridge();
     somavr::LogHPLInteractionBridgeSummary();
     somavr::RemoveHPLInteractionBridge();
     somavr::LogHPLGameplayHapticsBridgeSummary();

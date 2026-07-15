@@ -1,5 +1,25 @@
 # Test Checklists
 
+## 0.44.0 Inventory Presentation
+
+1. Confirm `version=0.44.0-inventory-presentation`,
+   `hpl_user_module_bridge install_ok`, `moduleIdOffset=0x158`,
+   `inventoryModuleId=15`, and `openInventoryAction=12`. Enter the known-good
+   F10 path after loading a save.
+2. Open inventory once. It must appear once, head locked and identical in both
+   eyes, remain visible through the native three-second hold and fade, and not
+   alter world geometry, shadows, reflections, eye height, or controls.
+3. Confirm one `route=inventory_presentation` row and increasing
+   `inventoryCurrentImGuiCaptures`. Wait at least five seconds; expect one
+   `hpl_inventory_presentation event=complete` and no continued inventory
+   capture while ordinary gameplay current-ImGui owners run.
+4. Exercise hints, pause/main menu, terminals, credits, wake, death/game-over,
+   subtitles, descriptions, infection, and white flashes. Each must retain its
+   existing path; terminal/diegetic GUI must remain in the stereo world.
+5. Repeat with `HPLInventoryPresentationControl=0`. Inventory must retain native
+   behavior without current-ImGui HUD capture, and all `0.43.0` presentation
+   behavior must remain unchanged. Attach the complete shutdown summaries.
+
 ## 0.43.0 Scripted Presentation
 
 1. Confirm `version=0.43.0-scripted-presentation`,

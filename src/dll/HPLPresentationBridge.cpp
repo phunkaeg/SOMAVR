@@ -69,6 +69,7 @@ std::atomic<bool> g_loadingActive = false;
 std::atomic<bool> g_loadingInitialized = false;
 std::atomic<bool> g_wakeAsleep = false;
 std::atomic<uint64_t> g_wakeActiveUntilMs = 0;
+std::atomic<uint64_t> g_inventoryActiveUntilMs = 0;
 std::atomic<uint64_t> g_lastUpdateFrame = 0;
 std::atomic<uint64_t> g_loadingQueries = 0;
 std::atomic<uint64_t> g_loadingQueryUnavailable = 0;
@@ -77,6 +78,8 @@ std::atomic<uint64_t> g_loadingExits = 0;
 std::atomic<uint64_t> g_wakeSetAsleepEvents = 0;
 std::atomic<uint64_t> g_wakeStartEvents = 0;
 std::atomic<uint64_t> g_wakeCompletions = 0;
+std::atomic<uint64_t> g_inventoryOpenEvents = 0;
+std::atomic<uint64_t> g_inventoryCompletions = 0;
 std::atomic<uint64_t> g_videoCreates = 0;
 std::atomic<uint64_t> g_videoCreateFailures = 0;
 std::atomic<uint64_t> g_videoDestroys = 0;
@@ -268,6 +271,7 @@ bool InstallHPLPresentationBridge(const Config& config, OpenXRRuntime* openxr)
     g_config = config;
     g_openxr = openxr;
     if (!config.hplLoadingScreenControl && !config.hplScriptedPresentationControl
+        && !config.hplInventoryPresentationControl
         && !config.hplVideoLifecycleProbe) {
         Logger::Instance().Write(LogLevel::Info, "hpl_presentation_bridge disabled config=0");
         return true;
@@ -336,11 +340,12 @@ bool InstallHPLPresentationBridge(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_presentation_bridge install_ok loadingControl=%d loadRva=0x%llx exitBlackoutFrames=%d scriptedPresentation=%d videoProbe=%d createVideoRva=0x%llx destroyVideoRva=0x%llx",
+        "hpl_presentation_bridge install_ok loadingControl=%d loadRva=0x%llx exitBlackoutFrames=%d scriptedPresentation=%d inventoryPresentation=%d videoProbe=%d createVideoRva=0x%llx destroyVideoRva=0x%llx",
         config.hplLoadingScreenControl ? 1 : 0,
         static_cast<unsigned long long>(kIsLoadingScreenVisibleRva),
         config.hplLoadingScreenExitBlackoutFrames,
         config.hplScriptedPresentationControl ? 1 : 0,
+        config.hplInventoryPresentationControl ? 1 : 0,
         config.hplVideoLifecycleProbe ? 1 : 0,
         static_cast<unsigned long long>(kCreateVideoRva),
         static_cast<unsigned long long>(kDestroyVideoRva));
@@ -353,8 +358,8 @@ void RemoveHPLPresentationBridge()
     const bool loadingActive = g_loadingActive.exchange(false, std::memory_order_relaxed);
     const bool wakeAsleep = g_wakeAsleep.exchange(false, std::memory_order_relaxed);
     const bool wakeTimedActive = g_wakeActiveUntilMs.exchange(0, std::memory_order_relaxed) != 0;
-    const bool presentationActive = loadingActive || wakeAsleep || wakeTimedActive;
-    if (presentationActive && g_openxr != nullptr) {
+    g_inventoryActiveUntilMs.store(0, std::memory_order_relaxed);
+    if ((loadingActive || wakeAsleep || wakeTimedActive) && g_openxr != nullptr) {
         g_openxr->SetPresentationBlackout(false, "loading_screen_bridge_removed");
     }
     RollbackHooks();
@@ -378,6 +383,17 @@ void UpdateHPLPresentationBridge(uint64_t frameIndex)
         Logger::Instance().Write(
             LogLevel::Info,
             "hpl_wake_presentation event=complete sequence=%llu frame=%llu",
+            static_cast<unsigned long long>(completion),
+            static_cast<unsigned long long>(frameIndex));
+    }
+    uint64_t inventoryUntil = g_inventoryActiveUntilMs.load(std::memory_order_relaxed);
+    if (inventoryUntil != 0 && GetTickCount64() > inventoryUntil
+        && g_inventoryActiveUntilMs.compare_exchange_strong(
+            inventoryUntil, 0, std::memory_order_relaxed)) {
+        const uint64_t completion = g_inventoryCompletions.fetch_add(1, std::memory_order_relaxed) + 1;
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_inventory_presentation event=complete sequence=%llu frame=%llu",
             static_cast<unsigned long long>(completion),
             static_cast<unsigned long long>(frameIndex));
     }
@@ -482,6 +498,28 @@ bool IsHPLWakeAsleep()
         && g_wakeAsleep.load(std::memory_order_relaxed);
 }
 
+void PublishHPLInventoryOpen()
+{
+    if (!g_config.hplInventoryPresentationControl) return;
+    constexpr uint64_t kInventoryCaptureWindowMs = 5000;
+    g_inventoryActiveUntilMs.store(
+        GetTickCount64() + kInventoryCaptureWindowMs,
+        std::memory_order_relaxed);
+    const uint64_t event = g_inventoryOpenEvents.fetch_add(1, std::memory_order_relaxed) + 1;
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_inventory_presentation event=open sequence=%llu captureWindowMs=%llu policy=module15_action12_pressed",
+        static_cast<unsigned long long>(event),
+        static_cast<unsigned long long>(kInventoryCaptureWindowMs));
+}
+
+bool IsHPLInventoryPresentationActive()
+{
+    if (!g_config.hplInventoryPresentationControl) return false;
+    const uint64_t until = g_inventoryActiveUntilMs.load(std::memory_order_relaxed);
+    return until != 0 && GetTickCount64() <= until;
+}
+
 void LogHPLPresentationBridgeSummary()
 {
     uint64_t activeVideos = 0;
@@ -491,7 +529,7 @@ void LogHPLPresentationBridgeSummary()
     }
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_presentation_bridge_summary loadingInstalled=%d loadingActive=%d loadingQueries=%llu queryUnavailable=%llu entries=%llu exits=%llu scriptedPresentation=%d wakeAsleep=%d wakeActive=%d wakeSetAsleepEvents=%llu wakeStartEvents=%llu wakeCompletions=%llu videoProbeInstalled=%d creates=%llu createFailures=%llu destroys=%llu nameReadFailures=%llu activeVideos=%llu peakActiveVideos=%llu",
+        "hpl_presentation_bridge_summary loadingInstalled=%d loadingActive=%d loadingQueries=%llu queryUnavailable=%llu entries=%llu exits=%llu scriptedPresentation=%d wakeAsleep=%d wakeActive=%d wakeSetAsleepEvents=%llu wakeStartEvents=%llu wakeCompletions=%llu inventoryPresentation=%d inventoryActive=%d inventoryOpenEvents=%llu inventoryCompletions=%llu videoProbeInstalled=%d creates=%llu createFailures=%llu destroys=%llu nameReadFailures=%llu activeVideos=%llu peakActiveVideos=%llu",
         g_isLoadingScreenVisible != nullptr ? 1 : 0,
         g_loadingActive.load(std::memory_order_relaxed) ? 1 : 0,
         static_cast<unsigned long long>(g_loadingQueries.load(std::memory_order_relaxed)),
@@ -504,6 +542,10 @@ void LogHPLPresentationBridgeSummary()
         static_cast<unsigned long long>(g_wakeSetAsleepEvents.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_wakeStartEvents.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_wakeCompletions.load(std::memory_order_relaxed)),
+        g_config.hplInventoryPresentationControl ? 1 : 0,
+        IsHPLInventoryPresentationActive() ? 1 : 0,
+        static_cast<unsigned long long>(g_inventoryOpenEvents.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_inventoryCompletions.load(std::memory_order_relaxed)),
         g_createVideoTarget != nullptr && g_destroyVideoTarget != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_videoCreates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_videoCreateFailures.load(std::memory_order_relaxed)),

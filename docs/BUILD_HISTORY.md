@@ -2,6 +2,28 @@
 
 ## 2026-07-15
 
+### 0.44.0-inventory-presentation
+
+- Traced the shipped inventory input path from
+  `eAction_OpenInventory = 12` through `InventoryHandler::OnAction` to
+  `AutoEnable(3)`. The inventory module is exact user-module ID `15`; its
+  three-second hold and `0.6/s` fade fit inside a bounded five-second capture
+  authorization.
+- Added `HPLUserModuleBridge`, an exact-signature observer at `0x1401378e0`.
+  It preserves native action dispatch and authorizes flat current-ImGui HUD
+  capture only for module `15`, action `12`, pressed edges. Main menu remains
+  covered by the already-proven native pause gate, while hints, credits,
+  crosshair, descriptions, infection, and fullscreen flashes retain their
+  exact GameHud paths.
+- Added bounded inventory telemetry and a one-line rollback through
+  `HPLInventoryPresentationControl=0`. Ghidra now records the native action
+  wrapper, script dispatcher, registration owner, and confirmed `mlId +0x158`.
+  Both Release flavors and all three CTest suites pass; live inventory
+  acceptance remains. OpenXR DLL SHA-256:
+  `F661A91F9B743247D1786A5F775101BDF4FD9212C561CFC80446E5AD96312D4A`.
+  Package SHA-256:
+  `54403D571E62DB55FF6C1F714E8F4FC9428157AB825574155DC888288C6926A2`.
+
 ### 0.43.0-scripted-presentation
 
 - Traced shipped `WakeHandler`, `GameOverHandler`, and `CreditsHandler` scripts.

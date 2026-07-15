@@ -1,5 +1,17 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Inventory Presentation Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1401378e0` | `SOMA_cLuxUserModule_OnAction` | Renamed and typed as the exact native `(module, action, pressed)` wrapper. Its 26-byte body forwards the script object at `+0x90`; `0.44.0` signature-guards this boundary. |
+| `0x140129a40` | `SOMA_ScriptObject_OnAction` | Renamed and typed as the AngelScript `OnAction(int,bool)` dispatcher called by the wrapper. |
+| `0x1401ae870` | `SOMA_Script_Register_cLuxUserModule` | Registration proves `int mlId` at native `+0x158` and binds the user-module action interface. |
+
+The explicitly selected `Soma_NoSteam.exe` database was saved after all three
+renames, both action prototypes, and plate comments. Shipped script evidence
+then narrows inventory activity to module `15`, action `12`, pressed edges.
+
 ## 2026-07-15 Scripted Presentation Sync
 
 | Address | Ghidra name | Evidence/use |

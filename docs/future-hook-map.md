@@ -128,7 +128,7 @@ Initial node groups for a future graph view:
 - Input bridge: `OpenXR actions` -> `SOMA action dispatch` -> `player/move state` -> `iCharacterBody`
 - Pose ownership: `body yaw` + `authored camera base` + `HMD local pose` -> `cCamera::GetFrustum`
 - Viewmodel: `PlayerHandsHandler` -> `hands entity` -> `R_Hand socket` -> `tool HudObject`
-- Viewport order: `scene render` -> `post composite` -> `PostPostEffect` -> `GUI sets`
+- Viewport order: `scene render` -> `post composite` -> stateful `PostPostEffects` phase -> `GUI sets`
 - HUD layer: `GameHudSet/cImGui` -> `HUD framebuffer` -> `XrCompositionLayerQuad`
 - Interaction: `controller ray` -> `native pick` -> `crosshair semantic state` -> `native callback`
 

@@ -51,7 +51,7 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x1401f9790` | High-confidence | Main scene render invoked by `0x140298630` before post effects and GUI. |
 | `0x140297670` | Confirmed by order, probe built | Viewport renderer callback pass after scene render and before active post-effect composition. Passive hook in `0.5.1` classifies calls/FBO state before dual rendering. |
 | `0x14033bd80` | Confirmed | Active post-effect composite render. Iterates the priority-sorted effect tree and ping-pongs outputs. |
-| `0x1401f1480` | Confirmed by log string and order | `PostPostEffect` renderer callback pass, after the post chain and before final GUI drawing. |
+| `0x1401f1480` | Confirmed by decompilation and order | `HPL3_Renderer_RenderPostPostEffects`, a full deferred/post-post renderer phase after the optional post chain and before final GUI drawing. It performs GPU work and callbacks, clears renderer `+0x69`, and copies `0x40` bytes from `*(renderer+0x20)+0x158` into temporal/history state at `*(renderer+0x438)+0x80`. Repeating it for a second eye is therefore stateful. |
 | `0x1402981e0` | Confirmed | Collects, priority-sorts, and renders viewport GUI sets after scene post effects. Parent iteration boundary for gameplay-HUD capture classification. |
 | `0x1401297c0` | Confirmed | Invokes a script object's `OnGui(float)` callback when enabled. |
 | `0x14022f8e0` | Confirmed | Creates an iterator over the viewport GUI-set list at viewport `+0x90`. Ghidra: `HPL3_Viewport_CreateGuiSetIterator`. |

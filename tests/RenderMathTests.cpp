@@ -10,6 +10,7 @@
 #include "HPLScreenEffectMath.h"
 #include "HPLSubtitleMath.h"
 #include "HPLDualRenderMath.h"
+#include "HPLTemporalMutationMath.h"
 #include "HPLTwoHandMath.h"
 #include "HPLPostEffectResourceMath.h"
 #include "OpenGLMatrixAnalysis.h"
@@ -140,6 +141,36 @@ int main()
             && !dual_render_math::IsSamePoseOppositeEye(0, 42, 0, 42)
             && !dual_render_math::IsSamePoseOppositeEye(0, 42, 1, 43),
         "dual-render replay validates opposite eyes from one tracked pose");
+    const std::array<uint8_t, 12> temporalBefore = {
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+    };
+    std::array<uint8_t, 12> temporalAfter = temporalBefore;
+    temporalAfter[2] = 20;
+    temporalAfter[3] = 30;
+    temporalAfter[8] = 80;
+    const temporal_mutation_math::MutationSummary temporalMutation =
+        temporal_mutation_math::SummarizeMutation(
+            temporalBefore.data(), temporalAfter.data(), temporalBefore.size());
+    failures += Check(
+        temporalMutation.changedBytes == 3
+            && temporalMutation.spanCount == 2
+            && temporalMutation.spans[0].offset == 2
+            && temporalMutation.spans[0].length == 2
+            && temporalMutation.spans[1].offset == 8
+            && temporalMutation.spans[1].length == 1
+            && temporalMutation.beforeHash != temporalMutation.afterHash,
+        "temporal mutation summary records bounded changed-byte spans");
+    std::array<uint8_t, 12> equivalentAfter = temporalBefore;
+    equivalentAfter[2] = 22;
+    equivalentAfter[3] = 33;
+    equivalentAfter[8] = 88;
+    const temporal_mutation_math::MutationSummary equivalentMutation =
+        temporal_mutation_math::SummarizeMutation(
+            temporalBefore.data(), equivalentAfter.data(), equivalentAfter.size());
+    failures += Check(
+        temporal_mutation_math::HasEquivalentMutationPattern(
+            temporalMutation, equivalentMutation),
+        "temporal mutation equivalence compares ranges independently of values");
     subtitle_math::SubtitleLayout subtitleLayout;
     failures += Check(
         subtitle_math::BuildSubtitleLayout(

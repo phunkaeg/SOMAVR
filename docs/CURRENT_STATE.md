@@ -21,10 +21,18 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.39.0-vr-control-panel`, layered on the
+The active build candidate is `0.40.0-dual-render-temporal-probe`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Same-frame stereo evidence collection is now automatic and bounded. After a
+  stable exact player viewport enters tracked stereo, three samples run 180
+  frames apart. Each replays one frame with screen GUI suppressed, captures the
+  first eye immediately, and records before/after mutation ranges around the
+  corrected stateful renderer post-post phase at `0x1401f1480`. The path remains
+  diagnostic-only and falls back to the proven AFR baseline after every sample;
+  `Ctrl+F6` remains available for a manually chosen scene.
 
 - A dedicated head-locked OpenXR status/options panel is now available through
   `F1` or `Menu + Secondary`. It owns a separate alpha swapchain and reports

@@ -222,6 +222,10 @@ struct Config {
     float hplWorldScale = 1.0f;
     bool hplRenderStageProbe = false;
     bool hplDualRenderReplayProbe = false;
+    bool hplDualRenderAutoProbe = false;
+    int hplDualRenderAutoProbeCount = 3;
+    int hplDualRenderAutoProbeDelayFrames = 180;
+    int hplDualRenderAutoProbeIntervalFrames = 180;
     bool hplPerEyePerformanceTelemetry = false;
     bool hplPerEyeGpuTelemetry = false;
     int hplGpuQueryPoolSize = 128;

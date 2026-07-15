@@ -88,8 +88,11 @@ post chain, `Ctrl+F12` cycles reversible render-only isolation across currently
 active effects, and `Shift+F12` restores the normal effect chain.
 The development-only `HPLDualRenderReplayProbe=1` adds `Ctrl+F6`: one press
 replays only the next exact player viewport once, suppresses screen GUI on the
-second pass, and logs whether both eyes came from the same tracked pose. This is
-a bounded evidence probe, not a persistent dual-render toggle.
+second pass, and logs whether both eyes came from the same tracked pose. With
+`HPLDualRenderAutoProbe=1`, three automatically spaced samples run after the
+tracked player viewport becomes stable. Each sample also records the CPU regions
+mutated by HPL3's deferred/post-post phase. These are bounded evidence probes,
+not a persistent dual-render toggle.
 With `HudLayer=1`, the exact gameplay HUD set is removed from the eye render and
 submitted once as a transparent, compositor head-locked OpenXR quad. Menus,
 ImGui, subtitles not owned by that set, and diegetic terminal GUIs remain on
@@ -239,6 +242,10 @@ HPLStereoAFR=1
 HPLWorldScale=1.0
 HPLRenderStageProbe=1
 HPLDualRenderReplayProbe=1
+HPLDualRenderAutoProbe=1
+HPLDualRenderAutoProbeCount=3
+HPLDualRenderAutoProbeDelayFrames=180
+HPLDualRenderAutoProbeIntervalFrames=180
 HPLPerEyePerformanceTelemetry=1
 HPLPerEyeGpuTelemetry=1
 HPLGpuQueryPoolSize=128

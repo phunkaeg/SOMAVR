@@ -40,7 +40,7 @@ viewport begin on FBO 0
   world: FBO 0 -> FBO 11
   world overlays: FBO 11 -> FBO 11
   post effects: FBO 11 -> FBO 0
-  PostPostEffect callbacks: FBO 0 -> FBO 0
+  PostPostEffects phase (then labeled callbacks): FBO 0 -> FBO 0
   screen GUI: FBO 0 -> FBO 0
 viewport end on FBO 0
 ```
@@ -61,7 +61,7 @@ Average sampled cost after F11:
 | World | `1530.1 us` | `2418.7 us` |
 | Post effects | `125.4 us` | `232.4 us` |
 | World overlays | `0.4 us` | `1.2 us` |
-| PostPostEffect callbacks | `0.1 us` | `0.3 us` |
+| PostPostEffects phase (then labeled callbacks) | `0.1 us` | `0.3 us` |
 | Screen GUI | `24.7 us` | `79.1 us` |
 | Whole viewport | `1783.3 us` | `2795.4 us` |
 

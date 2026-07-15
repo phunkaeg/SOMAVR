@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.39.0-vr-control-panel")
+set(SOMAVR_BUILD_VERSION "0.40.0-dual-render-temporal-probe")
 
 include(FetchContent)
 
@@ -73,6 +73,7 @@ add_library(somavr_render_math STATIC
     src/dll/HPLScreenEffectMath.cpp
     src/dll/HPLSubtitleMath.cpp
     src/dll/HPLDualRenderMath.cpp
+    src/dll/HPLTemporalMutationMath.cpp
     src/dll/HPLTwoHandMath.cpp
     src/dll/HPLPostEffectResourceMath.cpp
     src/dll/OpenGLMatrixAnalysis.cpp
@@ -86,6 +87,7 @@ target_compile_definitions(somavr_render_math PRIVATE WIN32_LEAN_AND_MEAN NOMINM
 add_library(somavr SHARED
     src/dll/DllMain.cpp
     src/dll/HPLCompatibilityProbe.cpp
+    src/dll/HPLDualRenderDiagnostics.cpp
     src/dll/HPLCameraBridge.cpp
     src/dll/HPLComfortBridge.cpp
     src/dll/HPLHudBridge.cpp

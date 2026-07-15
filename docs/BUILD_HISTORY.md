@@ -2,6 +2,24 @@
 
 ## 2026-07-15
 
+### 0.40.0-dual-render-temporal-probe
+
+- Corrected `0x1401f1480` from a callback-only boundary to
+  `HPL3_Renderer_RenderPostPostEffects`: a full deferred/post-post phase that
+  performs GPU work and copies current renderer state into temporal history.
+- Added three automatically spaced, exact-player one-frame replays after stable
+  tracked stereo, while retaining manual `Ctrl+F6`. Every replay remains
+  bounded, suppresses final screen GUI, captures the first eye immediately,
+  and returns to the proven AFR path.
+- Added `HPLDualRenderDiagnostics` and tested `HPLTemporalMutationMath` to safely
+  snapshot renderer/current/history/settings regions and correlate changed-byte
+  ranges across first and replay eyes. No captured native state is modified or
+  restored. Both Release flavors and all three CTest suites pass; live temporal
+  acceptance remains. OpenXR DLL SHA-256:
+  `C077FB7C503648EC3E41008933CD1DE5C12DA1C69DC1E19E1D22BCC45F3A568B`.
+  Package SHA-256:
+  `6510A18F552F3588AAD2D21635C6FEAE29411100DDEF0181CAC18A254C36E938`.
+
 ### 0.39.0-vr-control-panel
 
 - Added `FEATURE.VR_CONTROL_PANEL`: a dedicated head-locked OpenXR alpha quad

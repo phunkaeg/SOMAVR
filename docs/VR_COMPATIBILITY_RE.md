@@ -369,7 +369,7 @@ main update / script OnDraw
        -> 0x1401f9790 scene render
        -> 0x140297670 viewport renderer callbacks
        -> 0x14033bd80 active post-effect composite
-       -> 0x1401f1480 PostPostEffect callbacks
+       -> 0x1401f1480 deferred/PostPostEffects renderer phase
        -> 0x1402981e0 GUI sets
   -> script OnPostRender
   -> SwapBuffers / OpenXR submission
@@ -378,8 +378,8 @@ main update / script OnDraw
 `0x140298850` also increments a renderer frame counter and resets global render
 statistics before enumerating viewports. It must run once per game frame.
 `0x140298630` is controllable through a render mask (`1` scene/post work, `2` GUI,
-`4` post-effect enable), but calling it twice wholesale would also repeat viewport
-callbacks and `PostPostEffect` work. Those callbacks may contain side effects.
+`4` post-effect enable), but calling it twice wholesale also repeats viewport
+callbacks and the stateful `PostPostEffects` renderer phase.
 
 ### Proposed render transaction
 
@@ -420,12 +420,23 @@ once-per-frame enumerator at `0x140298850`; update, script lifecycle, frame
 counter/stat reset, GUI, submission, and presentation are not repeated.
 
 The second call still repeats pre/post world callbacks, overlays, active post
-effects, and the unconditional `PostPostEffect` callback. Telemetry therefore
+effects, and the unconditional `PostPostEffects` renderer phase. Telemetry therefore
 records the exact replay mask, CPU/draw/clear cost, first/second eye indices,
 pose-frame identity, and explicitly labels duplicated post-post work. Any
 eligibility or immediate cache-capture failure consumes the arm without replay
 and leaves normal AFR in control. Sustained same-frame rendering remains gated
 on clean live evidence from this one-frame experiment.
+
+Decompilation of `0x1401f1480` corrected the earlier callback-only assumption.
+The phase performs substantial deferred GPU work, invokes callback lists, clears
+renderer state at `+0x69`, and copies `0x40` bytes from current state
+`*(renderer+0x20)+0x158` into history state `*(renderer+0x438)+0x80`. `0.40.0`
+therefore adds three automatically spaced, one-frame samples after stable VR
+activation. `HPLDualRenderDiagnostics` snapshots bounded readable regions for
+the renderer (`0x800`), current state (`0x200`), history state (`0x100`), and
+settings (`0x180`) before and after each first-eye/replay phase. It logs hashes,
+changed-byte ranges, and whether both eyes mutate equivalent ranges. It does not
+restore or alter any captured state.
 
 Temporal resources such as image trail, previous view/projection matrices,
 exposure, and velocity history must either be isolated per eye or disabled. Sharing

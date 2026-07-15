@@ -1,5 +1,27 @@
 # Test Checklists
 
+## 0.40.0 Dual-Render Temporal Probe
+
+1. Confirm `version=0.40.0-dual-render-temporal-probe`,
+   `dualRenderAutoProbe=1`, count `3`, delay `180`, interval `180`, and the
+   guarded `post_post_effects` hook installs without signature failure.
+2. Load a representative save and press F10 once. Do not press another probe
+   key. Expect one `hpl_dual_render_auto scheduled=1` row, then exactly three
+   automatic samples spaced about 180 rendered frames apart.
+3. Each sample must report `same_pose_opposite_eye`, GUI suppression, bounded
+   replay duration, and paired `hpl_temporal_mutation` rows for renderer,
+   current state, history state, and settings. Attach every
+   `hpl_temporal_pair` row; either equivalent or eye-specific ranges are useful.
+4. Repeat once near animated lights, reflections, particles, and a fade/post
+   effect. The world must remain rigid and retain the proven eye height,
+   shadows, reflections, HUD, reticle, audio, input, and desktop mirror.
+5. Press `Ctrl+F6` at one especially active scene and confirm a fourth sample
+   reports `source=manual`. Disable `HPLDualRenderAutoProbe` for direct rollback;
+   disable `HPLDualRenderReplayProbe` to restore the AFR-only baseline.
+6. Stop on a crash, visible temporal jump, repeated GUI, stale eye, failed
+   regions, eye-sequence mismatch, or more than three automatic replays. Exit
+   normally and attach the final `hpl_compat_summary`.
+
 ## 0.39.0 VR Control Panel
 
 1. Confirm `version=0.39.0-vr-control-panel`,

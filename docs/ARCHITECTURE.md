@@ -161,7 +161,7 @@ lifecycle.
 
 ## Current Refactor Baseline
 
-The maintenance passes now include ten focused extractions:
+The maintenance passes now include eleven focused extractions:
 
 - `HPLCameraMath` owns quaternion/matrix operations, OpenXR projection creation,
   and the fully centered FOV policy proven by the `0.5.7` runtime result.
@@ -182,9 +182,14 @@ The maintenance passes now include ten focused extractions:
   the paused native-window cursor lifecycle.
 - `HPLSubtitleMath` owns validated native-layout scaling while
   `HPLSubtitleBridge` owns the one exact draw hook and immediate restoration.
+- `HPLDualRenderDiagnostics` owns safe native-region snapshots and first/replay
+  correlation, while `HPLTemporalMutationMath` owns tested byte hashing and
+  bounded changed-range classification. `HPLCompatibilityProbe` only schedules
+  and labels the render passes.
 
 `somavr_render_math_tests` now protects symmetric tangent-span preservation,
-zero projection offsets, projection construction, pose/matrix basics, HUD quad
+zero projection offsets, projection construction, temporal mutation ranges,
+pose/matrix basics, HUD quad
 placement/aspect validation, controller-hand basis/calibration, paused-menu aim
 projection, radial stick scaling, turn-angle conversion, and OpenGL projection classification in
 both build flavors.

@@ -504,7 +504,7 @@ Inside each viewport, `0x140298630` performs this order:
 2. Render the scene through `0x1401f9790`.
 3. Run viewport callbacks through `0x140297670`.
 4. If effects are active, run the priority-sorted post chain through `0x14033bd80`.
-5. Run the `PostPostEffect` renderer callback pass through `0x1401f1480`.
+5. Run the stateful deferred/`PostPostEffects` renderer phase through `0x1401f1480`.
 6. Draw queued GUI sets through `0x1402981e0`.
 
 This is the central design fact for future work: stereo scene rendering and scene post effects belong inside the per-eye viewport path; flat HUD extraction belongs after post effects and before final presentation.
@@ -521,7 +521,7 @@ flowchart LR
     A[Script OnDraw] --> B[Viewport render]
     B --> C[Scene and viewmodel]
     C --> D[Post-effect composite]
-    D --> E[PostPostEffect callbacks]
+    D --> E[Deferred and PostPostEffects phase]
     E --> F[GUI sets]
     F --> G[SwapBuffers]
     B --> H[Left/right eye cache]

@@ -173,6 +173,10 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLWorldScale=1.0\n"
         << "HPLRenderStageProbe=0\n"
         << "HPLDualRenderReplayProbe=0\n"
+        << "HPLDualRenderAutoProbe=0\n"
+        << "HPLDualRenderAutoProbeCount=3\n"
+        << "HPLDualRenderAutoProbeDelayFrames=180\n"
+        << "HPLDualRenderAutoProbeIntervalFrames=180\n"
         << "HPLPerEyePerformanceTelemetry=0\n"
         << "HPLPerEyeGpuTelemetry=0\n"
         << "HPLGpuQueryPoolSize=128\n"
@@ -438,6 +442,10 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplworldscale") config_.hplWorldScale = ParseFloat(value, config_.hplWorldScale, 0.1f, 10.0f);
             else if (key == "hplrenderstageprobe") config_.hplRenderStageProbe = ParseBool(value, config_.hplRenderStageProbe);
             else if (key == "hpldualrenderreplayprobe") config_.hplDualRenderReplayProbe = ParseBool(value, config_.hplDualRenderReplayProbe);
+            else if (key == "hpldualrenderautoprobe") config_.hplDualRenderAutoProbe = ParseBool(value, config_.hplDualRenderAutoProbe);
+            else if (key == "hpldualrenderautoprobecount") config_.hplDualRenderAutoProbeCount = ParseInt(value, config_.hplDualRenderAutoProbeCount, 1, 10);
+            else if (key == "hpldualrenderautoprobedelayframes") config_.hplDualRenderAutoProbeDelayFrames = ParseInt(value, config_.hplDualRenderAutoProbeDelayFrames, 30, 100000);
+            else if (key == "hpldualrenderautoprobeintervalframes") config_.hplDualRenderAutoProbeIntervalFrames = ParseInt(value, config_.hplDualRenderAutoProbeIntervalFrames, 30, 100000);
             else if (key == "hplpereyeperformancetelemetry") config_.hplPerEyePerformanceTelemetry = ParseBool(value, config_.hplPerEyePerformanceTelemetry);
             else if (key == "hplpereyegputelemetry") config_.hplPerEyeGpuTelemetry = ParseBool(value, config_.hplPerEyeGpuTelemetry);
             else if (key == "hplgpuquerypoolsize") config_.hplGpuQueryPoolSize = ParseInt(value, config_.hplGpuQueryPoolSize, 16, 512);

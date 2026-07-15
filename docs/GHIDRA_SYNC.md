@@ -416,7 +416,7 @@ was renamed.
 | `0x140297670` | `HPL3_Scene_RenderWorldOverlays` | World/3D overlay pass; broad name retained pending live classification. |
 | `0x14033b8f0` | `HPL3_PostEffectComposite_HasActiveEffects` | Determines whether world output enters post composition. |
 | `0x14033bd80` | `HPL3_PostEffectComposite_Render` | Priority-sorted post-effect chain. |
-| `0x1401f1480` | `HPL3_Renderer_RunPostPostEffectCallbacks` | Callback pass after post effects and before screen GUI. |
+| `0x1401f1480` | `HPL3_Renderer_RenderPostPostEffects` | Full deferred/post-post phase after post effects and before screen GUI. Decompilation confirms GPU work plus a `0x40`-byte current-to-history state copy through renderer `+0x20/+0x438`; renamed and plate-commented for the `0.40.0` temporal probe. |
 | `0x1402981e0` | `HPL3_Scene_RenderScreenGui` | Final flat GUI/HUD candidate boundary. |
 
 ### Camera, Audio, Input, And Presentation
@@ -471,5 +471,5 @@ multiple candidates.
 2. Name viewport render-target and GUI helpers after their live transitions agree.
 3. Locate player-state transition/current-state accessors for authored-camera policy.
 4. Locate native grab-target/PID ownership and interaction-state wrappers; the closest-entity query is now confirmed and hooked.
-5. Map temporal previous-view/projection and image-history owners per eye.
+5. Use `0.40.0` first/replay mutation ranges to type renderer current/history owners at `+0x20/+0x438`, then map the copied `+0x158 -> +0x80` matrix/state block per eye.
 6. Apply partial `cViewport`, sound-listener, camera, and frustum structures only after offsets survive runtime validation.

@@ -1,5 +1,25 @@
 # Test Checklists
 
+## 0.43.0 Scripted Presentation
+
+1. Confirm `version=0.43.0-scripted-presentation`,
+   `scriptedPresentation=1`, and exact getter RVAs `0x485200/0x485720` in the
+   install rows. Enter VR with F10 before a wake, death, or credits sequence.
+2. Trigger a sleep/wake sequence. Sleep must be fully black without stale eye
+   frames; wake must reveal the stereo world and place both eyelids identically
+   in the HUD layer for the authored duration. Confirm `wakeSetAsleepEvents`,
+   `wakeStartEvents`, and `wakeCurrentImGuiCaptures` increase.
+3. Die and wait for the game-over screen. Text/background must be readable and
+   stereo-consistent. Dominant primary or select must continue/reload exactly
+   once; locomotion and turning must remain released. Confirm dead state `17`,
+   `deadCurrentImGuiCaptures`, and `gameOverContinueActions`.
+4. Run credits. Confirm they remain visible through GameHudImGui capture without
+   dead/wake counters increasing. Exercise pause and a terminal afterward to
+   verify their existing routing is unchanged.
+5. Cross a loading transition while asleep or waking. No owner may clear a
+   blackout still required by the other; stereo/input must recover normally.
+   Repeat with `HPLScriptedPresentationControl=0` for exact `0.42.0` behavior.
+
 ## 0.42.0 Native Gameplay Haptics
 
 1. Start the OpenXR build, load a save, press F10, and confirm

@@ -80,6 +80,7 @@ constexpr int kWheelPlayerState = 3;
 constexpr int kLastPhysicalManipulationState = 7;
 constexpr int kTerminalPlayerState = 8;
 constexpr int kHandheldTerminalPlayerState = 9;
+constexpr int kDeadPlayerState = 17;
 
 Config g_config;
 OpenXRRuntime* g_openxr = nullptr;
@@ -105,6 +106,7 @@ std::atomic<uint64_t> g_inventoryActions = 0;
 std::atomic<uint64_t> g_pausedFrames = 0;
 std::atomic<uint64_t> g_menuPointerFrames = 0;
 std::atomic<uint64_t> g_terminalPointerFrames = 0;
+std::atomic<uint64_t> g_gameOverContinueActions = 0;
 std::atomic<uint64_t> g_headRelativeMovementFrames = 0;
 std::atomic<uint64_t> g_physicalCrouchEntries = 0;
 std::atomic<uint64_t> g_physicalCrouchExits = 0;
@@ -932,6 +934,28 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
         g_state.menuPointerActive = ApplyPausedMenuActions(input, roles);
         g_state.nativeMovementActive = false;
         g_state.nativeTurnActive = false;
+    } else if (player.playerValid && player.playerStateId == kDeadPlayerState) {
+        ReleaseGameplayInputs();
+        DeactivateHPLMenuPointer();
+        DeactivateHPLTerminalPointer();
+        g_state.menuPointerActive = false;
+        g_state.terminalPointerActive = false;
+        g_state.nativeMovementActive = false;
+        g_state.nativeTurnActive = false;
+        const OpenXRHandInput& dominant = HandInput(input, roles.dominantHand);
+        const bool continuePressed = (dominant.primary && dominant.primaryChanged)
+            || (dominant.select && dominant.selectChanged);
+        if (continuePressed) {
+            TapKey(VK_SPACE);
+            PulseHaptic(roles.dominantHand, "game_over_continue");
+            const uint64_t action = g_gameOverContinueActions.fetch_add(1, std::memory_order_relaxed) + 1;
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_game_over_continue action=%llu hand=%s route=jump_semantic playerState=%d",
+                static_cast<unsigned long long>(action),
+                roles.dominantHand == 0 ? "left" : "right",
+                player.playerStateId);
+        }
     } else if (player.playerValid
         && (player.playerStateId == kTerminalPlayerState
             || player.playerStateId == kHandheldTerminalPlayerState)
@@ -1066,7 +1090,7 @@ void LogHPLInputBridgeSummary()
     GetHPLPlayerStateSnapshot(player);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu loadingSuppressedFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu worldAimPoseSamples=%llu worldGripPoseSamples=%llu nativeMovementFrames=%llu headRelativeMovementFrames=%llu nativeTurnEvents=%llu semanticMovementFallbackFrames=%llu physicalCrouchEntries=%llu physicalCrouchExits=%llu manipulationRotateFrames=%llu manipulationMotionFrames=%llu manipulationMotionEntries=%llu manipulationMotionEvents=%llu manipulationMotionTrackingLosses=%llu manipulationMotionPixels=%lld,%lld nativeThrowActions=%llu flashlightActions=%llu inventoryActions=%llu pausedFrames=%llu menuPointerFrames=%llu terminalPointerFrames=%llu playerStateTransitions=%llu playerStateBlackouts=%llu gameplaySuppressed=%d paused=%d menuPointerActive=%d terminalPointerActive=%d physicalCrouch=%d rotate=%d manipulationMotionActive=%d manipulationMotionState=%d manipulationMotionLast=%d,%d player=%p camera=%p body=%p playerState=%d moveState=%d",
+        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu loadingSuppressedFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu worldAimPoseSamples=%llu worldGripPoseSamples=%llu nativeMovementFrames=%llu headRelativeMovementFrames=%llu nativeTurnEvents=%llu semanticMovementFallbackFrames=%llu physicalCrouchEntries=%llu physicalCrouchExits=%llu manipulationRotateFrames=%llu manipulationMotionFrames=%llu manipulationMotionEntries=%llu manipulationMotionEvents=%llu manipulationMotionTrackingLosses=%llu manipulationMotionPixels=%lld,%lld nativeThrowActions=%llu flashlightActions=%llu inventoryActions=%llu pausedFrames=%llu menuPointerFrames=%llu terminalPointerFrames=%llu gameOverContinueActions=%llu playerStateTransitions=%llu playerStateBlackouts=%llu gameplaySuppressed=%d paused=%d menuPointerActive=%d terminalPointerActive=%d physicalCrouch=%d rotate=%d manipulationMotionActive=%d manipulationMotionState=%d manipulationMotionLast=%d,%d player=%p camera=%p body=%p playerState=%d moveState=%d",
         g_openxr != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_updates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_activeUpdates.load(std::memory_order_relaxed)),
@@ -1099,6 +1123,7 @@ void LogHPLInputBridgeSummary()
         static_cast<unsigned long long>(g_pausedFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_menuPointerFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_terminalPointerFrames.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_gameOverContinueActions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_playerStateTransitions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_playerStateBlackouts.load(std::memory_order_relaxed)),
         g_state.gameplaySuppressed ? 1 : 0,

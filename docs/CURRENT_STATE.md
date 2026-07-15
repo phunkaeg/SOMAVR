@@ -21,10 +21,18 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.42.0-native-gameplay-haptics`, layered on the
+The active build candidate is `0.43.0-scripted-presentation`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Shipped wake, game-over, and credits presentation ownership is now explicit.
+  Exact `WakeHandler` global dispatch controls XR sleep blackout and a bounded
+  wake current-ImGui capture window; exact dead state `17` authorizes the
+  game-over current-ImGui set and a dominant-controller continue action.
+  Credits already use GameHudImGui and therefore need no broader GUI capture.
+  All additions fail closed behind `HPLScriptedPresentationControl` and await
+  a live wake/death/credits pass.
 
 - SOMA's script-authored gamepad rumble now crosses into OpenXR at the exact
   registered `SetRumble` wrapper. Damage, death, attacks, locked interactions,

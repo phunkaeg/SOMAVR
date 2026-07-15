@@ -165,6 +165,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLComfortSuppressAspectMultiplier=1\n"
         << "HPLLoadingScreenControl=0\n"
         << "HPLLoadingScreenExitBlackoutFrames=2\n"
+        << "HPLScriptedPresentationControl=0\n"
         << "HPLVideoLifecycleProbe=0\n"
         << "HPLScreenEffectControl=0\n"
         << "HPLScreenEffectDistanceMeters=1.5\n"
@@ -445,6 +446,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplcomfortsuppressaspectmultiplier") config_.hplComfortSuppressAspectMultiplier = ParseBool(value, config_.hplComfortSuppressAspectMultiplier);
             else if (key == "hplloadingscreencontrol") config_.hplLoadingScreenControl = ParseBool(value, config_.hplLoadingScreenControl);
             else if (key == "hplloadingscreenexitblackoutframes") config_.hplLoadingScreenExitBlackoutFrames = ParseInt(value, config_.hplLoadingScreenExitBlackoutFrames, 0, 120);
+            else if (key == "hplscriptedpresentationcontrol") config_.hplScriptedPresentationControl = ParseBool(value, config_.hplScriptedPresentationControl);
             else if (key == "hplvideolifecycleprobe") config_.hplVideoLifecycleProbe = ParseBool(value, config_.hplVideoLifecycleProbe);
             else if (key == "hplscreeneffectcontrol") config_.hplScreenEffectControl = ParseBool(value, config_.hplScreenEffectControl);
             else if (key == "hplscreeneffectdistancemeters") config_.hplScreenEffectDistanceMeters = ParseFloat(value, config_.hplScreenEffectDistanceMeters, 0.25f, 5.0f);

@@ -1,5 +1,24 @@
 # Future Systems Reverse Engineering
 
+## 0.43.0 Scripted Presentation Result
+
+Shipped script source establishes separate user modules for GameOver `10`, Wake
+`12`, and Credits `19`. Wake is uniquely observable at an exact active boundary:
+`Wake_SetAsleep` and `Wake_StartWakeup` call `cScript_RunGlobalFunc` with
+`WakeHandler::_Global_SetAsleep/_Global_StartWakeup`. The registered bool and
+float getters at `0x140485720/0x140485200` expose argument zero before dispatch.
+The build therefore owns sleep blackout and only the authored-duration wake
+capture window, not arbitrary user-module frames.
+
+Game over has no equivalent global activation call, but `PlayerState_Dead` is
+exact state `17`; its handler draws the black background, death note, localized
+text, and continue prompt through current ImGui. State `17` safely authorizes
+flat current-ImGui capture and a Jump-semantic controller continue while all
+movement remains released. Credits explicitly call `GetGameHudImGui` and are
+already included by unconditional GameHudImGui capture. `cLuxUserModule::OnGui`
+at `0x1401297c0` remains a diagnostic/code-archeology anchor only because each
+module callback can run and immediately return while inactive.
+
 ## 0.42.0 Native Gameplay Haptics Result
 
 AngelScript registration binds `void SetRumble(int,float,float)` directly to

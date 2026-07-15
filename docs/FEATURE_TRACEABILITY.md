@@ -28,6 +28,7 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.CONTROLLER_ACCESSIBILITY` | BUILT | `OpenXRInput`, `HPLInputBridge`, config | per-hand primary/secondary actions, dominant-hand roles, stick swap, one-hand fallback, support-hand flashlight/inventory | `BUILD_HISTORY.md`, `FUTURE_SYSTEMS_RE.md`, `TEST_CHECKLISTS.md` | Live-test role-aware jump/crouch/flashlight/inventory, swapped-stick, and each one-controller path on Touch/Index; define missing Simple/Motion bindings |
 | `FEATURE.MENU_POINTER` | BUILT | `HPLMenuBridge`, `HPLMenuMath`, `HPLInputBridge`, `HPLNativeLocomotion` | `0x1400ccc90`, HMD/aim orientations, native SOMA client cursor and left-click path | `BUILD_HISTORY.md`, `FUTURE_SYSTEMS_RE.md`, `TEST_CHECKLISTS.md` | Live-test window modes, native cursor mapping, click-release latch, and non-pause ImGui surfaces; then couple pointer coordinates to future menu-layer presentation |
 | `FEATURE.PAUSED_MENU_LAYER` | BUILT | `HPLHudBridge`, `HPLNativeLocomotion`, `OpenXRGLBridge`, `OpenXRRuntime` | `0x1400cca70`, `0x140071f20`, `0x1400ccc90`, exact current ImGui set plus confirmed pause ownership | `BUILD_HISTORY.md`, `FUTURE_SYSTEMS_RE.md`, `TEST_CHECKLISTS.md` | Live-test pause alpha/order, cursor alignment, resume behavior, window modes, and strict exclusion of non-paused/diegetic current ImGui |
+| `FEATURE.SCRIPTED_PRESENTATION` | BUILT | `HPLCrosshairBridge`, `HPLPresentationBridge`, `HPLHudBridge`, `HPLInputBridge` | `0x140484ea0`, `0x140485200`, `0x140485720`, dead state `17`, module IDs `10/12/19`, exact current/GameHud ImGui | `ADDRESS_REGISTRY.md`, `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test sleep blackout, wake eyelid timing/alpha, game-over text/continue, credits, loading overlap, and config rollback |
 | `FEATURE.DIEGETIC_GUI_POINTER` | BUILT | `HPLTerminalBridge`, `HPLInputBridge`, `HPLMenuMath`, `HPLPlayerState` | wall/handheld terminal states `8/9`, `0x1400cca70`, `0x1400cca90`, `0x140071f20`, `0x1402f0c90`, `cGuiSet +0x100..+0x10c/+0x139` | `ADDRESS_REGISTRY.md`, `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test both terminal classes, cursor alignment/clicks, unfocused handheld fallback, and rollback; refine to exact controller-ray/terminal-plane UV only if head-relative aim alignment is insufficient |
 | `FEATURE.HEAD_TRACKING` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | `0x140271b80`, `0x140270230` | `CURRENT_STATE.md`, `VR_COMPATIBILITY_RE.md` | Remain correct through every authored camera state |
 | `FEATURE.AFR_STEREO` | PROVEN | `HPLCameraBridge`, `OpenXRRuntime`, `OpenXRGLBridge` | F11, per-eye cache and submitted render pose | `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.1.md` | Preserve stability while shader/temporal compatibility is classified |
@@ -112,6 +113,9 @@ FEATURE.MENU_POINTER requires FEATURE.XR_INPUT
 FEATURE.PAUSED_MENU_LAYER requires FEATURE.HUD_LAYER
 FEATURE.PAUSED_MENU_LAYER requires FEATURE.MENU_POINTER
 FEATURE.PAUSED_MENU_LAYER constrains FEATURE.TELEMETRY
+FEATURE.SCRIPTED_PRESENTATION requires FEATURE.HUD_LAYER
+FEATURE.SCRIPTED_PRESENTATION requires FEATURE.COMFORT_POLICY
+FEATURE.SCRIPTED_PRESENTATION constrains FEATURE.AUTHORED_CAMERA
 FEATURE.LOCOMOTION requires FEATURE.XR_INPUT
 FEATURE.HEAD_TRACKING requires FEATURE.XR_BOOTSTRAP
 FEATURE.AFR_STEREO requires FEATURE.HEAD_TRACKING

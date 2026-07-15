@@ -1,5 +1,16 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Scripted Presentation Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x140485200` | `HPL3_Script_GetGlobalArgFloat` | Renamed and typed as the exact float getter used for `WakeHandler::_Global_StartWakeup` duration. |
+| `0x140485720` | `HPL3_Script_GetGlobalArgBool` | Renamed and typed as the exact bool getter used for `WakeHandler::_Global_SetAsleep`. |
+| `0x1401297c0` | `SOMA_cLuxUserModule_OnGui` | Renamed and typed; plate comment records `mlId +0x158`, module IDs `10/12/19`, and why callback presence is not presentation activity. |
+
+The explicitly selected `Soma_NoSteam.exe` database was saved after all three
+renames, prototypes, and plate comments.
+
 ## 2026-07-15 Native Gameplay Haptics Sync
 
 | Address | Ghidra name | Evidence/use |

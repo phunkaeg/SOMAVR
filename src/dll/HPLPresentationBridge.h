@@ -11,6 +11,10 @@ bool InstallHPLPresentationBridge(const Config& config, OpenXRRuntime* openxr);
 void RemoveHPLPresentationBridge();
 void UpdateHPLPresentationBridge(uint64_t frameIndex);
 bool IsHPLLoadingScreenActive();
+void PublishHPLWakeSetAsleep(bool asleep);
+void PublishHPLWakeStart(float durationSeconds);
+bool IsHPLWakePresentationActive();
+bool IsHPLWakeAsleep();
 void LogHPLPresentationBridgeSummary();
 
 } // namespace somavr

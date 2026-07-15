@@ -244,6 +244,7 @@ HPLComfortSuppressFovMultiplier=1
 HPLComfortSuppressAspectMultiplier=1
 HPLLoadingScreenControl=1
 HPLLoadingScreenExitBlackoutFrames=2
+HPLScriptedPresentationControl=1
 HPLVideoLifecycleProbe=1
 HPLScreenEffectControl=1
 HPLScreenEffectDistanceMeters=1.5

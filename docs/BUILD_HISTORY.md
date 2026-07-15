@@ -2,6 +2,27 @@
 
 ## 2026-07-15
 
+### 0.43.0-scripted-presentation
+
+- Traced shipped `WakeHandler`, `GameOverHandler`, and `CreditsHandler` scripts.
+  Wake uses exact `cScript_RunGlobalFunc` calls, game over is owned by player
+  state `17`, and credits draw through `GetGameHudImGui` already covered by the
+  HUD layer. Module IDs are GameOver `10`, Wake `12`, and Credits `19`.
+- Extended the guarded global-script dispatcher to decode exact bool/float wake
+  arguments at `0x140485720/0x140485200`. Sleeping now owns the existing XR
+  blackout; wake-up releases blackout and authorizes exact-current-ImGui HUD
+  capture for the shipped eyelid duration. Loading and wake blackout ownership
+  are arbitrated so one cannot prematurely clear the other.
+- Added flat current-ImGui capture during exact dead state `17`, retained the
+  unconditional GameHudImGui credits path, and routed dominant primary/select
+  to SOMA's accepted Jump semantic while dead even if authored-camera input is
+  otherwise suppressed. `HPLScriptedPresentationControl=0` is the single-line
+  rollback. Both Release flavors and all three CTest suites pass; live
+  acceptance remains. OpenXR DLL SHA-256:
+  `E2D2D6C1A6AD6AC02C0604B789928D556D0C2DBBFF773709A0DA769274FD2B77`.
+  Package SHA-256:
+  `9ED22CCFCD1A53251661130064EA5D5B7586F441304BD82B93CFEA900B1BB745`.
+
 ### 0.42.0-native-gameplay-haptics
 
 - Confirmed SOMA's script-visible `SetRumble` boundary at `0x140109b30` and

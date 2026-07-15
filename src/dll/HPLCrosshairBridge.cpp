@@ -1,6 +1,7 @@
 #include "HPLCrosshairBridge.h"
 
 #include "HPLInteractionBridge.h"
+#include "HPLPresentationBridge.h"
 #include "Logger.h"
 
 #include <Windows.h>
@@ -35,11 +36,28 @@ constexpr uint8_t kGetGlobalArgIntSignature[] = {
     0x48, 0x8b, 0x0d, 0xbb, 0x2c, 0x32, 0x00,
     0xe8, 0x5e, 0x4e, 0xe1, 0xff,
 };
+constexpr uintptr_t kGetGlobalArgFloatRva = 0x485200;
+constexpr uint8_t kGetGlobalArgFloatSignature[] = {
+    0x48, 0x83, 0xec, 0x28,
+    0x8b, 0xd1,
+    0x48, 0x8b, 0x0d, 0x8b, 0x2c, 0x32, 0x00,
+    0xe8, 0x2e, 0x4e, 0xe1, 0xff,
+};
+constexpr uintptr_t kGetGlobalArgBoolRva = 0x485720;
+constexpr uint8_t kGetGlobalArgBoolSignature[] = {
+    0x40, 0x53,
+    0x48, 0x83, 0xec, 0x20,
+    0x8b, 0xd1,
+    0x48, 0x8b, 0x0d, 0x69, 0x27, 0x32, 0x00,
+    0xe8, 0x0c, 0x49, 0xe1, 0xff,
+};
 constexpr size_t kNativeStringInlineCapacity = 15;
 constexpr size_t kMaxScriptNameLength = 127;
 
 using RunGlobalFuncFn = bool (*)(const void* objectName, const void* className, const void* functionName);
 using GetGlobalArgIntFn = int (*)(int index);
+using GetGlobalArgFloatFn = float (*)(int index);
+using GetGlobalArgBoolFn = bool (*)(int index);
 
 struct NativeStringLayout {
     std::array<std::byte, 16> storage{};
@@ -50,6 +68,8 @@ struct NativeStringLayout {
 Config g_config;
 RunGlobalFuncFn g_originalRunGlobalFunc = nullptr;
 GetGlobalArgIntFn g_getGlobalArgInt = nullptr;
+GetGlobalArgFloatFn g_getGlobalArgFloat = nullptr;
+GetGlobalArgBoolFn g_getGlobalArgBool = nullptr;
 void* g_runGlobalFuncTarget = nullptr;
 std::mutex g_installMutex;
 std::atomic<uint64_t> g_calls = 0;
@@ -57,6 +77,9 @@ std::atomic<uint64_t> g_nameReadFailures = 0;
 std::atomic<uint64_t> g_crosshairCalls = 0;
 std::atomic<uint64_t> g_crosshairApplied = 0;
 std::atomic<uint64_t> g_crosshairInvalid = 0;
+std::atomic<uint64_t> g_wakeCalls = 0;
+std::atomic<uint64_t> g_wakeApplied = 0;
+std::atomic<uint64_t> g_wakeInvalid = 0;
 
 bool IsInsideImage(HMODULE module, uintptr_t rva, size_t bytes)
 {
@@ -120,13 +143,32 @@ bool HookRunGlobalFunc(const void* objectName, const void* className, const void
         return g_originalRunGlobalFunc(objectName, className, functionName);
     }
 
-    const bool crosshairSetter = object == "LuxPlayer"
+    const bool crosshairSetter = g_config.openxrInteractionReticle
+        && g_config.openxrInteractionReticleSemantic
+        && object == "LuxPlayer"
         && classValue.empty()
         && function == "_Global_SetCrosshairState";
     int state = -1;
     if (crosshairSetter && g_getGlobalArgInt != nullptr) {
         state = g_getGlobalArgInt(0);
         g_crosshairCalls.fetch_add(1, std::memory_order_relaxed);
+    }
+    const bool wakeSetAsleep = g_config.hplScriptedPresentationControl
+        && object == "WakeHandler"
+        && classValue.empty()
+        && function == "_Global_SetAsleep";
+    const bool wakeStart = g_config.hplScriptedPresentationControl
+        && object == "WakeHandler"
+        && classValue.empty()
+        && function == "_Global_StartWakeup";
+    bool asleep = false;
+    float wakeDuration = 0.0f;
+    if (wakeSetAsleep && g_getGlobalArgBool != nullptr) {
+        asleep = g_getGlobalArgBool(0);
+        g_wakeCalls.fetch_add(1, std::memory_order_relaxed);
+    } else if (wakeStart && g_getGlobalArgFloat != nullptr) {
+        wakeDuration = g_getGlobalArgFloat(0);
+        g_wakeCalls.fetch_add(1, std::memory_order_relaxed);
     }
 
     const bool result = g_originalRunGlobalFunc(objectName, className, functionName);
@@ -153,6 +195,32 @@ bool HookRunGlobalFunc(const void* objectName, const void* className, const void
                 state);
         }
     }
+    if (wakeSetAsleep || wakeStart) {
+        if (result && ((wakeSetAsleep && g_getGlobalArgBool != nullptr)
+                || (wakeStart && g_getGlobalArgFloat != nullptr))) {
+            if (wakeSetAsleep) {
+                PublishHPLWakeSetAsleep(asleep);
+            } else {
+                PublishHPLWakeStart(wakeDuration);
+            }
+            const uint64_t applied = g_wakeApplied.fetch_add(1, std::memory_order_relaxed) + 1;
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_scripted_presentation call=%llu applied=%llu event=%s value=%.3f",
+                static_cast<unsigned long long>(call),
+                static_cast<unsigned long long>(applied),
+                wakeSetAsleep ? "wake_set_asleep" : "wake_start",
+                wakeSetAsleep ? (asleep ? 1.0f : 0.0f) : wakeDuration);
+        } else {
+            g_wakeInvalid.fetch_add(1, std::memory_order_relaxed);
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_scripted_presentation call=%llu applied=0 event=%s runResult=%d",
+                static_cast<unsigned long long>(call),
+                wakeSetAsleep ? "wake_set_asleep" : "wake_start",
+                result ? 1 : 0);
+        }
+    }
     return result;
 }
 
@@ -176,31 +244,50 @@ bool InstallHPLCrosshairBridge(const Config& config)
 {
     std::lock_guard lock(g_installMutex);
     g_config = config;
-    if (!config.openxrInteractionReticle || !config.openxrInteractionReticleSemantic) {
+    const bool semanticReticle = config.openxrInteractionReticle
+        && config.openxrInteractionReticleSemantic;
+    if (!semanticReticle && !config.hplScriptedPresentationControl) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_crosshair_bridge disabled reticle=%d semantic=%d",
+            "hpl_crosshair_bridge disabled reticle=%d semantic=%d scriptedPresentation=%d",
             config.openxrInteractionReticle ? 1 : 0,
-            config.openxrInteractionReticleSemantic ? 1 : 0);
+            config.openxrInteractionReticleSemantic ? 1 : 0,
+            config.hplScriptedPresentationControl ? 1 : 0);
         return true;
     }
     if (g_runGlobalFuncTarget != nullptr) return true;
 
     HMODULE executable = GetModuleHandleW(nullptr);
     if (!IsInsideImage(executable, kRunGlobalFuncRva, sizeof(kRunGlobalFuncSignature))
-        || !IsInsideImage(executable, kGetGlobalArgIntRva, sizeof(kGetGlobalArgIntSignature))) {
+        || (semanticReticle
+            && !IsInsideImage(executable, kGetGlobalArgIntRva, sizeof(kGetGlobalArgIntSignature)))
+        || (config.hplScriptedPresentationControl
+            && (!IsInsideImage(executable, kGetGlobalArgFloatRva, sizeof(kGetGlobalArgFloatSignature))
+                || !IsInsideImage(executable, kGetGlobalArgBoolRva, sizeof(kGetGlobalArgBoolSignature))))) {
         Logger::Instance().Write(LogLevel::Error, "hpl_crosshair_bridge install_failed reason=invalid_image_range");
         return false;
     }
     auto* runTarget = reinterpret_cast<std::byte*>(executable) + kRunGlobalFuncRva;
     auto* getArgTarget = reinterpret_cast<std::byte*>(executable) + kGetGlobalArgIntRva;
+    auto* getFloatTarget = reinterpret_cast<std::byte*>(executable) + kGetGlobalArgFloatRva;
+    auto* getBoolTarget = reinterpret_cast<std::byte*>(executable) + kGetGlobalArgBoolRva;
     if (std::memcmp(runTarget, kRunGlobalFuncSignature, sizeof(kRunGlobalFuncSignature)) != 0
-        || std::memcmp(getArgTarget, kGetGlobalArgIntSignature, sizeof(kGetGlobalArgIntSignature)) != 0) {
+        || (semanticReticle
+            && std::memcmp(getArgTarget, kGetGlobalArgIntSignature, sizeof(kGetGlobalArgIntSignature)) != 0)
+        || (config.hplScriptedPresentationControl
+            && (std::memcmp(getFloatTarget, kGetGlobalArgFloatSignature,
+                    sizeof(kGetGlobalArgFloatSignature)) != 0
+                || std::memcmp(getBoolTarget, kGetGlobalArgBoolSignature,
+                    sizeof(kGetGlobalArgBoolSignature)) != 0))) {
         Logger::Instance().Write(LogLevel::Error, "hpl_crosshair_bridge install_failed reason=signature_mismatch");
         return false;
     }
 
-    g_getGlobalArgInt = reinterpret_cast<GetGlobalArgIntFn>(getArgTarget);
+    g_getGlobalArgInt = semanticReticle ? reinterpret_cast<GetGlobalArgIntFn>(getArgTarget) : nullptr;
+    g_getGlobalArgFloat = config.hplScriptedPresentationControl
+        ? reinterpret_cast<GetGlobalArgFloatFn>(getFloatTarget) : nullptr;
+    g_getGlobalArgBool = config.hplScriptedPresentationControl
+        ? reinterpret_cast<GetGlobalArgBoolFn>(getBoolTarget) : nullptr;
     MH_STATUS status = MH_CreateHook(
         runTarget,
         reinterpret_cast<void*>(&HookRunGlobalFunc),
@@ -211,6 +298,8 @@ bool InstallHPLCrosshairBridge(const Config& config)
             "hpl_crosshair_bridge install_failed reason=create_hook status=%s",
             MH_StatusToString(status));
         g_getGlobalArgInt = nullptr;
+        g_getGlobalArgFloat = nullptr;
+        g_getGlobalArgBool = nullptr;
         return false;
     }
     status = MH_EnableHook(runTarget);
@@ -220,15 +309,21 @@ bool InstallHPLCrosshairBridge(const Config& config)
             "hpl_crosshair_bridge install_failed reason=enable_hook status=%s",
             MH_StatusToString(status));
         g_getGlobalArgInt = nullptr;
+        g_getGlobalArgFloat = nullptr;
+        g_getGlobalArgBool = nullptr;
         return false;
     }
 
     g_runGlobalFuncTarget = runTarget;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_crosshair_bridge install_ok runGlobalRva=0x%llx getArgIntRva=0x%llx policy=semantic_reticle_gate",
+        "hpl_crosshair_bridge install_ok runGlobalRva=0x%llx getArgIntRva=0x%llx getArgFloatRva=0x%llx getArgBoolRva=0x%llx semanticReticle=%d scriptedPresentation=%d policy=exact_registered_global_dispatch",
         static_cast<unsigned long long>(kRunGlobalFuncRva),
-        static_cast<unsigned long long>(kGetGlobalArgIntRva));
+        static_cast<unsigned long long>(kGetGlobalArgIntRva),
+        static_cast<unsigned long long>(kGetGlobalArgFloatRva),
+        static_cast<unsigned long long>(kGetGlobalArgBoolRva),
+        semanticReticle ? 1 : 0,
+        config.hplScriptedPresentationControl ? 1 : 0);
     return true;
 }
 
@@ -242,6 +337,8 @@ void RemoveHPLCrosshairBridge()
     g_runGlobalFuncTarget = nullptr;
     g_originalRunGlobalFunc = nullptr;
     g_getGlobalArgInt = nullptr;
+    g_getGlobalArgFloat = nullptr;
+    g_getGlobalArgBool = nullptr;
     Logger::Instance().Write(LogLevel::Info, "hpl_crosshair_bridge removed");
 }
 
@@ -249,13 +346,16 @@ void LogHPLCrosshairBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_crosshair_bridge_summary installed=%d calls=%llu nameReadFailures=%llu crosshairCalls=%llu crosshairApplied=%llu crosshairInvalid=%llu",
+        "hpl_crosshair_bridge_summary installed=%d calls=%llu nameReadFailures=%llu crosshairCalls=%llu crosshairApplied=%llu crosshairInvalid=%llu wakeCalls=%llu wakeApplied=%llu wakeInvalid=%llu",
         g_runGlobalFuncTarget != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_calls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_nameReadFailures.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_crosshairCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_crosshairApplied.load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_crosshairInvalid.load(std::memory_order_relaxed)));
+        static_cast<unsigned long long>(g_crosshairInvalid.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_wakeCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_wakeApplied.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_wakeInvalid.load(std::memory_order_relaxed)));
 }
 
 } // namespace somavr

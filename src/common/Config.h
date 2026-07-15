@@ -220,6 +220,7 @@ struct Config {
     bool hplComfortSuppressAspectMultiplier = true;
     bool hplLoadingScreenControl = false;
     int hplLoadingScreenExitBlackoutFrames = 2;
+    bool hplScriptedPresentationControl = false;
     bool hplVideoLifecycleProbe = false;
     bool hplScreenEffectControl = false;
     float hplScreenEffectDistanceMeters = 1.5f;

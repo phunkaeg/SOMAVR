@@ -1,5 +1,15 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 All-Stereo Previous-View Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1401f1480` | `HPL3_Renderer_RenderPostPostEffects` | Plate comment now records eye-local previous-view ownership for both AFR and same-frame stereo plus native reseed conditions. |
+| `0x140298630` | `HPL3_Scene_RenderViewport` | Plate comment now records the guarded transaction on every exact-player stereo pass, not only continuous replay. |
+
+No address or type inference changed. The explicitly selected
+`Soma_NoSteam.exe` database was saved after both comments were revised.
+
 ## 2026-07-15 Per-Eye Previous-View Sync
 
 | Address | Ghidra name | Evidence/use |

@@ -17,10 +17,12 @@ void Seed(
     Bank& bank,
     uintptr_t rendererIdentity,
     uintptr_t historyIdentity,
+    uint64_t calibrationGeneration,
     const ViewHistoryPacket& livePacket)
 {
     bank.rendererIdentity = rendererIdentity;
     bank.historyIdentity = historyIdentity;
+    bank.calibrationGeneration = calibrationGeneration;
     bank.packets[0] = livePacket;
     bank.packets[1] = livePacket;
     bank.valid = {true, true};
@@ -43,6 +45,7 @@ PrepareResult Prepare(
     Bank& bank,
     uintptr_t rendererIdentity,
     uintptr_t historyIdentity,
+    uint64_t calibrationGeneration,
     int eyeIndex,
     uint64_t poseFrame,
     const ViewHistoryPacket& livePacket)
@@ -58,12 +61,16 @@ PrepareResult Prepare(
     const size_t eye = static_cast<size_t>(eyeIndex);
     const bool identityChanged = bank.rendererIdentity != rendererIdentity
         || bank.historyIdentity != historyIdentity;
-    const bool poseRegressed = !identityChanged
+    const bool calibrationChanged = !identityChanged
+        && bank.calibrationGeneration != calibrationGeneration;
+    const bool poseDiscontinuous = !identityChanged
+        && !calibrationChanged
         && bank.poseFrames[eye] != 0
-        && poseFrame < bank.poseFrames[eye];
-    if (identityChanged || poseRegressed || !bank.valid[eye]) {
-        Seed(bank, rendererIdentity, historyIdentity, livePacket);
-        result.reset = identityChanged || poseRegressed;
+        && (poseFrame < bank.poseFrames[eye]
+            || poseFrame - bank.poseFrames[eye] > kMaxPoseFrameGap);
+    if (identityChanged || calibrationChanged || poseDiscontinuous || !bank.valid[eye]) {
+        Seed(bank, rendererIdentity, historyIdentity, calibrationGeneration, livePacket);
+        result.reset = identityChanged || calibrationChanged || poseDiscontinuous;
         result.seeded = true;
     }
 
@@ -78,6 +85,7 @@ bool Commit(
     Bank& bank,
     uintptr_t rendererIdentity,
     uintptr_t historyIdentity,
+    uint64_t calibrationGeneration,
     int eyeIndex,
     uint64_t poseFrame,
     const ViewHistoryPacket& packet)
@@ -85,6 +93,7 @@ bool Commit(
     if (!bank.active
         || bank.rendererIdentity != rendererIdentity
         || bank.historyIdentity != historyIdentity
+        || bank.calibrationGeneration != calibrationGeneration
         || !IsValidEye(eyeIndex)
         || poseFrame == 0) {
         return false;

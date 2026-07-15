@@ -1,5 +1,18 @@
 # Future Systems Reverse Engineering
 
+## 0.47.0 All-Stereo Previous-View Result
+
+The confirmed previous-view bank now covers both stereo schedules. In AFR, the
+single shared native packet would otherwise contain the opposite eye from the
+immediately preceding game frame; in same-frame mode it would contain eye one
+when eye two begins. `0.47.0` selects the matching bank before every exact-player
+stereo viewport and validates the rendered eye afterward.
+
+Temporal discontinuities are explicit: recenter/calibration generation changes,
+renderer/history replacement, and pose-frame gaps greater than eight reseed both
+eyes from live native state. This protects loading and tracking recovery without
+inventing matrices. The same config switch restores fully native shared history.
+
 ## 0.46.0 Per-Eye Previous-View Result
 
 The first temporal resource is now exact rather than inferred. At

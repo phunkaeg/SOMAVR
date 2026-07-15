@@ -7,12 +7,14 @@
 namespace somavr::per_eye_view_history_math {
 
 constexpr size_t kViewHistoryPacketSize = 0x40;
+constexpr uint64_t kMaxPoseFrameGap = 8;
 using ViewHistoryPacket = std::array<uint8_t, kViewHistoryPacketSize>;
 
 struct Bank {
     bool active = false;
     uintptr_t rendererIdentity = 0;
     uintptr_t historyIdentity = 0;
+    uint64_t calibrationGeneration = 0;
     std::array<ViewHistoryPacket, 2> packets{};
     std::array<bool, 2> valid{};
     std::array<uint64_t, 2> poseFrames{};
@@ -30,6 +32,7 @@ PrepareResult Prepare(
     Bank& bank,
     uintptr_t rendererIdentity,
     uintptr_t historyIdentity,
+    uint64_t calibrationGeneration,
     int eyeIndex,
     uint64_t poseFrame,
     const ViewHistoryPacket& livePacket);
@@ -37,6 +40,7 @@ bool Commit(
     Bank& bank,
     uintptr_t rendererIdentity,
     uintptr_t historyIdentity,
+    uint64_t calibrationGeneration,
     int eyeIndex,
     uint64_t poseFrame,
     const ViewHistoryPacket& packet);

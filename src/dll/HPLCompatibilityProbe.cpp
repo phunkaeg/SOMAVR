@@ -1505,12 +1505,13 @@ void HookRenderViewport(void* scene, void* viewport, float frameTime, uint64_t r
         && g_dualRenderArmed.load(std::memory_order_relaxed);
     const bool continuousReplayRequested = exactPlayerViewport
         && IsHPLContinuousDualRenderEnabled();
+    bool stereoHistoryRequested = false;
     if (exactPlayerViewport) {
         const HPLCameraBridgeStatus cameraBeforeRender = GetHPLCameraBridgeStatus();
+        stereoHistoryRequested = cameraBeforeRender.trackingEnabled
+            && cameraBeforeRender.stereoEnabled;
         SetHPLPerEyeViewHistoryActive(
-            continuousReplayRequested
-                && cameraBeforeRender.trackingEnabled
-                && cameraBeforeRender.stereoEnabled,
+            stereoHistoryRequested,
             "exact_player_viewport");
     }
     const bool dualRenderRequested = armedReplayRequested || continuousReplayRequested;
@@ -1533,10 +1534,12 @@ void HookRenderViewport(void* scene, void* viewport, float frameTime, uint64_t r
     g_dualRenderAttempt = diagnosticReplay ? attempt : 0;
 
     HPLPendingStereoRenderTarget firstHistoryTarget;
-    if (continuousReplayRequested
+    if (stereoHistoryRequested
         && GetHPLPendingStereoRenderTarget(firstHistoryTarget)) {
         BeginHPLPerEyeViewHistoryPass(
-            firstHistoryTarget.eyeIndex, firstHistoryTarget.poseFrame);
+            firstHistoryTarget.eyeIndex,
+            firstHistoryTarget.poseFrame,
+            firstHistoryTarget.calibrationGeneration);
     }
 
     const StageSample sample = BeginStage(HPLRenderStage::Viewport, viewport, renderMask);
@@ -1607,7 +1610,9 @@ void HookRenderViewport(void* scene, void* viewport, float frameTime, uint64_t r
             if (continuousReplayRequested
                 && GetHPLPendingStereoRenderTarget(replayHistoryTarget)) {
                 BeginHPLPerEyeViewHistoryPass(
-                    replayHistoryTarget.eyeIndex, replayHistoryTarget.poseFrame);
+                    replayHistoryTarget.eyeIndex,
+                    replayHistoryTarget.poseFrame,
+                    replayHistoryTarget.calibrationGeneration);
             }
             const StageSample replaySample = BeginStage(
                 HPLRenderStage::Viewport, viewport, replayMask);

@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.46.0-per-eye-view-history`, layered on the
+The active build candidate is `0.47.0-stereo-view-history`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
@@ -73,6 +73,12 @@ compatibility probes:
   Renderer/history changes and eye/pose mismatches reset or fault closed to the
   original shared path. The active profile enables the control; the F1 panel
   exposes its live state.
+
+- `0.47.0` broadens that exact packet bank to the normal F10 AFR path as well as
+  same-frame stereo. This prevents an AFR eye from inheriting the other eye's
+  immediately preceding previous-view matrix. Recenter generation changes and
+  pose gaps over eight frames reseed from native state, preventing stale motion
+  after calibration, loading, or tracking recovery.
 
 - A dedicated head-locked OpenXR status/options panel is now available through
   `F1` or `Menu + Secondary`. It owns a separate alpha swapchain and reports
@@ -618,14 +624,15 @@ The OpenXR build now asks for:
 & "D:\Dev Debug\SOMAVR\build-openxr\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.46.0-per-eye-view-history`,
+2. Confirm `version=0.47.0-stereo-view-history`,
    `hpl_per_eye_view_history initialized configured=1 packetBytes=0x40`, and no
    hook/signature failure. Load a save, face forward, and press F10 once.
 3. Confirm the proven rigid world, eye height, centered projection, depth,
    shadows, reflections, controller input, HUD, and audio before changing mode.
-4. Open F1 and enable `SAME FRAME STEREO`. `VIEW HISTORY` must become `ACTIVE`.
-   Expect one seed/reset, then eye `0/1` restores and captures with matching
-   same-pose identities and no history fault.
+4. Before changing modes, `VIEW HISTORY` must already be `ACTIVE` in F10 AFR.
+   Expect alternating eye `0/1` restores/captures. Recenter once and confirm a
+   single generation reseed. Then enable `SAME FRAME STEREO` and confirm both
+   eye transactions share each pose identity without a history fault.
 5. Exercise quiet, reflective, shadowed, tone/bloom, fade, terminal, inventory,
    pause, authored-camera, and loading scenes while rotating and translating the
    HMD. Stop on cross-eye history, skew, changing shadow/reflection position,

@@ -1641,6 +1641,7 @@ bool GetHPLPendingStereoRenderTarget(HPLPendingStereoRenderTarget& target)
 
     target.eyeIndex = static_cast<int>(g_state.nextEyeIndex);
     target.poseFrame = views.gameFrame;
+    target.calibrationGeneration = g_state.calibrationGeneration;
     return true;
 }
 

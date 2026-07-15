@@ -28,6 +28,7 @@ struct ActivePass {
     void* historyAddress = nullptr;
     int eyeIndex = -1;
     uint64_t poseFrame = 0;
+    uint64_t calibrationGeneration = 0;
 };
 
 bool g_configured = false;
@@ -148,9 +149,10 @@ void InitializeHPLPerEyeViewHistory(const Config& config)
     g_failures.store(0, std::memory_order_relaxed);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_per_eye_view_history initialized configured=%d packetBytes=0x%llx policy=continuous_exact_player_only_fail_closed",
+        "hpl_per_eye_view_history initialized configured=%d packetBytes=0x%llx policy=active_stereo_exact_player_fail_closed maxPoseFrameGap=%llu",
         g_configured ? 1 : 0,
-        static_cast<unsigned long long>(per_eye_view_history_math::kViewHistoryPacketSize));
+        static_cast<unsigned long long>(per_eye_view_history_math::kViewHistoryPacketSize),
+        static_cast<unsigned long long>(per_eye_view_history_math::kMaxPoseFrameGap));
 }
 
 void SetHPLPerEyeViewHistoryActive(bool active, const char* source)
@@ -185,7 +187,8 @@ void ObserveHPLPerEyeViewHistoryRenderer(void* renderer)
     if (renderer != nullptr) g_observedRenderer = renderer;
 }
 
-void BeginHPLPerEyeViewHistoryPass(int eyeIndex, uint64_t poseFrame)
+void BeginHPLPerEyeViewHistoryPass(
+    int eyeIndex, uint64_t poseFrame, uint64_t calibrationGeneration)
 {
     g_pass = {};
     void* renderer = g_observedRenderer;
@@ -210,6 +213,7 @@ void BeginHPLPerEyeViewHistoryPass(int eyeIndex, uint64_t poseFrame)
         g_bank,
         reinterpret_cast<uintptr_t>(renderer),
         reinterpret_cast<uintptr_t>(historyAddress),
+        calibrationGeneration,
         eyeIndex,
         poseFrame,
         livePacket);
@@ -224,10 +228,11 @@ void BeginHPLPerEyeViewHistoryPass(int eyeIndex, uint64_t poseFrame)
     if (prepared.reset || prepared.seeded || ShouldLog(restore)) {
         Logger::Instance().Write(
             LogLevel::Warn,
-            "hpl_per_eye_view_history restore=%llu eye=%d poseFrame=%llu renderer=%p history=%p reset=%d seeded=%d",
+            "hpl_per_eye_view_history restore=%llu eye=%d poseFrame=%llu calibration=%llu renderer=%p history=%p reset=%d seeded=%d",
             static_cast<unsigned long long>(restore),
             eyeIndex,
             static_cast<unsigned long long>(poseFrame),
+            static_cast<unsigned long long>(calibrationGeneration),
             renderer,
             historyAddress,
             prepared.reset ? 1 : 0,
@@ -239,6 +244,7 @@ void BeginHPLPerEyeViewHistoryPass(int eyeIndex, uint64_t poseFrame)
     g_pass.historyAddress = historyAddress;
     g_pass.eyeIndex = eyeIndex;
     g_pass.poseFrame = poseFrame;
+    g_pass.calibrationGeneration = calibrationGeneration;
 }
 
 void EndHPLPerEyeViewHistoryPass(int actualEyeIndex, uint64_t actualPoseFrame)
@@ -259,6 +265,7 @@ void EndHPLPerEyeViewHistoryPass(int actualEyeIndex, uint64_t actualPoseFrame)
             g_bank,
             reinterpret_cast<uintptr_t>(pass.renderer),
             reinterpret_cast<uintptr_t>(pass.historyAddress),
+            pass.calibrationGeneration,
             pass.eyeIndex,
             pass.poseFrame,
             packet)) {

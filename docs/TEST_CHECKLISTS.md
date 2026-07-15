@@ -1,5 +1,24 @@
 # Test Checklists
 
+## 0.47.0 All-Stereo View History
+
+1. Confirm `version=0.47.0-stereo-view-history`, OpenXR flavor, configured
+   history, `policy=active_stereo_exact_player_fail_closed`, and
+   `maxPoseFrameGap=8`.
+2. Enter F10 VR but leave same-frame stereo off. The panel must report
+   `VIEW HISTORY: ACTIVE`; AFR eye `0/1` restores and captures must alternate
+   without pointer, eye, pose, or repeated-reset faults.
+3. Recenter with F2. Expect one calibration-generation reseed, normal eye height,
+   and no visible temporal kick. Load a save or interrupt tracking for more than
+   eight render frames; expect one stale-gap reseed on recovery.
+4. Enable same-frame stereo. Each pose frame must receive matching left/right
+   transactions while upper lifecycle ownership remains single-run. Inspect
+   motion, shadows, reflections, tone/bloom, fades, HUD, and authored cameras.
+5. Disable same-frame stereo: AFR history isolation must continue. Exit F10:
+   status returns to standby and native state remains intact.
+6. Relaunch with `HPLPerEyeViewHistoryControl=0`. Status must be unavailable and
+   both AFR and same-frame paths must retain native shared-history behavior.
+
 ## 0.46.0 Per-Eye View History
 
 1. Confirm `version=0.46.0-per-eye-view-history`, OpenXR flavor,

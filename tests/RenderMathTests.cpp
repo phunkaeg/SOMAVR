@@ -181,7 +181,7 @@ int main()
         per_eye_view_history_math::SetActive(viewHistoryBank, true),
         "per-eye view history activates from a clean bank");
     auto viewHistoryPrepare = per_eye_view_history_math::Prepare(
-        viewHistoryBank, 0x1000, 0x2000, 0, 10, sharedHistory);
+        viewHistoryBank, 0x1000, 0x2000, 1, 0, 10, sharedHistory);
     failures += Check(
         viewHistoryPrepare.valid
             && viewHistoryPrepare.reset
@@ -192,11 +192,11 @@ int main()
     leftHistory.fill(0x22);
     failures += Check(
         per_eye_view_history_math::Commit(
-            viewHistoryBank, 0x1000, 0x2000, 0, 10, leftHistory),
+            viewHistoryBank, 0x1000, 0x2000, 1, 0, 10, leftHistory),
         "per-eye view history captures the first eye packet");
     per_eye_view_history_math::ViewHistoryPacket liveAfterLeft = leftHistory;
     viewHistoryPrepare = per_eye_view_history_math::Prepare(
-        viewHistoryBank, 0x1000, 0x2000, 1, 10, liveAfterLeft);
+        viewHistoryBank, 0x1000, 0x2000, 1, 1, 10, liveAfterLeft);
     failures += Check(
         viewHistoryPrepare.valid
             && !viewHistoryPrepare.seeded
@@ -206,17 +206,45 @@ int main()
     rightHistory.fill(0x33);
     failures += Check(
         per_eye_view_history_math::Commit(
-            viewHistoryBank, 0x1000, 0x2000, 1, 10, rightHistory),
+            viewHistoryBank, 0x1000, 0x2000, 1, 1, 10, rightHistory),
         "per-eye view history captures the replay eye packet");
     viewHistoryPrepare = per_eye_view_history_math::Prepare(
-        viewHistoryBank, 0x1000, 0x2000, 0, 11, rightHistory);
+        viewHistoryBank, 0x1000, 0x2000, 1, 0, 11, rightHistory);
     failures += Check(
         viewHistoryPrepare.valid && viewHistoryPrepare.restorePacket == leftHistory,
         "next frame restores the previous matrix for the matching eye");
+    per_eye_view_history_math::ViewHistoryPacket recenteredHistory{};
+    recenteredHistory.fill(0x3a);
+    viewHistoryPrepare = per_eye_view_history_math::Prepare(
+        viewHistoryBank, 0x1000, 0x2000, 2, 1, 12, recenteredHistory);
+    failures += Check(
+        viewHistoryPrepare.reset
+            && viewHistoryPrepare.seeded
+            && viewHistoryPrepare.restorePacket == recenteredHistory,
+        "recenter generation change reseeds both eye histories");
+    failures += Check(
+        per_eye_view_history_math::Commit(
+            viewHistoryBank, 0x1000, 0x2000, 2, 1, 12, rightHistory),
+        "recentered eye history commits under the new generation");
+    per_eye_view_history_math::ViewHistoryPacket recoveredHistory{};
+    recoveredHistory.fill(0x3c);
+    viewHistoryPrepare = per_eye_view_history_math::Prepare(
+        viewHistoryBank,
+        0x1000,
+        0x2000,
+        2,
+        1,
+        12 + per_eye_view_history_math::kMaxPoseFrameGap + 1,
+        recoveredHistory);
+    failures += Check(
+        viewHistoryPrepare.reset
+            && viewHistoryPrepare.seeded
+            && viewHistoryPrepare.restorePacket == recoveredHistory,
+        "long loading or tracking gap discards stale eye history");
     per_eye_view_history_math::ViewHistoryPacket replacementHistory{};
     replacementHistory.fill(0x44);
     viewHistoryPrepare = per_eye_view_history_math::Prepare(
-        viewHistoryBank, 0x3000, 0x4000, 1, 12, replacementHistory);
+        viewHistoryBank, 0x3000, 0x4000, 1, 1, 12, replacementHistory);
     failures += Check(
         viewHistoryPrepare.reset
             && viewHistoryPrepare.seeded

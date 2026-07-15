@@ -21,7 +21,8 @@ struct HPLPerEyeViewHistoryStatus {
 void InitializeHPLPerEyeViewHistory(const Config& config);
 void SetHPLPerEyeViewHistoryActive(bool active, const char* source);
 void ObserveHPLPerEyeViewHistoryRenderer(void* renderer);
-void BeginHPLPerEyeViewHistoryPass(int eyeIndex, uint64_t poseFrame);
+void BeginHPLPerEyeViewHistoryPass(
+    int eyeIndex, uint64_t poseFrame, uint64_t calibrationGeneration);
 void EndHPLPerEyeViewHistoryPass(int actualEyeIndex, uint64_t actualPoseFrame);
 HPLPerEyeViewHistoryStatus GetHPLPerEyeViewHistoryStatus();
 void RemoveHPLPerEyeViewHistory();

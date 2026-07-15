@@ -2,6 +2,27 @@
 
 ## 2026-07-15
 
+### 0.47.0-stereo-view-history
+
+- Extended the guarded previous-view bank from continuous dual render to every
+  exact-player stereo pass, including the proven AFR fallback. AFR otherwise
+  feeds each eye the other eye's immediately preceding native history; the same
+  pending-eye/actual-eye transaction now restores and captures the matching
+  eye without changing renderer, simulation, or submission ownership.
+- Added temporal discontinuity handling. Camera recenter/calibration generation
+  changes and pose-frame gaps over eight render frames reseed both banks from
+  live native state, covering recenter, loading, tracking interruption, and
+  delayed viewport recovery. Renderer/history identity replacement retains the
+  existing reset, and every path still faults closed behind
+  `HPLPerEyeViewHistoryControl=0`.
+- Added deterministic calibration and stale-gap tests and updated the in-headset
+  status/test contract for ordinary F10 AFR as well as same-frame stereo. Both
+  Release flavors and all CTest suites pass; live AFR/continuous visual and
+  performance acceptance remains. OpenXR DLL SHA-256:
+  `AC859876EDF7DC97969BB2455BDFA8C6AA1BE94C7E98EC6557989049FEBCF6FA`.
+  Package SHA-256:
+  `47510B3A41DC11706C5EE46E398F9202A920894A4224784984E020A198F77C4E`.
+
 ### 0.46.0-per-eye-view-history
 
 - Confirmed that `HPL3_Renderer_RenderPostPostEffects` copies exactly `0x40`

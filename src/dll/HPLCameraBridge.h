@@ -68,6 +68,7 @@ struct HPLTrackedPoseWorld {
 struct HPLPendingStereoRenderTarget {
     int eyeIndex = -1;
     uint64_t poseFrame = 0;
+    uint64_t calibrationGeneration = 0;
 };
 
 bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr);

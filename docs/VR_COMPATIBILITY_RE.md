@@ -456,6 +456,11 @@ before scene/culling/post work and commits after the complete viewport only if
 the rendered eye agrees. First use and renderer/history replacement seed both
 banks from native state; failures immediately retain shared native history.
 
+`0.47.0-stereo-view-history` applies the transaction to the proven AFR path too,
+where native shared history otherwise alternates eye ownership each game frame.
+It also treats recenter generation and pose gaps over eight frames as camera cuts,
+reseeding both banks from live state before rendering resumes.
+
 Temporal resources such as image trail, previous projection matrices,
 exposure, and velocity history must either be isolated per eye or disabled. Sharing
 one history between alternating eye transforms produces cross-eye contamination.

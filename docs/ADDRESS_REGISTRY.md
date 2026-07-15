@@ -79,6 +79,8 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x1404a5030` | Confirmed | Registers the AngelScript `iCharacterBody` API, including `Move`, `SetMoveSpeed`, `AddYaw`, and `SetYaw`. |
 | `0x1402375f0` | Confirmed, control built | Native wrapper registered for `iCharacterBody::Move(eCharDir, float)`. `0.14.0` calls Forward `0` and Right `1` only while the unpaused normal player/move state owns the body. Ghidra: `HPL3_Script_iCharacterBody_Move`. |
 | `0x140237460` | Confirmed, control built | Native wrapper registered for `iCharacterBody::AddYaw(float)`. Adds radians to body `+0xd4`; `0.14.0` uses it for exact-degree snap/smooth turning under the same normal-state gate. Ghidra: `HPL3_Script_iCharacterBody_AddYaw`. |
+| `0x140237920` | Confirmed, control built | Native `iCharacterBody::SetFeetPosition(const cVector3f&, bool)` wrapper. Converts feet Y to center Y with half of body size `+0x138`, then dispatches the ordinary position setter through vtable `+0x58`. `0.41.0` uses exact-signature guarded, unsmoothed micro-steps only after normal-state ownership and capsule-sweep clearance. Ghidra: `HPL3_CharacterBody_SetFeetPosition`. |
+| `0x140237970` | Confirmed, control built | Native `iCharacterBody::GetFeetPosition()` wrapper with the Windows x64 hidden return buffer in `RDX`; returns center `+0x6c` minus half body height `+0x138`. `0.41.0` reads this immediately before each guarded roomscale catch-up step. Ghidra: `HPL3_CharacterBody_GetFeetPosition`. |
 | `0x140238750` | Confirmed, control hook built | `HPL3_PidControllerVec3_Output`. `0.18.0` changes only exact Grab-state force (`400/0/40`) and torque (`40/0/0.4|0.1`) PID errors. Controller translation and shortest-arc rotation targets are opt-in. `0.36.0` can derive the torque target from the dominant-to-support grip direction while support squeeze is held; engagement and release re-anchor for one native call before correction. SOMA still owns the PID, force limits, mass, inertia, collision, joints, gravity, and callbacks; every unrelated call passes through. |
 | `0x14049c720` | Confirmed, control patch built | `HPL3_Script_iPhysicsBody_AddImpulse`. Nine-byte virtual thunk dispatching through body vtable `+0x130`; `0.18.0` signature-guards the thunk plus three INT3 bytes and redirects only a 350 ms controller-armed Grab throw before calling the concrete virtual method. |
 | `0x1404a0480` | Confirmed registration owner | `HPL3_Script_Register_iPhysicsBody`; registers AddForce/AddTorque/AddImpulse and anchors the physics-body AngelScript ABI. |
@@ -171,6 +173,8 @@ dispatch, not a safe semantic locomotion boundary by itself.
 
 | Object | Offset | Meaning |
 | --- | --- | --- |
+| `iCharacterBody` | `+0x6c` | Current center position; `GetFeetPosition` subtracts half the body height. |
+| `iCharacterBody` | `+0x134` | Character body size vector `(x,y,z)`; `+0x138` is the height used by feet/center conversion. |
 | `iCharacterBody` | `+0x1e8` | Camera-update ownership boolean exposed as `Get/SetCameraUpdateActive`. SOMA's hands script clears it during camera-to-bone attachment and restores it afterward. |
 
 ## SOMA Lux Entity Layout

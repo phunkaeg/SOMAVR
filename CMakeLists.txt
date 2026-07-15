@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.40.0-dual-render-temporal-probe")
+set(SOMAVR_BUILD_VERSION "0.41.0-roomscale-body-reconciliation")
 
 include(FetchContent)
 
@@ -67,6 +67,7 @@ add_library(somavr_render_math STATIC
     src/dll/HPLFlashlightMath.cpp
     src/dll/HPLGrabMath.cpp
     src/dll/HPLPhysicalCrouchMath.cpp
+    src/dll/HPLRoomscaleReconciliationMath.cpp
     src/dll/HPLHudMath.cpp
     src/dll/HPLInputMath.cpp
     src/dll/HPLMenuMath.cpp

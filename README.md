@@ -116,6 +116,10 @@ search plus `HPLRoomscaleSafetyClearanceMeters`; both eyes, controller poses,
 hands, interaction, and flashlight reuse the same result. A configurable
 horizontal ring plus top/bottom probes approximate head volume; invalid probes
 are skipped so a tight authored starting position cannot trap the view. Moving
+away from the body for 30 tracked poses can also trigger optional native capsule
+catch-up. `HPLRoomscaleBodyReconciliation=1` uses small collision-tested feet
+steps and compensates the tracking neutral so the visible world should remain
+stationary; set it to `0` for immediate rollback while live acceptance proceeds.
 Native player-capsule reconciliation remains separate work.
 `DesktopMirrorEye=left` or `right` replaces the alternating desktop image with a
 stable cached eye after headset submission. `DesktopMirrorAspect` accepts `fit`,
@@ -216,6 +220,11 @@ HPLRoomscaleSafetyIterations=6
 HPLRoomscaleSafetyRadiusMeters=0.09
 HPLRoomscaleSafetyVerticalRadiusMeters=0.12
 HPLRoomscaleSafetyRadialSamples=6
+HPLRoomscaleBodyReconciliation=1
+HPLRoomscaleBodyReconciliationThresholdMeters=0.45
+HPLRoomscaleBodyReconciliationTargetMeters=0.25
+HPLRoomscaleBodyReconciliationMaxStepMeters=0.015
+HPLRoomscaleBodyReconciliationHoldFrames=30
 HPLReflectionFadeControl=1
 HPLComfortCameraAddControl=1
 HPLComfortSuppressHeadBob=1

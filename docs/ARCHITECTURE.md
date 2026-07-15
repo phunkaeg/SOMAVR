@@ -43,9 +43,11 @@ HPLGrabBridge
   -> OpenXRInput dominant grip pose/velocity snapshot
 
 HPLNativeLocomotion
-  -> signature-guarded iCharacterBody Move/AddYaw and game-pause getter
+  -> signature-guarded iCharacterBody Move/AddYaw/GetFeetPosition/SetFeetPosition and game-pause getter
   -> HPLPlayerState immutable ownership snapshot
   -> HPLInputMath radial deadzone and angle conversion
+  -> HPLRoomscaleReconciliationMath tested threshold/hysteresis/step policy
+  -> HPLCameraBridge capsule sweep and neutral-pose compensation
 
 HPLInteractionBridge
   -> OpenXRInput snapshots through OpenXRRuntime

@@ -2,6 +2,25 @@
 
 ## 2026-07-15
 
+### 0.41.0-roomscale-body-reconciliation
+
+- Confirmed and signature-guarded native character-body feet getters/setters at
+  `0x140237970` and `0x140237920`, plus the size vector at body `+0x134`, using
+  Ghidra and both released HPL2 implementations.
+- Added optional sustained-displacement roomscale body catch-up: Normal/Normal
+  and pause/loading/authored-state gates, 0.45/0.25 m hysteresis, 30-pose hold,
+  0.015 m maximum steps, and a three-height center/radial capsule sweep through
+  SOMA's confirmed collision query.
+- Each accepted native feet step applies inverse tracking-neutral compensation
+  to preserve the rendered camera position. Exact-signature failures, blocked
+  safety, malformed bodies, and special states fail closed. Pure math coverage
+  verifies activation, hysteresis, release, and step limits. Both Release
+  flavors and all three CTest suites pass; live headset/collision acceptance
+  remains. OpenXR DLL SHA-256:
+  `6540881F013610FB020D52152D9BAA7F7621502A81F8419262B1CF7853A0BB12`.
+  Package SHA-256:
+  `B452032CAB22FBD43116F92066BAFC6FAA1BE694872930968E181B80BF6D9368`.
+
 ### 0.40.0-dual-render-temporal-probe
 
 - Corrected `0x1401f1480` from a callback-only boundary to

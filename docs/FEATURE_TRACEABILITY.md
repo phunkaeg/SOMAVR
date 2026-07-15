@@ -22,6 +22,7 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.XR_INPUT` | BUILT | `OpenXRInput`, `OpenXRRuntime` | OpenXR action set, Simple/Touch/Index/Motion bindings, grip/aim action spaces | `BUILD_HISTORY.md`, `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | Live log confirms active bindings, both tracked controllers, and stable predicted poses |
 | `FEATURE.XR_REFERENCE_SPACE` | BUILT | `OpenXRRuntime`, config | `XR_REFERENCE_SPACE_TYPE_LOCAL`, optional `STAGE`, runtime fallback | `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Compare seated/local and standing/stage calibration, eye height, recenter, and map transitions |
 | `FEATURE.ROOMSCALE_SAFETY` | BUILT | `HPLCameraBridge`, `HPLCameraMath`, config | `0x1400cd710`, `0x140143650`, optional dynamic-inclusive center/radial/vertical sweep, shared physical-head decomposition | `FUTURE_SYSTEMS_RE.md`, `ADDRESS_REGISTRY.md`, `TEST_CHECKLISTS.md` | Live-test static walls plus moving doors/props and skipped authored-start probes; then recover shape cast or native capsule reconciliation |
+| `FEATURE.ROOMSCALE_BODY_RECONCILIATION` | BUILT | `HPLNativeLocomotion`, `HPLCameraBridge`, `HPLRoomscaleReconciliationMath`, config | `0x140237920`, `0x140237970`, body size `+0x134`, sustained-displacement hysteresis, sampled capsule sweep, neutral-pose compensation | `FUTURE_SYSTEMS_RE.md`, `ADDRESS_REGISTRY.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test capsule catch-up near walls, doors, stairs, crouch transitions, authored states, and repeated direction changes; retain config rollback until accepted |
 | `FEATURE.TRACKING_RESILIENCE` | BUILT | `OpenXRRuntime`, `HPLCameraBridge` | pose-age bound, last-valid eye cache, zero-layer loss path, recovery blackout | `BUILD_HISTORY.md`, `CURRENT_STATE.md`, `TEST_CHECKLISTS.md` | Live-test brief and extended HMD tracking loss without stale-eye corruption, stereo teardown, or a visible recovery flash |
 | `FEATURE.CONTROLLER_HAPTICS` | BUILT | `OpenXRInput`, `OpenXRRuntime`, `HPLInputBridge`, `HPLInteractionBridge`, `HPLHudMath` | vibration output action, per-hand output paths, focused-session guard, native focus identity plus semantic intent profiles | `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Confirm discrete and semantic focus pulses across active controller profiles without edge chatter or default-cursor buzz |
 | `FEATURE.CONTROLLER_ACCESSIBILITY` | BUILT | `OpenXRInput`, `HPLInputBridge`, config | per-hand primary/secondary actions, dominant-hand roles, stick swap, one-hand fallback, support-hand flashlight/inventory | `BUILD_HISTORY.md`, `FUTURE_SYSTEMS_RE.md`, `TEST_CHECKLISTS.md` | Live-test role-aware jump/crouch/flashlight/inventory, swapped-stick, and each one-controller path on Touch/Index; define missing Simple/Motion bindings |
@@ -83,6 +84,8 @@ FEATURE.RECENTER requires FEATURE.VR_MODE_CONTROL
 FEATURE.RECENTER requires FEATURE.HEAD_TRACKING
 FEATURE.ROOMSCALE_SAFETY requires FEATURE.HEAD_TRACKING
 FEATURE.ROOMSCALE_SAFETY requires FEATURE.XR_REFERENCE_SPACE
+FEATURE.ROOMSCALE_BODY_RECONCILIATION requires FEATURE.ROOMSCALE_SAFETY
+FEATURE.ROOMSCALE_BODY_RECONCILIATION requires FEATURE.LOCOMOTION
 FEATURE.FLASHLIGHT_ALIGNMENT requires FEATURE.XR_INPUT
 FEATURE.FLASHLIGHT_ALIGNMENT requires FEATURE.HEAD_TRACKING
 FEATURE.INTERACTION_RAY shares FEATURE.ROOMSCALE_SAFETY native line query family
@@ -159,6 +162,8 @@ HPLScreenEffectBridge requires HPLCameraBridge
 HPLInputBridge requires HPLNativeLocomotion
 HPLInputBridge requires HPLMenuBridge
 HPLNativeLocomotion requires HPLPlayerState
+HPLNativeLocomotion requires HPLRoomscaleReconciliationMath
+HPLNativeLocomotion uses HPLCameraBridge roomscale collision and neutral compensation
 HPLMenuBridge requires HPLMenuMath
 HPLHandsBridge requires HPLHandsMath
 HPLHudBridge requires OpenXRRuntime

@@ -11,6 +11,8 @@ struct HPLCameraBridgeStatus {
     bool stereoEnabled = false;
     bool projectionCentered = false;
     bool roomscaleEnabled = true;
+    bool roomscaleSafetyQueried = false;
+    bool roomscaleSafetyClamped = false;
     int stereoRenderEye = -1;
     uint64_t stereoRenderPoseFrame = 0;
     bool headWorldRotationValid = false;
@@ -82,6 +84,17 @@ bool ResolveHPLReferenceVectorWorld(
 bool RequestHPLRecenter(const char* source);
 bool SetHPLRoomscaleEnabled(bool enabled, const char* source);
 bool SetHPLProjectionCentered(bool enabled, const char* source);
+bool ValidateHPLRoomscaleBodyShift(
+    float feetX,
+    float feetY,
+    float feetZ,
+    float sizeX,
+    float sizeY,
+    float sizeZ,
+    float shiftX,
+    float shiftZ,
+    uint32_t& probeCount);
+bool CommitHPLRoomscaleBodyShift(float shiftX, float shiftZ);
 void NotifyHPLPlayerCameraChanged(void* previousCamera, void* currentCamera);
 
 } // namespace somavr

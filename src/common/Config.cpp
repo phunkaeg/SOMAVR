@@ -140,6 +140,11 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLRoomscaleSafetyRadiusMeters=0.09\n"
         << "HPLRoomscaleSafetyVerticalRadiusMeters=0.12\n"
         << "HPLRoomscaleSafetyRadialSamples=6\n"
+        << "HPLRoomscaleBodyReconciliation=0\n"
+        << "HPLRoomscaleBodyReconciliationThresholdMeters=0.45\n"
+        << "HPLRoomscaleBodyReconciliationTargetMeters=0.25\n"
+        << "HPLRoomscaleBodyReconciliationMaxStepMeters=0.015\n"
+        << "HPLRoomscaleBodyReconciliationHoldFrames=30\n"
         << "HPLEyeHeightOffsetMeters=0.0\n"
         << "HPLRecenterControl=0\n"
         << "HPLReflectionFadeControl=0\n"
@@ -409,6 +414,11 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplroomscalesafetyradiusmeters") config_.hplRoomscaleSafetyRadiusMeters = ParseFloat(value, config_.hplRoomscaleSafetyRadiusMeters, 0.0f, 0.5f);
             else if (key == "hplroomscalesafetyverticalradiusmeters") config_.hplRoomscaleSafetyVerticalRadiusMeters = ParseFloat(value, config_.hplRoomscaleSafetyVerticalRadiusMeters, 0.0f, 0.5f);
             else if (key == "hplroomscalesafetyradialsamples") config_.hplRoomscaleSafetyRadialSamples = ParseInt(value, config_.hplRoomscaleSafetyRadialSamples, 0, 16);
+            else if (key == "hplroomscalebodyreconciliation") config_.hplRoomscaleBodyReconciliation = ParseBool(value, config_.hplRoomscaleBodyReconciliation);
+            else if (key == "hplroomscalebodyreconciliationthresholdmeters") config_.hplRoomscaleBodyReconciliationThresholdMeters = ParseFloat(value, config_.hplRoomscaleBodyReconciliationThresholdMeters, 0.05f, 2.0f);
+            else if (key == "hplroomscalebodyreconciliationtargetmeters") config_.hplRoomscaleBodyReconciliationTargetMeters = ParseFloat(value, config_.hplRoomscaleBodyReconciliationTargetMeters, 0.0f, 1.95f);
+            else if (key == "hplroomscalebodyreconciliationmaxstepmeters") config_.hplRoomscaleBodyReconciliationMaxStepMeters = ParseFloat(value, config_.hplRoomscaleBodyReconciliationMaxStepMeters, 0.001f, 0.1f);
+            else if (key == "hplroomscalebodyreconciliationholdframes") config_.hplRoomscaleBodyReconciliationHoldFrames = ParseInt(value, config_.hplRoomscaleBodyReconciliationHoldFrames, 1, 600);
             else if (key == "hpleyeheightoffsetmeters") config_.hplEyeHeightOffsetMeters = ParseFloat(value, config_.hplEyeHeightOffsetMeters, -2.0f, 2.0f);
             else if (key == "hplrecentercontrol") config_.hplRecenterControl = ParseBool(value, config_.hplRecenterControl);
             else if (key == "hplreflectionfadecontrol") config_.hplReflectionFadeControl = ParseBool(value, config_.hplReflectionFadeControl);

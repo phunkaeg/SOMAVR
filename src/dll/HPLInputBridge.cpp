@@ -864,6 +864,8 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
     const bool loadingScreenActive = IsHPLLoadingScreenActive();
     if (loadingScreenActive) {
         g_loadingSuppressedFrames.fetch_add(1, std::memory_order_relaxed);
+    } else {
+        ApplyHPLRoomscaleBodyReconciliation(player, camera);
     }
     const bool rawInputAvailable = g_openxr != nullptr
         && g_openxr->GetLatestInput(input) && input.active;

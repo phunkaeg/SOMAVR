@@ -1,5 +1,28 @@
 # Test Checklists
 
+## 0.41.0 Roomscale Body Reconciliation
+
+1. Confirm `version=0.41.0-roomscale-body-reconciliation`, native feet get/set
+   signatures are `1`, `bodyReconciliationReady=1`, and the configured
+   threshold/target/step/hold values are `0.45/0.25/0.015/30` meters/frames.
+2. Enter the known-good F10 path in open floor space. Lean or walk less than
+   0.45 m from center: no body-reconciliation step should occur and the world,
+   eye height, stereo, shadows, reflections, HUD, and reticle must stay rigid.
+3. Remain beyond 0.45 m for about half a second. Expect one activation and
+   bounded `hpl_roomscale_body_reconciliation` steps until the residual offset
+   reaches about 0.25 m. The view must not jump, drag, rotate, or change height.
+4. Repeat toward a solid wall, closed/open moving door, corner, stairs, and a
+   movable prop. A blocked capsule sweep must report blocks without crossing
+   geometry. Move back to clear space and confirm catch-up resumes.
+5. Repeat while crouched, then enter pause, terminal, grab, ladder/climb, sit,
+   conversation, and an authored camera where available. Only unpaused
+   Normal/Normal ownership may step the body; all other states must reset.
+6. Change direction repeatedly and physically return toward center. Confirm no
+   oscillation or repeated activation inside the threshold. Set
+   `HPLRoomscaleBodyReconciliation=0` for exact rollback. Stop on any camera
+   discontinuity, floor-height change, collision penetration, state bypass, or
+   signature failure, and attach the complete log summaries.
+
 ## 0.40.0 Dual-Render Temporal Probe
 
 1. Confirm `version=0.40.0-dual-render-temporal-probe`,

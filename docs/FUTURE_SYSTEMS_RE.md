@@ -1,5 +1,32 @@
 # Future Systems Reverse Engineering
 
+## 0.41.0 Roomscale Body Reconciliation Result
+
+Ghidra and both released HPL2 codebases agree on the native character-body
+feet contract. `HPL3_CharacterBody_SetFeetPosition` (`0x140237920`) adds half
+the size Y at body `+0x138` and calls the ordinary position setter;
+`HPL3_CharacterBody_GetFeetPosition` (`0x140237970`) performs the inverse from
+center position `+0x6c`. The full size vector begins at `+0x134`.
+
+`0.41.0` turns that confirmed primitive into an optional, conservative
+roomscale capsule catch-up path. It runs once per fresh HMD pose, only while
+the unpaused Normal/Normal player state owns a readable body and the existing
+head-volume safety query is valid and unclamped. Physical displacement must
+remain beyond a 0.45 m threshold for 30 pose frames. The body then advances in
+at most 0.015 m horizontal steps until the residual offset reaches 0.25 m.
+Three height bands and a center/radial ring approximate the capsule sweep using
+the confirmed world line query before every step.
+
+Each accepted body step advances the HMD neutral position by the inverse
+world-to-tracking transform. This removes the same displacement from the
+rendered roomscale offset as the native capsule gains, preserving the world
+camera position across the handoff. The native feet write uses `smooth=false`,
+matching HPL2's documented teleport path that clears stale camera/entity
+smoothing history. Loading, pause, authored cameras, special player/move
+states, blocked head safety, malformed body data, and every signature failure
+all fail closed without a write. Live acceptance remains mandatory because
+the sampled sweep is not a recovered native shape cast.
+
 ## 0.38.0 Diegetic Terminal Input Result
 
 Shipped `Prop_Terminal.hps` creates a world GUI, focuses it on interaction, and
@@ -596,7 +623,7 @@ Body turn should be a separate action:
    semantic key/mouse fallback for every other state. A higher semantic analog
    dispatcher is still preferable for special-state analog fidelity.
 4. **State adapters:** first ownership adapter built in `0.7.2`; matrix camera mode or disabled body camera updates suppress injected gameplay input while preserving menu/recenter. Normal, ladder, sit, climb ledge, crawl, interaction, conversation, and death still need live classification.
-5. **Physical movement:** optional physical crouch and collision-aware room-scale body catch-up.
+5. **Physical movement:** optional physical crouch and collision-aware room-scale body catch-up built in `0.41.0`; live capsule/camera acceptance remains.
 
 ### Locomotion Risks
 

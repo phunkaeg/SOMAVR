@@ -21,10 +21,18 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.40.0-dual-render-temporal-probe`, layered on the
+The active build candidate is `0.41.0-roomscale-body-reconciliation`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Sustained physical roomscale displacement can now advance the native player
+  capsule through exact-signature guarded feet-position wrappers. The path is
+  restricted to unpaused Normal/Normal ownership, requires the existing head
+  safety result to be clear, samples the body volume before each 0.015 m step,
+  and compensates the HMD neutral position to keep the rendered world fixed.
+  It is enabled in the active test profile and has a one-line config rollback;
+  headset/collision acceptance remains.
 
 - Same-frame stereo evidence collection is now automatic and bounded. After a
   stable exact player viewport enters tracked stereo, three samples run 180

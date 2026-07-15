@@ -7,6 +7,7 @@
 #include "HPLInputMath.h"
 #include "HPLMenuMath.h"
 #include "HPLPhysicalCrouchMath.h"
+#include "HPLRoomscaleReconciliationMath.h"
 #include "HPLScreenEffectMath.h"
 #include "HPLSubtitleMath.h"
 #include "HPLDualRenderMath.h"
@@ -270,6 +271,25 @@ int main()
     failures += Check(
         camera_math::BuildRoomscaleSafetySampleOffsets(-1.0f, -1.0f, 99, safetyOffsets) == 1,
         "room-scale safety invalid radii retain only the center sample");
+
+    float catchupX = 0.0f;
+    float catchupZ = 0.0f;
+    failures += Check(
+        roomscale_reconciliation_math::ComputeBodyCatchupStep(
+            0.60f, 0.0f, 0.45f, 0.25f, 0.015f, false, catchupX, catchupZ)
+            && Near(catchupX, 0.015f) && Near(catchupZ, 0.0f),
+        "room-scale body reconciliation bounds its first catch-up step");
+    failures += Check(
+        roomscale_reconciliation_math::ComputeBodyCatchupStep(
+            0.44f, 0.0f, 0.45f, 0.25f, 0.015f, true, catchupX, catchupZ)
+            && Near(catchupX, 0.015f),
+        "room-scale body reconciliation hysteresis continues toward its target");
+    failures += Check(
+        !roomscale_reconciliation_math::ComputeBodyCatchupStep(
+            0.44f, 0.0f, 0.45f, 0.25f, 0.015f, false, catchupX, catchupZ)
+            && !roomscale_reconciliation_math::ComputeBodyCatchupStep(
+                0.20f, 0.0f, 0.45f, 0.25f, 0.015f, true, catchupX, catchupZ),
+        "room-scale body reconciliation respects activation and release thresholds");
 
     failures += Check(
         comfort_math::ShouldSuppressCameraAdd(1, true, true, true),

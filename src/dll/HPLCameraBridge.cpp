@@ -176,6 +176,9 @@ std::atomic<uint64_t> g_roomscaleSafetySkippedProbes = 0;
 std::atomic<uint64_t> g_roomscaleSafetyBlocked = 0;
 std::atomic<uint64_t> g_roomscaleSafetyClamped = 0;
 std::atomic<uint64_t> g_roomscaleSafetyFallbacks = 0;
+std::atomic<uint64_t> g_roomscaleBodyShiftProbes = 0;
+std::atomic<uint64_t> g_roomscaleBodyShiftBlocks = 0;
+std::atomic<uint64_t> g_roomscaleBodyShiftCommits = 0;
 std::atomic<bool> g_projectionCenterF5Down = false;
 std::atomic<bool> g_projectionCentered = false;
 std::atomic<bool> g_roomscaleF4Down = false;
@@ -205,6 +208,15 @@ Vector3 TransformLocalOffsetToWorld(const Vector3& local, const std::array<float
         baseView[0] * local.x + baseView[4] * local.y + baseView[8] * local.z,
         baseView[1] * local.x + baseView[5] * local.y + baseView[9] * local.z,
         baseView[2] * local.x + baseView[6] * local.y + baseView[10] * local.z,
+    };
+}
+
+Vector3 TransformWorldOffsetToLocal(const Vector3& world, const std::array<float, 16>& baseView)
+{
+    return {
+        baseView[0] * world.x + baseView[1] * world.y + baseView[2] * world.z,
+        baseView[4] * world.x + baseView[5] * world.y + baseView[6] * world.z,
+        baseView[8] * world.x + baseView[9] * world.y + baseView[10] * world.z,
     };
 }
 
@@ -1455,7 +1467,7 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         LogLevel::Warn,
-        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx lineOfSightRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 recenterKey=F2 projectionKey=F5 roomscaleKey=F4 recenterControl=%d stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d verticalRoomscale=%d roomscaleSafety=%d roomscaleSafetyDynamic=%d roomscaleClearanceMeters=%.3f roomscaleRadiusMeters=%.3f roomscaleVerticalRadiusMeters=%.3f roomscaleRadialSamples=%d roomscaleIterations=%d roomscaleStaticOnly=%d eyeHeightOffsetMeters=%.4f nativeRollSuppression=%d nativeRollOffsets=0x%zx,0x%zx worldScale=%.4f activationStableFrames=%u activationMaxPositionStep=%.3f activationMaxOrientationStepDeg=%.1f logInterval=%d",
+        "hpl_camera_bridge install_ok exe=%s base=%p cameraGetFrustumRva=0x%llx setupPerspectiveRva=0x%llx lineOfSightRva=0x%llx renderViewportReturnRva=0x%llx headKey=F10 stereoKey=F11 recenterKey=F2 projectionKey=F5 roomscaleKey=F4 recenterControl=%d stereoAfr=%d projectionCenteredDefault=%d roomscaleDefault=%d verticalRoomscale=%d roomscaleSafety=%d roomscaleSafetyDynamic=%d roomscaleBodyReconciliation=%d roomscaleClearanceMeters=%.3f roomscaleRadiusMeters=%.3f roomscaleVerticalRadiusMeters=%.3f roomscaleRadialSamples=%d roomscaleIterations=%d roomscaleStaticOnly=%d eyeHeightOffsetMeters=%.4f nativeRollSuppression=%d nativeRollOffsets=0x%zx,0x%zx worldScale=%.4f activationStableFrames=%u activationMaxPositionStep=%.3f activationMaxOrientationStepDeg=%.1f logInterval=%d",
         ModulePath(executable).c_str(),
         executable,
         static_cast<unsigned long long>(kCameraGetFrustumRva),
@@ -1469,6 +1481,7 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
         g_config.hplRoomscaleVertical ? 1 : 0,
         g_config.hplRoomscaleSafety ? 1 : 0,
         g_config.hplRoomscaleSafetyDynamic ? 1 : 0,
+        g_config.hplRoomscaleBodyReconciliation ? 1 : 0,
         g_config.hplRoomscaleSafetyClearanceMeters,
         g_config.hplRoomscaleSafetyRadiusMeters,
         g_config.hplRoomscaleSafetyVerticalRadiusMeters,
@@ -1492,7 +1505,7 @@ void LogHPLCameraBridgeSummary()
     std::lock_guard lock(g_stateMutex);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu secondaryCameraCandidates=%llu secondaryCameraControlSkips=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyProbes=%llu roomscaleSafetySkippedProbes=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu",
+        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu secondaryCameraCandidates=%llu secondaryCameraControlSkips=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyProbes=%llu roomscaleSafetySkippedProbes=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu roomscaleBodyShiftProbes=%llu roomscaleBodyShiftBlocks=%llu roomscaleBodyShiftCommits=%llu",
         static_cast<unsigned long long>(g_getFrustumCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_candidateCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_secondaryCameraCandidates.load(std::memory_order_relaxed)),
@@ -1520,7 +1533,10 @@ void LogHPLCameraBridgeSummary()
         static_cast<unsigned long long>(g_roomscaleSafetySkippedProbes.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_roomscaleSafetyBlocked.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_roomscaleSafetyClamped.load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_roomscaleSafetyFallbacks.load(std::memory_order_relaxed)));
+        static_cast<unsigned long long>(g_roomscaleSafetyFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_roomscaleBodyShiftProbes.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_roomscaleBodyShiftBlocks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_roomscaleBodyShiftCommits.load(std::memory_order_relaxed)));
 }
 
 HPLCameraBridgeStatus GetHPLCameraBridgeStatus()
@@ -1605,6 +1621,8 @@ HPLCameraBridgeStatus GetHPLCameraBridgeStatus()
             }
         }
     }
+    status.roomscaleSafetyQueried = g_state.roomscaleSafetyResult.queried;
+    status.roomscaleSafetyClamped = g_state.roomscaleSafetyResult.clamped;
     return status;
 }
 
@@ -1709,6 +1727,112 @@ bool ResolveHPLReferenceVectorWorld(
     worldX = world.x;
     worldY = world.y;
     worldZ = world.z;
+    return true;
+}
+
+bool ValidateHPLRoomscaleBodyShift(
+    float feetX,
+    float feetY,
+    float feetZ,
+    float sizeX,
+    float sizeY,
+    float sizeZ,
+    float shiftX,
+    float shiftZ,
+    uint32_t& probeCount)
+{
+    std::lock_guard lock(g_stateMutex);
+    probeCount = 0;
+    if (!g_config.hplRoomscaleBodyReconciliation
+        || !g_config.hplRoomscaleSafety
+        || !g_state.trackingEnabled
+        || !g_state.baseMatricesValid
+        || !g_roomscaleEnabled.load(std::memory_order_relaxed)
+        || g_checkLineOfSight == nullptr) {
+        return false;
+    }
+
+    const std::array<float, 8> values = {
+        feetX, feetY, feetZ, sizeX, sizeY, sizeZ, shiftX, shiftZ,
+    };
+    if (!std::all_of(values.begin(), values.end(), [](float value) { return std::isfinite(value); })
+        || sizeX <= 0.0f || sizeY <= 0.0f || sizeZ <= 0.0f
+        || std::fabs(shiftX) + std::fabs(shiftZ) <= 1.0e-6f) {
+        return false;
+    }
+
+    const float worldScale = std::max(g_config.hplWorldScale, 0.001f);
+    const float radius = std::max(sizeX, sizeZ) * 0.45f;
+    const float verticalInset = std::min(
+        std::max(radius, 0.05f * worldScale),
+        sizeY * 0.25f);
+    const std::array<float, 3> heights = {
+        feetY + verticalInset,
+        feetY + sizeY * 0.5f,
+        feetY + sizeY - verticalInset,
+    };
+    const int radialSamples = std::clamp(g_config.hplRoomscaleSafetyRadialSamples, 4, 12);
+    const bool staticOnly = !g_config.hplRoomscaleSafetyDynamic;
+    constexpr float kTwoPi = 6.283185307179586f;
+    const std::array<float, 3> worldShift = {shiftX, 0.0f, shiftZ};
+
+    for (float height : heights) {
+        for (int sample = -1; sample < radialSamples; ++sample) {
+            float radialX = 0.0f;
+            float radialZ = 0.0f;
+            if (sample >= 0) {
+                const float angle = kTwoPi * static_cast<float>(sample)
+                    / static_cast<float>(radialSamples);
+                radialX = std::cos(angle) * radius;
+                radialZ = std::sin(angle) * radius;
+            }
+            const std::array<float, 3> start = {
+                feetX + radialX,
+                height,
+                feetZ + radialZ,
+            };
+            const std::array<float, 3> end = {
+                start[0] + worldShift[0],
+                start[1],
+                start[2] + worldShift[2],
+            };
+            ++probeCount;
+            g_roomscaleBodyShiftProbes.fetch_add(1, std::memory_order_relaxed);
+            if (!g_checkLineOfSight(start.data(), end.data(), false, staticOnly)) {
+                g_roomscaleBodyShiftBlocks.fetch_add(1, std::memory_order_relaxed);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool CommitHPLRoomscaleBodyShift(float shiftX, float shiftZ)
+{
+    std::lock_guard lock(g_stateMutex);
+    if (!g_config.hplRoomscaleBodyReconciliation
+        || !g_state.trackingEnabled
+        || !g_state.baseMatricesValid
+        || !g_roomscaleEnabled.load(std::memory_order_relaxed)
+        || !std::isfinite(shiftX) || !std::isfinite(shiftZ)) {
+        return false;
+    }
+
+    const float worldScale = std::max(g_config.hplWorldScale, 0.001f);
+    const Vector3 localShift = TransformWorldOffsetToLocal(
+        {shiftX, 0.0f, shiftZ}, g_state.baseView);
+    const Vector3 trackingShift = RotateVector(
+        g_state.neutralOrientation,
+        {localShift.x / worldScale, localShift.y / worldScale, localShift.z / worldScale});
+    if (!IsFinite(trackingShift)) {
+        return false;
+    }
+
+    g_state.neutralPosition.x += trackingShift.x;
+    g_state.neutralPosition.y += trackingShift.y;
+    g_state.neutralPosition.z += trackingShift.z;
+    InvalidateRoomscaleSafetyCache();
+    g_roomscaleBodyShiftCommits.fetch_add(1, std::memory_order_relaxed);
     return true;
 }
 

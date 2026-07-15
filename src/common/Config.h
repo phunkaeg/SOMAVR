@@ -189,6 +189,11 @@ struct Config {
     float hplRoomscaleSafetyRadiusMeters = 0.09f;
     float hplRoomscaleSafetyVerticalRadiusMeters = 0.12f;
     int hplRoomscaleSafetyRadialSamples = 6;
+    bool hplRoomscaleBodyReconciliation = false;
+    float hplRoomscaleBodyReconciliationThresholdMeters = 0.45f;
+    float hplRoomscaleBodyReconciliationTargetMeters = 0.25f;
+    float hplRoomscaleBodyReconciliationMaxStepMeters = 0.015f;
+    int hplRoomscaleBodyReconciliationHoldFrames = 30;
     float hplEyeHeightOffsetMeters = 0.0f;
     bool hplRecenterControl = false;
     bool hplReflectionFadeControl = false;

@@ -1,5 +1,6 @@
 #include "HPLNativeLocomotion.h"
 
+#include "HPLRoomscaleReconciliationMath.h"
 #include "Logger.h"
 
 #include <Windows.h>
@@ -19,7 +20,10 @@ namespace
 
 constexpr uintptr_t kCharacterBodyMoveRva = 0x2375f0;
 constexpr uintptr_t kCharacterBodyAddYawRva = 0x237460;
+constexpr uintptr_t kCharacterBodySetFeetPositionRva = 0x237920;
+constexpr uintptr_t kCharacterBodyGetFeetPositionRva = 0x237970;
 constexpr uintptr_t kGetGamePausedRva = 0x0ccc90;
+constexpr size_t kCharacterBodySizeOffset = 0x134;
 constexpr int kNormalPlayerState = 0;
 constexpr int kNormalMoveState = 0;
 constexpr int kForwardDirection = 0;
@@ -27,11 +31,20 @@ constexpr int kRightDirection = 1;
 
 using CharacterBodyMoveFn = void (*)(void*, int, float);
 using CharacterBodyAddYawFn = void (*)(void*, float);
+struct Vector3 {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+};
+using CharacterBodySetFeetPositionFn = void (*)(void*, const Vector3*, bool);
+using CharacterBodyGetFeetPositionFn = Vector3* (*)(void*, Vector3*);
 using GetGamePausedFn = bool (*)();
 
 Config g_config;
 CharacterBodyMoveFn g_move = nullptr;
 CharacterBodyAddYawFn g_addYaw = nullptr;
+CharacterBodySetFeetPositionFn g_setFeetPosition = nullptr;
+CharacterBodyGetFeetPositionFn g_getFeetPosition = nullptr;
 GetGamePausedFn g_getGamePaused = nullptr;
 std::mutex g_mutex;
 std::atomic<uint64_t> g_moveFrames = 0;
@@ -40,6 +53,14 @@ std::atomic<uint64_t> g_turnCalls = 0;
 std::atomic<uint64_t> g_stateFallbacks = 0;
 std::atomic<uint64_t> g_invalidBodyFallbacks = 0;
 std::atomic<uint64_t> g_pausedFallbacks = 0;
+std::atomic<uint64_t> g_bodyReconciliationCandidates = 0;
+std::atomic<uint64_t> g_bodyReconciliationActivations = 0;
+std::atomic<uint64_t> g_bodyReconciliationSteps = 0;
+std::atomic<uint64_t> g_bodyReconciliationBlocked = 0;
+std::atomic<uint64_t> g_bodyReconciliationCommitFailures = 0;
+uint64_t g_lastBodyReconciliationPoseFrame = 0;
+uint32_t g_bodyReconciliationHoldFrames = 0;
+bool g_bodyReconciliationActive = false;
 
 bool IsInsideImage(HMODULE module, uintptr_t rva, size_t bytes)
 {
@@ -111,8 +132,18 @@ bool InstallHPLNativeLocomotion(const Config& config)
         0x48, 0x8b, 0x88, 0xc8, 0x00, 0x00, 0x00,
         0x0f, 0xb6, 0x81, 0xd4, 0x02, 0x00, 0x00, 0xc3,
     };
+    static constexpr uint8_t kSetFeetPositionSignature[] = {
+        0x48, 0x83, 0xec, 0x38, 0xf3, 0x0f, 0x10, 0x02,
+        0xf3, 0x0f, 0x10, 0x89, 0x38, 0x01, 0x00, 0x00,
+    };
+    static constexpr uint8_t kGetFeetPositionSignature[] = {
+        0x8b, 0x41, 0x6c, 0xf3, 0x0f, 0x10, 0x89, 0x38,
+        0x01, 0x00, 0x00, 0xf3, 0x0f, 0x10, 0x41, 0x70,
+    };
     if (!IsInsideImage(executable, kCharacterBodyMoveRva, sizeof(kMoveSignature)) ||
         !IsInsideImage(executable, kCharacterBodyAddYawRva, sizeof(kAddYawSignature)) ||
+        !IsInsideImage(executable, kCharacterBodySetFeetPositionRva, sizeof(kSetFeetPositionSignature)) ||
+        !IsInsideImage(executable, kCharacterBodyGetFeetPositionRva, sizeof(kGetFeetPositionSignature)) ||
         !IsInsideImage(executable, kGetGamePausedRva, sizeof(kGetGamePausedSignature)))
     {
         Logger::Instance().Write(LogLevel::Error, "hpl_native_locomotion install_failed reason=invalid_image_range");
@@ -126,26 +157,50 @@ bool InstallHPLNativeLocomotion(const Config& config)
         std::memcmp(base + kCharacterBodyAddYawRva, kAddYawSignature, sizeof(kAddYawSignature)) == 0;
     const bool pauseSignatureValid =
         std::memcmp(base + kGetGamePausedRva, kGetGamePausedSignature, sizeof(kGetGamePausedSignature)) == 0;
+    const bool setFeetSignatureValid = std::memcmp(
+        base + kCharacterBodySetFeetPositionRva,
+        kSetFeetPositionSignature,
+        sizeof(kSetFeetPositionSignature)) == 0;
+    const bool getFeetSignatureValid = std::memcmp(
+        base + kCharacterBodyGetFeetPositionRva,
+        kGetFeetPositionSignature,
+        sizeof(kGetFeetPositionSignature)) == 0;
     if (moveSignatureValid && pauseSignatureValid)
         g_move = reinterpret_cast<CharacterBodyMoveFn>(const_cast<uint8_t*>(base + kCharacterBodyMoveRva));
     if (turnSignatureValid && pauseSignatureValid)
         g_addYaw = reinterpret_cast<CharacterBodyAddYawFn>(const_cast<uint8_t*>(base + kCharacterBodyAddYawRva));
     if (pauseSignatureValid)
         g_getGamePaused = reinterpret_cast<GetGamePausedFn>(const_cast<uint8_t*>(base + kGetGamePausedRva));
+    if (setFeetSignatureValid && getFeetSignatureValid && pauseSignatureValid) {
+        g_setFeetPosition = reinterpret_cast<CharacterBodySetFeetPositionFn>(
+            const_cast<uint8_t*>(base + kCharacterBodySetFeetPositionRva));
+        g_getFeetPosition = reinterpret_cast<CharacterBodyGetFeetPositionFn>(
+            const_cast<uint8_t*>(base + kCharacterBodyGetFeetPositionRva));
+    }
 
     Logger::Instance().Write(
-        moveSignatureValid && turnSignatureValid && pauseSignatureValid ? LogLevel::Info : LogLevel::Warn,
-        "hpl_native_locomotion install_complete movementEnabled=%d turnEnabled=%d moveRva=0x%llx moveSignature=%d addYawRva=0x%llx addYawSignature=%d getGamePausedRva=0x%llx pauseSignature=%d policy=unpaused_normal_state_only_with_semantic_fallback",
+        moveSignatureValid && turnSignatureValid && pauseSignatureValid
+                && setFeetSignatureValid && getFeetSignatureValid
+            ? LogLevel::Info : LogLevel::Warn,
+        "hpl_native_locomotion install_complete movementEnabled=%d turnEnabled=%d bodyReconciliation=%d moveRva=0x%llx moveSignature=%d addYawRva=0x%llx addYawSignature=%d setFeetRva=0x%llx setFeetSignature=%d getFeetRva=0x%llx getFeetSignature=%d bodySizeOffset=0x%zx getGamePausedRva=0x%llx pauseSignature=%d policy=unpaused_normal_state_only_with_semantic_fallback",
         config.hplControllerNativeLocomotion ? 1 : 0,
         config.hplControllerNativeTurn ? 1 : 0,
+        config.hplRoomscaleBodyReconciliation ? 1 : 0,
         static_cast<unsigned long long>(kCharacterBodyMoveRva),
         moveSignatureValid ? 1 : 0,
         static_cast<unsigned long long>(kCharacterBodyAddYawRva),
         turnSignatureValid ? 1 : 0,
+        static_cast<unsigned long long>(kCharacterBodySetFeetPositionRva),
+        setFeetSignatureValid ? 1 : 0,
+        static_cast<unsigned long long>(kCharacterBodyGetFeetPositionRva),
+        getFeetSignatureValid ? 1 : 0,
+        kCharacterBodySizeOffset,
         static_cast<unsigned long long>(kGetGamePausedRva),
         pauseSignatureValid ? 1 : 0);
     return (!config.hplControllerNativeLocomotion || (moveSignatureValid && pauseSignatureValid)) &&
-        (!config.hplControllerNativeTurn || (turnSignatureValid && pauseSignatureValid));
+        (!config.hplControllerNativeTurn || (turnSignatureValid && pauseSignatureValid)) &&
+        (!config.hplRoomscaleBodyReconciliation
+            || (setFeetSignatureValid && getFeetSignatureValid && pauseSignatureValid));
 }
 
 bool CanApplyHPLNativeMovement(const HPLPlayerStateSnapshot& player)
@@ -190,6 +245,117 @@ bool ApplyHPLNativeTurn(const HPLPlayerStateSnapshot& player, float radians)
     return true;
 }
 
+bool ApplyHPLRoomscaleBodyReconciliation(
+    const HPLPlayerStateSnapshot& player,
+    const HPLCameraBridgeStatus& camera)
+{
+    if (!g_config.hplRoomscaleBodyReconciliation
+        || g_setFeetPosition == nullptr || g_getFeetPosition == nullptr) {
+        return false;
+    }
+    if (camera.headPoseFrame == 0 || camera.headPoseFrame == g_lastBodyReconciliationPoseFrame) {
+        return false;
+    }
+    g_lastBodyReconciliationPoseFrame = camera.headPoseFrame;
+
+    if (!camera.trackingEnabled || !camera.roomscaleEnabled
+        || !camera.headWorldPositionValid || !camera.roomscaleSafetyQueried
+        || camera.roomscaleSafetyClamped || !NormalStateOwnsBody(player)) {
+        g_bodyReconciliationHoldFrames = 0;
+        g_bodyReconciliationActive = false;
+        return false;
+    }
+
+    const float worldScale = std::max(camera.worldUnitsPerMeter, 0.001f);
+    const float threshold = g_config.hplRoomscaleBodyReconciliationThresholdMeters * worldScale;
+    const float target = g_config.hplRoomscaleBodyReconciliationTargetMeters * worldScale;
+    const float maximumStep = g_config.hplRoomscaleBodyReconciliationMaxStepMeters * worldScale;
+    const float distance = std::sqrt(
+        camera.headWorldOffsetX * camera.headWorldOffsetX
+        + camera.headWorldOffsetZ * camera.headWorldOffsetZ);
+    if (!std::isfinite(distance)) {
+        g_bodyReconciliationHoldFrames = 0;
+        g_bodyReconciliationActive = false;
+        return false;
+    }
+
+    if (!g_bodyReconciliationActive) {
+        if (distance <= threshold) {
+            g_bodyReconciliationHoldFrames = 0;
+            return false;
+        }
+        g_bodyReconciliationCandidates.fetch_add(1, std::memory_order_relaxed);
+        ++g_bodyReconciliationHoldFrames;
+        if (g_bodyReconciliationHoldFrames
+            < static_cast<uint32_t>(g_config.hplRoomscaleBodyReconciliationHoldFrames)) {
+            return false;
+        }
+        g_bodyReconciliationActive = true;
+        g_bodyReconciliationActivations.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    float shiftX = 0.0f;
+    float shiftZ = 0.0f;
+    if (!roomscale_reconciliation_math::ComputeBodyCatchupStep(
+            camera.headWorldOffsetX,
+            camera.headWorldOffsetZ,
+            threshold,
+            target,
+            maximumStep,
+            true,
+            shiftX,
+            shiftZ)) {
+        g_bodyReconciliationHoldFrames = 0;
+        g_bodyReconciliationActive = false;
+        return false;
+    }
+
+    if (!IsReadable(player.characterBody, kCharacterBodySizeOffset + sizeof(Vector3))) {
+        g_invalidBodyFallbacks.fetch_add(1, std::memory_order_relaxed);
+        g_bodyReconciliationActive = false;
+        return false;
+    }
+    Vector3 feet;
+    Vector3 size;
+    g_getFeetPosition(player.characterBody, &feet);
+    std::memcpy(
+        &size,
+        static_cast<const std::byte*>(player.characterBody) + kCharacterBodySizeOffset,
+        sizeof(size));
+    uint32_t probeCount = 0;
+    if (!ValidateHPLRoomscaleBodyShift(
+            feet.x, feet.y, feet.z,
+            size.x, size.y, size.z,
+            shiftX, shiftZ,
+            probeCount)) {
+        g_bodyReconciliationBlocked.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
+    if (!CommitHPLRoomscaleBodyShift(shiftX, shiftZ)) {
+        g_bodyReconciliationCommitFailures.fetch_add(1, std::memory_order_relaxed);
+        g_bodyReconciliationActive = false;
+        return false;
+    }
+
+    const Vector3 targetFeet = {feet.x + shiftX, feet.y, feet.z + shiftZ};
+    g_setFeetPosition(player.characterBody, &targetFeet, false);
+    const uint64_t step = g_bodyReconciliationSteps.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (step <= 8 || step % 120 == 0) {
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_roomscale_body_reconciliation step=%llu poseFrame=%llu offset=%.5f,%.5f distance=%.5f shift=%.5f,%.5f feet=%.5f,%.5f,%.5f targetFeet=%.5f,%.5f,%.5f size=%.5f,%.5f,%.5f probes=%u smooth=0",
+            static_cast<unsigned long long>(step),
+            static_cast<unsigned long long>(camera.headPoseFrame),
+            camera.headWorldOffsetX, camera.headWorldOffsetZ, distance,
+            shiftX, shiftZ,
+            feet.x, feet.y, feet.z,
+            targetFeet.x, targetFeet.y, targetFeet.z,
+            size.x, size.y, size.z,
+            probeCount);
+    }
+    return true;
+}
+
 bool GetHPLGamePausedState(bool& paused)
 {
     paused = false;
@@ -203,16 +369,24 @@ void LogHPLNativeLocomotionSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_native_locomotion_summary movementReady=%d turnReady=%d pauseGateReady=%d moveFrames=%llu moveCalls=%llu turnCalls=%llu stateFallbacks=%llu invalidBodyFallbacks=%llu pausedFallbacks=%llu",
+        "hpl_native_locomotion_summary movementReady=%d turnReady=%d bodyReconciliationReady=%d pauseGateReady=%d moveFrames=%llu moveCalls=%llu turnCalls=%llu stateFallbacks=%llu invalidBodyFallbacks=%llu pausedFallbacks=%llu bodyReconciliationCandidates=%llu bodyReconciliationActivations=%llu bodyReconciliationSteps=%llu bodyReconciliationBlocked=%llu bodyReconciliationCommitFailures=%llu bodyReconciliationActive=%d bodyReconciliationHoldFrames=%u",
         g_move != nullptr ? 1 : 0,
         g_addYaw != nullptr ? 1 : 0,
+        g_setFeetPosition != nullptr && g_getFeetPosition != nullptr ? 1 : 0,
         g_getGamePaused != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_moveFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_moveCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_turnCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stateFallbacks.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_invalidBodyFallbacks.load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_pausedFallbacks.load(std::memory_order_relaxed)));
+        static_cast<unsigned long long>(g_pausedFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_bodyReconciliationCandidates.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_bodyReconciliationActivations.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_bodyReconciliationSteps.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_bodyReconciliationBlocked.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_bodyReconciliationCommitFailures.load(std::memory_order_relaxed)),
+        g_bodyReconciliationActive ? 1 : 0,
+        g_bodyReconciliationHoldFrames);
 }
 
 void RemoveHPLNativeLocomotion()
@@ -220,7 +394,12 @@ void RemoveHPLNativeLocomotion()
     std::lock_guard lock(g_mutex);
     g_move = nullptr;
     g_addYaw = nullptr;
+    g_setFeetPosition = nullptr;
+    g_getFeetPosition = nullptr;
     g_getGamePaused = nullptr;
+    g_lastBodyReconciliationPoseFrame = 0;
+    g_bodyReconciliationHoldFrames = 0;
+    g_bodyReconciliationActive = false;
     g_config = {};
     Logger::Instance().Write(LogLevel::Info, "hpl_native_locomotion removed");
 }

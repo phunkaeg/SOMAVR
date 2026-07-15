@@ -941,7 +941,7 @@ Use that state to select feedback at the controller ray hit:
 
 | Effect | Priority/path | VR policy |
 | --- | --- | --- |
-| Tone mapping, bloom, film grain | viewport tone-mapping effect; native default post priority includes `-100` | `0.53.0` makes exposure/white-cut/fade/grading state advance once per same-pose pair. Bloom scratch is fully regenerated per eye. Film-grain sampling remains a separate acceptance item. |
+| Tone mapping, bloom, film grain | viewport tone-mapping effect; native default post priority includes `-100` | `0.53.0` makes exposure/white-cut/fade/grading and film-grain offsets/phase advance once per same-pose pair. Bloom scratch is fully regenerated per eye. |
 | Image trail | `-100000` | Generated defaults suppress it. `0.52.0` adds opt-in native per-eye framebuffer/texture and clear-state ownership so it can be restored without cross-eye history contamination. |
 | Chromatic aberration | `25` | Disable by default. The HMD runtime already owns optical distortion; artistic RGB separation can be offered as an opt-in reduced effect. |
 | Radial blur | `50` | Disable or strongly reduce. Screen-center blur is uncomfortable and conflicts with gaze/controller focus. |
@@ -975,6 +975,8 @@ Use that state to select feedback at the controller ray hit:
   authored transition, and grading-transition state from renderer frame time.
 - `0x140284fd0`: ToneMapping render virtual; invokes the shared-state update
   before bloom/grading/film-grain shader selection.
+- `0x1402845d0`: rotates film-grain current/next sample offsets at
+  `+0x138..+0x154`; RenderEffect owns quantized phase `+0x158`.
 - `0x140284d70` / `0x140283fd0`: create/destroy six bloom scratch pairs. The
   bright and blur passes fully rewrite these targets per invocation, so they do
   not require per-eye temporal allocation.
@@ -1019,8 +1021,8 @@ Same-frame dual rendering can restore more stateless effects, but temporal effec
 5. **Shared ToneMapping frame state:** built in `0.53.0`. The first eye captures
    and advances the confirmed exposure/white-cut/fade/grading packet; eye two
    replays the same baseline, and only the first committed update persists.
-   Bloom is classified as stateless scratch. Film grain, velocity, projection,
-   and other temporal owners remain to classify.
+   Film-grain offsets/phase share the same owner. Bloom is classified as
+   stateless scratch. Velocity, projection, and other temporal owners remain.
 6. **Overlay extraction:** move simple flashes, fades, and infection/HUD overlays to alpha-capable OpenXR layers.
 7. **Screen-material convergence:** built in `0.30.0`; four exact native
    billboard boundaries provide reversible active-VR distance and size control

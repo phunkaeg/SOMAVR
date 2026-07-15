@@ -121,9 +121,10 @@ Generated configs leave this experimental path off. The active test profile
 enables it and sets `HPLPostEffectDisableImageTrail=0`; restore those two values
 to `0` and `1` respectively for the proven suppression baseline.
 `HPLToneMappingFrameControl=1` makes shared ToneMapping exposure, white-cut,
-window fade, and color-grading transitions advance once per same-pose stereo
-pair. Eye two replays eye one's pre-update state and only one native update is
-retained. It is guarded and opt-in; set it to `0` for immediate native behavior.
+window fade, color-grading transitions, and film-grain sampling advance once
+per same-pose stereo pair. Eye two replays eye one's pre-update state and only
+one native update is retained. It is guarded and opt-in; set it to `0` for
+immediate native behavior.
 With `HudLayer=1`, the exact gameplay HUD set is removed from the eye render and
 submitted once as a transparent, compositor head-locked OpenXR layer.
 `HudShape=cylinder` requests `XR_KHR_composition_layer_cylinder` and preserves

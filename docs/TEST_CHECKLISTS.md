@@ -8,7 +8,8 @@
 2. In same-frame stereo, move between dark and bright spaces and trigger an
    authored fade or grading transition. Require paired `replay` rows with one
    `committedRestore` per opposite-eye pass. Both eyes must have identical
-   exposure, fade timing, grading, and bloom intensity without pumping.
+   exposure, fade timing, grading, bloom intensity, and film grain without
+   pumping, binocular grain rivalry, or double-speed grain animation.
 3. Require `mismatches=0`. A mismatch is useful evidence but blocks promotion;
    attach the full log and identify the scene/event if one occurs.
 4. Toggle same-frame stereo off and continue in AFR. Tone mapping, bloom, film

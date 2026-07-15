@@ -14,17 +14,20 @@
   baseline, then the first committed result is restored so only one update
   persists. AFR and non-player viewports remain native.
 - Added guarded reads/writes for the confirmed `+0x8c/+0x94`, `+0xa0`, and
-  `+0xd8..+0x120` packet, deterministic eye-order/duplicate/release tests,
-  bounded replay/mismatch telemetry, and a one-line config rollback. Generated
-  configs remain off; the active test profile enables the control.
+  `+0xd8..+0x120` packet. The same owner includes confirmed film-grain current/
+  next sample offsets and phase at `+0x138..+0x158`, making grain sampling
+  stereo-consistent and preventing double-speed same-frame advancement. Added
+  deterministic eye-order/duplicate/release tests, bounded replay/mismatch
+  telemetry, and a one-line config rollback. Generated configs remain off; the
+  active test profile enables the control.
 - Classified ToneMapping's six bloom framebuffer/texture pairs as sequential
   scratch resources that are fully rewritten by the bright/blur passes, not
   temporal histories requiring per-eye duplication. Both default and OpenXR
   Release trees pass all four CTest suites. The packaged doctor reports
   `pass=7 warn=0 fail=0`. OpenXR DLL SHA-256:
-  `5B0091B165E0F9C68D43407EE69176E047AE85085E86D703A56F004BA6FC0995`.
+  `942523833EAA7F37ABCEC5EC6025ED2B1771413B9C30008023E0AA910F3E9EC7`.
   Package SHA-256:
-  `E5016D3E79F788CDDB5081BBF75E7E7EF348DB8474679C2688DE7B0EDF9B0449`.
+  `5D02FFAF5003BA11392DD68E40E9EE6F99AB16DF3FBD09469B2A82A1B9675E62`.
 
 ### 0.52.0-per-eye-image-trail
 

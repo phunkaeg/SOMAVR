@@ -118,6 +118,7 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x14033b950` | Confirmed | Initializes post-composite frame state, target ratios, renderer state, and texture units. Ghidra: `HPL3_PostEffectComposite_BeginRender`. |
 | `0x14033bb00` | Confirmed | Restores renderer state and publishes the post-composite result. Ghidra: `HPL3_PostEffectComposite_EndRender`. |
 | `0x1402842d0` | Confirmed, frame owner built | Advances ToneMapping exposure/white-cut output `+0x8c/+0x94`, authored source/destination/window/transition floats `+0xf8..+0x120`, and color-grading transition pointers/state `+0xa0/+0xd8..+0xf4` using renderer frame time. Same-frame stereo called it once per eye. `0.53.0` replays the same baseline for eye two and preserves only eye one's committed update. Ghidra: `HPL3_PostEffect_ToneMapping_AdvanceFrameState`. |
+| `0x1402845d0` | Confirmed, frame owner built | Advances film-grain current/next UV sample packets at `+0x138..+0x154`; RenderEffect advances quantized phase `+0x158`. `0.53.0` includes all nine floats in the shared once-per-pose packet so both eyes sample equivalent grain and only one phase update persists. Ghidra: `HPL3_PostEffect_ToneMapping_AdvanceFilmGrainOffsets`. |
 | `0x140284fd0` | Confirmed, frame owner built | ToneMapping render virtual. Calls `0x1402842d0` before selecting bloom, grading, film-grain, and final shader variants. `0.53.0` owns the confirmed mutable packet at the surrounding exact `RenderOne` boundary. Ghidra: `HPL3_PostEffect_ToneMapping_RenderEffect`. |
 | `0x140284d70` / `0x140283fd0` | Confirmed | Create/destroy six reduced-size ToneMapping bloom framebuffer/texture scratch pairs. The bright and blur passes fully rewrite them each invocation, so they are sequential scratch resources rather than temporal eye history. Ghidra: `HPL3_PostEffect_ToneMapping_CreateBloomResources` / `DestroyBloomResources`. |
 | `0x140284e40` / `0x140284770` | Confirmed | ToneMapping bloom bright-pass and three-stage blur implementation. Released HPL2 bloom source independently supports the scratch-resource classification. Ghidra: `HPL3_PostEffect_ToneMapping_RenderBloomBrightPass` / `RenderBloomBlurPass`. |
@@ -220,6 +221,7 @@ are `[0..2]`, `[4..6]`, and `[8..10]`.
 | ToneMapping | `+0x8c/+0x94` | Current exposure and white-cut values consumed by the final shader. |
 | ToneMapping | `+0xa0/+0xd8/+0xe0` | Current, target, and queued color-grading texture pointers. |
 | ToneMapping | `+0xe8..+0x120` | Grading speed/weight/active state plus exposure, white-cut, window, and authored transition source/destination/time packet. |
+| ToneMapping | `+0x138..+0x158` | Film-grain current/next UV offsets and quantized time phase; shared once per same-pose stereo pair. |
 | ToneMapping | `+0x160..+0x1b8` | Six bloom framebuffer/texture scratch pairs; regenerated per invocation, not temporal history. |
 
 Confirmed post-effect vtable RVAs used for runtime identity:

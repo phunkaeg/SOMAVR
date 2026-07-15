@@ -27,7 +27,8 @@ bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
 
 - ToneMapping now has explicit same-frame ownership for its authored exposure,
-  white-cut, window fade, and color-grading transition packet. Ghidra confirms
+  white-cut, window fade, color-grading transition, and film-grain sampling
+  packet. Ghidra confirms
   native update `0x1402842d0` runs inside each render. The first eye commits one
   update; the opposite eye replays the same baseline and leaves the first
   commit resident. AFR remains native. The active profile enables this guarded

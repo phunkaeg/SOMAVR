@@ -40,6 +40,9 @@ struct ToneMappingPacket {
     float transition = 0.0f;
     float transitionTime = 0.0f;
     float transitionSpeed = 0.0f;
+    float filmGrainCurrent[4] = {};
+    float filmGrainNext[4] = {};
+    float filmGrainPhase = 0.0f;
 };
 
 struct EffectState {
@@ -125,7 +128,10 @@ bool ReadPacket(void* effect, ToneMappingPacket& packet)
         && ReadField(effect, 0x114, packet.windowWhiteCutTarget)
         && ReadField(effect, 0x118, packet.transition)
         && ReadField(effect, 0x11c, packet.transitionTime)
-        && ReadField(effect, 0x120, packet.transitionSpeed);
+        && ReadField(effect, 0x120, packet.transitionSpeed)
+        && ReadField(effect, 0x138, packet.filmGrainCurrent)
+        && ReadField(effect, 0x148, packet.filmGrainNext)
+        && ReadField(effect, 0x158, packet.filmGrainPhase);
 }
 
 bool WritePacket(void* effect, const ToneMappingPacket& packet)
@@ -149,7 +155,10 @@ bool WritePacket(void* effect, const ToneMappingPacket& packet)
         && WriteField(effect, 0x114, packet.windowWhiteCutTarget)
         && WriteField(effect, 0x118, packet.transition)
         && WriteField(effect, 0x11c, packet.transitionTime)
-        && WriteField(effect, 0x120, packet.transitionSpeed);
+        && WriteField(effect, 0x120, packet.transitionSpeed)
+        && WriteField(effect, 0x138, packet.filmGrainCurrent)
+        && WriteField(effect, 0x148, packet.filmGrainNext)
+        && WriteField(effect, 0x158, packet.filmGrainPhase);
 }
 
 bool Near(float left, float right)
@@ -160,7 +169,14 @@ bool Near(float left, float right)
 
 bool Equivalent(const ToneMappingPacket& left, const ToneMappingPacket& right)
 {
-    return left.gradingTexture == right.gradingTexture
+    bool filmGrainEquivalent = Near(left.filmGrainPhase, right.filmGrainPhase);
+    for (size_t i = 0; i < 4; ++i) {
+        filmGrainEquivalent = filmGrainEquivalent
+            && Near(left.filmGrainCurrent[i], right.filmGrainCurrent[i])
+            && Near(left.filmGrainNext[i], right.filmGrainNext[i]);
+    }
+    return filmGrainEquivalent
+        && left.gradingTexture == right.gradingTexture
         && left.targetGradingTexture == right.targetGradingTexture
         && left.queuedGradingTexture == right.queuedGradingTexture
         && left.gradingTransition == right.gradingTransition
@@ -211,7 +227,7 @@ void InitializeHPLToneMappingFrame(const Config& config)
     g_failures.store(0, std::memory_order_relaxed);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_tone_mapping_frame initialized configured=%d policy=shared_once_per_pose_frame fields=exposure_whitecut_grading_transition",
+        "hpl_tone_mapping_frame initialized configured=%d policy=shared_once_per_pose_frame fields=exposure_whitecut_grading_transition_film_grain",
         g_configured ? 1 : 0);
 }
 

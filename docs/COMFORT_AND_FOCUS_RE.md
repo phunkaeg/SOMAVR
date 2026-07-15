@@ -1,7 +1,31 @@
 # Native Comfort And Interaction Focus RE
 
 Date: 2026-07-15
-Build: `0.21.0-semantic-reticle`
+Build: findings through `0.51.0-comfort-vignette`
+
+## Dynamic Peripheral Comfort
+
+`0.51.0` adds a compositor-only comfort path on top of the confirmed controller
+and authored-state ownership below. `HPLInputBridge` computes a normalized
+motion target only after loading, stale input, F1-panel exclusivity, pause,
+terminal, dead-state, and authored-camera gates. Movement magnitude uses the
+configured radial deadzone. Turn magnitude contributes only when
+`ComfortVignetteSmoothTurn=1` and snap turning is disabled; snap turns retain
+their existing bounded black-frame request.
+
+`OpenXRRuntime` advances the target through a display-period-based linear
+attack/release envelope and submits a black, transparent-center radial texture
+on a VIEW-space alpha quad. The quad is intentionally independent of world,
+HUD, reticle, and projection transforms. `OpenXRGLBridge` owns its dedicated
+swapchain and destroys it with every other session resource. Motion samples
+expire after the same bounded age as controller input, preventing a stuck mask
+if the bridge stops publishing.
+
+The implementation borrows the proven 0.30 m distance and roughly 1.0 m square
+coverage contract from SS2VR, but uses SOMAVR's OpenGL upload path and tested
+pure raster/envelope math. Generated configs stay off; balanced and maximum
+presets enable different strengths, explicit INI values override them, and F1
+provides a live runtime toggle. No new SOMA RVA or Ghidra mutation is involved.
 
 ## Native Crosshair Semantic Boundary
 

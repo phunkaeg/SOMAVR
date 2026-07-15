@@ -248,6 +248,14 @@ void ConfigManager::WriteDefaultConfig() const
         << "HudSuppressCenterCrosshair=0\n"
         << "HudCrosshairClearRadiusPixels=48\n"
         << "HudCapturePausedMenu=0\n\n"
+        << "ComfortVignette=0\n"
+        << "ComfortVignetteSmoothTurn=1\n"
+        << "ComfortVignetteSizePixels=256\n"
+        << "ComfortVignetteDistanceMeters=0.30\n"
+        << "ComfortVignetteWidthMeters=1.0\n"
+        << "ComfortVignetteStrength=0.60\n"
+        << "ComfortVignetteInnerRadius=0.50\n"
+        << "ComfortVignetteFadeMilliseconds=250\n\n"
         << "InteractionReticle=0\n"
         << "InteractionReticleSemantic=0\n"
         << "InteractionReticleNativeIcons=0\n"
@@ -257,7 +265,13 @@ void ConfigManager::WriteDefaultConfig() const
         << "InteractionReticleMaxSizeMeters=0.08\n"
         << "InteractionReticleMinDistanceMeters=0.15\n"
         << "InteractionReticleMaxDistanceMeters=8.0\n"
-        << "InteractionReticleMaxAgeFrames=2\n\n"
+        << "InteractionReticleMaxAgeFrames=2\n"
+        << "StatusPanel=0\n"
+        << "StatusPanelWidthPixels=1024\n"
+        << "StatusPanelHeightPixels=512\n"
+        << "StatusPanelDistanceMeters=1.25\n"
+        << "StatusPanelWidthMeters=1.15\n"
+        << "StatusPanelVerticalOffsetMeters=0.0\n\n"
         << "[Controller]\n"
         << "Enabled=0\n"
         << "MoveDeadzone=0.35\n"
@@ -609,6 +623,29 @@ void ConfigManager::LoadFromFile()
                 config_.openxrHudCrosshairClearRadiusPixels = ParseInt(value, config_.openxrHudCrosshairClearRadiusPixels, 4, 256);
             } else if (key == "hudcapturepausedmenu") {
                 config_.openxrHudCapturePausedMenu = ParseBool(value, config_.openxrHudCapturePausedMenu);
+            } else if (key == "comfortvignette") {
+                config_.openxrComfortVignette = ParseBool(value, config_.openxrComfortVignette);
+            } else if (key == "comfortvignettesmoothturn") {
+                config_.openxrComfortVignetteSmoothTurn = ParseBool(
+                    value, config_.openxrComfortVignetteSmoothTurn);
+            } else if (key == "comfortvignettesizepixels") {
+                config_.openxrComfortVignetteSizePixels = ParseInt(
+                    value, config_.openxrComfortVignetteSizePixels, 32, 1024);
+            } else if (key == "comfortvignettedistancemeters") {
+                config_.openxrComfortVignetteDistanceMeters = ParseFloat(
+                    value, config_.openxrComfortVignetteDistanceMeters, 0.10f, 2.0f);
+            } else if (key == "comfortvignettewidthmeters") {
+                config_.openxrComfortVignetteWidthMeters = ParseFloat(
+                    value, config_.openxrComfortVignetteWidthMeters, 0.25f, 4.0f);
+            } else if (key == "comfortvignettestrength") {
+                config_.openxrComfortVignetteStrength = ParseFloat(
+                    value, config_.openxrComfortVignetteStrength, 0.0f, 1.0f);
+            } else if (key == "comfortvignetteinnerradius") {
+                config_.openxrComfortVignetteInnerRadius = ParseFloat(
+                    value, config_.openxrComfortVignetteInnerRadius, 0.0f, 0.98f);
+            } else if (key == "comfortvignettefademilliseconds") {
+                config_.openxrComfortVignetteFadeMilliseconds = ParseInt(
+                    value, config_.openxrComfortVignetteFadeMilliseconds, 0, 2000);
             } else if (key == "interactionreticle") {
                 config_.openxrInteractionReticle = ParseBool(value, config_.openxrInteractionReticle);
             } else if (key == "interactionreticlesemantic") {

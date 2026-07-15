@@ -5,7 +5,7 @@
 
 namespace somavr::status_panel_math {
 
-constexpr int kActionCount = 8;
+constexpr int kActionCount = 9;
 
 struct PanelModel {
     bool visible = false;
@@ -23,6 +23,8 @@ struct PanelModel {
     bool hudCylinderAvailable = false;
     bool hudCylinderActive = false;
     bool reticleVisible = false;
+    bool comfortVignetteAvailable = false;
+    bool comfortVignetteEnabled = false;
     bool inputAvailable = false;
     bool controllerTracked = false;
     bool authoredCameraActive = false;

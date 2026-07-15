@@ -21,10 +21,19 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.50.0-curved-hud`, layered on the
+The active build candidate is `0.51.0-comfort-vignette`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- A locomotion-gated comfort vignette now owns a dedicated VIEW-space OpenXR
+  alpha layer. `HPLInputBridge` publishes motion intensity only after gameplay
+  input survives loading, pause, panel, terminal, dead-state, and authored-
+  camera policy. A tested 250 ms envelope fades a transparent-center radial
+  mask in and out; stale samples fail to zero. Smooth turning can contribute,
+  while snap turn keeps the existing black-frame path. The active profile and
+  balanced/maximum presets enable it, F1 can toggle it, and generated configs
+  remain off.
 
 - The compositor HUD now supports both flat and curved presentation. When
   `XR_KHR_composition_layer_cylinder` is available, the active profile submits
@@ -645,7 +654,7 @@ The OpenXR build now asks for:
 ```
 
 2. Run `somavr_injector --doctor <Soma_NoSteam.exe>` and require zero failures,
-   then confirm `version=0.50.0-curved-hud`,
+   then confirm `version=0.51.0-comfort-vignette`,
    `hpl_per_eye_view_history initialized configured=1 packetBytes=0x40`, and no
    hook/signature failure. Load a save, face forward, and press F10 once.
 3. Confirm the proven rigid world, eye height, centered projection, depth,
@@ -653,19 +662,23 @@ The OpenXR build now asks for:
    Open F1 and confirm `HUD SHAPE: CURVED`; toggle to `QUAD` and back while
    checking identical alpha, center distance, vertical placement, and content.
    An unsupported runtime must show `HUD SHAPE: QUAD ONLY` without XR failures.
-4. Before changing modes, `VIEW HISTORY` must already be `ACTIVE` in F10 AFR.
+4. Walk at partial and full stick, release, and confirm the comfort vignette
+   fades only at the periphery. Open F1 and toggle it off/on; pause, terminal,
+   loading, dead, authored-camera, and panel ownership must release it. Snap
+   stick hold must not sustain it; smooth turn may drive it.
+5. Before changing modes, `VIEW HISTORY` must already be `ACTIVE` in F10 AFR.
    Expect alternating eye `0/1` restores/captures. Recenter once and confirm a
    single generation reseed. Then enable `SAME FRAME STEREO` and confirm both
    eye transactions share each pose identity without a history fault.
-5. Exercise quiet, reflective, shadowed, tone/bloom, fade, terminal, inventory,
+6. Exercise quiet, reflective, shadowed, tone/bloom, fade, terminal, inventory,
    pause, authored-camera, and loading scenes while rotating and translating the
    HMD. Stop on cross-eye history, skew, changing shadow/reflection position,
    stale frames, duplicated GUI, or unacceptable pacing.
-6. Toggle same-frame stereo off. AFR and `VIEW HISTORY: STANDBY` must return
-   immediately. Toggle on once more and confirm a clean one-time reseed.
-7. Set `HPLPerEyeViewHistoryControl=0` for the direct rollback test; status must
+7. Toggle same-frame stereo off. AFR must return immediately and `VIEW HISTORY`
+   must remain `ACTIVE`. Toggle on once more and confirm a clean transition.
+8. Set `HPLPerEyeViewHistoryControl=0` for the direct rollback test; status must
    show `UNAVAILABLE` and native shared history must remain untouched.
-8. Confirm the build manifest version/flavor/hash, exit normally, and attach the
+9. Confirm the build manifest version/flavor/hash, exit normally, and attach the
    full log with final dual-render and per-eye-history summaries.
    Include the two `openxr_input interaction_profile` rows and verify they name
    the controller profile actually in use.

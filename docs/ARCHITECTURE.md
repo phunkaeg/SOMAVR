@@ -28,10 +28,11 @@ HPLInputBridge
   -> HPLMenuBridge paused pointer and click policy
   -> HPLPhysicalCrouchMath tested height/hysteresis state machine
   -> HPLStatusPanelBridge exclusive user-interface input owner
+  -> OpenXRComfortVignetteMath post-policy motion intensity
 
 HPLStatusPanelBridge
   -> immutable player/camera/input snapshots
-  -> guarded recenter, roomscale, projection, same-frame stereo, HUD visibility/shape, and reticle controls
+  -> guarded recenter, roomscale, projection, same-frame stereo, HUD visibility/shape, reticle, and comfort-vignette controls
   -> OpenXRRuntime status model publication
 
 HPLDualRenderControl
@@ -105,6 +106,7 @@ OpenXRGLBridge
   -> guarded uncompressed TGA decode/cache for SOMA's shipped crosshair artwork
   -> procedural reticle fallback when native artwork cannot be used
   -> status-panel texture upload and independent alpha swapchain
+  -> comfort-vignette texture upload and independent alpha swapchain
 
 HPLCompatibilityProbe / HPLLifecycle
   -> signature-guarded native HPL boundaries
@@ -121,12 +123,13 @@ lifecycle.
 | `DllMain` | DLL attach worker, ordered subsystem install/shutdown | Feature logic, OpenGL/OpenXR calls, native camera policy |
 | `OpenGLHooks` | Hook registration, GL/WGL interception, frame-boundary dispatch | New gameplay systems or OpenXR session policy |
 | `OpenGLMatrixAnalysis` | Pure matrix classification and formatting | GL state, logging lifecycle, hooks |
-| `OpenXRRuntime` | Instance/system/session state, delayed loss recovery, frame pacing, extension negotiation, view snapshots, projection/quad/cylinder layer submission and bounded comfort-black frames | HPL camera transforms or gameplay input semantics |
+| `OpenXRRuntime` | Instance/system/session state, delayed loss recovery, frame pacing, extension negotiation, view snapshots, projection/quad/cylinder submission, comfort-vignette envelope/layer policy, and bounded comfort-black frames | HPL camera transforms or raw gameplay input semantics |
 | `OpenXRInput` | OpenXR action set, five standard suggested profiles, active per-hand interaction-profile diagnostics, action synchronization, grip/aim spaces, immutable input snapshots | SOMA movement, interaction, hand placement, or camera policy |
 | `ConfigPreset` | Pure named comfort-profile parsing and application before ordinary INI overrides | File I/O, native hooks, runtime toggles, or experimental feature activation |
 | Injector doctor | Non-invasive build/config/runtime/game/proxy readiness report with failing exit status for hard prerequisites | Launch, injection, runtime instance creation, or headset hardware acceptance |
 | `OpenXRHelpers` | OpenXR names, format strings, pose/view conversion | Handles, session lifetime, swapchain ownership |
-| `OpenXRGLBridge` | OpenGL projection/HUD/reticle swapchain images, FBOs, invalidatable eye caches, transparent HUD capture, reticle drawing, image transfer, and state-preserving spectator backbuffer blit | OpenXR event/session, spectator selection policy, or HPL GUI/interaction identity policy |
+| `OpenXRGLBridge` | OpenGL projection/HUD/reticle/status/vignette swapchain images, FBOs, invalidatable eye caches, transparent HUD capture, pixel upload, image transfer, and state-preserving spectator backbuffer blit | OpenXR event/session, spectator selection policy, or HPL GUI/interaction identity policy |
+| `OpenXRComfortVignetteMath` | Pure deadzone-normalized motion intensity, attack/release envelope, and transparent-center radial alpha raster | OpenXR/GL handles, native input policy, frame lifecycle, or logging |
 | `OpenXRStatusPanelMath` | Pure fixed-glyph status/options rasterization into an OpenGL-oriented RGBA buffer | OpenXR/GL handles, input state, native pointers, or runtime policy |
 | `OpenXRSpectatorMath` | Pure fit/fill/stretch source and destination rectangle calculation | GL state, eye-cache ownership, runtime policy, logging, or native window handles |
 | `HPLCameraBridge` | Signature-guarded player-camera interception, VR mode state, and cached static/dynamic-filtered room-scale query orchestration | Generic quaternion/projection/collision-fraction algorithms |

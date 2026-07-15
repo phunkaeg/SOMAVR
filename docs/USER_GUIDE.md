@@ -59,6 +59,23 @@ Use `HudShape=quad` for the original presentation. A runtime without
 `XR_KHR_composition_layer_cylinder`, or one that rejects the layer, uses the
 quad automatically.
 
+The packaged test profile also enables a soft peripheral comfort vignette while
+locomoting. Open F1 and select `COMFORT VIGNETTE` to compare it live. It fades
+out automatically in menus, terminals, authored cameras, loading, dead state,
+or when controller input becomes stale. Smooth turning contributes; snap turns
+keep their short black-frame guard.
+
+```ini
+[OpenXR]
+ComfortVignette=1
+ComfortVignetteStrength=0.60
+ComfortVignetteInnerRadius=0.50
+ComfortVignetteFadeMilliseconds=250
+```
+
+Set `ComfortVignette=0` for immediate hard rollback. Increase `InnerRadius` for
+a wider clear center or reduce `Strength` for a lighter peripheral mask.
+
 ## Comfort Presets
 
 Set one value under `[Comfort]` in `somavr.ini`:
@@ -72,8 +89,8 @@ Preset=balanced
 | --- | --- |
 | `custom` | Uses the existing explicit settings unchanged. |
 | `minimal` | Smooth turning, no routine black frames, and only ImageTrail suppression. |
-| `balanced` | 30-degree snap turn, two-frame guards, bob/shake and unsafe roll/optics suppression, and named post-effect policy. |
-| `maximum` | Four-frame guards plus sway and script-roll suppression. |
+| `balanced` | 30-degree snap turn, two-frame guards, a 60% comfort vignette, bob/shake and unsafe roll/optics suppression, and named post-effect policy. |
+| `maximum` | Four-frame guards plus a stronger/narrower vignette, sway, and script-roll suppression. |
 
 Every explicit INI key is parsed after the preset and therefore overrides it.
 Presets never change world scale, eye height, hand calibration, movement
@@ -88,6 +105,7 @@ headset, GPU, and relevant timestamps with every report.
 - Disable `SAME FRAME STEREO` in F1 to return immediately to AFR.
 - Press F10 to restore the native desktop camera/input path.
 - Restore `Preset=custom` to use only explicit comfort settings.
+- Set `ComfortVignette=0` or use its F1 action to remove dynamic tunneling.
 - Keep `somavr.defaults.ini` for comparison; do not replace a tuned config
   blindly during updates.
 

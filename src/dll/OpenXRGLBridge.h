@@ -67,6 +67,14 @@ public:
         std::vector<XrSwapchainImageOpenGLKHR> images;
     };
 
+    struct ComfortVignetteSwapchain {
+        XrSwapchain handle = XR_NULL_HANDLE;
+        int32_t width = 0;
+        int32_t height = 0;
+        int64_t format = 0;
+        std::vector<XrSwapchainImageOpenGLKHR> images;
+    };
+
     bool Initialize(
         XrSession session,
         const std::vector<XrViewConfigurationView>& views,
@@ -84,7 +92,9 @@ public:
         int interactionReticleSizePixels,
         bool statusPanelEnabled,
         int statusPanelWidthPixels,
-        int statusPanelHeightPixels);
+        int statusPanelHeightPixels,
+        bool comfortVignetteEnabled,
+        int comfortVignetteSizePixels);
     void Shutdown(bool deleteGlResources = true);
 
     bool CopyBackbufferToEye(uint32_t eyeIndex);
@@ -118,6 +128,9 @@ public:
     bool DrawStatusPanelToSwapchain(const std::vector<uint8_t>& rgbaPixels);
     bool StatusPanelReady() const;
     const StatusPanelSwapchain& StatusPanel() const;
+    bool DrawComfortVignetteToSwapchain(const std::vector<uint8_t>& rgbaPixels);
+    bool ComfortVignetteReady() const;
+    const ComfortVignetteSwapchain& ComfortVignette() const;
 
 private:
     bool ResolveFunctions();
@@ -136,6 +149,7 @@ private:
     bool CopyHudCaptureToImage(uint32_t imageIndex);
     bool CreateInteractionReticleSwapchain(XrSession session, int sizePixels);
     bool CreateStatusPanelSwapchain(XrSession session, int width, int height);
+    bool CreateComfortVignetteSwapchain(XrSession session, int sizePixels);
     void LoadInteractionReticleAssets();
     bool DrawInteractionReticleToImage(
         uint32_t imageIndex,
@@ -153,6 +167,7 @@ private:
     HudSwapchain hud_;
     ReticleSwapchain interactionReticle_;
     StatusPanelSwapchain statusPanel_;
+    ComfortVignetteSwapchain comfortVignette_;
 
     struct ReticleAsset {
         std::vector<uint8_t> pixels;

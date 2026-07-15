@@ -19,6 +19,7 @@
 #include "OpenGLMatrixAnalysis.h"
 #include "OpenXRSpectatorMath.h"
 #include "OpenXRDepthMath.h"
+#include "OpenXRComfortVignetteMath.h"
 #include "OpenXRStatusPanelMath.h"
 
 #include <algorithm>
@@ -1053,6 +1054,38 @@ int main()
             && Near(hapticDurationScale, 1.25f),
         "semantic focus haptics classify manipulation state");
 
+    failures += Check(
+        Near(comfort_vignette_math::ComputeMotionIntensity(
+            0.8f, 0.0f, 0.0f, false, 0.3f, 0.6f), 5.0f / 7.0f),
+        "comfort vignette normalizes movement after deadzone");
+    failures += Check(
+        Near(comfort_vignette_math::ComputeMotionIntensity(
+            0.0f, 0.0f, -0.8f, true, 0.3f, 0.6f), 0.5f),
+        "comfort vignette includes smooth turn intensity");
+    failures += Check(
+        Near(comfort_vignette_math::ComputeMotionIntensity(
+            0.0f, 0.0f, -0.8f, false, 0.3f, 0.6f), 0.0f),
+        "comfort vignette excludes snap-turn stick hold");
+    failures += Check(
+        Near(comfort_vignette_math::AdvanceEnvelope(0.0f, 1.0f, 0.05f, 200), 0.25f)
+            && Near(comfort_vignette_math::AdvanceEnvelope(0.75f, 0.0f, 0.05f, 200), 0.5f),
+        "comfort vignette attack and release envelope");
+    std::vector<uint8_t> vignettePixels;
+    failures += Check(
+        comfort_vignette_math::Rasterize(64, 1.0f, 0.6f, 0.5f, vignettePixels)
+            && vignettePixels.size() == 64u * 64u * 4u,
+        "comfort vignette raster dimensions");
+    const size_t vignetteCenter = (32u * 64u + 32u) * 4u;
+    const size_t vignetteCorner = 3u;
+    failures += Check(
+        vignettePixels[vignetteCenter + 3] == 0
+            && vignettePixels[vignetteCorner] >= 152
+            && vignettePixels[vignetteCorner] <= 154,
+        "comfort vignette preserves center and darkens periphery");
+    failures += Check(
+        !comfort_vignette_math::Rasterize(16, 1.0f, 0.6f, 0.5f, vignettePixels),
+        "comfort vignette rejects undersized targets");
+
     status_panel_math::PanelModel panel;
     panel.visible = true;
     panel.selectedAction = 2;
@@ -1083,7 +1116,7 @@ int main()
     failures += Check(
         !status_panel_math::RasterizePanel(panel, 128, 128, panelPixels),
         "VR status panel rejects undersized targets");
-    failures += Check(status_panel_math::kActionCount == 8, "VR status panel action contract");
+    failures += Check(status_panel_math::kActionCount == 9, "VR status panel action contract");
 
     if (failures == 0) {
         std::cout << "Render math tests passed\n";

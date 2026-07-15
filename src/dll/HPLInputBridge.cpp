@@ -12,6 +12,7 @@
 #include "HPLPresentationBridge.h"
 #include "HPLTerminalBridge.h"
 #include "Logger.h"
+#include "OpenXRComfortVignetteMath.h"
 
 #include <Windows.h>
 
@@ -810,7 +811,7 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
     g_openxr = openxr;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d flashlight=%d inventory=%d menu=%d menuPointer=%d terminalPointer=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d manipulationMappings=%d manipulationMotion=%d manipulationMotionScale=%.1f manipulationMotionDeadzone=%.4f manipulationMotionCap=%d manipulationMotionSigns=%.1f,%.1f suppressAuthoredCamera=%d comfortBlackoutFrames=%d stateTransitionBlackoutFrames=%d maxInputAgeFrames=%d",
+        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d flashlight=%d inventory=%d menu=%d menuPointer=%d terminalPointer=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d manipulationMappings=%d manipulationMotion=%d manipulationMotionScale=%.1f manipulationMotionDeadzone=%.4f manipulationMotionCap=%d manipulationMotionSigns=%.1f,%.1f suppressAuthoredCamera=%d comfortBlackoutFrames=%d stateTransitionBlackoutFrames=%d maxInputAgeFrames=%d comfortVignette=%d comfortVignetteSmoothTurn=%d",
         config.hplControllerInput ? 1 : 0,
         config.hplControllerMoveDeadzone,
         config.hplControllerNativeLocomotion ? 1 : 0,
@@ -847,7 +848,9 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplControllerSuppressDuringAuthoredCamera ? 1 : 0,
         config.hplControllerComfortBlackoutFrames,
         config.hplControllerStateTransitionBlackoutFrames,
-        config.hplControllerMaxInputAgeFrames);
+        config.hplControllerMaxInputAgeFrames,
+        config.openxrComfortVignette ? 1 : 0,
+        config.openxrComfortVignetteSmoothTurn && !config.hplControllerSnapTurn ? 1 : 0);
     return true;
 }
 
@@ -884,6 +887,7 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
             dominantHand,
             player,
             camera);
+        if (g_openxr != nullptr) g_openxr->SetComfortMotionIntensity(0.0f, frameIndex);
         ReleaseAll();
         g_state.lastTickMs = TickMs();
         return;
@@ -898,6 +902,7 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
             roles.dominantHand,
             player,
             camera)) {
+        if (g_openxr != nullptr) g_openxr->SetComfortMotionIntensity(0.0f, frameIndex);
         ReleaseAll();
         DeactivateHPLMenuPointer();
         DeactivateHPLTerminalPointer();
@@ -927,6 +932,7 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
     const bool previousPaused = g_state.paused;
     const bool previousMenuPointerActive = g_state.menuPointerActive;
     const bool previousTerminalPointerActive = g_state.terminalPointerActive;
+    float comfortMotionIntensity = 0.0f;
     if (paused) {
         g_pausedFrames.fetch_add(1, std::memory_order_relaxed);
         DeactivateHPLTerminalPointer();
@@ -992,7 +998,17 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
         }
         g_state.nativeMovementActive = nativeMovement;
         g_state.nativeTurnActive = nativeTurn;
+        comfortMotionIntensity = comfort_vignette_math::ComputeMotionIntensity(
+            roles.moveX,
+            roles.moveY,
+            roles.turnX,
+            g_config.openxrComfortVignetteSmoothTurn && !g_config.hplControllerSnapTurn,
+            g_config.hplControllerMoveDeadzone,
+            g_config.hplControllerTurnDeadzone);
         ApplyGameplayActions(input, roles, player, camera);
+    }
+    if (g_openxr != nullptr) {
+        g_openxr->SetComfortMotionIntensity(comfortMotionIntensity, frameIndex);
     }
     ApplySystemActions(input, roles, player, nowMs);
     g_state.lastTickMs = nowMs;

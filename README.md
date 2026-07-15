@@ -120,6 +120,13 @@ the configured center distance, physical width, and texture aspect; unsupported
 or rejected cylinder layers fall back to the existing quad. The F1 panel can
 switch `HUD SHAPE` live when the extension is available. Diegetic terminal GUIs
 remain in the stereo world.
+`ComfortVignette=1` adds a soft head-locked peripheral mask while accepted
+gameplay locomotion is active. Its target comes from the resolved movement stick
+and, in smooth-turn mode, the turn stick; loading, pause, terminals, dead state,
+authored cameras, stale input, and the F1 panel all drive it back to zero. The
+F1 panel can toggle it live. `ComfortVignetteStrength`, `InnerRadius`, and
+`FadeMilliseconds` tune intensity, clear center, and attack/release; set
+`ComfortVignette=0` for a hard rollback.
 With `HandControllerRoot=1`, F10 also enables a guarded controller-owned root
 for the exact `PlayerHands_*` entity. Only uniform quarter-scale hands in the
 normal player/move state are replaced; full-scale/authored animations, stale or
@@ -186,7 +193,9 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
 ## Current Goal
 
 The proven default remains OpenXR transport, native head tracking, and AFR stereo
-geometry. `0.50.0` adds an extension-negotiated curved HUD with live F1
+geometry. `0.51.0` adds locomotion-gated compositor comfort tunneling with
+tested fade/radial math, preset integration, and a live F1 toggle. `0.50.0`
+adds an extension-negotiated curved HUD with live F1
 quad/curved switching and automatic fallback. `0.49.0` adds deterministic comfort presets, a non-invasive readiness
 doctor, and a packaged end-user guide. `0.48.0` adds HTC Vive controller bindings and exact per-hand active
 interaction-profile diagnostics. `0.47.0` applies the first opt-in per-eye temporal resource to every
@@ -204,7 +213,8 @@ or eye-distinct.
 `0.39.0` adds a head-locked in-VR status and control panel. Press `F1` or
 `Menu + Secondary`, navigate with the movement stick, and activate with dominant
   select/trigger. It exposes recenter plus reversible roomscale, centered
-  projection, same-frame stereo, HUD-layer, HUD-shape, and interaction-reticle controls
+  projection, same-frame stereo, HUD-layer, HUD-shape, interaction-reticle, and
+  comfort-vignette controls
   while suppressing all underlying gameplay input.
 
 `0.38.0` adds controller-addressable diegetic wall and handheld terminals.

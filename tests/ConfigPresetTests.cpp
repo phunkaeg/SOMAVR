@@ -43,6 +43,8 @@ int main()
             && balanced.hplComfortCameraRollControl
             && !balanced.hplComfortSuppressScriptRoll
             && balanced.hplComfortOpticsControl
+            && balanced.openxrComfortVignette
+            && balanced.openxrComfortVignetteStrength == 0.60f
             && balanced.hplPostEffectDisableRadialBlur,
         "balanced preset enables established comfort policy without script roll");
 
@@ -51,6 +53,8 @@ int main()
             && maximum.hplControllerComfortBlackoutFrames == 4
             && maximum.hplComfortSuppressSway
             && maximum.hplComfortSuppressScriptRoll
+            && maximum.openxrComfortVignette
+            && maximum.openxrComfortVignetteInnerRadius == 0.42f
             && maximum.openxrTrackingRecoveryBlackoutFrames == 4,
         "maximum preset enables the strongest bounded comfort policy");
 
@@ -65,7 +69,8 @@ int main()
         out << "[Comfort]\nPreset=maximum\n"
             << "[Hooks]\nHPLComfortSuppressScriptRoll=0\n"
             << "[Controller]\nComfortBlackoutFrames=7\n"
-            << "[OpenXR]\nHudShape=CYLINDER\nHudCylinderAngleDegrees=80\n";
+            << "[OpenXR]\nHudShape=CYLINDER\nHudCylinderAngleDegrees=80\n"
+            << "ComfortVignette=0\nComfortVignetteStrength=0.33\n";
     }
     ConfigManager manager;
     failures += Check(manager.InitializeAtPath(configPath)
@@ -74,7 +79,9 @@ int main()
             && !manager.Get().hplComfortSuppressScriptRoll
             && manager.Get().hplControllerComfortBlackoutFrames == 7
             && manager.Get().openxrHudShape == "cylinder"
-            && manager.Get().openxrHudCylinderAngleDegrees == 80.0f,
+            && manager.Get().openxrHudCylinderAngleDegrees == 80.0f
+            && !manager.Get().openxrComfortVignette
+            && manager.Get().openxrComfortVignetteStrength == 0.33f,
         "explicit INI keys override preset values after the pre-scan");
     {
         std::ofstream out(configPath, std::ios::trunc);

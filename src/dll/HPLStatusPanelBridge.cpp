@@ -126,6 +126,9 @@ void ActivateSelected(HPLCameraBridgeStatus& camera)
         }
         break;
     case 7:
+        if (g_openxr != nullptr) g_openxr->ToggleComfortVignette();
+        break;
+    case 8:
         SetVisible(false, "close_action");
         break;
     default:
@@ -135,9 +138,11 @@ void ActivateSelected(HPLCameraBridgeStatus& camera)
     const HPLDualRenderControlStatus dualRender = GetHPLDualRenderControlStatus();
     const OpenXRHudLayerShapeStatus hudShape = g_openxr != nullptr
         ? g_openxr->GetHudLayerShapeStatus() : OpenXRHudLayerShapeStatus{};
+    const OpenXRComfortVignetteStatus comfortVignette = g_openxr != nullptr
+        ? g_openxr->GetComfortVignetteStatus() : OpenXRComfortVignetteStatus{};
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_status_panel action=%d roomscale=%d centered=%d continuousDualRender=%d dualRenderReady=%d hud=%d hudCylinderAvailable=%d hudCylinderActive=%d reticle=%d visible=%d",
+        "hpl_status_panel action=%d roomscale=%d centered=%d continuousDualRender=%d dualRenderReady=%d hud=%d hudCylinderAvailable=%d hudCylinderActive=%d reticle=%d comfortVignetteAvailable=%d comfortVignetteEnabled=%d comfortVignetteLevel=%.3f visible=%d",
         g_state.selectedAction,
         camera.roomscaleEnabled ? 1 : 0,
         camera.projectionCentered ? 1 : 0,
@@ -147,6 +152,9 @@ void ActivateSelected(HPLCameraBridgeStatus& camera)
         hudShape.cylinderAvailable ? 1 : 0,
         hudShape.cylinderActive ? 1 : 0,
         g_state.reticleVisible ? 1 : 0,
+        comfortVignette.available ? 1 : 0,
+        comfortVignette.enabled ? 1 : 0,
+        comfortVignette.level,
         g_state.visible ? 1 : 0);
 }
 
@@ -167,11 +175,12 @@ bool InstallHPLStatusPanelBridge(const Config& config, OpenXRRuntime* openxr)
     g_actions.store(0, std::memory_order_relaxed);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_status_panel install enabled=%d key=F1 controllerChord=menu_plus_secondary actions=%d hudDefault=%d reticleDefault=%d",
+        "hpl_status_panel install enabled=%d key=F1 controllerChord=menu_plus_secondary actions=%d hudDefault=%d reticleDefault=%d comfortVignetteDefault=%d",
         g_state.installed ? 1 : 0,
         status_panel_math::kActionCount,
         g_state.hudVisible ? 1 : 0,
-        g_state.reticleVisible ? 1 : 0);
+        g_state.reticleVisible ? 1 : 0,
+        config.openxrComfortVignette ? 1 : 0);
     return true;
 }
 
@@ -244,9 +253,11 @@ void LogHPLStatusPanelBridgeSummary()
     const HPLDualRenderControlStatus dualRender = GetHPLDualRenderControlStatus();
     const OpenXRHudLayerShapeStatus hudShape = g_openxr != nullptr
         ? g_openxr->GetHudLayerShapeStatus() : OpenXRHudLayerShapeStatus{};
+    const OpenXRComfortVignetteStatus comfortVignette = g_openxr != nullptr
+        ? g_openxr->GetComfortVignetteStatus() : OpenXRComfortVignetteStatus{};
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_status_panel_summary installed=%d visible=%d selected=%d updates=%llu visibleFrames=%llu opens=%llu actions=%llu continuousDualRender=%d dualRenderReady=%d hud=%d hudCylinderAvailable=%d hudCylinderActive=%d reticle=%d",
+        "hpl_status_panel_summary installed=%d visible=%d selected=%d updates=%llu visibleFrames=%llu opens=%llu actions=%llu continuousDualRender=%d dualRenderReady=%d hud=%d hudCylinderAvailable=%d hudCylinderActive=%d reticle=%d comfortVignetteAvailable=%d comfortVignetteEnabled=%d comfortVignetteLevel=%.3f",
         g_state.installed ? 1 : 0,
         g_state.visible ? 1 : 0,
         g_state.selectedAction,
@@ -259,7 +270,10 @@ void LogHPLStatusPanelBridgeSummary()
         g_state.hudVisible ? 1 : 0,
         hudShape.cylinderAvailable ? 1 : 0,
         hudShape.cylinderActive ? 1 : 0,
-        g_state.reticleVisible ? 1 : 0);
+        g_state.reticleVisible ? 1 : 0,
+        comfortVignette.available ? 1 : 0,
+        comfortVignette.enabled ? 1 : 0,
+        comfortVignette.level);
 }
 
 void RemoveHPLStatusPanelBridge()

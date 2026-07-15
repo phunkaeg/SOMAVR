@@ -84,6 +84,10 @@ bool ApplyComfortPreset(Config& config, ComfortPreset preset)
     config.hplComfortSuppressFovMultiplier = balanced || maximum;
     config.hplComfortSuppressAspectMultiplier = balanced || maximum;
     config.hplScreenEffectControl = balanced || maximum;
+    config.openxrComfortVignette = balanced || maximum;
+    config.openxrComfortVignetteStrength = maximum ? 0.75f : balanced ? 0.60f : 0.0f;
+    config.openxrComfortVignetteInnerRadius = maximum ? 0.42f : 0.50f;
+    config.openxrComfortVignetteFadeMilliseconds = maximum ? 180 : 250;
     ApplyNamedPostPolicy(config, balanced || maximum);
     return true;
 }

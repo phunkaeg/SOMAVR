@@ -135,6 +135,24 @@ struct OpenXRHudLayerShapeStatus {
     bool cylinderActive = false;
 };
 
+struct OpenXRComfortVignetteSettings {
+    bool enabled = false;
+    int sizePixels = 256;
+    float distanceMeters = 0.30f;
+    float widthMeters = 1.0f;
+    float strength = 0.60f;
+    float innerRadius = 0.50f;
+    int fadeMilliseconds = 250;
+    int maxMotionAgeFrames = 8;
+};
+
+struct OpenXRComfortVignetteStatus {
+    bool available = false;
+    bool enabled = false;
+    bool active = false;
+    float level = 0.0f;
+};
+
 class OpenXRRuntime {
 public:
     OpenXRRuntime();
@@ -187,7 +205,8 @@ public:
         int statusPanelHeightPixels,
         float statusPanelDistanceMeters,
         float statusPanelWidthMeters,
-        float statusPanelVerticalOffsetMeters);
+        float statusPanelVerticalOffsetMeters,
+        const OpenXRComfortVignetteSettings& comfortVignette);
     void OnOpenGLContext(HDC deviceContext, HGLRC glContext);
     void OnFrameBoundary(HDC deviceContext, HGLRC glContext, uint64_t frameIndex);
     bool RequestManualStart();
@@ -216,6 +235,9 @@ public:
     bool ToggleHudLayerShape();
     OpenXRHudLayerShapeStatus GetHudLayerShapeStatus() const;
     void SetInteractionReticleRuntimeVisible(bool visible);
+    void SetComfortMotionIntensity(float intensity, uint64_t gameFrame);
+    bool ToggleComfortVignette();
+    OpenXRComfortVignetteStatus GetComfortVignetteStatus() const;
 
 private:
     struct Impl;

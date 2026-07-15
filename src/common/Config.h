@@ -67,6 +67,14 @@ struct Config {
     float openxrStatusPanelDistanceMeters = 1.25f;
     float openxrStatusPanelWidthMeters = 1.15f;
     float openxrStatusPanelVerticalOffsetMeters = 0.0f;
+    bool openxrComfortVignette = false;
+    bool openxrComfortVignetteSmoothTurn = true;
+    int openxrComfortVignetteSizePixels = 256;
+    float openxrComfortVignetteDistanceMeters = 0.30f;
+    float openxrComfortVignetteWidthMeters = 1.0f;
+    float openxrComfortVignetteStrength = 0.60f;
+    float openxrComfortVignetteInnerRadius = 0.50f;
+    int openxrComfortVignetteFadeMilliseconds = 250;
     bool hplControllerInput = false;
     float hplControllerMoveDeadzone = 0.35f;
     float hplControllerMoveReleaseDeadzone = 0.25f;

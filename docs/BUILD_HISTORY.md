@@ -2,6 +2,29 @@
 
 ## 2026-07-15
 
+### 0.51.0-comfort-vignette
+
+- Added an optional locomotion comfort vignette as a dedicated head-locked
+  OpenXR alpha layer. A tested radial mask keeps the center transparent and
+  scales peripheral opacity from movement intensity through a configurable
+  attack/release envelope.
+- Motion ownership comes from `HPLInputBridge` after loading, pause, status
+  panel, terminal, dead-state, and authored-camera policy. Stale input expires
+  automatically. Smooth-turn input can contribute when smooth turning is in
+  use; snap turning retains its existing bounded black-frame guard without a
+  stick-held vignette.
+- Added a dedicated swapchain with complete session/context teardown, generated
+  config controls, balanced/maximum preset integration, runtime summary/frame
+  telemetry, and `COMFORT VIGNETTE: ON/OFF` as the ninth F1 action. Generated
+  configs remain off; the active test profile enables the reversible path.
+- Added deterministic deadzone, smooth-turn, envelope, radial-alpha, invalid-
+  target, config-precedence, preset, and panel action tests. Both default and
+  OpenXR Release trees pass all four CTest suites. The packaged doctor reports
+  `pass=7 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `D4951463AD5ECE90BA12BDD94088803AED75BB5845487EFBE911ED1B239149F6`.
+  Package SHA-256:
+  `4D3D4DECD6503BB48A13F14C131792A2608064E339241D481A4E976F67DFCBAB`.
+
 ### 0.50.0-curved-hud
 
 - Added optional `XR_KHR_composition_layer_cylinder` HUD submission. The runtime

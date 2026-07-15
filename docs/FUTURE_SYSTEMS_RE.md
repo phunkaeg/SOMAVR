@@ -731,6 +731,15 @@ Body turn should be a separate action:
 - smooth turn: integrate stick X into body yaw with a configurable rate;
 - after either turn, preserve the current HMD-local orientation so the rendered view does not jump twice.
 
+`0.51.0-comfort-vignette` adds dynamic peripheral restriction without touching
+the native camera or projection. The resolved gameplay input owner publishes a
+deadzone-normalized movement level after every suppression gate. Smooth-turn
+input may raise the same target; snap-turn stick hold is excluded because snap
+already requests a bounded zero-layer blackout. `OpenXRRuntime` advances a
+tested attack/release envelope from predicted display period and submits a
+transparent-center radial mask last in VIEW space. Stale motion, loading,
+menus/panel ownership, terminals, death, and authored cameras all release it.
+
 ### Implementation Stages
 
 1. **Passive probe:** built in `0.7.0`; logs current player state, move state, character-body pointer, camera pointer, and active-camera ownership.
@@ -741,6 +750,10 @@ Body turn should be a separate action:
    dispatcher is still preferable for special-state analog fidelity.
 4. **State adapters:** first ownership adapter built in `0.7.2`; matrix camera mode or disabled body camera updates suppress injected gameplay input while preserving menu/recenter. Normal, ladder, sit, climb ledge, crawl, interaction, conversation, and death still need live classification.
 5. **Physical movement:** optional physical crouch and collision-aware room-scale body catch-up built in `0.41.0`; live capsule/camera acceptance remains.
+6. **Dynamic peripheral comfort:** built in `0.51.0`; dedicated compositor
+   resources, post-policy locomotion/smooth-turn gating, F1 control, preset
+   integration, stale release, and deterministic mask/envelope tests are in
+   place. Headset coverage and comfort tuning remain.
 
 ### Locomotion Risks
 

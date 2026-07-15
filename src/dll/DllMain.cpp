@@ -322,6 +322,16 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplComfortLogInterval);
 
     g_openxr = std::make_unique<somavr::OpenXRRuntime>();
+    somavr::OpenXRComfortVignetteSettings comfortVignette;
+    comfortVignette.enabled = g_config->Get().openxrComfortVignette;
+    comfortVignette.sizePixels = g_config->Get().openxrComfortVignetteSizePixels;
+    comfortVignette.distanceMeters = g_config->Get().openxrComfortVignetteDistanceMeters;
+    comfortVignette.widthMeters = g_config->Get().openxrComfortVignetteWidthMeters;
+    comfortVignette.strength = g_config->Get().openxrComfortVignetteStrength;
+    comfortVignette.innerRadius = g_config->Get().openxrComfortVignetteInnerRadius;
+    comfortVignette.fadeMilliseconds =
+        g_config->Get().openxrComfortVignetteFadeMilliseconds;
+    comfortVignette.maxMotionAgeFrames = g_config->Get().hplControllerMaxInputAgeFrames;
     g_openxr->Configure(
         g_config->Get().openxrProbe,
         g_config->Get().openxrSessionProbe,
@@ -369,7 +379,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrStatusPanelHeightPixels,
         g_config->Get().openxrStatusPanelDistanceMeters,
         g_config->Get().openxrStatusPanelWidthMeters,
-        g_config->Get().openxrStatusPanelVerticalOffsetMeters);
+        g_config->Get().openxrStatusPanelVerticalOffsetMeters,
+        comfortVignette);
 
     if (!somavr::InstallOpenGLHooks(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "opengl_hooks install_failed");

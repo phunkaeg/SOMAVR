@@ -107,7 +107,9 @@ bool OpenXRGLBridge::Initialize(
     int interactionReticleSizePixels,
     bool statusPanelEnabled,
     int statusPanelWidthPixels,
-    int statusPanelHeightPixels)
+    int statusPanelHeightPixels,
+    bool comfortVignetteEnabled,
+    int comfortVignetteSizePixels)
 {
     Shutdown();
 
@@ -220,10 +222,17 @@ bool OpenXRGLBridge::Initialize(
             statusPanelWidthPixels,
             statusPanelHeightPixels);
     }
+    if (comfortVignetteEnabled
+        && !CreateComfortVignetteSwapchain(session, comfortVignetteSizePixels)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_comfort_vignette disabled reason=swapchain_creation_failed requestedSize=%d",
+            comfortVignetteSizePixels);
+    }
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "openxr_gl_bridge ready eyes=%zu format=0x%llx(%s) resolutionScalePercent=%d depthCaptureProbe=%d depthSubmitRequested=%d depthFormat=0x%llx(%s) depthCachesReady=%d depthSwapchainsReady=%d hudReady=%d hudSize=%dx%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d interactionReticleReady=%d reticleSize=%dx%d nativeReticleIcons=%u statusPanelReady=%d statusPanelSize=%dx%d",
+        "openxr_gl_bridge ready eyes=%zu format=0x%llx(%s) resolutionScalePercent=%d depthCaptureProbe=%d depthSubmitRequested=%d depthFormat=0x%llx(%s) depthCachesReady=%d depthSwapchainsReady=%d hudReady=%d hudSize=%dx%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d interactionReticleReady=%d reticleSize=%dx%d nativeReticleIcons=%u statusPanelReady=%d statusPanelSize=%dx%d comfortVignetteReady=%d comfortVignetteSize=%dx%d",
         eyes_.size(),
         static_cast<unsigned long long>(colorFormat_),
         GlFormatName(colorFormat_),
@@ -245,7 +254,10 @@ bool OpenXRGLBridge::Initialize(
         interactionReticleAssetsLoaded_,
         StatusPanelReady() ? 1 : 0,
         statusPanel_.width,
-        statusPanel_.height);
+        statusPanel_.height,
+        ComfortVignetteReady() ? 1 : 0,
+        comfortVignette_.width,
+        comfortVignette_.height);
     return true;
 }
 
@@ -321,6 +333,10 @@ void OpenXRGLBridge::Shutdown(bool deleteGlResources)
         xrDestroySwapchain(statusPanel_.handle);
     }
     statusPanel_ = {};
+    if (comfortVignette_.handle != XR_NULL_HANDLE) {
+        xrDestroySwapchain(comfortVignette_.handle);
+    }
+    comfortVignette_ = {};
     hudCaptureState_ = {};
     session_ = XR_NULL_HANDLE;
     colorFormat_ = 0;
@@ -991,6 +1007,78 @@ const OpenXRGLBridge::StatusPanelSwapchain& OpenXRGLBridge::StatusPanel() const
     return statusPanel_;
 }
 
+bool OpenXRGLBridge::DrawComfortVignetteToSwapchain(const std::vector<uint8_t>& rgbaPixels)
+{
+    if (!ComfortVignetteReady()
+        || rgbaPixels.size()
+            != static_cast<size_t>(comfortVignette_.width) * comfortVignette_.height * 4) {
+        return false;
+    }
+
+    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+    uint32_t imageIndex = 0;
+    XrResult result = xrAcquireSwapchainImage(
+        comfortVignette_.handle, &acquireInfo, &imageIndex);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(LogLevel::Warn,
+            "openxr_comfort_vignette acquire_failed result=%d", static_cast<int>(result));
+        return false;
+    }
+    XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+    waitInfo.timeout = XR_INFINITE_DURATION;
+    result = xrWaitSwapchainImage(comfortVignette_.handle, &waitInfo);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(LogLevel::Warn,
+            "openxr_comfort_vignette wait_failed image=%u result=%d",
+            imageIndex, static_cast<int>(result));
+        XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+        xrReleaseSwapchainImage(comfortVignette_.handle, &releaseInfo);
+        return false;
+    }
+
+    int32_t savedTexture = 0;
+    int32_t savedUnpackAlignment = 0;
+    glGetIntegerv(kGlTextureBinding2D, &savedTexture);
+    glGetIntegerv(kGlUnpackAlignment, &savedUnpackAlignment);
+    glBindTexture(kGlTexture2D, comfortVignette_.images[imageIndex].image);
+    glPixelStorei(kGlUnpackAlignment, 1);
+    glTexSubImage2D(
+        kGlTexture2D,
+        0,
+        0,
+        0,
+        comfortVignette_.width,
+        comfortVignette_.height,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        rgbaPixels.data());
+    glPixelStorei(kGlUnpackAlignment, savedUnpackAlignment);
+    glBindTexture(kGlTexture2D, static_cast<uint32_t>(savedTexture));
+    glFlush();
+
+    XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+    result = xrReleaseSwapchainImage(comfortVignette_.handle, &releaseInfo);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(LogLevel::Warn,
+            "openxr_comfort_vignette release_failed image=%u result=%d",
+            imageIndex, static_cast<int>(result));
+        return false;
+    }
+    return true;
+}
+
+bool OpenXRGLBridge::ComfortVignetteReady() const
+{
+    return session_ != XR_NULL_HANDLE
+        && comfortVignette_.handle != XR_NULL_HANDLE
+        && !comfortVignette_.images.empty();
+}
+
+const OpenXRGLBridge::ComfortVignetteSwapchain& OpenXRGLBridge::ComfortVignette() const
+{
+    return comfortVignette_;
+}
+
 void OpenXRGLBridge::InvalidateStereoCaches()
 {
     for (EyeSwapchain& eye : eyes_) {
@@ -1608,6 +1696,62 @@ bool OpenXRGLBridge::CreateStatusPanelSwapchain(XrSession session, int width, in
         imageCount,
         static_cast<unsigned long long>(statusPanel_.format),
         GlFormatName(statusPanel_.format));
+    return true;
+}
+
+bool OpenXRGLBridge::CreateComfortVignetteSwapchain(XrSession session, int sizePixels)
+{
+    comfortVignette_ = {};
+    comfortVignette_.width = std::clamp(sizePixels, 32, 1024);
+    comfortVignette_.height = comfortVignette_.width;
+    comfortVignette_.format = colorFormat_;
+
+    XrSwapchainCreateInfo createInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+    createInfo.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+    createInfo.format = colorFormat_;
+    createInfo.sampleCount = 1;
+    createInfo.width = comfortVignette_.width;
+    createInfo.height = comfortVignette_.height;
+    createInfo.faceCount = 1;
+    createInfo.arraySize = 1;
+    createInfo.mipCount = 1;
+    XrResult result = xrCreateSwapchain(session, &createInfo, &comfortVignette_.handle);
+    if (XR_FAILED(result)) {
+        comfortVignette_ = {};
+        return false;
+    }
+
+    uint32_t imageCount = 0;
+    result = xrEnumerateSwapchainImages(comfortVignette_.handle, 0, &imageCount, nullptr);
+    if (XR_FAILED(result) || imageCount == 0) {
+        xrDestroySwapchain(comfortVignette_.handle);
+        comfortVignette_ = {};
+        return false;
+    }
+    comfortVignette_.images.resize(imageCount);
+    for (XrSwapchainImageOpenGLKHR& image : comfortVignette_.images) {
+        image.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR;
+        image.next = nullptr;
+    }
+    result = xrEnumerateSwapchainImages(
+        comfortVignette_.handle,
+        imageCount,
+        &imageCount,
+        reinterpret_cast<XrSwapchainImageBaseHeader*>(comfortVignette_.images.data()));
+    if (XR_FAILED(result)) {
+        xrDestroySwapchain(comfortVignette_.handle);
+        comfortVignette_ = {};
+        return false;
+    }
+    comfortVignette_.images.resize(imageCount);
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "openxr_comfort_vignette swapchain_created size=%dx%d images=%u format=0x%llx(%s)",
+        comfortVignette_.width,
+        comfortVignette_.height,
+        imageCount,
+        static_cast<unsigned long long>(comfortVignette_.format),
+        GlFormatName(comfortVignette_.format));
     return true;
 }
 

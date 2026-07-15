@@ -4,6 +4,7 @@
 #include "HPLCameraBridge.h"
 #include "HPLHudMath.h"
 #include "OpenXRGLBridge.h"
+#include "OpenXRComfortVignetteMath.h"
 #include "OpenXRStatusPanelMath.h"
 
 #include <Windows.h>
@@ -154,7 +155,8 @@ struct OpenXRRuntime::Impl {
         int statusPanelHeightPixels,
         float statusPanelDistanceMeters,
         float statusPanelWidthMeters,
-        float statusPanelVerticalOffsetMeters)
+        float statusPanelVerticalOffsetMeters,
+        const OpenXRComfortVignetteSettings& comfortVignette)
     {
         std::lock_guard lock(mutex_);
         enabled_ = enabled;
@@ -229,10 +231,28 @@ struct OpenXRRuntime::Impl {
         statusPanelWidthMeters_ = std::clamp(statusPanelWidthMeters, 0.25f, 5.0f);
         statusPanelVerticalOffsetMeters_ = std::clamp(statusPanelVerticalOffsetMeters, -5.0f, 5.0f);
         statusPanelState_ = {};
+        comfortVignetteConfigured_ = comfortVignette.enabled;
+        comfortVignetteEnabled_ = comfortVignette.enabled;
+        comfortVignetteSizePixels_ = std::clamp(comfortVignette.sizePixels, 32, 1024);
+        comfortVignetteDistanceMeters_ = std::clamp(
+            comfortVignette.distanceMeters, 0.10f, 2.0f);
+        comfortVignetteWidthMeters_ = std::clamp(
+            comfortVignette.widthMeters, 0.25f, 4.0f);
+        comfortVignetteStrength_ = std::clamp(comfortVignette.strength, 0.0f, 1.0f);
+        comfortVignetteInnerRadius_ = std::clamp(
+            comfortVignette.innerRadius, 0.0f, 0.98f);
+        comfortVignetteFadeMilliseconds_ = std::clamp(
+            comfortVignette.fadeMilliseconds, 0, 2000);
+        comfortVignetteMaxMotionAgeFrames_ = std::clamp(
+            comfortVignette.maxMotionAgeFrames, 0, 120);
+        comfortVignetteTarget_ = 0.0f;
+        comfortVignetteLevel_ = 0.0f;
+        comfortVignetteMotionFrame_ = 0;
         hudRuntimeVisible_ = hudLayerEnabled_;
         interactionReticleRuntimeVisible_ = interactionReticleEnabled_;
         hudSubmissionSuspended_ = false;
         hudConsecutiveFailures_ = 0;
+        comfortVignetteLevel_ = 0.0f;
         manualStartArmed_ = false;
         manualStartLogged_ = false;
         manualStartKeyDown_ = false;
@@ -249,6 +269,18 @@ struct OpenXRRuntime::Impl {
             statusPanelDistanceMeters_,
             statusPanelWidthMeters_,
             statusPanelVerticalOffsetMeters_);
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "openxr_comfort_vignette_config configured=%d enabled=%d size=%d distance=%.3f widthMeters=%.3f strength=%.3f innerRadius=%.3f fadeMs=%d maxMotionAgeFrames=%d",
+            comfortVignetteConfigured_ ? 1 : 0,
+            comfortVignetteEnabled_ ? 1 : 0,
+            comfortVignetteSizePixels_,
+            comfortVignetteDistanceMeters_,
+            comfortVignetteWidthMeters_,
+            comfortVignetteStrength_,
+            comfortVignetteInnerRadius_,
+            comfortVignetteFadeMilliseconds_,
+            comfortVignetteMaxMotionAgeFrames_);
         Logger::Instance().Write(
             LogLevel::Info,
             "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d desktopMirrorEye=%s desktopMirrorAspect=%s depth={probe=%d submit=%d} resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d shape=%s cylinderAngleDegrees=%.3f size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
@@ -516,6 +548,14 @@ struct OpenXRRuntime::Impl {
             << " openxrComfortBlackoutUntilFrame=" << static_cast<unsigned long long>(comfortBlackoutUntilFrame_)
             << " openxrComfortBlackoutRequests=" << static_cast<unsigned long long>(comfortBlackoutRequests_)
             << " openxrComfortBlackoutFrames=" << static_cast<unsigned long long>(comfortBlackoutFrames_)
+            << " openxrComfortVignetteConfigured=" << (comfortVignetteConfigured_ ? 1 : 0)
+            << " openxrComfortVignetteEnabled=" << (comfortVignetteEnabled_ ? 1 : 0)
+            << " openxrComfortVignetteReady=" << (glBridge_.ComfortVignetteReady() ? 1 : 0)
+            << " openxrComfortVignetteLevel=" << comfortVignetteLevel_
+            << " openxrComfortVignetteSubmittedFrames="
+                << static_cast<unsigned long long>(comfortVignetteSubmittedFrames_)
+            << " openxrComfortVignetteSubmissionFailures="
+                << static_cast<unsigned long long>(comfortVignetteSubmissionFailures_)
             << " openxrPresentationBlackout=" << (presentationBlackoutActive_ ? 1 : 0)
             << " openxrPresentationBlackoutTransitions=" << static_cast<unsigned long long>(presentationBlackoutTransitions_)
             << " openxrPresentationBlackoutFrames=" << static_cast<unsigned long long>(presentationBlackoutFrames_)
@@ -768,6 +808,47 @@ struct OpenXRRuntime::Impl {
             && hudCylinderExtensionEnabled_
             && !hudCylinderSubmissionDisabled_;
         status.cylinderActive = hudCylinderRequested_ && status.cylinderAvailable;
+        return status;
+    }
+
+    void SetComfortMotionIntensity(float intensity, uint64_t gameFrame)
+    {
+        std::lock_guard lock(mutex_);
+        if (!std::isfinite(intensity)) intensity = 0.0f;
+        comfortVignetteTarget_ = std::clamp(intensity, 0.0f, 1.0f);
+        comfortVignetteMotionFrame_ = gameFrame;
+    }
+
+    bool ToggleComfortVignette()
+    {
+        std::lock_guard lock(mutex_);
+        if (!glBridge_.ComfortVignetteReady()) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_comfort_vignette toggle_unavailable resourcesReady=0 configured=%d",
+                comfortVignetteConfigured_ ? 1 : 0);
+            return false;
+        }
+        comfortVignetteEnabled_ = !comfortVignetteEnabled_;
+        if (!comfortVignetteEnabled_) {
+            comfortVignetteTarget_ = 0.0f;
+            comfortVignetteLevel_ = 0.0f;
+        }
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "openxr_comfort_vignette toggle enabled=%d",
+            comfortVignetteEnabled_ ? 1 : 0);
+        return true;
+    }
+
+    OpenXRComfortVignetteStatus GetComfortVignetteStatus() const
+    {
+        std::lock_guard lock(mutex_);
+        OpenXRComfortVignetteStatus status;
+        status.available = glBridge_.ComfortVignetteReady();
+        status.enabled = comfortVignetteEnabled_;
+        status.active = comfortVignetteEnabled_ && comfortVignetteLevel_ > 0.001f;
+        status.level = comfortVignetteLevel_;
         return status;
     }
 
@@ -1710,18 +1791,26 @@ private:
 
         bool createHudResources = hudLayerEnabled_;
         bool createStatusPanelResources = statusPanelEnabled_;
-        if (createHudResources || createStatusPanelResources) {
+        bool createComfortVignetteResources = comfortVignetteConfigured_ || statusPanelEnabled_;
+        if (createHudResources || createStatusPanelResources || createComfortVignetteResources) {
             XrReferenceSpaceCreateInfo viewSpaceInfo{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
             viewSpaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
             viewSpaceInfo.poseInReferenceSpace.orientation.w = 1.0f;
             result = xrCreateReferenceSpace(session_, &viewSpaceInfo, &viewSpace_);
             if (XR_FAILED(result)) {
+                const bool hudRequested = createHudResources;
+                const bool panelRequested = createStatusPanelResources;
+                const bool vignetteRequested = createComfortVignetteResources;
                 createHudResources = false;
                 createStatusPanelResources = false;
-                hudSubmissionSuspended_ = true;
+                createComfortVignetteResources = false;
+                hudSubmissionSuspended_ = hudRequested;
                 Logger::Instance().Write(
                     LogLevel::Warn,
-                    "openxr_hud disabled reason=view_space_create_failed result=%s",
+                    "openxr_view_space_layers disabled reason=view_space_create_failed hud=%d statusPanel=%d comfortVignette=%d result=%s",
+                    hudRequested ? 1 : 0,
+                    panelRequested ? 1 : 0,
+                    vignetteRequested ? 1 : 0,
                     XrResultString(result).c_str());
             }
         }
@@ -1744,7 +1833,9 @@ private:
                 interactionReticleSizePixels_,
                 createStatusPanelResources,
                 statusPanelWidthPixels_,
-                statusPanelHeightPixels_)) {
+                statusPanelHeightPixels_,
+                createComfortVignetteResources,
+                comfortVignetteSizePixels_)) {
             xrDestroySpace(appSpace_);
             appSpace_ = XR_NULL_HANDLE;
             if (viewSpace_ != XR_NULL_HANDLE) {
@@ -2110,6 +2201,22 @@ private:
         }
 
         input_.Sync(session_, appSpace_, frameState.predictedDisplayTime, frameIndex);
+        const bool comfortMotionFresh = comfortVignetteMotionFrame_ != 0
+            && frameIndex >= comfortVignetteMotionFrame_
+            && frameIndex - comfortVignetteMotionFrame_
+                <= static_cast<uint64_t>(comfortVignetteMaxMotionAgeFrames_);
+        const float comfortTarget = comfortVignetteEnabled_
+            && comfortMotionFresh
+            && !statusPanelState_.visible
+                ? comfortVignetteTarget_ : 0.0f;
+        const float displayPeriodSeconds = frameState.predictedDisplayPeriod > 0
+            ? static_cast<float>(static_cast<double>(frameState.predictedDisplayPeriod) / 1.0e9)
+            : 1.0f / 90.0f;
+        comfortVignetteLevel_ = comfort_vignette_math::AdvanceEnvelope(
+            comfortVignetteLevel_,
+            comfortTarget,
+            displayPeriodSeconds,
+            comfortVignetteFadeMilliseconds_);
 
         std::array<XrCompositionLayerProjectionView, 2> projectionViews{};
         std::array<XrCompositionLayerDepthInfoKHR, 2> depthViews{};
@@ -2118,7 +2225,8 @@ private:
         XrCompositionLayerCylinderKHR hudCylinderLayer{XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
         XrCompositionLayerQuad interactionReticleLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
         XrCompositionLayerQuad statusPanelLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
-        const XrCompositionLayerBaseHeader* layers[4] = {};
+        XrCompositionLayerQuad comfortVignetteLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
+        const XrCompositionLayerBaseHeader* layers[5] = {};
         uint32_t layerCount = 0;
         uint32_t locatedViewCount = 0;
         XrViewState viewState{XR_TYPE_VIEW_STATE};
@@ -2128,6 +2236,7 @@ private:
         bool submittedHudCylinder = false;
         bool submittedInteractionReticle = false;
         bool submittedStatusPanel = false;
+        bool submittedComfortVignette = false;
         bool viewsLocatedValid = false;
         for (XrView& view : pendingLocatedViews_) {
             view = {XR_TYPE_VIEW};
@@ -2492,6 +2601,8 @@ private:
             model.hudCylinderActive = hudCylinderRequested_
                 && model.hudCylinderAvailable;
             model.reticleVisible = statusPanelState_.reticleVisible;
+            model.comfortVignetteAvailable = glBridge_.ComfortVignetteReady();
+            model.comfortVignetteEnabled = comfortVignetteEnabled_;
             model.inputAvailable = statusPanelState_.inputAvailable;
             model.controllerTracked = statusPanelState_.controllerTracked;
             model.authoredCameraActive = statusPanelState_.authoredCameraActive;
@@ -2543,6 +2654,74 @@ private:
                         "openxr_status_panel submission_failed frame=%llu failures=%llu raster=%d pose=%d",
                         static_cast<unsigned long long>(frameIndex),
                         static_cast<unsigned long long>(statusPanelSubmissionFailures_),
+                        rasterized ? 1 : 0,
+                        poseValid ? 1 : 0);
+                }
+            }
+        }
+
+        if (frameState.shouldRender == XR_TRUE
+            && layerCount > 0
+            && comfortVignetteEnabled_
+            && comfortVignetteLevel_ > 0.001f
+            && stereoSubmissionEnabled_
+            && viewSpace_ != XR_NULL_HANDLE
+            && glBridge_.ComfortVignetteReady()) {
+            const OpenXRGLBridge::ComfortVignetteSwapchain& vignette =
+                glBridge_.ComfortVignette();
+            hud_math::HudQuadPose quadPose;
+            const bool rasterized = comfort_vignette_math::Rasterize(
+                vignette.width,
+                comfortVignetteLevel_,
+                comfortVignetteStrength_,
+                comfortVignetteInnerRadius_,
+                comfortVignettePixels_);
+            const bool poseValid = hud_math::BuildHeadLockedQuadPose(
+                {},
+                {},
+                comfortVignetteDistanceMeters_,
+                0.0f,
+                comfortVignetteWidthMeters_,
+                1.0f,
+                quadPose);
+            if (rasterized && poseValid
+                && glBridge_.DrawComfortVignetteToSwapchain(comfortVignettePixels_)) {
+                comfortVignetteLayer.layerFlags =
+                    XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                comfortVignetteLayer.space = viewSpace_;
+                comfortVignetteLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                comfortVignetteLayer.pose.orientation = {
+                    quadPose.orientation.x,
+                    quadPose.orientation.y,
+                    quadPose.orientation.z,
+                    quadPose.orientation.w,
+                };
+                comfortVignetteLayer.pose.position = {
+                    quadPose.position.x,
+                    quadPose.position.y,
+                    quadPose.position.z,
+                };
+                comfortVignetteLayer.size = {quadPose.widthMeters, quadPose.heightMeters};
+                comfortVignetteLayer.subImage.swapchain = vignette.handle;
+                comfortVignetteLayer.subImage.imageRect.offset = {0, 0};
+                comfortVignetteLayer.subImage.imageRect.extent = {
+                    vignette.width,
+                    vignette.height,
+                };
+                comfortVignetteLayer.subImage.imageArrayIndex = 0;
+                layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
+                    &comfortVignetteLayer);
+                submittedComfortVignette = true;
+                ++comfortVignetteSubmittedFrames_;
+            } else {
+                ++comfortVignetteSubmissionFailures_;
+                if (comfortVignetteSubmissionFailures_ <= 4
+                    || comfortVignetteSubmissionFailures_ % 120 == 0) {
+                    Logger::Instance().Write(
+                        LogLevel::Warn,
+                        "openxr_comfort_vignette submission_failed frame=%llu failures=%llu raster=%d pose=%d",
+                        static_cast<unsigned long long>(frameIndex),
+                        static_cast<unsigned long long>(comfortVignetteSubmissionFailures_),
                         rasterized ? 1 : 0,
                         poseValid ? 1 : 0);
                 }
@@ -2636,7 +2815,7 @@ private:
         if (completedXrFrameCount_ == 1 || (completedXrFrameCount_ % 300) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d depth=%d hud=%d hudShape=%s reticle=%d statusPanel=%d spectatorFrames=%llu stereoCaptured=%llu stereoSubmitted=%llu depthSubmitted=%llu depthFailures=%llu hudSubmitted=%llu reticleSubmitted=%llu panelSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
+                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d depth=%d hud=%d hudShape=%s reticle=%d statusPanel=%d comfortVignette=%d comfortVignetteLevel=%.3f spectatorFrames=%llu stereoCaptured=%llu stereoSubmitted=%llu depthSubmitted=%llu depthFailures=%llu hudSubmitted=%llu reticleSubmitted=%llu panelSubmitted=%llu vignetteSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
                 static_cast<unsigned long long>(frameIndex),
                 static_cast<unsigned long long>(completedXrFrameCount_),
                 frameState.shouldRender == XR_TRUE ? 1 : 0,
@@ -2648,6 +2827,8 @@ private:
                 submittedHud ? (submittedHudCylinder ? "cylinder" : "quad") : "none",
                 submittedInteractionReticle ? 1 : 0,
                 submittedStatusPanel ? 1 : 0,
+                submittedComfortVignette ? 1 : 0,
+                comfortVignetteLevel_,
                 static_cast<unsigned long long>(desktopMirrorFrames_),
                 static_cast<unsigned long long>(stereoCapturedEyeCount_),
                 static_cast<unsigned long long>(stereoSubmittedFrameCount_),
@@ -2656,6 +2837,7 @@ private:
                 static_cast<unsigned long long>(hudSubmittedFrames_),
                 static_cast<unsigned long long>(interactionReticleSubmittedFrames_),
                 static_cast<unsigned long long>(statusPanelSubmittedFrames_),
+                static_cast<unsigned long long>(comfortVignetteSubmittedFrames_),
                 static_cast<long long>(frameState.predictedDisplayTime),
                 locatedViewCount > 0 ? locatedViews_[0].pose.position.x : 0.0f,
                 locatedViewCount > 0 ? locatedViews_[0].pose.position.y : 0.0f,
@@ -2840,6 +3022,17 @@ private:
     float statusPanelDistanceMeters_ = 1.25f;
     float statusPanelWidthMeters_ = 1.15f;
     float statusPanelVerticalOffsetMeters_ = 0.0f;
+    bool comfortVignetteConfigured_ = false;
+    bool comfortVignetteEnabled_ = false;
+    int comfortVignetteSizePixels_ = 256;
+    float comfortVignetteDistanceMeters_ = 0.30f;
+    float comfortVignetteWidthMeters_ = 1.0f;
+    float comfortVignetteStrength_ = 0.60f;
+    float comfortVignetteInnerRadius_ = 0.50f;
+    int comfortVignetteFadeMilliseconds_ = 250;
+    int comfortVignetteMaxMotionAgeFrames_ = 8;
+    float comfortVignetteTarget_ = 0.0f;
+    float comfortVignetteLevel_ = 0.0f;
     bool trackingDegraded_ = false;
     bool trackingLost_ = false;
     uint64_t retryFrame_ = 0;
@@ -2875,6 +3068,9 @@ private:
     uint64_t interactionReticleSubmissionFailures_ = 0;
     uint64_t statusPanelSubmittedFrames_ = 0;
     uint64_t statusPanelSubmissionFailures_ = 0;
+    uint64_t comfortVignetteMotionFrame_ = 0;
+    uint64_t comfortVignetteSubmittedFrames_ = 0;
+    uint64_t comfortVignetteSubmissionFailures_ = 0;
     uint64_t runtimeRecoveries_ = 0;
     uint64_t glContextChangeEvents_ = 0;
     uint64_t viewResourceChecks_ = 0;
@@ -2896,6 +3092,7 @@ private:
     OpenXRInteractionReticleState interactionReticleState_{};
     OpenXRStatusPanelState statusPanelState_{};
     std::vector<uint8_t> statusPanelPixels_;
+    std::vector<uint8_t> comfortVignettePixels_;
     bool latestPoseValid_ = false;
     uint64_t latestPoseGameFrame_ = 0;
     XrViewStateFlags latestViewStateFlags_ = 0;
@@ -2977,7 +3174,8 @@ struct OpenXRRuntime::Impl {
         int statusPanelHeightPixels,
         float statusPanelDistanceMeters,
         float statusPanelWidthMeters,
-        float statusPanelVerticalOffsetMeters)
+        float statusPanelVerticalOffsetMeters,
+        const OpenXRComfortVignetteSettings& comfortVignette)
     {
         std::lock_guard lock(mutex_);
         enabled_ = enabled;
@@ -3004,6 +3202,7 @@ struct OpenXRRuntime::Impl {
         hudCylinderRequested_ = hudShape == "cylinder";
         hudCylinderAngleDegrees_ = hudCylinderAngleDegrees;
         statusPanelEnabled_ = statusPanelEnabled;
+        comfortVignetteEnabled_ = comfortVignette.enabled;
         manualStartArmed_ = false;
         unavailableLogged_ = false;
         Logger::Instance().Write(
@@ -3098,6 +3297,7 @@ struct OpenXRRuntime::Impl {
             << " openxrHudShapeRequested=" << (hudCylinderRequested_ ? "cylinder" : "quad")
             << " openxrHudShapeEffective=quad"
             << " openxrHudCylinderAngleDegrees=" << hudCylinderAngleDegrees_
+            << " openxrComfortVignetteEnabled=" << (comfortVignetteEnabled_ ? 1 : 0)
             << " openxrDepthCompositionProbe=" << (depthCompositionProbeEnabled_ ? 1 : 0)
             << " openxrDepthCompositionSubmit=" << (depthCompositionSubmitEnabled_ ? 1 : 0)
             << " openxrMirrorBackbuffer=" << (mirrorBackbufferEnabled_ ? 1 : 0)
@@ -3157,6 +3357,14 @@ struct OpenXRRuntime::Impl {
     bool ToggleHudLayerShape() { return false; }
     OpenXRHudLayerShapeStatus GetHudLayerShapeStatus() const { return {}; }
     void SetInteractionReticleRuntimeVisible(bool) {}
+    void SetComfortMotionIntensity(float, uint64_t) {}
+    bool ToggleComfortVignette() { return false; }
+    OpenXRComfortVignetteStatus GetComfortVignetteStatus() const
+    {
+        OpenXRComfortVignetteStatus status;
+        status.enabled = comfortVignetteEnabled_;
+        return status;
+    }
 
     void SetStereoSubmissionEnabled(bool) {}
     bool MarkRenderedStereoEye(uint32_t, const OpenXREyeView&) { return false; }
@@ -3198,6 +3406,7 @@ private:
     bool hudCylinderRequested_ = false;
     float hudCylinderAngleDegrees_ = 70.0f;
     bool statusPanelEnabled_ = false;
+    bool comfortVignetteEnabled_ = false;
     bool mirrorBackbufferEnabled_ = true;
     std::string desktopMirrorEye_ = "native";
     std::string desktopMirrorAspect_ = "fit";
@@ -3262,7 +3471,8 @@ void OpenXRRuntime::Configure(
     int statusPanelHeightPixels,
     float statusPanelDistanceMeters,
     float statusPanelWidthMeters,
-    float statusPanelVerticalOffsetMeters)
+    float statusPanelVerticalOffsetMeters,
+    const OpenXRComfortVignetteSettings& comfortVignette)
 {
     impl_->Configure(
         enabled,
@@ -3311,7 +3521,8 @@ void OpenXRRuntime::Configure(
         statusPanelHeightPixels,
         statusPanelDistanceMeters,
         statusPanelWidthMeters,
-        statusPanelVerticalOffsetMeters);
+        statusPanelVerticalOffsetMeters,
+        comfortVignette);
 }
 
 void OpenXRRuntime::OnOpenGLContext(HDC deviceContext, HGLRC glContext)
@@ -3397,6 +3608,21 @@ OpenXRHudLayerShapeStatus OpenXRRuntime::GetHudLayerShapeStatus() const
 void OpenXRRuntime::SetInteractionReticleRuntimeVisible(bool visible)
 {
     impl_->SetInteractionReticleRuntimeVisible(visible);
+}
+
+void OpenXRRuntime::SetComfortMotionIntensity(float intensity, uint64_t gameFrame)
+{
+    impl_->SetComfortMotionIntensity(intensity, gameFrame);
+}
+
+bool OpenXRRuntime::ToggleComfortVignette()
+{
+    return impl_->ToggleComfortVignette();
+}
+
+OpenXRComfortVignetteStatus OpenXRRuntime::GetComfortVignetteStatus() const
+{
+    return impl_->GetComfortVignetteStatus();
 }
 
 bool OpenXRRuntime::RequestHapticPulse(uint32_t hand, float amplitude, int durationMs, const char* reason)

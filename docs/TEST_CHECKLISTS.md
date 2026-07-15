@@ -1,5 +1,27 @@
 # Test Checklists
 
+## 0.51.0 Comfort Vignette
+
+1. Run the packaged doctor and confirm `version=0.51.0-comfort-vignette` and
+   `fail=0`. Launch, load a save, press F10, and require
+   `openxr_comfort_vignette swapchain_created` plus `Ready=1` in summaries.
+2. Walk from zero to full stick and release. The center must remain clear while
+   peripheral darkness scales smoothly in and out over roughly 250 ms. Require
+   increasing/decreasing `comfortVignetteLevel` and submitted frames only above
+   zero; no world, HUD, reticle, eye, or projection movement is acceptable.
+3. With snap turn enabled, hold the turn stick after a snap. The existing short
+   black guard may occur, but the held stick must not sustain the vignette.
+   Switch to smooth turn and confirm turn magnitude now drives the envelope.
+4. While moving, open F1, pause, enter a wall/handheld terminal, load a save,
+   trigger an authored camera, and reach dead state. Each must release the mask
+   without leaking gameplay movement; normal locomotion must reacquire it.
+5. Use F1 `COMFORT VIGNETTE: ON/OFF` repeatedly. Confirm the ninth row fits,
+   input remains exclusive, disabling clears immediately, and re-enabling does
+   not rebuild resources or alter HUD shape/stereo.
+6. Compare `Preset=balanced` and `maximum`, then explicitly override strength,
+   inner radius, fade time, and `ComfortVignette=0`. Confirm explicit keys win.
+   Exercise runtime recovery and normal exit for clean swapchain teardown.
+
 ## 0.50.0 Curved HUD
 
 1. Run the packaged doctor and confirm `version=0.50.0-curved-hud`, then launch,

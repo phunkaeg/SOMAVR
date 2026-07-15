@@ -1,5 +1,20 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Per-Eye ImageTrail Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x14038a8b0` | `HPL3_PostEffect_ImageTrail_DestroyResources` | Renamed and documented as the exact texture `+0x58` / framebuffer `+0x50` release-and-zero lifecycle boundary hooked by `0.52.0`. |
+| `0x14038a8f0` | `HPL3_PostEffect_ImageTrail_Reset` | Renamed and documented as the writer of one-shot clear-history flag `+0xa0`. |
+| `0x14038a930` | `HPL3_PostEffect_ImageTrail_OnSetActive` | Renamed and documented as the inactive-edge reset dispatcher. |
+| `0x14038a950` | `HPL3_PostEffect_ImageTrail_RenderEffect` | Renamed and documented as the accumulation render: framebuffer `+0x50`, texture/return `+0x58`, amount `+0x98`, and clear flag `+0xa0`. |
+| `0x14038ae60` | `HPL3_PostEffect_ImageTrail_CreateResources` | Existing name retained; decompilation reconfirmed exact native resource creation used lazily for the second eye pair. |
+
+The explicitly selected `Soma_NoSteam.exe` database was saved after all four
+renames and plate comments. Released HPL2 `PostEffect_ImageTrail` source
+independently matches the accumulation texture/framebuffer and clear-on-reset
+semantics.
+
 ## 2026-07-15 All-Stereo Previous-View Sync
 
 | Address | Ghidra name | Evidence/use |

@@ -102,6 +102,9 @@ Logs are written to `logs\somavr.log`. Record the version, DLL hash, runtime,
 headset, GPU, and relevant timestamps with every report.
 
 - Set `HPLPerEyeViewHistoryControl=0` to restore native shared view history.
+- Set `HPLPerEyeImageTrailControl=0` and
+  `HPLPostEffectDisableImageTrail=1` to restore the proven ImageTrail
+  suppression policy.
 - Disable `SAME FRAME STEREO` in F1 to return immediately to AFR.
 - Press F10 to restore the native desktop camera/input path.
 - Restore `Preset=custom` to use only explicit comfort settings.

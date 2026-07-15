@@ -6,6 +6,7 @@
 #include "HPLDualRenderDiagnostics.h"
 #include "HPLDualRenderMath.h"
 #include "HPLPerEyeViewHistory.h"
+#include "HPLPerEyePostEffect.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
 #include "OpenGLHooks.h"
@@ -45,6 +46,8 @@ constexpr uintptr_t kRenderPostPostEffectsRva = 0x1f1480;
 constexpr uintptr_t kRenderScreenGuiRva = 0x2981e0;
 constexpr uintptr_t kPostEffectHasActiveEffectsRva = 0x33b8f0;
 constexpr uintptr_t kAudioListenerUpdateRva = 0x289340;
+constexpr uintptr_t kImageTrailCreateResourcesRva = 0x38ae60;
+constexpr uintptr_t kImageTrailDestroyResourcesRva = 0x38a8b0;
 
 constexpr size_t kViewportCameraOffset = 0x18;
 constexpr size_t kViewportWorldOffset = 0x20;
@@ -109,6 +112,7 @@ using RenderPostPostEffectsFn = void (*)(void*, void*, void*, void*);
 using RenderScreenGuiFn = void (*)(void*, void*, float);
 using PostEffectHasActiveEffectsFn = bool (*)(void*);
 using AudioListenerUpdateFn = void (*)(void*);
+using ImageTrailResourceFn = void (*)(void*);
 
 constexpr size_t kStageCount = 6;
 
@@ -269,6 +273,7 @@ RenderPostPostEffectsFn g_originalRenderPostPostEffects = nullptr;
 RenderScreenGuiFn g_originalRenderScreenGui = nullptr;
 PostEffectHasActiveEffectsFn g_originalPostEffectHasActiveEffects = nullptr;
 AudioListenerUpdateFn g_originalAudioListenerUpdate = nullptr;
+ImageTrailResourceFn g_originalImageTrailDestroyResources = nullptr;
 
 thread_local uint64_t g_traceFrame = UINT64_MAX;
 thread_local uint64_t g_traceSequence = 0;
@@ -940,7 +945,9 @@ bool FindPostEffectPriority(void* composite, void* effect, int32_t& priority)
 
 bool ShouldSuppressPostEffect(const char* name)
 {
-    return (g_config.hplPostEffectDisableImageTrail && std::strcmp(name, "ImageTrail") == 0)
+    const bool suppressImageTrail = g_config.hplPostEffectDisableImageTrail
+        || (g_config.hplPerEyeImageTrailControl && !IsHPLPerEyeImageTrailAvailable());
+    return (suppressImageTrail && std::strcmp(name, "ImageTrail") == 0)
         || (g_config.hplPostEffectDisableVideoDistortion && std::strcmp(name, "VideoDistortion") == 0)
         || (g_config.hplPostEffectDisableChromaticAberration && std::strcmp(name, "ChromaticAberration") == 0)
         || (g_config.hplPostEffectDisableRadialBlur && std::strcmp(name, "RadialBlur") == 0);
@@ -1040,7 +1047,9 @@ std::vector<std::pair<void*, uint8_t>> ApplyPostEffectIsolation(void* composite)
 std::vector<std::pair<void*, uint8_t>> ApplyPostEffectComfortPolicy(void* composite)
 {
     std::vector<std::pair<void*, uint8_t>> patches;
-    if (!g_config.hplPostEffectControl
+    const bool imageTrailFallback = g_config.hplPerEyeImageTrailControl
+        && !IsHPLPerEyeImageTrailAvailable();
+    if ((!g_config.hplPostEffectControl && !imageTrailFallback)
         || g_postEffectBypassEnabled.load(std::memory_order_relaxed)
         || g_postEffectIsolated.load(std::memory_order_relaxed) != nullptr) {
         return patches;
@@ -1741,6 +1750,17 @@ void* HookRenderPostEffectOne(
 {
     g_postEffectRenderOneCalls.fetch_add(1, std::memory_order_relaxed);
     const HPLCameraBridgeStatus camera = GetHPLCameraBridgeStatus();
+    const bool imageTrail = std::strcmp(PostEffectName(effect), "ImageTrail") == 0;
+    const bool stereoEligible = camera.trackingEnabled
+        && camera.stereoEnabled
+        && IsExactPlayerViewport(g_activeViewport);
+    BeginHPLPerEyePostEffect(
+        effect,
+        imageTrail,
+        stereoEligible,
+        camera.stereoRenderEye,
+        camera.stereoRenderPoseFrame,
+        camera.calibrationGeneration);
     BeginPostEffectResourceCapture(
         g_traceFrame != UINT64_MAX ? g_traceFrame : GetOpenGLRenderFrameHint(),
         g_traceSequence,
@@ -1755,7 +1775,13 @@ void* HookRenderPostEffectOne(
     void* outputTexture = g_originalRenderPostEffectOne(
         effect, composite, inputTexture, renderTarget, lastEffect);
     EndPostEffectResourceCapture(outputTexture);
+    EndHPLPerEyePostEffect(effect);
     return outputTexture;
+}
+
+void HookImageTrailDestroyResources(void* effect)
+{
+    DestroyHPLPerEyeImageTrail(effect);
 }
 
 void HookRenderPostPostEffects(void* renderer, void* frustum, void* renderTarget, void* settings)
@@ -1971,6 +1997,7 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
         && !config.hplDualRenderReplayProbe
         && !config.hplDualRenderContinuousControl
         && !config.hplPerEyeViewHistoryControl
+        && !config.hplPerEyeImageTrailControl
         && !config.hplPerEyePerformanceTelemetry
         && !config.hplPerEyeGpuTelemetry
         && !config.hplAudioListenerProbe
@@ -2076,12 +2103,21 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
         0x48, 0x8b, 0x91, 0x40, 0x03, 0x00, 0x00,
         0x4c, 0x8b, 0x81, 0x48, 0x03, 0x00, 0x00,
     };
+    static constexpr uint8_t kImageTrailCreateResourcesSignature[] = {
+        0x48, 0x89, 0x5c, 0x24, 0x10, 0x57, 0x48, 0x83, 0xec, 0x60,
+        0x48, 0x8b, 0xf9, 0x48, 0x8b, 0x49, 0x20,
+    };
+    static constexpr uint8_t kImageTrailDestroyResourcesSignature[] = {
+        0x40, 0x53, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8b, 0x51, 0x58,
+        0x48, 0x8b, 0xd9, 0x48, 0x8b, 0x49, 0x10,
+    };
 
     size_t installed = 0;
     const bool stageHooksEnabled = config.hplRenderStageProbe
         || config.hplDualRenderReplayProbe
         || config.hplDualRenderContinuousControl
         || config.hplPerEyeViewHistoryControl
+        || config.hplPerEyeImageTrailControl
         || config.hplPerEyePerformanceTelemetry
         || config.hplPerEyeGpuTelemetry;
     if (stageHooksEnabled) {
@@ -2115,19 +2151,44 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
             "post_effect_has_active", reinterpret_cast<void*>(&HookPostEffectHasActiveEffects),
             reinterpret_cast<void**>(&g_originalPostEffectHasActiveEffects));
     }
-    if (config.hplPostEffectResourceProbe) {
+    if (config.hplPostEffectResourceProbe || config.hplPerEyeImageTrailControl) {
         installed += InstallHook(executable, kRenderPostEffectOneRva,
             kRenderPostEffectOneSignature, sizeof(kRenderPostEffectOneSignature),
             "post_effect_render_one", reinterpret_cast<void*>(&HookRenderPostEffectOne),
             reinterpret_cast<void**>(&g_originalRenderPostEffectOne));
     }
+    HPLImageTrailResourceFn imageTrailCreateResources = nullptr;
+    if (config.hplPerEyeImageTrailControl) {
+        if (IsInsideImage(executable, kImageTrailCreateResourcesRva,
+                sizeof(kImageTrailCreateResourcesSignature))
+            && MatchBytes(
+                reinterpret_cast<std::byte*>(executable) + kImageTrailCreateResourcesRva,
+                kImageTrailCreateResourcesSignature,
+                sizeof(kImageTrailCreateResourcesSignature))) {
+            imageTrailCreateResources = reinterpret_cast<HPLImageTrailResourceFn>(
+                reinterpret_cast<std::byte*>(executable) + kImageTrailCreateResourcesRva);
+        } else {
+            Logger::Instance().Write(
+                LogLevel::Error,
+                "hpl_per_eye_post_effect create_resources_unavailable rva=0x%llx reason=signature_mismatch fallback=named_effect_suppression",
+                static_cast<unsigned long long>(kImageTrailCreateResourcesRva));
+        }
+        installed += InstallHook(executable, kImageTrailDestroyResourcesRva,
+            kImageTrailDestroyResourcesSignature, sizeof(kImageTrailDestroyResourcesSignature),
+            "image_trail_destroy_resources", reinterpret_cast<void*>(&HookImageTrailDestroyResources),
+            reinterpret_cast<void**>(&g_originalImageTrailDestroyResources));
+    }
+    InitializeHPLPerEyePostEffect(
+        config,
+        imageTrailCreateResources,
+        g_originalImageTrailDestroyResources);
 
     SetHPLDualRenderControlReady(
         config.hplDualRenderContinuousControl && g_originalRenderViewport != nullptr);
 
     Logger::Instance().Write(
         installed > 0 ? LogLevel::Warn : LogLevel::Error,
-        "hpl_compat_probe install_complete renderStages=%d dualRenderReplayProbe=%d dualRenderAutoProbe=%d dualRenderAutoCount=%d dualRenderAutoDelayFrames=%d dualRenderAutoIntervalFrames=%d dualRenderKey=Ctrl+F6 continuousControl=%d continuousDefault=%d continuousReady=%d perEyeViewHistory=%d perEyeCpu=%d perEyeGpu=%d gpuQueryPairs=%d audioListener=%d audioCorrection=%d audioTranslation=%d postEffectControl=%d postEffectResourceProbe=%d postEffectResourceRva=0x%llx postEffectBypass=%d postEffectComfort={imageTrail=%d videoDistortion=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
+        "hpl_compat_probe install_complete renderStages=%d dualRenderReplayProbe=%d dualRenderAutoProbe=%d dualRenderAutoCount=%d dualRenderAutoDelayFrames=%d dualRenderAutoIntervalFrames=%d dualRenderKey=Ctrl+F6 continuousControl=%d continuousDefault=%d continuousReady=%d perEyeViewHistory=%d perEyeImageTrail=%d perEyeImageTrailAvailable=%d perEyeCpu=%d perEyeGpu=%d gpuQueryPairs=%d audioListener=%d audioCorrection=%d audioTranslation=%d postEffectControl=%d postEffectResourceProbe=%d postEffectResourceRva=0x%llx postEffectBypass=%d postEffectComfort={imageTrail=%d videoDistortion=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
         config.hplRenderStageProbe ? 1 : 0,
         config.hplDualRenderReplayProbe ? 1 : 0,
         config.hplDualRenderAutoProbe ? 1 : 0,
@@ -2138,6 +2199,8 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
         config.hplDualRenderContinuousDefault ? 1 : 0,
         GetHPLDualRenderControlStatus().ready ? 1 : 0,
         config.hplPerEyeViewHistoryControl ? 1 : 0,
+        config.hplPerEyeImageTrailControl ? 1 : 0,
+        IsHPLPerEyeImageTrailAvailable() ? 1 : 0,
         config.hplPerEyePerformanceTelemetry ? 1 : 0,
         config.hplPerEyeGpuTelemetry ? 1 : 0,
         config.hplGpuQueryPoolSize,
@@ -2156,7 +2219,8 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
         (stageHooksEnabled ? 6 : 0)
             + (config.hplAudioListenerProbe ? 1 : 0)
             + (config.hplPostEffectControl ? 1 : 0)
-            + (config.hplPostEffectResourceProbe ? 1 : 0),
+            + ((config.hplPostEffectResourceProbe || config.hplPerEyeImageTrailControl) ? 1 : 0)
+            + (config.hplPerEyeImageTrailControl ? 1 : 0),
         config.hplCompatibilityLogInterval,
         executable);
     return installed > 0;
@@ -2174,6 +2238,20 @@ void LogHPLCompatibilityProbeSummary()
     const HPLDualRenderDiagnosticsSummary temporal = GetHPLDualRenderDiagnosticsSummary();
     const HPLDualRenderControlStatus continuous = GetHPLDualRenderControlStatus();
     const HPLPerEyeViewHistoryStatus viewHistory = GetHPLPerEyeViewHistoryStatus();
+    const HPLPerEyePostEffectStatus perEyePostEffect = GetHPLPerEyePostEffectStatus();
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_per_eye_post_effect_summary configured=%d available=%d faulted=%d effects=%llu allocations=%llu restores=%llu captures=%llu resets=%llu releases=%llu failures=%llu",
+        perEyePostEffect.configured ? 1 : 0,
+        perEyePostEffect.available ? 1 : 0,
+        perEyePostEffect.faulted ? 1 : 0,
+        static_cast<unsigned long long>(perEyePostEffect.effects),
+        static_cast<unsigned long long>(perEyePostEffect.allocations),
+        static_cast<unsigned long long>(perEyePostEffect.restores),
+        static_cast<unsigned long long>(perEyePostEffect.captures),
+        static_cast<unsigned long long>(perEyePostEffect.resets),
+        static_cast<unsigned long long>(perEyePostEffect.releases),
+        static_cast<unsigned long long>(perEyePostEffect.failures));
     Logger::Instance().Write(
         LogLevel::Info,
         "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postEffectRenderOne=%llu postPostEffects=%llu screenGui=%llu renderTransactions=%llu canonicalRenderTransactions=%llu viewportIdentitySamples=%llu viewportIdentityChanges=%llu knownViewports=%llu playerViewportCalls=%llu secondaryViewportCalls=%llu dualRender={arms=%llu attempts=%llu firstEyeCaptures=%llu replays=%llu samePoseOppositeEye=%llu failures=%llu armed=%d autoCompleted=%llu continuousConfigured=%d continuousReady=%d continuousEnabled=%d continuousDefault=%d continuousReplays=%llu continuousSkips=%llu continuousChanges=%llu continuousRejections=%llu temporalCaptures=%llu temporalFailedRegions=%llu temporalCorrelatedPairs=%llu temporalEquivalentPairs=%llu viewHistoryConfigured=%d viewHistoryActive=%d viewHistoryFaulted=%d viewHistoryActivations=%llu viewHistoryResets=%llu viewHistorySeeds=%llu viewHistoryRestores=%llu viewHistoryCaptures=%llu viewHistoryFailures=%llu} audioUpdates=%llu audioSamples=%llu audioCorrections=%llu audioTranslations=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
@@ -2240,6 +2318,7 @@ void RemoveHPLCompatibilityProbe()
     std::lock_guard lock(g_installMutex);
     ResetGpuTimingState(wglGetCurrentContext() == g_gpuTimingContext);
     g_gpuTimingUnavailableContext = nullptr;
+    RemoveHPLPerEyePostEffect();
     for (void* target : g_hookTargets) {
         MH_DisableHook(target);
         MH_RemoveHook(target);
@@ -2254,6 +2333,7 @@ void RemoveHPLCompatibilityProbe()
     g_originalRenderScreenGui = nullptr;
     g_originalPostEffectHasActiveEffects = nullptr;
     g_originalAudioListenerUpdate = nullptr;
+    g_originalImageTrailDestroyResources = nullptr;
     g_postEffectBypassEnabled.store(false, std::memory_order_relaxed);
     g_postEffectIsolated.store(nullptr, std::memory_order_relaxed);
     g_f12Down.store(false, std::memory_order_relaxed);

@@ -21,10 +21,19 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.51.0-comfort-vignette`, layered on the
+The active build candidate is `0.52.0-per-eye-image-trail`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- ImageTrail is the first full post-effect temporal resource with explicit
+  per-eye ownership. Confirmed native fields hold its framebuffer at `+0x50`,
+  accumulation texture at `+0x58`, amount at `+0x98`, and clear flag at
+  `+0xa0`. The active profile allocates a second native pair and banks the
+  resource pointers plus clear state by actual eye/pose. Recenter/stale gaps
+  clear both histories; exact destruction releases both pairs. Any signature,
+  pointer, alias, or sequence failure immediately falls back to the proven
+  render-only ImageTrail suppression. This awaits headset acceptance.
 
 - A locomotion-gated comfort vignette now owns a dedicated VIEW-space OpenXR
   alpha layer. `HPLInputBridge` publishes motion intensity only after gameplay
@@ -654,7 +663,7 @@ The OpenXR build now asks for:
 ```
 
 2. Run `somavr_injector --doctor <Soma_NoSteam.exe>` and require zero failures,
-   then confirm `version=0.51.0-comfort-vignette`,
+   then confirm `version=0.52.0-per-eye-image-trail`,
    `hpl_per_eye_view_history initialized configured=1 packetBytes=0x40`, and no
    hook/signature failure. Load a save, face forward, and press F10 once.
 3. Confirm the proven rigid world, eye height, centered projection, depth,

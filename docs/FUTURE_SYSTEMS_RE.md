@@ -942,7 +942,7 @@ Use that state to select feedback at the controller ray hit:
 | Effect | Priority/path | VR policy |
 | --- | --- | --- |
 | Tone mapping, bloom, film grain | viewport tone-mapping effect; native default post priority includes `-100` | Run per eye. Bloom and grading should survive; film grain may need reduction at headset resolution. |
-| Image trail | `-100000` | Disable by default in VR. It owns temporal history textures and is very likely to amplify AFR and head-motion mismatch. |
+| Image trail | `-100000` | Generated defaults suppress it. `0.52.0` adds opt-in native per-eye framebuffer/texture and clear-state ownership so it can be restored without cross-eye history contamination. |
 | Chromatic aberration | `25` | Disable by default. The HMD runtime already owns optical distortion; artistic RGB separation can be offered as an opt-in reduced effect. |
 | Radial blur | `50` | Disable or strongly reduce. Screen-center blur is uncomfortable and conflicts with gaze/controller focus. |
 | Lens distortion | `75` | Disable. It must not pre-distort imagery before OpenXR runtime distortion. |
@@ -967,6 +967,10 @@ Use that state to select feedback at the controller ray hit:
   `0.37.0` signature-guards this boundary and correlates the call with bound GL
   textures and framebuffer writes without changing effect execution.
 - `0x14038ae60`: creates the `ImageTrailTexture` and `ImageTrailBuffer` history resources.
+- `0x14038a950`: renders ImageTrail through framebuffer `effect+0x50`, samples
+  and returns texture `+0x58`, applies amount `+0x98`, and consumes clear flag
+  `+0xa0`.
+- `0x14038a8b0`: releases and zeros the ImageTrail texture/framebuffer pair.
 - `0x1403896e0`: initializes the chromatic-aberration shader and uniforms.
 - `0x14038a5d0`: initializes the radial-blur shader and uniforms.
 - `0x1403870a0`: initializes the image-fade shader and uniforms.
@@ -1000,7 +1004,12 @@ Same-frame dual rendering can restore more stateless effects, but temporal effec
    scene and post composite execute for both eyes before ordinary submission,
    while the upper frame owner remains single-shot. Live validation and temporal
    policy still gate default promotion.
-4. **Per-eye history:** duplicate image-trail/temporal resources only if those effects are intentionally restored.
+4. **Per-eye history:** first implementation built in `0.52.0`. ImageTrail
+   lazily receives a second native framebuffer/texture pair, while pair pointers
+   and the one-shot clear flag are banked by actual eye/pose. Calibration and
+   stale gaps clear both histories. Exact lifecycle interception releases both
+   pairs; all uncertainty falls back to the prior named suppression. Exposure,
+   bloom, velocity, projection, and other temporal owners remain to classify.
 5. **Overlay extraction:** move simple flashes, fades, and infection/HUD overlays to alpha-capable OpenXR layers.
 6. **Screen-material convergence:** built in `0.30.0`; four exact native
    billboard boundaries provide reversible active-VR distance and size control

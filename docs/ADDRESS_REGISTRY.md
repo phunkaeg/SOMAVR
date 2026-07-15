@@ -117,7 +117,11 @@ Program: `Soma_NoSteam.exe` in Ghidra.
 | `0x1402d7a40` | Confirmed, resource probe built | Executes one active post effect as `(effect, composite, inputTexture, tempFramebuffer, isLastEffect)`, returns the output texture from virtual `+0x68`, and performs the final full-screen copy when appropriate. `0.37.0` signature-guards this exact boundary and records bounded GL texture target/ID/dimensions/format plus framebuffer writes, eye, and pose frame. It classifies ownership only for resource-bearing same-pose left/right pairs and never changes the call or resources. Ghidra: `HPL3_PostEffect_RenderOne`. |
 | `0x14033b950` | Confirmed | Initializes post-composite frame state, target ratios, renderer state, and texture units. Ghidra: `HPL3_PostEffectComposite_BeginRender`. |
 | `0x14033bb00` | Confirmed | Restores renderer state and publishes the post-composite result. Ghidra: `HPL3_PostEffectComposite_EndRender`. |
-| `0x14038ae60` | Confirmed | Creates the image-trail history texture and framebuffer (`ImageTrailTexture`, `ImageTrailBuffer`). |
+| `0x14038a8b0` | Confirmed, lifecycle hook built | Releases ImageTrail accumulation texture `effect+0x58` and framebuffer `+0x50`, then zeros both. `0.52.0` signature-hooks this virtual lifecycle boundary to release both per-eye pairs; pre-graphics shutdown releases the secondary and restores the primary for native destruction. Ghidra: `HPL3_PostEffect_ImageTrail_DestroyResources`. |
+| `0x14038a8f0` | Confirmed | ImageTrail reset virtual; sets one-shot clear-history flag `effect+0xa0`. Ghidra: `HPL3_PostEffect_ImageTrail_Reset`. |
+| `0x14038a930` | Confirmed | ImageTrail active-state callback; dispatches reset when becoming inactive. Ghidra: `HPL3_PostEffect_ImageTrail_OnSetActive`. |
+| `0x14038a950` | Confirmed, per-eye control built | ImageTrail render virtual. Binds framebuffer `effect+0x50`, samples/returns accumulation texture `+0x58`, consumes amount `+0x98`, and clears once when `+0xa0` is set. `0.52.0` banks the two resource pointers plus clear flag by eye at the exact `RenderOne` boundary. Ghidra: `HPL3_PostEffect_ImageTrail_RenderEffect`. |
+| `0x14038ae60` | Confirmed, per-eye allocation built | Creates the ImageTrail history texture at `effect+0x58` and framebuffer at `+0x50` (`ImageTrailTexture`, `ImageTrailBuffer`). `0.52.0` invokes this exact signature-guarded function lazily on the render thread to create the second eye pair. Ghidra: `HPL3_PostEffect_ImageTrail_CreateResources`. |
 | `0x1403896e0` | Confirmed | Initializes `posteffect_chromatic_aberration_frag.hpsl` and its uniforms. |
 | `0x14038a5d0` | Confirmed | Initializes `posteffect_radial_blur_frag.hpsl` and its uniforms. |
 | `0x1403870a0` | Confirmed | Initializes `posteffect_image_fade_fx_frag.hpsl` and its uniforms. |
@@ -205,6 +209,10 @@ are `[0..2]`, `[4..6]`, and `[8..10]`.
 | composite | `+0x340/+0x348` | Begin/end pointers for retained `iPostEffect*` vector. |
 | effect | `+0x30` | Suppressed/disabled byte; an effect renders only when this is zero. |
 | effect | `+0x31` | Active byte; an effect renders only when this is nonzero. |
+| ImageTrail | `+0x50` | Accumulation framebuffer pointer. |
+| ImageTrail | `+0x58` | Accumulation texture pointer and render return value. |
+| ImageTrail | `+0x98` | Authored trail amount used in exponential decay. |
+| ImageTrail | `+0xa0` | One-shot clear-history flag set by Reset and consumed by RenderEffect. |
 
 Confirmed post-effect vtable RVAs used for runtime identity:
 

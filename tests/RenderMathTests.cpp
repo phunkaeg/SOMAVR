@@ -13,6 +13,7 @@
 #include "HPLSubtitleMath.h"
 #include "HPLDualRenderMath.h"
 #include "HPLPerEyeViewHistoryMath.h"
+#include "HPLPerEyePostEffectMath.h"
 #include "HPLTemporalMutationMath.h"
 #include "HPLTwoHandMath.h"
 #include "HPLPostEffectResourceMath.h"
@@ -52,6 +53,53 @@ int main()
     using namespace somavr;
 
     int failures = 0;
+    per_eye_post_effect_math::Bank imageTrailBank;
+    const per_eye_post_effect_math::ResourcePair imageTrailLeft{0x1000, 0x2000};
+    const per_eye_post_effect_math::ResourcePair imageTrailRight{0x3000, 0x4000};
+    failures += Check(
+        per_eye_post_effect_math::Initialize(
+            imageTrailBank, 0x5000, imageTrailLeft, false, imageTrailRight, 7),
+        "per-eye image trail accepts two distinct resource pairs");
+    auto imageTrailPrepare = per_eye_post_effect_math::Prepare(
+        imageTrailBank, 0x5000, 0, 100, 7, imageTrailLeft);
+    failures += Check(
+        imageTrailPrepare.valid && !imageTrailPrepare.reset
+            && imageTrailPrepare.resources.framebuffer == imageTrailLeft.framebuffer
+            && !imageTrailPrepare.clear,
+        "per-eye image trail restores authored left-eye history");
+    failures += Check(
+        per_eye_post_effect_math::Commit(
+            imageTrailBank, 0x5000, 0, 100, imageTrailLeft, false),
+        "per-eye image trail commits left-eye clear state");
+    imageTrailPrepare = per_eye_post_effect_math::Prepare(
+        imageTrailBank, 0x5000, 1, 100, 7, imageTrailLeft);
+    failures += Check(
+        imageTrailPrepare.valid
+            && imageTrailPrepare.resources.framebuffer == imageTrailRight.framebuffer
+            && imageTrailPrepare.clear,
+        "per-eye image trail selects isolated right-eye history");
+    failures += Check(
+        per_eye_post_effect_math::Commit(
+            imageTrailBank, 0x5000, 1, 100, imageTrailRight, false),
+        "per-eye image trail commits right-eye clear state");
+    imageTrailPrepare = per_eye_post_effect_math::Prepare(
+        imageTrailBank, 0x5000, 0, 101, 8, imageTrailRight);
+    failures += Check(
+        imageTrailPrepare.valid && imageTrailPrepare.reset && imageTrailPrepare.clear,
+        "per-eye image trail clears both histories after recalibration");
+    failures += Check(
+        per_eye_post_effect_math::Commit(
+            imageTrailBank, 0x5000, 0, 101, imageTrailLeft, false),
+        "per-eye image trail commits after recalibration");
+    imageTrailPrepare = per_eye_post_effect_math::Prepare(
+        imageTrailBank, 0x5000, 0, 120, 8, imageTrailLeft);
+    failures += Check(
+        imageTrailPrepare.valid && imageTrailPrepare.reset && imageTrailPrepare.clear,
+        "per-eye image trail clears history after a stale pose gap");
+    failures += Check(
+        !per_eye_post_effect_math::Initialize(
+            imageTrailBank, 0x5000, imageTrailLeft, false, imageTrailLeft, 8),
+        "per-eye image trail rejects shared resource aliases");
     gameplay_haptics_math::Settings hapticSettings;
     gameplay_haptics_math::State hapticState;
     auto hapticDecision = gameplay_haptics_math::Update(

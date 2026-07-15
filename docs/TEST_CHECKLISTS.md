@@ -1,5 +1,28 @@
 # Test Checklists
 
+## 0.52.0 Per-Eye ImageTrail
+
+1. Run the packaged doctor and confirm
+   `version=0.52.0-per-eye-image-trail`, `fail=0`, and OpenXR flavor. Launch,
+   load a save, press F10, and require `perEyeImageTrail=1`,
+   `perEyeImageTrailAvailable=1`, and no `hpl_per_eye_post_effect fault` row.
+2. Trigger a scene or scripted event that activates ImageTrail. Require one
+   `allocated=1` row with four nonzero, pairwise eye-distinct resource pointers,
+   followed by alternating same-pose left/right `restore` and `capture` rows.
+3. Move and rotate the HMD through the effect. Both eyes must retain matching
+   trail timing/intensity without cross-eye smear, flicker, stale-eye flashes,
+   world skew, or changes to shadows/reflections. Confirm ordinary tone mapping,
+   bloom, fades, HUD, and reticle presentation are unchanged.
+4. Recenter with F2, pause/resume, load a save, toggle F10 off/on, and simulate
+   brief tracking loss. The next eligible ImageTrail pass must log `reset=1`
+   or start with `clear=1`; no old history may flash into either eye.
+5. Exit normally after ImageTrail allocation. Require a tracked destroy row or
+   pre-graphics removal row showing the secondary pair released, followed by
+   normal process exit with no double-free, hang, or background SOMA process.
+6. Hard rollback: set `HPLPerEyeImageTrailControl=0` and
+   `HPLPostEffectDisableImageTrail=1`. ImageTrail must return to suppression and
+   all established stereo behavior must match `0.51.0`.
+
 ## 0.51.0 Comfort Vignette
 
 1. Run the packaged doctor and confirm `version=0.51.0-comfort-vignette` and

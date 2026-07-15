@@ -2,6 +2,31 @@
 
 ## 2026-07-15
 
+### 0.52.0-per-eye-image-trail
+
+- Promoted the first post-effect temporal resource from generic probing to a
+  guarded per-eye implementation. Ghidra plus released HPL2 source confirm
+  ImageTrail framebuffer `effect+0x50`, accumulation texture `+0x58`, amount
+  `+0x98`, one-shot clear flag `+0xa0`, render virtual `0x14038a950`, resource
+  creation `0x14038ae60`, and destruction `0x14038a8b0`.
+- Added separate `HPLPerEyePostEffect` runtime and tested
+  `HPLPerEyePostEffectMath` ownership modules. The runtime lazily allocates a
+  second native texture/framebuffer pair on the exact render thread, switches
+  pair plus clear state by actual eye/pose, and clears both histories after
+  recenter, calibration changes, stale gaps, or non-stereo use.
+- Added signature-guarded two-pair destruction and pre-graphics-shutdown
+  cleanup. Every unknown signature, unreadable field, shared resource alias,
+  or eye/pose mismatch faults closed to the existing named ImageTrail
+  suppression. Generated configs remain conservative; the active test profile
+  enables isolated history and disables only the old ImageTrail suppression.
+- Added deterministic distinct-resource, eye-selection, clear-state,
+  recalibration, and alias-rejection tests. Both default and OpenXR Release
+  trees pass all four CTest suites. The packaged doctor reports
+  `pass=7 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `E253CC071969AE20E983B9786A6190E8E1926B9CED79AA77A629892666D39773`.
+  Package SHA-256:
+  `241A83472E86F780903D076747FE30CD106638EA12E5EC8F43DC353C4061D4ED`.
+
 ### 0.51.0-comfort-vignette
 
 - Added an optional locomotion comfort vignette as a dedicated head-locked

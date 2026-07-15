@@ -113,6 +113,13 @@ matrix for each eye in both AFR and same-frame stereo. The feature restores
 before each player-eye viewport, captures after SOMA's native update, resets on
 recenter or stale-pose gaps, and falls back to shared native history on any
 pointer or eye-sequence failure.
+`HPLPerEyeImageTrailControl=1` adds a second native ImageTrail accumulation
+texture/framebuffer and banks both pointers plus the effect's clear flag by
+eye. It is signature- and lifecycle-guarded, resets on calibration/stale gaps,
+and falls back to `HPLPostEffectDisableImageTrail=1` on any disagreement.
+Generated configs leave this experimental path off. The active test profile
+enables it and sets `HPLPostEffectDisableImageTrail=0`; restore those two values
+to `0` and `1` respectively for the proven suppression baseline.
 With `HudLayer=1`, the exact gameplay HUD set is removed from the eye render and
 submitted once as a transparent, compositor head-locked OpenXR layer.
 `HudShape=cylinder` requests `XR_KHR_composition_layer_cylinder` and preserves
@@ -193,7 +200,9 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
 ## Current Goal
 
 The proven default remains OpenXR transport, native head tracking, and AFR stereo
-geometry. `0.51.0` adds locomotion-gated compositor comfort tunneling with
+geometry. `0.52.0` adds guarded per-eye ImageTrail resource and clear-state
+ownership with exact native teardown and automatic suppression fallback.
+`0.51.0` adds locomotion-gated compositor comfort tunneling with
 tested fade/radial math, preset integration, and a live F1 toggle. `0.50.0`
 adds an extension-negotiated curved HUD with live F1
 quad/curved switching and automatic fallback. `0.49.0` adds deterministic comfort presets, a non-invasive readiness
@@ -305,6 +314,8 @@ HPLDualRenderAutoProbeDelayFrames=180
 HPLDualRenderAutoProbeIntervalFrames=180
 HPLDualRenderContinuousControl=1
 HPLDualRenderContinuousDefault=0
+HPLPerEyeViewHistoryControl=1
+HPLPerEyeImageTrailControl=1
 HPLPerEyePerformanceTelemetry=1
 HPLPerEyeGpuTelemetry=1
 HPLGpuQueryPoolSize=128
@@ -314,7 +325,7 @@ HPLAudioListenerTranslation=1
 HPLPostEffectControl=1
 HPLPostEffectResourceProbe=1
 HPLPostEffectBypassDefault=0
-HPLPostEffectDisableImageTrail=1
+HPLPostEffectDisableImageTrail=0
 HPLPostEffectDisableVideoDistortion=1
 HPLPostEffectDisableChromaticAberration=1
 HPLPostEffectDisableRadialBlur=1

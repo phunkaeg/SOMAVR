@@ -1,7 +1,7 @@
 # Native Comfort And Interaction Focus RE
 
 Date: 2026-07-15
-Build: findings through `0.51.0-comfort-vignette`
+Build: findings through `0.52.0-per-eye-image-trail`
 
 ## Dynamic Peripheral Comfort
 

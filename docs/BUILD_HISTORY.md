@@ -2,6 +2,27 @@
 
 ## 2026-07-15
 
+### 0.57.0-fixed-foveation
+
+- Added opt-in OpenXR fixed foveation with no SOMA render mutation. Instance
+  creation requires the complete `XR_FB_swapchain_update_state`,
+  `XR_FB_foveation`, and `XR_FB_foveation_configuration` extension set and
+  resolves profile create/destroy plus swapchain-update entry points explicitly.
+- Eye color swapchains advertise foveation capability. A shared configurable
+  level/dynamic/vertical-offset profile is applied to both eyes after resource
+  creation and reapplied after GL/view/session resource recreation.
+- Added a pre-created level-zero profile as transactional rollback. Any profile
+  creation or per-eye update failure retains ordinary frame submission and
+  attempts to neutralize both eyes instead of failing OpenXR startup.
+- Added generated-off configuration, active-profile capability probing, bounded
+  extension/profile/application/failure telemetry, summary fields, and parsing
+  tests for clamped level and vertical-offset controls.
+- Both default and OpenXR Release trees pass all four CTest suites. The packaged
+  doctor reports `pass=7 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `2C1F395913DC8F09220C6675454C760229C9E6A2512591FC8C8607C835E526E8`.
+  Package SHA-256:
+  `4069B5B1993D3750EC21CAF17EF81CD2AC52FE15FC3D9B4DE189FCC2F8D3F133`.
+
 ### 0.56.0-authored-camera-handoff
 
 - Added an explicit same-camera ownership handoff for SOMA transitions that

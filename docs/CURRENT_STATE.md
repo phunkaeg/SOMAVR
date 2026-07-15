@@ -21,10 +21,19 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.56.0-authored-camera-handoff`, layered on the
+The active build candidate is `0.57.0-fixed-foveation`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Optional fixed foveation is now an OpenXR swapchain feature rather than a
+  SOMA shader experiment. The runtime requires `XR_FB_swapchain_update_state`,
+  `XR_FB_foveation`, and `XR_FB_foveation_configuration`, resolves all three
+  extension functions, creates foveation-capable eye swapchains, and applies one
+  level-controlled profile to both eyes. Profile/update failure applies a level-
+  zero neutral profile and preserves normal VR submission. Generated configs
+  remain off; the active profile requests medium fixed foveation so the next log
+  directly reports Virtual Desktop capability and activation.
 
 - Same-camera authored ownership changes now have an explicit VR handoff.
   Transitions into or out of matrix-controlled/script-owned camera motion keep

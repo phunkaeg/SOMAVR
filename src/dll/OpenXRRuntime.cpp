@@ -121,6 +121,7 @@ struct OpenXRRuntime::Impl {
         const std::string& desktopMirrorAspect,
         bool depthCompositionProbe,
         bool depthCompositionSubmit,
+        const OpenXRFoveationSettings& foveation,
         int resolutionScalePercent,
         const std::string& referenceSpace,
         bool inputEnabled,
@@ -183,6 +184,16 @@ struct OpenXRRuntime::Impl {
         depthExtensionAvailable_ = false;
         depthExtensionEnabled_ = false;
         depthCapabilityLogged_ = false;
+        foveationRequested_ = foveation.enabled;
+        foveationLevel_ = std::clamp(foveation.level, 0, 3);
+        foveationDynamic_ = foveation.dynamic;
+        foveationVerticalOffset_ = std::clamp(foveation.verticalOffset, -1.0f, 1.0f);
+        foveationExtensionsAvailable_ = false;
+        foveationExtensionsEnabled_ = false;
+        foveationOperational_ = false;
+        createFoveationProfile_ = nullptr;
+        destroyFoveationProfile_ = nullptr;
+        updateSwapchain_ = nullptr;
         resolutionScalePercent_ = std::clamp(resolutionScalePercent, 25, 200);
         requestedReferenceSpace_ = referenceSpace == "stage" ? "stage" : "local";
         inputEnabled_ = inputEnabled;
@@ -283,7 +294,7 @@ struct OpenXRRuntime::Impl {
             comfortVignetteMaxMotionAgeFrames_);
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d desktopMirrorEye=%s desktopMirrorAspect=%s depth={probe=%d submit=%d} resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d shape=%s cylinderAngleDegrees=%.3f size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
+            "openxr_config buildOpenXR=1 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d desktopMirrorEye=%s desktopMirrorAspect=%s depth={probe=%d submit=%d} foveation={requested=%d level=%d dynamic=%d verticalOffset=%.3f} resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d shape=%s cylinderAngleDegrees=%.3f size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -296,6 +307,10 @@ struct OpenXRRuntime::Impl {
             desktopMirrorAspect_.c_str(),
             depthCompositionProbeEnabled_ ? 1 : 0,
             depthCompositionSubmitEnabled_ ? 1 : 0,
+            foveationRequested_ ? 1 : 0,
+            foveationLevel_,
+            foveationDynamic_ ? 1 : 0,
+            foveationVerticalOffset_,
             resolutionScalePercent_,
             requestedReferenceSpace_.c_str(),
             inputEnabled_ ? 1 : 0,
@@ -526,6 +541,15 @@ struct OpenXRRuntime::Impl {
             << " openxrDepthCachesReady=" << (glBridge_.DepthCachesReady() ? 1 : 0)
             << " openxrDepthSubmittedFrames=" << static_cast<unsigned long long>(depthSubmittedFrameCount_)
             << " openxrDepthSubmissionFailures=" << static_cast<unsigned long long>(depthSubmissionFailures_)
+            << " openxrFoveationRequested=" << (foveationRequested_ ? 1 : 0)
+            << " openxrFoveationExtensionsAvailable=" << (foveationExtensionsAvailable_ ? 1 : 0)
+            << " openxrFoveationExtensionsEnabled=" << (foveationExtensionsEnabled_ ? 1 : 0)
+            << " openxrFoveationOperational=" << (foveationOperational_ ? 1 : 0)
+            << " openxrFoveationLevel=" << foveationLevel_
+            << " openxrFoveationDynamic=" << (foveationDynamic_ ? 1 : 0)
+            << " openxrFoveationVerticalOffset=" << foveationVerticalOffset_
+            << " openxrFoveationApplications=" << static_cast<unsigned long long>(foveationApplications_)
+            << " openxrFoveationFailures=" << static_cast<unsigned long long>(foveationFailures_)
             << " openxrResolutionScalePercent=" << resolutionScalePercent_
             << " openxrReferenceSpaceRequested=" << requestedReferenceSpace_
             << " openxrReferenceSpaceSelected=" << ReferenceSpaceTypeName(selectedReferenceSpace_)
@@ -1128,6 +1152,13 @@ private:
             enabledExtensions.push_back(XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME);
             hudCylinderExtensionEnabled_ = true;
         }
+        foveationExtensionsEnabled_ = false;
+        if (foveationRequested_ && foveationExtensionsAvailable_) {
+            enabledExtensions.push_back(XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME);
+            enabledExtensions.push_back(XR_FB_FOVEATION_EXTENSION_NAME);
+            enabledExtensions.push_back(XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME);
+            foveationExtensionsEnabled_ = true;
+        }
         createInfo.enabledExtensionCount = static_cast<uint32_t>(enabledExtensions.size());
         createInfo.enabledExtensionNames = enabledExtensions.data();
 
@@ -1149,6 +1180,41 @@ private:
                 "openxr_instance runtime=\"%s\" runtimeVersion=%s",
                 properties.runtimeName,
                 XrVersionString(properties.runtimeVersion).c_str());
+        }
+
+        if (foveationExtensionsEnabled_) {
+            const XrResult createProcResult = xrGetInstanceProcAddr(
+                instance_,
+                "xrCreateFoveationProfileFB",
+                reinterpret_cast<PFN_xrVoidFunction*>(&createFoveationProfile_));
+            const XrResult destroyProcResult = xrGetInstanceProcAddr(
+                instance_,
+                "xrDestroyFoveationProfileFB",
+                reinterpret_cast<PFN_xrVoidFunction*>(&destroyFoveationProfile_));
+            const XrResult updateProcResult = xrGetInstanceProcAddr(
+                instance_,
+                "xrUpdateSwapchainFB",
+                reinterpret_cast<PFN_xrVoidFunction*>(&updateSwapchain_));
+            const bool functionsReady = XR_SUCCEEDED(createProcResult)
+                && XR_SUCCEEDED(destroyProcResult)
+                && XR_SUCCEEDED(updateProcResult)
+                && createFoveationProfile_ != nullptr
+                && destroyFoveationProfile_ != nullptr
+                && updateSwapchain_ != nullptr;
+            Logger::Instance().Write(
+                functionsReady ? LogLevel::Info : LogLevel::Warn,
+                "openxr_foveation functions create=%d destroy=%d update=%d ready=%d policy=%s",
+                createFoveationProfile_ != nullptr ? 1 : 0,
+                destroyFoveationProfile_ != nullptr ? 1 : 0,
+                updateSwapchain_ != nullptr ? 1 : 0,
+                functionsReady ? 1 : 0,
+                functionsReady ? "apply_profile" : "native_swapchains");
+            if (!functionsReady) {
+                foveationExtensionsEnabled_ = false;
+                createFoveationProfile_ = nullptr;
+                destroyFoveationProfile_ = nullptr;
+                updateSwapchain_ = nullptr;
+            }
         }
 
         if (!input_.Initialize(instance_, inputEnabled_, inputLogInterval_)) {
@@ -1400,18 +1466,37 @@ private:
         depthExtensionAvailable_ = ExtensionPresent(extensions, "XR_KHR_composition_layer_depth");
         hudCylinderExtensionAvailable_ = ExtensionPresent(
             extensions, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME);
+        const bool hasSwapchainUpdate = ExtensionPresent(
+            extensions, XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME);
+        const bool hasFoveation = ExtensionPresent(
+            extensions, XR_FB_FOVEATION_EXTENSION_NAME);
+        const bool hasFoveationConfiguration = ExtensionPresent(
+            extensions, XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME);
+        foveationExtensionsAvailable_ = hasSwapchainUpdate
+            && hasFoveation
+            && hasFoveationConfiguration;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_extensions count=%u khrOpenGL=%d khrWin32Time=%d khrCompositionLayerDepth=%d khrCompositionLayerCylinder=%d depthProbeRequested=%d depthSubmitRequested=%d hudCylinderRequested=%d sample=\"%s\"",
+            "openxr_extensions count=%u khrOpenGL=%d khrWin32Time=%d khrCompositionLayerDepth=%d khrCompositionLayerCylinder=%d fbSwapchainUpdate=%d fbFoveation=%d fbFoveationConfiguration=%d depthProbeRequested=%d depthSubmitRequested=%d hudCylinderRequested=%d foveationRequested=%d sample=\"%s\"",
             extensionCount,
             hasOpenGL ? 1 : 0,
             hasWin32Time ? 1 : 0,
             depthExtensionAvailable_ ? 1 : 0,
             hudCylinderExtensionAvailable_ ? 1 : 0,
+            hasSwapchainUpdate ? 1 : 0,
+            hasFoveation ? 1 : 0,
+            hasFoveationConfiguration ? 1 : 0,
             depthCompositionProbeEnabled_ ? 1 : 0,
             depthCompositionSubmitEnabled_ ? 1 : 0,
             hudCylinderRequested_ ? 1 : 0,
+            foveationRequested_ ? 1 : 0,
             ExtensionSample(extensions).c_str());
+
+        if (foveationRequested_ && !foveationExtensionsAvailable_) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_foveation unavailable required={XR_FB_swapchain_update_state,XR_FB_foveation,XR_FB_foveation_configuration} policy=native_swapchains");
+        }
 
         if (hudCylinderRequested_ && !hudCylinderExtensionAvailable_) {
             Logger::Instance().Write(
@@ -1748,6 +1833,106 @@ private:
             SwapchainFormatSample(formats).c_str());
     }
 
+    void DestroyFoveationProfilesLocked()
+    {
+        if (destroyFoveationProfile_ != nullptr) {
+            if (foveationProfile_ != XR_NULL_HANDLE) {
+                destroyFoveationProfile_(foveationProfile_);
+            }
+            if (foveationNeutralProfile_ != XR_NULL_HANDLE) {
+                destroyFoveationProfile_(foveationNeutralProfile_);
+            }
+        }
+        foveationProfile_ = XR_NULL_HANDLE;
+        foveationNeutralProfile_ = XR_NULL_HANDLE;
+        foveationOperational_ = false;
+    }
+
+    void ApplyFoveationLocked()
+    {
+        foveationOperational_ = false;
+        if (!foveationExtensionsEnabled_
+            || createFoveationProfile_ == nullptr
+            || destroyFoveationProfile_ == nullptr
+            || updateSwapchain_ == nullptr
+            || session_ == XR_NULL_HANDLE
+            || glBridge_.EyeCount() < 2) {
+            return;
+        }
+
+        const auto createProfile = [&](int level, XrFoveationProfileFB& profile) {
+            XrFoveationLevelProfileCreateInfoFB levelInfo{
+                XR_TYPE_FOVEATION_LEVEL_PROFILE_CREATE_INFO_FB};
+            levelInfo.level = static_cast<XrFoveationLevelFB>(std::clamp(level, 0, 3));
+            levelInfo.verticalOffset = foveationVerticalOffset_;
+            levelInfo.dynamic = foveationDynamic_
+                ? XR_FOVEATION_DYNAMIC_LEVEL_ENABLED_FB
+                : XR_FOVEATION_DYNAMIC_DISABLED_FB;
+            XrFoveationProfileCreateInfoFB profileInfo{
+                XR_TYPE_FOVEATION_PROFILE_CREATE_INFO_FB};
+            profileInfo.next = &levelInfo;
+            return createFoveationProfile_(session_, &profileInfo, &profile);
+        };
+
+        const XrResult profileResult = createProfile(foveationLevel_, foveationProfile_);
+        const XrResult neutralResult = createProfile(0, foveationNeutralProfile_);
+        if (XR_FAILED(profileResult) || XR_FAILED(neutralResult)) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_foveation profile_create_failed configured=%s neutral=%s policy=native_swapchains",
+                XrResultString(profileResult).c_str(),
+                XrResultString(neutralResult).c_str());
+            ++foveationFailures_;
+            DestroyFoveationProfilesLocked();
+            return;
+        }
+
+        uint32_t applied = 0;
+        XrResult applyResult = XR_SUCCESS;
+        for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
+            XrSwapchainStateFoveationFB state{XR_TYPE_SWAPCHAIN_STATE_FOVEATION_FB};
+            state.profile = foveationProfile_;
+            applyResult = updateSwapchain_(
+                glBridge_.Eye(eyeIndex).handle,
+                reinterpret_cast<const XrSwapchainStateBaseHeaderFB*>(&state));
+            if (XR_FAILED(applyResult)) break;
+            ++applied;
+        }
+
+        if (applied != glBridge_.EyeCount()) {
+            uint32_t neutralized = 0;
+            for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
+                XrSwapchainStateFoveationFB state{XR_TYPE_SWAPCHAIN_STATE_FOVEATION_FB};
+                state.profile = foveationNeutralProfile_;
+                const XrResult result = updateSwapchain_(
+                    glBridge_.Eye(eyeIndex).handle,
+                    reinterpret_cast<const XrSwapchainStateBaseHeaderFB*>(&state));
+                if (XR_SUCCEEDED(result)) ++neutralized;
+            }
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_foveation apply_failed applied=%u/%u result=%s neutralized=%u/%u policy=level_none",
+                applied,
+                glBridge_.EyeCount(),
+                XrResultString(applyResult).c_str(),
+                neutralized,
+                glBridge_.EyeCount());
+            ++foveationFailures_;
+            return;
+        }
+
+        foveationOperational_ = true;
+        ++foveationApplications_;
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "openxr_foveation active eyes=%u level=%d dynamic=%d verticalOffset=%.3f applications=%llu",
+            glBridge_.EyeCount(),
+            foveationLevel_,
+            foveationDynamic_ ? 1 : 0,
+            foveationVerticalOffset_,
+            static_cast<unsigned long long>(foveationApplications_));
+    }
+
     bool CreateFrameResourcesLocked()
     {
         if (session_ == XR_NULL_HANDLE || viewConfigurationViews_.size() < 2 || swapchainFormats_.empty()) {
@@ -1820,6 +2005,7 @@ private:
                 viewConfigurationViews_,
                 swapchainFormats_,
                 resolutionScalePercent_,
+                foveationExtensionsEnabled_,
                 depthExtensionEnabled_
                     && (depthCompositionProbeEnabled_ || depthCompositionSubmitEnabled_),
                 depthExtensionEnabled_ && depthCompositionSubmitEnabled_,
@@ -1845,6 +2031,8 @@ private:
             Logger::Instance().Write(LogLevel::Warn, "openxr_frame_resources gl_bridge_failed");
             return false;
         }
+
+        ApplyFoveationLocked();
 
         locatedViews_.resize(glBridge_.EyeCount());
         pendingLocatedViews_.resize(glBridge_.EyeCount());
@@ -1978,6 +2166,7 @@ private:
     void DestroyFrameResourcesLocked()
     {
         glBridge_.Shutdown();
+        DestroyFoveationProfilesLocked();
         if (viewSpace_ != XR_NULL_HANDLE) {
             xrDestroySpace(viewSpace_);
             viewSpace_ = XR_NULL_HANDLE;
@@ -2959,6 +3148,13 @@ private:
     bool depthExtensionAvailable_ = false;
     bool depthExtensionEnabled_ = false;
     bool depthCapabilityLogged_ = false;
+    bool foveationRequested_ = false;
+    bool foveationExtensionsAvailable_ = false;
+    bool foveationExtensionsEnabled_ = false;
+    bool foveationOperational_ = false;
+    int foveationLevel_ = 2;
+    bool foveationDynamic_ = false;
+    float foveationVerticalOffset_ = 0.0f;
     int desktopMirrorEyeIndex_ = -1;
     spectator_math::AspectMode desktopMirrorAspectMode_ = spectator_math::AspectMode::Fit;
     uint64_t desktopMirrorFrames_ = 0;
@@ -3053,6 +3249,8 @@ private:
     uint64_t stereoSubmittedFrameCount_ = 0;
     uint64_t depthSubmittedFrameCount_ = 0;
     uint64_t depthSubmissionFailures_ = 0;
+    uint64_t foveationApplications_ = 0;
+    uint64_t foveationFailures_ = 0;
     uint32_t hudConsecutiveFailures_ = 0;
     uint64_t hudCaptureStarts_ = 0;
     uint64_t hudCaptureCompletions_ = 0;
@@ -3107,6 +3305,11 @@ private:
     XrInstance instance_ = XR_NULL_HANDLE;
     XrSystemId systemId_ = XR_NULL_SYSTEM_ID;
     XrSession session_ = XR_NULL_HANDLE;
+    XrFoveationProfileFB foveationProfile_ = XR_NULL_HANDLE;
+    XrFoveationProfileFB foveationNeutralProfile_ = XR_NULL_HANDLE;
+    PFN_xrCreateFoveationProfileFB createFoveationProfile_ = nullptr;
+    PFN_xrDestroyFoveationProfileFB destroyFoveationProfile_ = nullptr;
+    PFN_xrUpdateSwapchainFB updateSwapchain_ = nullptr;
     XrSpace appSpace_ = XR_NULL_HANDLE;
     XrSpace viewSpace_ = XR_NULL_HANDLE;
     XrReferenceSpaceType selectedReferenceSpace_ = XR_REFERENCE_SPACE_TYPE_LOCAL;
@@ -3140,6 +3343,7 @@ struct OpenXRRuntime::Impl {
         const std::string& desktopMirrorAspect,
         bool depthCompositionProbe,
         bool depthCompositionSubmit,
+        const OpenXRFoveationSettings& foveation,
         int resolutionScalePercent,
         const std::string& referenceSpace,
         bool inputEnabled,
@@ -3190,6 +3394,10 @@ struct OpenXRRuntime::Impl {
         desktopMirrorAspect_ = desktopMirrorAspect;
         depthCompositionProbeEnabled_ = depthCompositionProbe;
         depthCompositionSubmitEnabled_ = depthCompositionSubmit;
+        foveationRequested_ = foveation.enabled;
+        foveationLevel_ = std::clamp(foveation.level, 0, 3);
+        foveationDynamic_ = foveation.dynamic;
+        foveationVerticalOffset_ = std::clamp(foveation.verticalOffset, -1.0f, 1.0f);
         resolutionScalePercent_ = resolutionScalePercent;
         referenceSpace_ = referenceSpace;
         inputEnabled_ = inputEnabled;
@@ -3207,7 +3415,7 @@ struct OpenXRRuntime::Impl {
         unavailableLogged_ = false;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d desktopMirrorEye=%s desktopMirrorAspect=%s depth={probe=%d submit=%d} resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d shape=%s cylinderAngleDegrees=%.3f size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
+            "openxr_config buildOpenXR=0 enabled=%d sessionProbe=%d releaseAfterProbe=%d bootstrapFrame=%llu holdFrames=%llu manualStart=%d key=F8 frameSubmit=%d mirrorBackbuffer=%d desktopMirrorEye=%s desktopMirrorAspect=%s depth={probe=%d submit=%d} foveation={requested=%d level=%d dynamic=%d verticalOffset=%.3f} resolutionScalePercent=%d referenceSpace=%s input=%d inputLogInterval=%d recovery=%d recoveryDelayFrames=%d trackingHoldFrames=%d trackingRecoveryBlackoutFrames=%d hud={enabled=%d shape=%s cylinderAngleDegrees=%.3f size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d} reticle={enabled=%d semantic=%d nativeIcons=%d pixels=%d angularDeg=%.3f sizeMeters=%.4f..%.4f distanceMeters=%.3f..%.3f maxAgeFrames=%d}",
             enabled_ ? 1 : 0,
             sessionProbeEnabled_ ? 1 : 0,
             releaseAfterProbeEnabled_ ? 1 : 0,
@@ -3220,6 +3428,10 @@ struct OpenXRRuntime::Impl {
             desktopMirrorAspect_.c_str(),
             depthCompositionProbeEnabled_ ? 1 : 0,
             depthCompositionSubmitEnabled_ ? 1 : 0,
+            foveationRequested_ ? 1 : 0,
+            foveationLevel_,
+            foveationDynamic_ ? 1 : 0,
+            foveationVerticalOffset_,
             resolutionScalePercent_,
             referenceSpace_.c_str(),
             inputEnabled_ ? 1 : 0,
@@ -3300,6 +3512,12 @@ struct OpenXRRuntime::Impl {
             << " openxrComfortVignetteEnabled=" << (comfortVignetteEnabled_ ? 1 : 0)
             << " openxrDepthCompositionProbe=" << (depthCompositionProbeEnabled_ ? 1 : 0)
             << " openxrDepthCompositionSubmit=" << (depthCompositionSubmitEnabled_ ? 1 : 0)
+            << " openxrFoveationRequested=" << (foveationRequested_ ? 1 : 0)
+            << " openxrFoveationExtensionsAvailable=0 openxrFoveationExtensionsEnabled=0 openxrFoveationOperational=0"
+            << " openxrFoveationLevel=" << foveationLevel_
+            << " openxrFoveationDynamic=" << (foveationDynamic_ ? 1 : 0)
+            << " openxrFoveationVerticalOffset=" << foveationVerticalOffset_
+            << " openxrFoveationApplications=0 openxrFoveationFailures=0"
             << " openxrMirrorBackbuffer=" << (mirrorBackbufferEnabled_ ? 1 : 0)
             << " openxrResolutionScalePercent=" << resolutionScalePercent_
             << " openxrInputEnabled=" << (inputEnabled_ ? 1 : 0)
@@ -3412,6 +3630,10 @@ private:
     std::string desktopMirrorAspect_ = "fit";
     bool depthCompositionProbeEnabled_ = false;
     bool depthCompositionSubmitEnabled_ = false;
+    bool foveationRequested_ = false;
+    int foveationLevel_ = 2;
+    bool foveationDynamic_ = false;
+    float foveationVerticalOffset_ = 0.0f;
     int resolutionScalePercent_ = 100;
     std::string referenceSpace_ = "local";
     bool unavailableLogged_ = false;
@@ -3437,6 +3659,7 @@ void OpenXRRuntime::Configure(
     const std::string& desktopMirrorAspect,
     bool depthCompositionProbe,
     bool depthCompositionSubmit,
+    const OpenXRFoveationSettings& foveation,
     int resolutionScalePercent,
     const std::string& referenceSpace,
     bool inputEnabled,
@@ -3487,6 +3710,7 @@ void OpenXRRuntime::Configure(
         desktopMirrorAspect,
         depthCompositionProbe,
         depthCompositionSubmit,
+        foveation,
         resolutionScalePercent,
         referenceSpace,
         inputEnabled,

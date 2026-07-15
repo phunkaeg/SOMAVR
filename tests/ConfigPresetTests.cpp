@@ -71,6 +71,7 @@ int main()
             << "[Hooks]\nHPLComfortSuppressScriptRoll=0\nHPLPerEyeImageTrailControl=1\nHPLToneMappingFrameControl=1\nHPLPerEyeSSAOTemporalControl=1\nHPLSSAOFrameOwnerControl=1\n"
             << "[Controller]\nComfortBlackoutFrames=7\n"
             << "[OpenXR]\nHudShape=CYLINDER\nHudCylinderAngleDegrees=80\n"
+            << "Foveation=1\nFoveationLevel=9\nFoveationDynamic=1\nFoveationVerticalOffset=-1.5\n"
             << "ComfortVignette=0\nComfortVignetteStrength=0.33\n";
     }
     ConfigManager manager;
@@ -85,6 +86,10 @@ int main()
             && manager.Get().hplControllerComfortBlackoutFrames == 7
             && manager.Get().openxrHudShape == "cylinder"
             && manager.Get().openxrHudCylinderAngleDegrees == 80.0f
+            && manager.Get().openxrFoveation
+            && manager.Get().openxrFoveationLevel == 3
+            && manager.Get().openxrFoveationDynamic
+            && manager.Get().openxrFoveationVerticalOffset == -1.0f
             && !manager.Get().openxrComfortVignette
             && manager.Get().openxrComfortVignetteStrength == 0.33f,
         "explicit INI keys override preset values after the pre-scan");

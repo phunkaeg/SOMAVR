@@ -80,6 +80,7 @@ public:
         const std::vector<XrViewConfigurationView>& views,
         const std::vector<int64_t>& formats,
         int resolutionScalePercent,
+        bool foveationSwapchainEnabled,
         bool depthCaptureProbeEnabled,
         bool depthCompositionSubmitEnabled,
         bool hudLayerEnabled,
@@ -192,6 +193,7 @@ private:
     } hudCaptureState_;
 
     bool suppressCenterCrosshair_ = false;
+    bool foveationSwapchainEnabled_ = false;
     bool depthCaptureProbeEnabled_ = false;
     bool depthCompositionSubmitEnabled_ = false;
     int crosshairClearRadiusPixels_ = 48;

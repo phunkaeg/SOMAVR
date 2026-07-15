@@ -336,6 +336,11 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     comfortVignette.fadeMilliseconds =
         g_config->Get().openxrComfortVignetteFadeMilliseconds;
     comfortVignette.maxMotionAgeFrames = g_config->Get().hplControllerMaxInputAgeFrames;
+    somavr::OpenXRFoveationSettings foveation;
+    foveation.enabled = g_config->Get().openxrFoveation;
+    foveation.level = g_config->Get().openxrFoveationLevel;
+    foveation.dynamic = g_config->Get().openxrFoveationDynamic;
+    foveation.verticalOffset = g_config->Get().openxrFoveationVerticalOffset;
     g_openxr->Configure(
         g_config->Get().openxrProbe,
         g_config->Get().openxrSessionProbe,
@@ -349,6 +354,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrDesktopMirrorAspect,
         g_config->Get().openxrDepthCompositionProbe,
         g_config->Get().openxrDepthCompositionSubmit,
+        foveation,
         g_config->Get().openxrResolutionScalePercent,
         g_config->Get().openxrReferenceSpace,
         g_config->Get().openxrInputEnabled,

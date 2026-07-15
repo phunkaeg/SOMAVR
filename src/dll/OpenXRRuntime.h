@@ -146,6 +146,13 @@ struct OpenXRComfortVignetteSettings {
     int maxMotionAgeFrames = 8;
 };
 
+struct OpenXRFoveationSettings {
+    bool enabled = false;
+    int level = 2;
+    bool dynamic = false;
+    float verticalOffset = 0.0f;
+};
+
 struct OpenXRComfortVignetteStatus {
     bool available = false;
     bool enabled = false;
@@ -171,6 +178,7 @@ public:
         const std::string& desktopMirrorAspect,
         bool depthCompositionProbe,
         bool depthCompositionSubmit,
+        const OpenXRFoveationSettings& foveation,
         int resolutionScalePercent,
         const std::string& referenceSpace,
         bool inputEnabled,

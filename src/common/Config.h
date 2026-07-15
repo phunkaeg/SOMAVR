@@ -31,6 +31,10 @@ struct Config {
     std::string openxrDesktopMirrorAspect = "fit";
     bool openxrDepthCompositionProbe = false;
     bool openxrDepthCompositionSubmit = false;
+    bool openxrFoveation = false;
+    int openxrFoveationLevel = 2;
+    bool openxrFoveationDynamic = false;
+    float openxrFoveationVerticalOffset = 0.0f;
     int openxrResolutionScalePercent = 100;
     std::string openxrReferenceSpace = "local";
     bool openxrInputEnabled = false;

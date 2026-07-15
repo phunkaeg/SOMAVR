@@ -1,5 +1,26 @@
 # Test Checklists
 
+## 0.57.0 Fixed Foveation
+
+1. Run packaged doctor and require `version=0.57.0-fixed-foveation`, OpenXR
+   flavor, and `fail=0`. Keep `Foveation=1`, `FoveationLevel=2`,
+   `FoveationDynamic=0`, and `FoveationVerticalOffset=0.0` for discovery.
+2. At OpenXR startup, inspect `openxr_extensions`. If any of the three required
+   FB extensions is absent, require `openxr_foveation unavailable` and normal
+   color swapchains with no startup/session regression.
+3. On a supporting runtime require all three functions ready, two foveation-
+   capable eye swapchains, `openxr_foveation active eyes=2`, and summary fields
+   `ExtensionsEnabled=1`, `Operational=1`, `Applications>=1`, `Failures=0`.
+4. Compare levels `0`, `1`, `2`, and `3` in the same save using per-eye GPU
+   telemetry. Record world/post/submit timing, frame pacing, text readability,
+   fine geometry, shadow edges, reflections, HUD, and peripheral artifacts.
+5. Trigger recenter, same-frame/AFR switching, map load, graphics resize, and a
+   runtime/session recovery. Every frame-resource rebuild must apply one fresh
+   profile to both eyes without stale swapchains or growing failure counts.
+6. Hard rollback: set `Foveation=0`. Extension enable/profile rows must disappear
+   and established stereo, depth, HUD, temporal ownership, and shutdown behavior
+   must remain identical.
+
 ## 0.56.0 Authored Camera Handoff
 
 1. Run packaged doctor and require

@@ -232,6 +232,10 @@ void ConfigManager::WriteDefaultConfig() const
         << "DesktopMirrorAspect=fit\n"
         << "DepthCompositionProbe=0\n"
         << "DepthCompositionSubmit=0\n"
+        << "Foveation=0\n"
+        << "FoveationLevel=2\n"
+        << "FoveationDynamic=0\n"
+        << "FoveationVerticalOffset=0.0\n"
         << "ResolutionScalePercent=100\n"
         << "ReferenceSpace=local\n"
         << "InputEnabled=0\n"
@@ -586,6 +590,15 @@ void ConfigManager::LoadFromFile()
                 config_.openxrDepthCompositionProbe = ParseBool(value, config_.openxrDepthCompositionProbe);
             } else if (key == "depthcompositionsubmit") {
                 config_.openxrDepthCompositionSubmit = ParseBool(value, config_.openxrDepthCompositionSubmit);
+            } else if (key == "foveation") {
+                config_.openxrFoveation = ParseBool(value, config_.openxrFoveation);
+            } else if (key == "foveationlevel") {
+                config_.openxrFoveationLevel = ParseInt(value, config_.openxrFoveationLevel, 0, 3);
+            } else if (key == "foveationdynamic") {
+                config_.openxrFoveationDynamic = ParseBool(value, config_.openxrFoveationDynamic);
+            } else if (key == "foveationverticaloffset") {
+                config_.openxrFoveationVerticalOffset = ParseFloat(
+                    value, config_.openxrFoveationVerticalOffset, -1.0f, 1.0f);
             } else if (key == "resolutionscalepercent") {
                 config_.openxrResolutionScalePercent = ParseInt(value, config_.openxrResolutionScalePercent, 25, 200);
             } else if (key == "referencespace") {

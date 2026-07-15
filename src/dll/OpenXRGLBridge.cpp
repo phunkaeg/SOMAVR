@@ -95,6 +95,7 @@ bool OpenXRGLBridge::Initialize(
     const std::vector<XrViewConfigurationView>& views,
     const std::vector<int64_t>& formats,
     int resolutionScalePercent,
+    bool foveationSwapchainEnabled,
     bool depthCaptureProbeEnabled,
     bool depthCompositionSubmitEnabled,
     bool hudLayerEnabled,
@@ -186,6 +187,7 @@ bool OpenXRGLBridge::Initialize(
     }
 
     session_ = session;
+    foveationSwapchainEnabled_ = foveationSwapchainEnabled;
     depthCaptureProbeEnabled_ = depthCaptureProbeEnabled || depthCompositionSubmitEnabled_;
     suppressCenterCrosshair_ = suppressCenterCrosshair;
     crosshairClearRadiusPixels_ = std::clamp(crosshairClearRadiusPixels, 4, 256);
@@ -232,11 +234,12 @@ bool OpenXRGLBridge::Initialize(
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "openxr_gl_bridge ready eyes=%zu format=0x%llx(%s) resolutionScalePercent=%d depthCaptureProbe=%d depthSubmitRequested=%d depthFormat=0x%llx(%s) depthCachesReady=%d depthSwapchainsReady=%d hudReady=%d hudSize=%dx%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d interactionReticleReady=%d reticleSize=%dx%d nativeReticleIcons=%u statusPanelReady=%d statusPanelSize=%dx%d comfortVignetteReady=%d comfortVignetteSize=%dx%d",
+        "openxr_gl_bridge ready eyes=%zu format=0x%llx(%s) resolutionScalePercent=%d foveationSwapchains=%d depthCaptureProbe=%d depthSubmitRequested=%d depthFormat=0x%llx(%s) depthCachesReady=%d depthSwapchainsReady=%d hudReady=%d hudSize=%dx%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d interactionReticleReady=%d reticleSize=%dx%d nativeReticleIcons=%u statusPanelReady=%d statusPanelSize=%dx%d comfortVignetteReady=%d comfortVignetteSize=%dx%d",
         eyes_.size(),
         static_cast<unsigned long long>(colorFormat_),
         GlFormatName(colorFormat_),
         resolutionScalePercent,
+        foveationSwapchainEnabled_ ? 1 : 0,
         depthCaptureProbeEnabled_ ? 1 : 0,
         depthCompositionSubmitEnabled ? 1 : 0,
         static_cast<unsigned long long>(depthFormat_),
@@ -341,6 +344,7 @@ void OpenXRGLBridge::Shutdown(bool deleteGlResources)
     session_ = XR_NULL_HANDLE;
     colorFormat_ = 0;
     depthFormat_ = 0;
+    foveationSwapchainEnabled_ = false;
     depthCaptureProbeEnabled_ = false;
     depthCompositionSubmitEnabled_ = false;
 }
@@ -1176,6 +1180,11 @@ bool OpenXRGLBridge::CreateEyeSwapchain(
     eye.format = colorFormat_;
 
     XrSwapchainCreateInfo createInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+    XrSwapchainCreateInfoFoveationFB foveationInfo{
+        XR_TYPE_SWAPCHAIN_CREATE_INFO_FOVEATION_FB};
+    if (foveationSwapchainEnabled_) {
+        createInfo.next = &foveationInfo;
+    }
     createInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
     createInfo.format = colorFormat_;
     createInfo.sampleCount = 1;

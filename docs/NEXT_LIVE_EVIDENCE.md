@@ -83,6 +83,7 @@ Required evidence:
 - runtime/headset/GPU/Windows identifiers recorded with the full log.
 
 This pass gates release regression, runtime recovery, graphics resize, hardware
-matrix, and release-candidate phases. Foveation/upscaling remains intentionally
-unimplemented until baseline GPU timing identifies a real bottleneck and the
-target OpenXR runtime capabilities are known.
+matrix, and release-candidate phases. `0.57.0` now provides opt-in fixed
+foveation plus exact capability/application telemetry. Compare levels 0 through
+3 only after collecting baseline GPU timing; upscaling remains unimplemented
+until a measured bottleneck and compatible OpenGL ownership path justify it.

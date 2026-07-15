@@ -76,6 +76,22 @@ ComfortVignetteFadeMilliseconds=250
 Set `ComfortVignette=0` for immediate hard rollback. Increase `InnerRadius` for
 a wider clear center or reduce `Strength` for a lighter peripheral mask.
 
+Supporting runtimes can apply fixed foveation directly to the OpenXR eye
+swapchains:
+
+```ini
+[OpenXR]
+Foveation=1
+FoveationLevel=2
+FoveationDynamic=0
+FoveationVerticalOffset=0.0
+```
+
+Levels run from `0` (none) to `3` (high). The feature requires all three FB
+foveation extensions and automatically keeps native swapchains when unsupported.
+Set `Foveation=0` for hard rollback. Compare GPU telemetry and peripheral image
+quality before keeping it enabled.
+
 ## Comfort Presets
 
 Set one value under `[Comfort]` in `somavr.ini`:
@@ -113,6 +129,7 @@ headset, GPU, and relevant timestamps with every report.
 - Press F10 to restore the native desktop camera/input path.
 - Restore `Preset=custom` to use only explicit comfort settings.
 - Set `ComfortVignette=0` or use its F1 action to remove dynamic tunneling.
+- Set `Foveation=0` to restore ordinary color swapchains.
 - Keep `somavr.defaults.ini` for comparison; do not replace a tuned config
   blindly during updates.
 

@@ -363,6 +363,10 @@ DesktopMirrorEye=left
 DesktopMirrorAspect=fit
 DepthCompositionProbe=1
 DepthCompositionSubmit=0
+Foveation=1
+FoveationLevel=2
+FoveationDynamic=0
+FoveationVerticalOffset=0.0
 ResolutionScalePercent=100
 ReferenceSpace=local
 RecoveryEnabled=1
@@ -471,6 +475,12 @@ StateTransitionBlackoutFrames=2
 runtime and hardware-matrix acceptance is complete. The development
 `somavr.ini` enables it; setting it to `0` immediately restores color-only
 submission while retaining the independent depth evidence probe.
+
+`Foveation` is also opt-in in generated configurations. It requires the complete
+FB foveation extension family and otherwise falls back to ordinary eye
+swapchains. Levels are `0` (none), `1` (low), `2` (medium), and `3` (high).
+Set `Foveation=0` for hard rollback; use per-eye GPU telemetry before choosing a
+quality level rather than assuming the runtime gains performance.
 
 ## Known Install
 

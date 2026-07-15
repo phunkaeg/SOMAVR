@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.45.0-continuous-dual-render")
+set(SOMAVR_BUILD_VERSION "0.46.0-per-eye-view-history")
 
 include(FetchContent)
 
@@ -75,6 +75,7 @@ add_library(somavr_render_math STATIC
     src/dll/HPLScreenEffectMath.cpp
     src/dll/HPLSubtitleMath.cpp
     src/dll/HPLDualRenderMath.cpp
+    src/dll/HPLPerEyeViewHistoryMath.cpp
     src/dll/HPLTemporalMutationMath.cpp
     src/dll/HPLTwoHandMath.cpp
     src/dll/HPLPostEffectResourceMath.cpp
@@ -91,6 +92,7 @@ add_library(somavr SHARED
     src/dll/HPLCompatibilityProbe.cpp
     src/dll/HPLDualRenderControl.cpp
     src/dll/HPLDualRenderDiagnostics.cpp
+    src/dll/HPLPerEyeViewHistory.cpp
     src/dll/HPLCameraBridge.cpp
     src/dll/HPLComfortBridge.cpp
     src/dll/HPLHudBridge.cpp

@@ -2372,6 +2372,9 @@ private:
             model.projectionCentered = statusPanelState_.projectionCentered;
             model.dualRenderReady = statusPanelState_.dualRenderReady;
             model.continuousDualRender = statusPanelState_.continuousDualRender;
+            model.viewHistoryConfigured = statusPanelState_.viewHistoryConfigured;
+            model.viewHistoryActive = statusPanelState_.viewHistoryActive;
+            model.viewHistoryFaulted = statusPanelState_.viewHistoryFaulted;
             model.hudVisible = statusPanelState_.hudVisible;
             model.reticleVisible = statusPanelState_.reticleVisible;
             model.inputAvailable = statusPanelState_.inputAvailable;

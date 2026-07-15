@@ -16,6 +16,9 @@ struct PanelModel {
     bool projectionCentered = false;
     bool dualRenderReady = false;
     bool continuousDualRender = false;
+    bool viewHistoryConfigured = false;
+    bool viewHistoryActive = false;
+    bool viewHistoryFaulted = false;
     bool hudVisible = false;
     bool reticleVisible = false;
     bool inputAvailable = false;

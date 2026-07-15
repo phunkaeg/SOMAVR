@@ -1,5 +1,20 @@
 # Future Systems Reverse Engineering
 
+## 0.46.0 Per-Eye Previous-View Result
+
+The first temporal resource is now exact rather than inferred. At
+`0x1401f1480`, HPL3 copies the active frustum view matrix (`+0x158`) into the
+renderer history object's previous-view field (`+0x80`), exactly `0x40` bytes.
+Released HPL2 source names the corresponding matrix `m_mtxPrevView`.
+
+`HPLPerEyeViewHistory` banks this packet independently for left and right only
+during opt-in continuous exact-player stereo. It consumes the camera bridge's
+pending eye before the viewport, restores history before world rendering, and
+commits after native post-post capture only when the actual eye and pose frame
+match. Identity changes seed/reset both banks; invalid memory or sequencing
+faults closed to shared native history. Exposure, bloom, image-trail, velocity,
+and render-target histories remain separate RE tasks.
+
 ## 0.45.0 Continuous Same-Frame Stereo Result
 
 Ghidra reconfirmed `HPL3_Scene_RenderViewport` at `0x140298630` as the narrowest

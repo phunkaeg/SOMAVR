@@ -448,7 +448,15 @@ Any immediate cache failure or eye/pose-sequence mismatch disables continuous
 mode and returns to AFR. Live evidence now gates promotion to a default, rather
 than the existence of a sustained implementation.
 
-Temporal resources such as image trail, previous view/projection matrices,
+`0.46.0-per-eye-view-history` implements the first eye-local temporal resource.
+The exact `0x40` copy at `0x1401f1480` is the previous-view matrix: active
+frustum view `+0x158` becomes history object `+0x80`. The camera bridge publishes
+the pending eye/pose before each viewport, so SOMAVR restores that eye's bank
+before scene/culling/post work and commits after the complete viewport only if
+the rendered eye agrees. First use and renderer/history replacement seed both
+banks from native state; failures immediately retain shared native history.
+
+Temporal resources such as image trail, previous projection matrices,
 exposure, and velocity history must either be isolated per eye or disabled. Sharing
 one history between alternating eye transforms produces cross-eye contamination.
 

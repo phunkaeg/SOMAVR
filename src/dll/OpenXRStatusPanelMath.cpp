@@ -135,7 +135,11 @@ bool RasterizePanel(
         static_cast<unsigned long long>(model.gameFrame));
     canvas.Text(margin + 5 * scale, y, line, scale, 179, 193, 203);
     y += lineHeight;
-    std::snprintf(line, sizeof(line), "AUTHORED CAMERA: %s", OnOff(model.authoredCameraActive));
+    const char* viewHistory = !model.viewHistoryConfigured
+        ? "UNAVAILABLE"
+        : model.viewHistoryFaulted ? "FAULT" : model.viewHistoryActive ? "ACTIVE" : "STANDBY";
+    std::snprintf(line, sizeof(line), "AUTHORED CAMERA: %s   VIEW HISTORY: %s",
+        OnOff(model.authoredCameraActive), viewHistory);
     canvas.Text(margin + 5 * scale, y, line, scale, 179, 193, 203);
     y += lineHeight + 2 * scale;
 

@@ -62,7 +62,7 @@ Created: 2026-07-09. Status: early reverse-engineering notes. Keep confirmed add
 | OpenGL texture/renderbuffer creation calls | Medium | Discover SOMA's scene color/depth targets for blit or eye target replacement | Add only after the OpenXR session probe is understood. |
 | `glBindTexture`, `glFramebufferTexture*`, `glBlitFramebuffer` | Medium | Map post-processing and final resolve paths | The initial mirror bridge now uses FBO attachments and `glBlitFramebuffer`; tighter HPL3 pass attribution is still pending. |
 | `glUniformMatrix4fv` mutation | Medium | First shader-side stereo proof if native camera hooks take longer | Requires knowing matrix convention and per-eye projection math. |
-| Same-frame dual render hook | Built opt-in in `0.45.0` | Replace AFR temporal mismatch with two eye renders per game frame | Replays only exact player `HPL3_Scene_RenderViewport`, removes screen-GUI bit `2`, keeps the upper enumerator/lifecycle once, and fails closed to AFR; stateful post-post duplication still needs live acceptance. |
+| Same-frame dual render hook | Built opt-in in `0.45.0`, first temporal bank in `0.46.0` | Replace AFR temporal mismatch with two eye renders per game frame | Replays only exact player `HPL3_Scene_RenderViewport`, removes screen-GUI bit `2`, keeps the upper enumerator/lifecycle once, and fails closed to AFR. The confirmed `m_mtxPrevView`-equivalent packet is now banked per eye; other post histories still need classification. |
 | SDL swap/window paths | Low-medium | Fallback frame boundary/window sizing path | Only needed if GDI swap timing proves insufficient. |
 
 ## Gameplay And Presentation Candidates

@@ -96,6 +96,10 @@ mutated by HPL3's deferred/post-post phase. These remain bounded evidence probes
 F1 panel. It is off by default, reuses the exact-player replay without per-frame
 diagnostic snapshots, and returns to AFR if eye-one caching or eye sequencing
 fails.
+`HPLPerEyeViewHistoryControl=1` additionally isolates HPL3's confirmed 64-byte
+previous-view matrix for each eye while same-frame stereo is active. The feature
+restores before each player-eye viewport, captures after SOMA's native update,
+and falls back to shared native history on any pointer or eye-sequence failure.
 With `HudLayer=1`, the exact gameplay HUD set is removed from the eye render and
 submitted once as a transparent, compositor head-locked OpenXR quad. Menus,
 ImGui, subtitles not owned by that set, and diegetic terminal GUIs remain on
@@ -162,7 +166,10 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
 ## Current Goal
 
 The proven default remains OpenXR transport, native head tracking, and AFR stereo
-geometry. `0.45.0` adds an opt-in sustained same-frame prototype below HPL3's
+geometry. `0.46.0` adds the first opt-in per-eye temporal resource to the
+sustained same-frame prototype: HPL3's confirmed previous-view matrix is banked
+by eye across exact player viewport passes. `0.45.0` introduced that sustained
+prototype below HPL3's
 once-per-frame viewport owner. It is deliberately not the default until live
 visual, temporal, performance, and rollback acceptance. `0.36.0` also advances physical
 presence with bounded two-hand independent-tool and carried-object control.

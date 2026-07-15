@@ -1626,6 +1626,24 @@ HPLCameraBridgeStatus GetHPLCameraBridgeStatus()
     return status;
 }
 
+bool GetHPLPendingStereoRenderTarget(HPLPendingStereoRenderTarget& target)
+{
+    std::lock_guard lock(g_stateMutex);
+    target = {};
+    if (!g_state.trackingEnabled || !g_state.stereoEnabled || g_state.nextEyeIndex > 1) {
+        return false;
+    }
+
+    OpenXRStereoViewSnapshot views;
+    if (!ReadStereoViews(views) || views.gameFrame == 0) {
+        return false;
+    }
+
+    target.eyeIndex = static_cast<int>(g_state.nextEyeIndex);
+    target.poseFrame = views.gameFrame;
+    return true;
+}
+
 bool ResolveHPLTrackedPoseWorld(
     const OpenXRControllerPose& pose,
     uint64_t gameFrame,

@@ -2,6 +2,27 @@
 
 ## 2026-07-15
 
+### 0.46.0-per-eye-view-history
+
+- Confirmed that `HPL3_Renderer_RenderPostPostEffects` copies exactly `0x40`
+  bytes from the active frustum view matrix at `*(renderer+0x20)+0x158` to the
+  renderer history object at `*(renderer+0x438)+0x80`. HPL2 source independently
+  identifies the packet as `cMatrixf m_mtxPrevView`.
+- Added an opt-in left/right history bank for continuous exact-player stereo.
+  The camera bridge publishes its pending eye and OpenXR pose frame before each
+  viewport; SOMAVR restores that eye's packet before world rendering and commits
+  SOMA's native post-post result only after the actual eye/pose identity agrees.
+  First identity use seeds both banks from native state, while renderer/history
+  replacement, frame regression, disable, and re-enable reset cleanly.
+- `HPLPerEyeViewHistoryControl=0` is the hard rollback. Invalid pointers, packet
+  access, or eye sequencing fault closed to shared native history until the
+  same-frame mode is toggled. The F1 status panel reports standby, active, fault,
+  or unavailable. Pure bank/reset/identity tests and all Release tests pass;
+  live temporal and performance acceptance remains. OpenXR DLL SHA-256:
+  `65A1DF5EE8E6BC70F29EBCF353670794A66B8D2D340A9F0BF06ACD37FC990C60`.
+  Package SHA-256:
+  `9C8DA33D959C757696D6AF76BDA7B1EE31FF684C1A27907096E51FA4A68FDA07`.
+
 ### 0.45.0-continuous-dual-render
 
 - Promoted the proven exact-player one-frame replay into an explicit opt-in

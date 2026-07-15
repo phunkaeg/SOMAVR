@@ -1,5 +1,16 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Per-Eye Previous-View Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1401f1480` | `HPL3_Renderer_RenderPostPostEffects` | Reconfirmed the exact `0x40` copy from active frustum view `+0x158` to renderer history `+0x80`; plate comment records the `0.46.0` per-eye bank and transaction timing. |
+| `0x140298630` | `HPL3_Scene_RenderViewport` | Plate comment records that history selection must occur before this complete eye pass and native history capture after it returns. |
+
+HPL2 `Camera.h` independently names the same-size packet `m_mtxPrevView`. The
+explicitly selected `Soma_NoSteam.exe` database was saved after both plate
+comments were updated.
+
 ## 2026-07-15 Continuous Dual Render Sync
 
 | Address | Ghidra name | Evidence/use |

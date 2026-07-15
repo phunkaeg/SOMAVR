@@ -241,6 +241,7 @@ struct Config {
     int hplDualRenderAutoProbeIntervalFrames = 180;
     bool hplDualRenderContinuousControl = false;
     bool hplDualRenderContinuousDefault = false;
+    bool hplPerEyeViewHistoryControl = false;
     bool hplPerEyePerformanceTelemetry = false;
     bool hplPerEyeGpuTelemetry = false;
     int hplGpuQueryPoolSize = 128;

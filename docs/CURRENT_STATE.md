@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.45.0-continuous-dual-render`, layered on the
+The active build candidate is `0.46.0-per-eye-view-history`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
@@ -65,6 +65,14 @@ compatibility probes:
   AFR. The active profile exposes the F1 panel control but starts it off.
   Automatic bounded samples and `Ctrl+F6` remain available for temporal mutation
   evidence around the stateful post-post phase at `0x1401f1480`.
+
+- The first confirmed temporal resource is now isolated per eye. Ghidra and
+  HPL2 source identify `*(renderer+0x438)+0x80` as a 64-byte previous-view
+  matrix. During continuous exact-player rendering, SOMAVR restores the pending
+  eye's bank before the viewport and captures SOMA's native update afterward.
+  Renderer/history changes and eye/pose mismatches reset or fault closed to the
+  original shared path. The active profile enables the control; the F1 panel
+  exposes its live state.
 
 - A dedicated head-locked OpenXR status/options panel is now available through
   `F1` or `Menu + Secondary`. It owns a separate alpha swapchain and reports
@@ -610,34 +618,21 @@ The OpenXR build now asks for:
 & "D:\Dev Debug\SOMAVR\build-openxr\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-2. Confirm `version=0.34.0-subtitles-menus`,
-   `hpl_subtitle_bridge install_ok ... policy=active_stereo_native_draw_scoped_restore`,
-   and `hpl_hud_bridge installed ... layer=1 pausedMenu=1` with no signature
-   failure.
-3. Load a save, face forward, and press F10 once. Confirm tracking, stereo, full
-   projection centering, depth submission, and normal eye height activate from
-   that single key.
-4. Trigger several voiced lines with subtitles enabled. Text should be larger
-   and wrap slightly narrower on the stable HUD quad, with unchanged language,
-   speaker names, reveal timing, and audio timing. Expect
-   `hpl_subtitle_layout ... restored=1` and nonzero summary overrides.
-5. Disable `HPLSubtitleControl` and relaunch as the direct subtitle rollback.
-   Native size/layout must return without changing HUD capture. Restore it for
-   the remaining checks.
-6. Pause during gameplay. The menu must appear once on the head-locked HUD quad,
-   controller aim/click must still drive SOMA's cursor, and movement must remain
-   suppressed. Expect `pause={valid=1 paused=1 capturedCurrent=1}` and increasing
-   `pausedMenuCaptures`.
-7. Resume, open inventory, use a terminal, and exercise any non-paused ImGui.
-   Those surfaces must not be admitted merely because they are current. Set
-   `HudCapturePausedMenu=0` for the immediate menu-layer rollback.
-8. Recheck rigid world geometry, eye height, shadows/reflections, room-scale
-   collision, hands/tools, flashlight, interaction, audio, and spectator output.
-9. Load another save and exercise HMD sleep/wake. XR resources must recover and
-   subtitle/menu behavior must return without another F10.
-10. Confirm final subtitle summary has zero invalid renderer/layout fallbacks,
-    and HUD summary has zero pause-query fallbacks and capture fallbacks.
-11. Confirm `somavr_build_manifest.txt` reports version
-    `0.34.0-subtitles-menus`, flavor `openxr`, and a DLL SHA-256.
-12. Exit normally. Confirm pre-graphics shutdown completes and
-    `Soma_NoSteam.exe` disappears.
+2. Confirm `version=0.46.0-per-eye-view-history`,
+   `hpl_per_eye_view_history initialized configured=1 packetBytes=0x40`, and no
+   hook/signature failure. Load a save, face forward, and press F10 once.
+3. Confirm the proven rigid world, eye height, centered projection, depth,
+   shadows, reflections, controller input, HUD, and audio before changing mode.
+4. Open F1 and enable `SAME FRAME STEREO`. `VIEW HISTORY` must become `ACTIVE`.
+   Expect one seed/reset, then eye `0/1` restores and captures with matching
+   same-pose identities and no history fault.
+5. Exercise quiet, reflective, shadowed, tone/bloom, fade, terminal, inventory,
+   pause, authored-camera, and loading scenes while rotating and translating the
+   HMD. Stop on cross-eye history, skew, changing shadow/reflection position,
+   stale frames, duplicated GUI, or unacceptable pacing.
+6. Toggle same-frame stereo off. AFR and `VIEW HISTORY: STANDBY` must return
+   immediately. Toggle on once more and confirm a clean one-time reseed.
+7. Set `HPLPerEyeViewHistoryControl=0` for the direct rollback test; status must
+   show `UNAVAILABLE` and native shared history must remain untouched.
+8. Confirm the build manifest version/flavor/hash, exit normally, and attach the
+   full log with final dual-render and per-eye-history summaries.

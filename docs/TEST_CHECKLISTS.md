@@ -1,5 +1,27 @@
 # Test Checklists
 
+## 0.46.0 Per-Eye View History
+
+1. Confirm `version=0.46.0-per-eye-view-history`, OpenXR flavor,
+   `HPLPerEyeViewHistoryControl=1`, and
+   `hpl_per_eye_view_history initialized configured=1 packetBytes=0x40`.
+2. Enter F10 VR, open F1, and enable `SAME FRAME STEREO`. `VIEW HISTORY` must
+   move from `STANDBY` to `ACTIVE`; first use should log one identity reset/seed.
+3. Expect alternating restore/capture rows for eyes `0/1`, with both captures
+   sharing each same-frame pose identity. No `render_eye_sequence_mismatch`,
+   pointer-access fault, or repeated identity reseed is acceptable.
+4. Rotate and translate through quiet, shadowed, reflective, bloom/tone, fade,
+   terminal, inventory, authored-camera, and loading scenes. Check rigid geometry,
+   stable eye height, no cross-eye trail, and no regression in the proven
+   shadow/reflection correction.
+5. Toggle same-frame stereo off and on. Status must return through `STANDBY`,
+   reseed once, and resume without stale history. AFR must remain clean while off.
+6. Set `HPLPerEyeViewHistoryControl=0` and relaunch. The panel must report
+   `UNAVAILABLE`, no packet writes may occur, and continuous stereo must retain
+   its prior shared-native-history behavior.
+7. Attach the complete log and note GPU/frame-pacing behavior. Other temporal
+   resources remain exploratory even if this matrix is accepted.
+
 ## 0.45.0 Continuous Dual Render
 
 1. Confirm `version=0.45.0-continuous-dual-render`, OpenXR flavor,

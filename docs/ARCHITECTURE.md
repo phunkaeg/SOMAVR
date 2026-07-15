@@ -156,6 +156,8 @@ lifecycle.
 | `HPLSubtitleBridge` | Signature-guarded scoped override/restore of native voice subtitle layout during active stereo | Subtitle content, localization, timing, enable state, font resources, or HUD swapchains |
 | `HPLSubtitleMath` | Pure validated subtitle width/font/Y/shadow scaling | Native pointers, hooks, camera state, or logging |
 | `HPLCompatibilityProbe` | Bounded render/audio/post-effect telemetry, left/right/mono CPU stage totals, temporary probes, and the single exact-player viewport replay hook shared by bounded and continuous dual render; shared pose math comes from `HPLCameraMath` | Permanent dual-render user policy, GUI/HUD feature policy, GPU timing ownership, or unrelated gameplay systems |
+| `HPLPerEyeViewHistory` | Guarded native access and per-eye transaction ownership for the confirmed renderer previous-view packet during continuous exact-player stereo | Other temporal resources, post-effect policy, camera scheduling, or viewport replay policy |
+| `HPLPerEyeViewHistoryMath` | Pure two-eye packet banking, identity reseed, frame-regression reset, prepare, and commit rules | Native pointers, hooks, logging, or OpenXR state |
 | `HPLLifecycle` | Pre-graphics OpenXR teardown boundary | General shutdown orchestration |
 
 ## Growth Rules

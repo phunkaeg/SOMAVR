@@ -65,10 +65,16 @@ struct HPLTrackedPoseWorld {
     float upZ = 0.0f;
 };
 
+struct HPLPendingStereoRenderTarget {
+    int eyeIndex = -1;
+    uint64_t poseFrame = 0;
+};
+
 bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr);
 void RemoveHPLCameraBridge();
 void LogHPLCameraBridgeSummary();
 HPLCameraBridgeStatus GetHPLCameraBridgeStatus();
+bool GetHPLPendingStereoRenderTarget(HPLPendingStereoRenderTarget& target);
 bool ResolveHPLTrackedPoseWorld(
     const OpenXRControllerPose& pose,
     uint64_t gameFrame,

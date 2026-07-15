@@ -1,6 +1,7 @@
 #include "HPLStatusPanelBridge.h"
 
 #include "HPLDualRenderControl.h"
+#include "HPLPerEyeViewHistory.h"
 #include "Logger.h"
 #include "OpenXRStatusPanelMath.h"
 
@@ -57,6 +58,10 @@ void Publish(
     const HPLDualRenderControlStatus dualRender = GetHPLDualRenderControlStatus();
     panel.dualRenderReady = dualRender.ready;
     panel.continuousDualRender = dualRender.enabled;
+    const HPLPerEyeViewHistoryStatus viewHistory = GetHPLPerEyeViewHistoryStatus();
+    panel.viewHistoryConfigured = viewHistory.configured;
+    panel.viewHistoryActive = viewHistory.active;
+    panel.viewHistoryFaulted = viewHistory.faulted;
     panel.hudVisible = g_state.hudVisible;
     panel.reticleVisible = g_state.reticleVisible;
     panel.inputAvailable = input != nullptr && input->active;

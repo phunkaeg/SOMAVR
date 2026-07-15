@@ -12,6 +12,7 @@
 #include "HPLScreenEffectMath.h"
 #include "HPLSubtitleMath.h"
 #include "HPLDualRenderMath.h"
+#include "HPLPerEyeViewHistoryMath.h"
 #include "HPLTemporalMutationMath.h"
 #include "HPLTwoHandMath.h"
 #include "HPLPostEffectResourceMath.h"
@@ -173,6 +174,60 @@ int main()
             && !dual_render_math::IsSamePoseOppositeEye(0, 42, 0, 42)
             && !dual_render_math::IsSamePoseOppositeEye(0, 42, 1, 43),
         "dual-render replay validates opposite eyes from one tracked pose");
+    per_eye_view_history_math::Bank viewHistoryBank;
+    per_eye_view_history_math::ViewHistoryPacket sharedHistory{};
+    sharedHistory.fill(0x11);
+    failures += Check(
+        per_eye_view_history_math::SetActive(viewHistoryBank, true),
+        "per-eye view history activates from a clean bank");
+    auto viewHistoryPrepare = per_eye_view_history_math::Prepare(
+        viewHistoryBank, 0x1000, 0x2000, 0, 10, sharedHistory);
+    failures += Check(
+        viewHistoryPrepare.valid
+            && viewHistoryPrepare.reset
+            && viewHistoryPrepare.seeded
+            && viewHistoryPrepare.restorePacket == sharedHistory,
+        "per-eye view history seeds both eyes from the pre-frame shared packet");
+    per_eye_view_history_math::ViewHistoryPacket leftHistory{};
+    leftHistory.fill(0x22);
+    failures += Check(
+        per_eye_view_history_math::Commit(
+            viewHistoryBank, 0x1000, 0x2000, 0, 10, leftHistory),
+        "per-eye view history captures the first eye packet");
+    per_eye_view_history_math::ViewHistoryPacket liveAfterLeft = leftHistory;
+    viewHistoryPrepare = per_eye_view_history_math::Prepare(
+        viewHistoryBank, 0x1000, 0x2000, 1, 10, liveAfterLeft);
+    failures += Check(
+        viewHistoryPrepare.valid
+            && !viewHistoryPrepare.seeded
+            && viewHistoryPrepare.restorePacket == sharedHistory,
+        "second eye restores its seed instead of consuming the first eye current view");
+    per_eye_view_history_math::ViewHistoryPacket rightHistory{};
+    rightHistory.fill(0x33);
+    failures += Check(
+        per_eye_view_history_math::Commit(
+            viewHistoryBank, 0x1000, 0x2000, 1, 10, rightHistory),
+        "per-eye view history captures the replay eye packet");
+    viewHistoryPrepare = per_eye_view_history_math::Prepare(
+        viewHistoryBank, 0x1000, 0x2000, 0, 11, rightHistory);
+    failures += Check(
+        viewHistoryPrepare.valid && viewHistoryPrepare.restorePacket == leftHistory,
+        "next frame restores the previous matrix for the matching eye");
+    per_eye_view_history_math::ViewHistoryPacket replacementHistory{};
+    replacementHistory.fill(0x44);
+    viewHistoryPrepare = per_eye_view_history_math::Prepare(
+        viewHistoryBank, 0x3000, 0x4000, 1, 12, replacementHistory);
+    failures += Check(
+        viewHistoryPrepare.reset
+            && viewHistoryPrepare.seeded
+            && viewHistoryPrepare.restorePacket == replacementHistory,
+        "renderer or history replacement invalidates both stale eye banks");
+    failures += Check(
+        per_eye_view_history_math::SetActive(viewHistoryBank, false)
+            && !viewHistoryBank.active
+            && !viewHistoryBank.valid[0]
+            && !viewHistoryBank.valid[1],
+        "per-eye view history rollback clears every cached packet");
     const std::array<uint8_t, 12> temporalBefore = {
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
     };
@@ -954,6 +1009,8 @@ int main()
     panel.projectionCentered = true;
     panel.dualRenderReady = true;
     panel.continuousDualRender = true;
+    panel.viewHistoryConfigured = true;
+    panel.viewHistoryActive = true;
     panel.hudVisible = true;
     panel.reticleVisible = true;
     panel.inputAvailable = true;

@@ -87,6 +87,11 @@ bool ShouldBlackoutPlayerStateTransition(int previousState, int currentState)
         && (isHighMotionState(previousState) || isHighMotionState(currentState));
 }
 
+bool ShouldBlackoutAuthoredCameraTransition(bool previousActive, bool currentActive)
+{
+    return previousActive != currentActive;
+}
+
 float ResolveComfortOpticsTarget(
     OpticsChannel channel, float requestedTarget, float defaultFov)
 {

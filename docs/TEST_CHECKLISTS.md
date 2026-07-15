@@ -1,5 +1,29 @@
 # Test Checklists
 
+## 0.56.0 Authored Camera Handoff
+
+1. Run packaged doctor and require
+   `version=0.56.0-authored-camera-handoff`, OpenXR flavor, and `fail=0`.
+   Load a save and press F10; established rigid stereo and eye height must be
+   unchanged during normal movement.
+2. Exercise at least one sit, ladder/climb, interactive camera animation, or
+   hand-attached camera event. Require an
+   `authored_camera_ownership_changed` row that preserves `tracking=1` and
+   `stereo=1`, increments `calibrationGeneration`, and is followed by a fresh
+   native base-matrix capture without F10 reactivation.
+3. Require one matching `hpl_player_state_comfort` ownership transition and one
+   bounded blackout request. A simultaneous player-state plus ownership change
+   must produce one blackout, not two.
+4. During and after the authored motion, require independent HMD orientation,
+   stereo-consistent shadows/reflections/AO, no stale ImageTrail or exposure
+   flash, and restoration of gameplay input when native camera ownership ends.
+5. Load another save or trigger a true camera pointer replacement. It must still
+   use `camera_replaced ... policy=cache_invalidate_and_rearm`; F10 intent must
+   return after the stable-pose gate with no old-camera matrices.
+6. Attach the full log with camera/input/per-eye history summaries. Require
+   `authoredCameraOwnershipChanges` and `authoredCameraTransitions` to agree for
+   valid same-camera transitions and no persistent mismatch/fault stream.
+
 ## 0.55.0 SSAO Same-Pose Frame Owner
 
 1. Run packaged doctor and require `version=0.55.0-ssao-frame-owner`, OpenXR

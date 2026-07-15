@@ -300,6 +300,13 @@ turn, run, jump, crouch, and interaction while keeping menu/recenter live. This
 does not yet alter pose composition: HMD tracking remains in the proven frustum
 bridge while live tests classify each state.
 
+`0.56.0` adds the corresponding same-camera handoff. A rotate-mode or body
+camera-update ownership change invalidates the cached native frustum baseline,
+eye schedule, room-scale cache, and calibration-generation temporal histories,
+then lets the next native query establish the authored base. Tracking and stereo
+remain active and one existing bounded blackout masks the handoff. A true camera
+pointer replacement still uses the stronger activation re-arm path.
+
 ## Audio Listener Pose
 
 HPL2 `Scene.cpp::PostUpdate` updates the listener from the current viewport's
@@ -461,11 +468,13 @@ where native shared history otherwise alternates eye ownership each game frame.
 It also treats recenter generation and pose gaps over eight frames as camera cuts,
 reseeding both banks from live state before rendering resumes.
 
-Temporal resources such as image trail, previous projection matrices, and
-velocity history must either be isolated per eye or disabled. Exposure is now
-classified differently: `0.53.0` owns it as shared authored frame state that
-advances once per same-pose stereo pair. Sharing one camera-dependent history
-between alternating eye transforms still produces cross-eye contamination.
+The shipped shader and resource inventory contains no independent previous
+projection or render-velocity history. Temporal SSAO reads the current eye
+projection from the active frustum and the already isolated previous-view
+matrix. ImageTrail and temporal SSAO have eye-local GPU histories; exposure,
+grading transitions, fades, and film grain are shared authored frame state that
+`0.53.0` advances once per same-pose pair. Sharing any newly observed
+camera-dependent history between eye transforms remains forbidden.
 
 ## Additional High-Value RE
 

@@ -33,13 +33,15 @@ The first temporal resource is now exact rather than inferred. At
 renderer history object's previous-view field (`+0x80`), exactly `0x40` bytes.
 Released HPL2 source names the corresponding matrix `m_mtxPrevView`.
 
-`HPLPerEyeViewHistory` banks this packet independently for left and right only
-during opt-in continuous exact-player stereo. It consumes the camera bridge's
+`HPLPerEyeViewHistory` banks this packet independently for left and right in
+AFR and opt-in continuous exact-player stereo. It consumes the camera bridge's
 pending eye before the viewport, restores history before world rendering, and
 commits after native post-post capture only when the actual eye and pose frame
 match. Identity changes seed/reset both banks; invalid memory or sequencing
-faults closed to shared native history. Exposure, bloom, image-trail, velocity,
-and render-target histories remain separate RE tasks.
+faults closed to shared native history. Later builds own ImageTrail and temporal
+SSAO per eye, frame-own ToneMapping and SSAO phase, and classify bloom and local
+reflection as same-pass scratch. The `0.56.0` shipped shader/resource audit found
+no separate previous-projection or render-velocity history.
 
 ## 0.45.0 Continuous Same-Frame Stereo Result
 
@@ -748,7 +750,13 @@ menus/panel ownership, terminals, death, and authored cameras all release it.
    `0.14.0`; uses analog body Move and exact-radian AddYaw, with automatic
    semantic key/mouse fallback for every other state. A higher semantic analog
    dispatcher is still preferable for special-state analog fidelity.
-4. **State adapters:** first ownership adapter built in `0.7.2`; matrix camera mode or disabled body camera updates suppress injected gameplay input while preserving menu/recenter. Normal, ladder, sit, climb ledge, crawl, interaction, conversation, and death still need live classification.
+4. **State adapters:** first ownership adapter built in `0.7.2`; matrix camera
+   mode or disabled body camera updates suppress injected gameplay input while
+   preserving menu/recenter. `0.56.0` adds the same-camera handoff: tracking and
+   stereo stay active while the native base and every calibration-generation
+   temporal history reseed, with one bounded comfort blackout. Normal, ladder,
+   sit, climb ledge, crawl, interaction, conversation, and death still need
+   live classification and pose-policy acceptance.
 5. **Physical movement:** optional physical crouch and collision-aware room-scale body catch-up built in `0.41.0`; live capsule/camera acceptance remains.
 6. **Dynamic peripheral comfort:** built in `0.51.0`; dedicated compositor
    resources, post-policy locomotion/smooth-turn gating, F1 control, preset
@@ -1030,7 +1038,10 @@ Same-frame dual rendering can restore more stateless effects, but temporal effec
    `0.55.0` additionally frame-owns global sample phase `0x14079575c`, which
    the same writer otherwise advances once per eye. Local-reflection
    `+0xeb0/+0xf00` is now proven fully rewritten feedback scratch rather than
-   temporal history. Projection and any other observed temporal owners remain.
+   temporal history. A complete shipped shader/resource audit found no separate
+   previous-projection or render-velocity history: SSAO reads the current eye
+   projection and the already banked previous-view state. The observed temporal
+   owner inventory is therefore implemented; live effect coverage remains.
 7. **Overlay extraction:** move simple flashes, fades, and infection/HUD overlays to alpha-capable OpenXR layers.
 8. **Screen-material convergence:** built in `0.30.0`; four exact native
    billboard boundaries provide reversible active-VR distance and size control

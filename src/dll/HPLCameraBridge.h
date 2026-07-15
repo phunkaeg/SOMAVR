@@ -103,5 +103,6 @@ bool ValidateHPLRoomscaleBodyShift(
     uint32_t& probeCount);
 bool CommitHPLRoomscaleBodyShift(float shiftX, float shiftZ);
 void NotifyHPLPlayerCameraChanged(void* previousCamera, void* currentCamera);
+void NotifyHPLAuthoredCameraOwnershipChanged(void* camera, bool authoredCameraActive);
 
 } // namespace somavr

@@ -194,6 +194,8 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
   setters; the active profile preserves Script roll. World depth of field and
   named VideoDistortion can also be disabled only during active VR, while short
   transition blackouts cover ladder, climb, camera animation, sit, and death.
+  Same-camera authored ownership changes preserve tracking/stereo while
+  refreshing the native pose baseline and all per-eye temporal histories.
   The interaction bridge publishes
   native hit depth/world position. `InteractionReticle=1` presents that exact
   controller hit as an application-space OpenXR quad. With
@@ -494,6 +496,7 @@ Relevant binaries:
 - `docs\future-hook-map.md`: evolving hook map and Graphify seed.
 - `docs\FUTURE_SYSTEMS_RE.md`: locomotion, hands/tools, HUD, and full-screen-effect research roadmap.
 - `docs\VR_COMPATIBILITY_RE.md`: interaction physics, authored cameras, audio, loading/video, and dual-render boundaries.
+- `docs\NEXT_LIVE_EVIDENCE.md`: four prioritized headset passes that settle multiple project phases per log.
 - `docs\FEATURE_TRACEABILITY.md`: stable `FEATURE.*` ownership, dependency, hook, and acceptance-gate registry.
 - `docs\GHIDRA_SYNC.md`: Ghidra names, prototypes, comments, tags, and promotion policy.
 - `docs\RUNTIME_ANALYSIS_0.5.1.md`: successful stereo run, render-stage/FBO evidence, and audio/shader conclusions.

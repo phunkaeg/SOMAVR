@@ -61,6 +61,8 @@ struct BridgeState {
     crouch_math::PhysicalCrouchState physicalCrouch{};
     bool playerStateInitialized = false;
     int lastPlayerState = -1;
+    bool authoredCameraInitialized = false;
+    bool lastAuthoredCameraActive = false;
 };
 
 struct ControllerRoles {
@@ -121,6 +123,7 @@ std::atomic<int64_t> g_manipulationMotionPixelsY = 0;
 std::atomic<uint64_t> g_nativeThrowActions = 0;
 std::atomic<uint64_t> g_playerStateTransitions = 0;
 std::atomic<uint64_t> g_playerStateBlackouts = 0;
+std::atomic<uint64_t> g_authoredCameraTransitions = 0;
 
 uint64_t TickMs()
 {
@@ -242,40 +245,73 @@ void ApplyStateTransitionComfort(
     if (!player.playerValid || player.playerStateId < 0) {
         g_state.playerStateInitialized = false;
         g_state.lastPlayerState = -1;
+        g_state.authoredCameraInitialized = false;
+        g_state.lastAuthoredCameraActive = false;
         return;
     }
+
+    bool stateChanged = false;
+    int previousState = player.playerStateId;
     if (!g_state.playerStateInitialized) {
         g_state.playerStateInitialized = true;
         g_state.lastPlayerState = player.playerStateId;
-        return;
+    } else if (g_state.lastPlayerState != player.playerStateId) {
+        stateChanged = true;
+        previousState = g_state.lastPlayerState;
+        g_state.lastPlayerState = player.playerStateId;
     }
-    if (g_state.lastPlayerState == player.playerStateId) return;
 
-    const int previousState = g_state.lastPlayerState;
-    g_state.lastPlayerState = player.playerStateId;
-    const uint64_t transition = g_playerStateTransitions.fetch_add(1, std::memory_order_relaxed) + 1;
-    const bool comfortTransition = comfort_math::ShouldBlackoutPlayerStateTransition(
-        previousState, player.playerStateId);
-    const bool requested = comfortTransition
+    bool authoredCameraChanged = false;
+    bool previousAuthoredCameraActive = player.authoredCameraActive;
+    if (!player.cameraControlValid) {
+        g_state.authoredCameraInitialized = false;
+    } else if (!g_state.authoredCameraInitialized) {
+        g_state.authoredCameraInitialized = true;
+        g_state.lastAuthoredCameraActive = player.authoredCameraActive;
+    } else if (g_state.lastAuthoredCameraActive != player.authoredCameraActive) {
+        authoredCameraChanged = true;
+        previousAuthoredCameraActive = g_state.lastAuthoredCameraActive;
+        g_state.lastAuthoredCameraActive = player.authoredCameraActive;
+    }
+
+    if (!stateChanged && !authoredCameraChanged) return;
+
+    const uint64_t stateTransition = stateChanged
+        ? g_playerStateTransitions.fetch_add(1, std::memory_order_relaxed) + 1
+        : g_playerStateTransitions.load(std::memory_order_relaxed);
+    const uint64_t ownershipTransition = authoredCameraChanged
+        ? g_authoredCameraTransitions.fetch_add(1, std::memory_order_relaxed) + 1
+        : g_authoredCameraTransitions.load(std::memory_order_relaxed);
+    const bool highMotionStateTransition = stateChanged
+        && comfort_math::ShouldBlackoutPlayerStateTransition(previousState, player.playerStateId);
+    const bool authoredCameraTransition = authoredCameraChanged
+        && comfort_math::ShouldBlackoutAuthoredCameraTransition(
+            previousAuthoredCameraActive, player.authoredCameraActive);
+    const bool requested = (highMotionStateTransition || authoredCameraTransition)
         && camera.trackingEnabled
         && g_openxr != nullptr
         && g_config.hplControllerStateTransitionBlackoutFrames > 0;
     if (requested) {
         g_openxr->RequestComfortBlackout(
             static_cast<uint32_t>(g_config.hplControllerStateTransitionBlackoutFrames),
-            "player_state_transition");
+            authoredCameraTransition ? "authored_camera_transition" : "player_state_transition");
         g_playerStateBlackouts.fetch_add(1, std::memory_order_relaxed);
     }
     Logger::Instance().Write(
         requested ? LogLevel::Warn : LogLevel::Info,
-        "hpl_player_state_comfort frame=%llu transition=%llu previous=%s(%d) current=%s(%d) highMotion=%d tracking=%d blackoutRequested=%d blackoutFrames=%d",
+        "hpl_player_state_comfort frame=%llu stateTransition=%llu ownershipTransition=%llu stateChanged=%d previous=%s(%d) current=%s(%d) highMotion=%d authoredCameraChanged=%d authoredPrevious=%d authoredCurrent=%d tracking=%d blackoutRequested=%d blackoutFrames=%d",
         static_cast<unsigned long long>(frameIndex),
-        static_cast<unsigned long long>(transition),
+        static_cast<unsigned long long>(stateTransition),
+        static_cast<unsigned long long>(ownershipTransition),
+        stateChanged ? 1 : 0,
         PlayerStateName(previousState),
         previousState,
         PlayerStateName(player.playerStateId),
         player.playerStateId,
-        comfortTransition ? 1 : 0,
+        highMotionStateTransition ? 1 : 0,
+        authoredCameraChanged ? 1 : 0,
+        previousAuthoredCameraActive ? 1 : 0,
+        player.authoredCameraActive ? 1 : 0,
         camera.trackingEnabled ? 1 : 0,
         requested ? 1 : 0,
         g_config.hplControllerStateTransitionBlackoutFrames);
@@ -1106,7 +1142,7 @@ void LogHPLInputBridgeSummary()
     GetHPLPlayerStateSnapshot(player);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu loadingSuppressedFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu worldAimPoseSamples=%llu worldGripPoseSamples=%llu nativeMovementFrames=%llu headRelativeMovementFrames=%llu nativeTurnEvents=%llu semanticMovementFallbackFrames=%llu physicalCrouchEntries=%llu physicalCrouchExits=%llu manipulationRotateFrames=%llu manipulationMotionFrames=%llu manipulationMotionEntries=%llu manipulationMotionEvents=%llu manipulationMotionTrackingLosses=%llu manipulationMotionPixels=%lld,%lld nativeThrowActions=%llu flashlightActions=%llu inventoryActions=%llu pausedFrames=%llu menuPointerFrames=%llu terminalPointerFrames=%llu gameOverContinueActions=%llu playerStateTransitions=%llu playerStateBlackouts=%llu gameplaySuppressed=%d paused=%d menuPointerActive=%d terminalPointerActive=%d physicalCrouch=%d rotate=%d manipulationMotionActive=%d manipulationMotionState=%d manipulationMotionLast=%d,%d player=%p camera=%p body=%p playerState=%d moveState=%d",
+        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu loadingSuppressedFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu worldAimPoseSamples=%llu worldGripPoseSamples=%llu nativeMovementFrames=%llu headRelativeMovementFrames=%llu nativeTurnEvents=%llu semanticMovementFallbackFrames=%llu physicalCrouchEntries=%llu physicalCrouchExits=%llu manipulationRotateFrames=%llu manipulationMotionFrames=%llu manipulationMotionEntries=%llu manipulationMotionEvents=%llu manipulationMotionTrackingLosses=%llu manipulationMotionPixels=%lld,%lld nativeThrowActions=%llu flashlightActions=%llu inventoryActions=%llu pausedFrames=%llu menuPointerFrames=%llu terminalPointerFrames=%llu gameOverContinueActions=%llu playerStateTransitions=%llu authoredCameraTransitions=%llu playerStateBlackouts=%llu gameplaySuppressed=%d paused=%d menuPointerActive=%d terminalPointerActive=%d physicalCrouch=%d rotate=%d manipulationMotionActive=%d manipulationMotionState=%d manipulationMotionLast=%d,%d player=%p camera=%p body=%p playerState=%d moveState=%d",
         g_openxr != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_updates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_activeUpdates.load(std::memory_order_relaxed)),
@@ -1141,6 +1177,7 @@ void LogHPLInputBridgeSummary()
         static_cast<unsigned long long>(g_terminalPointerFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_gameOverContinueActions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_playerStateTransitions.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_authoredCameraTransitions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_playerStateBlackouts.load(std::memory_order_relaxed)),
         g_state.gameplaySuppressed ? 1 : 0,
         g_state.paused ? 1 : 0,

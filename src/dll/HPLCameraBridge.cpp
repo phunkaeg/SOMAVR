@@ -160,6 +160,7 @@ std::atomic<uint64_t> g_getFrustumCalls = 0;
 std::atomic<uint64_t> g_candidateCalls = 0;
 std::atomic<uint64_t> g_secondaryCameraCandidates = 0;
 std::atomic<uint64_t> g_secondaryCameraControlSkips = 0;
+std::atomic<uint64_t> g_authoredCameraOwnershipChanges = 0;
 std::atomic<uint64_t> g_appliedCalls = 0;
 std::atomic<uint64_t> g_baseRefreshes = 0;
 std::atomic<uint64_t> g_poseMisses = 0;
@@ -1505,11 +1506,12 @@ void LogHPLCameraBridgeSummary()
     std::lock_guard lock(g_stateMutex);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu secondaryCameraCandidates=%llu secondaryCameraControlSkips=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyProbes=%llu roomscaleSafetySkippedProbes=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu roomscaleBodyShiftProbes=%llu roomscaleBodyShiftBlocks=%llu roomscaleBodyShiftCommits=%llu",
+        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu secondaryCameraCandidates=%llu secondaryCameraControlSkips=%llu authoredCameraOwnershipChanges=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyProbes=%llu roomscaleSafetySkippedProbes=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu roomscaleBodyShiftProbes=%llu roomscaleBodyShiftBlocks=%llu roomscaleBodyShiftCommits=%llu",
         static_cast<unsigned long long>(g_getFrustumCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_candidateCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_secondaryCameraCandidates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_secondaryCameraControlSkips.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_authoredCameraOwnershipChanges.load(std::memory_order_relaxed)),
         g_state.activationPending ? 1 : 0,
         g_state.recenterPending ? 1 : 0,
         g_state.trackingEnabled ? 1 : 0,
@@ -1940,6 +1942,38 @@ void NotifyHPLPlayerCameraChanged(void* previousCamera, void* currentCamera)
         previousCamera,
         currentCamera,
         wasStereo ? 1 : 0);
+}
+
+void NotifyHPLAuthoredCameraOwnershipChanged(void* camera, bool authoredCameraActive)
+{
+    std::lock_guard lock(g_stateMutex);
+    if (camera == nullptr
+        || camera != g_state.activeCamera
+        || (!g_state.trackingEnabled && !g_state.activationPending)) {
+        return;
+    }
+
+    if (g_openxr != nullptr) {
+        g_openxr->InvalidateStereoCaches("authored_camera_ownership_changed");
+    }
+    g_state.baseMatricesValid = false;
+    g_state.activeFrustum = nullptr;
+    g_state.nextEyeIndex = 0;
+    g_state.currentEyeIndex = -1;
+    g_state.currentEyePoseFrame = 0;
+    ++g_state.calibrationGeneration;
+    InvalidateRoomscaleSafetyCache();
+    const uint64_t change = g_authoredCameraOwnershipChanges.fetch_add(
+        1, std::memory_order_relaxed) + 1;
+    Logger::Instance().Write(
+        LogLevel::Warn,
+        "hpl_vr_mode authored_camera_ownership_changed change=%llu camera=%p authoredCamera=%d tracking=%d stereo=%d calibrationGeneration=%llu policy=preserve_vr_refresh_native_base_reset_temporal_histories",
+        static_cast<unsigned long long>(change),
+        camera,
+        authoredCameraActive ? 1 : 0,
+        g_state.trackingEnabled ? 1 : 0,
+        g_state.stereoEnabled ? 1 : 0,
+        static_cast<unsigned long long>(g_state.calibrationGeneration));
 }
 
 void RemoveHPLCameraBridge()

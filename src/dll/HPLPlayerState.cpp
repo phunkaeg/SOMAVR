@@ -196,10 +196,18 @@ void UpdateHPLPlayerState(uint64_t frameIndex)
     const bool cameraOwnerChanged = g_snapshot.playerValid
         && next.playerValid
         && (g_snapshot.player != next.player || g_snapshot.camera != next.camera);
+    const bool authoredCameraOwnershipChanged = g_snapshot.playerValid
+        && next.playerValid
+        && g_snapshot.camera == next.camera
+        && g_snapshot.cameraControlValid
+        && next.cameraControlValid
+        && g_snapshot.authoredCameraActive != next.authoredCameraActive;
     if (changed)
         g_transitions.fetch_add(1, std::memory_order_relaxed);
     if (cameraOwnerChanged) {
         NotifyHPLPlayerCameraChanged(g_snapshot.camera, next.camera);
+    } else if (authoredCameraOwnershipChanged) {
+        NotifyHPLAuthoredCameraOwnershipChanged(next.camera, next.authoredCameraActive);
     }
     const uint64_t interval = static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1));
     if (changed || frameIndex == 1 || frameIndex % interval == 0)

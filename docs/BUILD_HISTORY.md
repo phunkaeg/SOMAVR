@@ -2,6 +2,30 @@
 
 ## 2026-07-15
 
+### 0.56.0-authored-camera-handoff
+
+- Added an explicit same-camera ownership handoff for SOMA transitions that
+  switch camera rotate mode or disable character-body camera updates. Tracking
+  and stereo remain active while the native matrix baseline, eye schedule,
+  room-scale safety cache, and all calibration-generation temporal histories
+  are invalidated and reseeded on the next native frustum query.
+- Extended the existing state-transition comfort policy to detect authored
+  ownership changes even when the player state ID does not change. It requests
+  one bounded blackout, suppresses duplicate requests when ownership and state
+  change together, and records independent ownership-transition counters.
+- Added deterministic ownership-transition policy tests and bounded camera/
+  input telemetry. Camera pointer replacement deliberately retains the stronger
+  cache invalidation and activation re-arm behavior.
+- Completed a shipped shader and allocator audit: temporal SSAO uses the current
+  eye projection plus the already isolated previous-view matrix. No independent
+  previous-projection or render-velocity history exists in SOMA's render path;
+  local-reflection and bloom targets are confirmed same-pass scratch.
+- Both default and OpenXR Release trees pass all four CTest suites. The packaged
+  doctor reports `pass=7 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `8D0022196A3A649712BC67B429B98C57174AF207FD00314BF58C9932AAC86CB2`.
+  Package SHA-256:
+  `326BD6533497387C633DAF5ED793E8A2DC8007D91CA3EBD53E0FDE1F2D876B9C`.
+
 ### 0.55.0-ssao-frame-owner
 
 - Confirmed that `HPL3_RendererDeferred_RenderSSAO` advances global float

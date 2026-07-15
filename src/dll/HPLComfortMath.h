@@ -48,6 +48,8 @@ const char* CameraRollTypeName(int type);
 
 bool ShouldBlackoutPlayerStateTransition(int previousState, int currentState);
 
+bool ShouldBlackoutAuthoredCameraTransition(bool previousActive, bool currentActive);
+
 float ResolveComfortOpticsTarget(
     OpticsChannel channel, float requestedTarget, float defaultFov);
 

@@ -831,6 +831,12 @@ int main()
             && !comfort_math::ShouldBlackoutPlayerStateTransition(-1, 11),
         "authored high-motion state transitions request comfort blackout");
     failures += Check(
+        comfort_math::ShouldBlackoutAuthoredCameraTransition(false, true)
+            && comfort_math::ShouldBlackoutAuthoredCameraTransition(true, false)
+            && !comfort_math::ShouldBlackoutAuthoredCameraTransition(false, false)
+            && !comfort_math::ShouldBlackoutAuthoredCameraTransition(true, true),
+        "authored camera ownership changes request comfort blackout");
+    failures += Check(
         Near(comfort_math::ResolveComfortOpticsTarget(
                  comfort_math::OpticsChannel::Fov, 0.8f, 1.2f),
             1.2f)

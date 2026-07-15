@@ -21,10 +21,19 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.55.0-ssao-frame-owner`, layered on the
+The active build candidate is `0.56.0-authored-camera-handoff`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Same-camera authored ownership changes now have an explicit VR handoff.
+  Transitions into or out of matrix-controlled/script-owned camera motion keep
+  F10 tracking and stereo active, invalidate the captured native frustum base,
+  increment the calibration generation so all stereo histories reseed, and
+  request the existing bounded transition blackout. Camera pointer replacement
+  retains the stronger disable-and-rearm policy. Bounded ownership counters and
+  transition logs make sit, ladder/climb, conversation, scripted animation, and
+  hand-attached camera tests directly diagnosable.
 
 - Temporal SSAO now has explicit per-eye GPU history. The exact native writer
   at `0x1403f2b50` reads and overwrites renderer texture `+0xe78` once per eye;
@@ -32,6 +41,12 @@ compatibility probes:
   preserving SOMA's shaders, framebuffer, and AO pipeline. Generated configs
   leave it off. Live headset acceptance must confirm stable AO during head
   translation/rotation, reset behavior, and no new GL errors or shutdown leak.
+
+- The shipped shader/resource audit closes the generic previous-projection and
+  velocity-history TODO. Temporal SSAO consumes the current eye projection from
+  the active frustum and the already banked previous-view state; SOMA persists
+  no separate previous projection or render-velocity history. ToneMapping,
+  ImageTrail, temporal SSAO, and previous view are the observed temporal owners.
 
 - ToneMapping now has explicit same-frame ownership for its authored exposure,
   white-cut, window fade, color-grading transition, and film-grain sampling
@@ -672,6 +687,9 @@ The OpenXR build now asks for:
 
 ## Next Step
 
+The prioritized multi-feature live plan is maintained in
+`docs/NEXT_LIVE_EVIDENCE.md`.
+
 1. Launch the current OpenXR build:
 
 ```powershell
@@ -679,7 +697,7 @@ The OpenXR build now asks for:
 ```
 
 2. Run `somavr_injector --doctor <Soma_NoSteam.exe>` and require zero failures,
-   then confirm `version=0.52.0-per-eye-image-trail`,
+   then confirm `version=0.56.0-authored-camera-handoff`,
    `hpl_per_eye_view_history initialized configured=1 packetBytes=0x40`, and no
    hook/signature failure. Load a save, face forward, and press F10 once.
 3. Confirm the proven rigid world, eye height, centered projection, depth,

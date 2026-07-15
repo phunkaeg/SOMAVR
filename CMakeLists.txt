@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.55.0-ssao-frame-owner")
+set(SOMAVR_BUILD_VERSION "0.56.0-authored-camera-handoff")
 
 include(FetchContent)
 

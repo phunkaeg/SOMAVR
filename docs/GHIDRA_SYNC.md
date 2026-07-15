@@ -357,6 +357,13 @@ This ledger records durable changes made to the shared Ghidra database. Markdown
 remains the design and evidence history; Ghidra receives only names, prototypes,
 comments, and tags whose confidence is high enough to improve decompilation.
 
+## 2026-07-15 Dual-Render Sync
+
+`HPL3_Scene_RenderViewport` at `0x140298630` was re-decompiled before the first
+same-frame experiment. Its plate comment now records the exact mask contract,
+the unconditional post-post callback, and the `0.35.0` one-frame replay policy.
+No speculative callback ownership was promoted.
+
 ## 2026-07-12 Sync
 
 The first SOMAVR synchronization promoted 24 confirmed/high-confidence functions,

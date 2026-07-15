@@ -412,8 +412,20 @@ sampled frame. It collapses nested entries into ordered stage multiplicities and
 per-stage draw, clear, and CPU totals. A canonical frame with draw-free callback
 and post-post stages is reported only as `repeatCandidate=world_stage_only`; the
 row deliberately retains `proof=callback_side_effects_still_require_controlled_replay`.
-The next dual-render step is therefore a reversible one-frame replay experiment,
-not unconditional second-eye rendering.
+`0.35.0-dual-render-probe` implements that reversible experiment. `Ctrl+F6`
+arms only the next exact player viewport. After its native first-eye render,
+SOMAVR immediately preserves the pending eye in the OpenXR cache, clears only
+mask bit `2`, and directly invokes `0x140298630` once more. This bypasses the
+once-per-frame enumerator at `0x140298850`; update, script lifecycle, frame
+counter/stat reset, GUI, submission, and presentation are not repeated.
+
+The second call still repeats pre/post world callbacks, overlays, active post
+effects, and the unconditional `PostPostEffect` callback. Telemetry therefore
+records the exact replay mask, CPU/draw/clear cost, first/second eye indices,
+pose-frame identity, and explicitly labels duplicated post-post work. Any
+eligibility or immediate cache-capture failure consumes the arm without replay
+and leaves normal AFR in control. Sustained same-frame rendering remains gated
+on clean live evidence from this one-frame experiment.
 
 Temporal resources such as image trail, previous view/projection matrices,
 exposure, and velocity history must either be isolated per eye or disabled. Sharing

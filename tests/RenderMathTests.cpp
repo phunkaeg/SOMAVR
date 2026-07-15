@@ -9,6 +9,7 @@
 #include "HPLPhysicalCrouchMath.h"
 #include "HPLScreenEffectMath.h"
 #include "HPLSubtitleMath.h"
+#include "HPLDualRenderMath.h"
 #include "OpenGLMatrixAnalysis.h"
 #include "OpenXRSpectatorMath.h"
 #include "OpenXRDepthMath.h"
@@ -41,6 +42,22 @@ int main()
     using namespace somavr;
 
     int failures = 0;
+    failures += Check(
+        dual_render_math::BuildReplayMask(0x7) == 0x5
+            && dual_render_math::BuildReplayMask(UINT64_MAX) == (UINT64_MAX & ~2ull),
+        "dual-render replay preserves world/post flags and removes screen GUI");
+    failures += Check(
+        dual_render_math::IsReplayEligible(true, true, true, true, true, 0, 42, 0x7)
+            && !dual_render_math::IsReplayEligible(true, false, true, true, true, 0, 42, 0x7)
+            && !dual_render_math::IsReplayEligible(true, true, true, true, true, 2, 42, 0x7)
+            && !dual_render_math::IsReplayEligible(true, true, true, true, true, 0, 42, 0x2),
+        "dual-render replay requires the tracked player world viewport and a valid eye");
+    failures += Check(
+        dual_render_math::IsSamePoseOppositeEye(0, 42, 1, 42)
+            && dual_render_math::IsSamePoseOppositeEye(1, 42, 0, 42)
+            && !dual_render_math::IsSamePoseOppositeEye(0, 42, 0, 42)
+            && !dual_render_math::IsSamePoseOppositeEye(0, 42, 1, 43),
+        "dual-render replay validates opposite eyes from one tracked pose");
     subtitle_math::SubtitleLayout subtitleLayout;
     failures += Check(
         subtitle_math::BuildSubtitleLayout(

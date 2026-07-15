@@ -1,5 +1,28 @@
 # Test Checklists
 
+## 0.35.0 Same-Frame Dual-Render Probe
+
+1. Confirm `version=0.35.0-dual-render-probe`,
+   `dualRenderReplayProbe=1`, and `dualRenderKey=Ctrl+F6`. Load a save and enter
+   the known-good F10 VR path before arming the experiment.
+2. In a quiet scene, press `Ctrl+F6` once. Expect one `hpl_dual_render armed`
+   row, one `openxr_stereo_cache ... source=dual_render_first_eye` row, and one
+   `hpl_dual_render replay` row. No later frame may replay without a new press.
+3. The replay result must be `same_pose_opposite_eye`: eye indices differ and
+   both pose-frame values match. `replayMask` must equal `originalMask` with bit
+   `2` removed, `screenGuiSuppressed=1`, and the next frame-boundary capture
+   must preserve the second eye.
+4. Inspect world rigidity, shadows, reflections, particles, animation, HUD,
+   subtitles, audio, and interaction immediately before/after the press. Stop on
+   a crash, simulation advance, visible one-frame GUI duplication, temporal
+   contamination, wrong eye, or persistent visual state.
+5. Press `Ctrl+F6` at least three more times in scenes with active post effects,
+   dynamic shadows, and reflections. Retain replay duration/draw/clear totals
+   and the final transaction/compatibility summaries. The duplicated
+   post-post callback is expected telemetry, not yet accepted for sustained use.
+6. Roll back with `HPLDualRenderReplayProbe=0`; AFR stereo must remain unchanged.
+   Ordinary F6 render diagnostics and all F10/F12 controls must still work.
+
 ## 0.34.0 Subtitle Presentation And Paused Menu Layer
 
 1. Confirm `version=0.34.0-subtitles-menus`,

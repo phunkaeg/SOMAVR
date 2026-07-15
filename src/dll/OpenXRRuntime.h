@@ -167,6 +167,7 @@ public:
     bool RequestHapticPulse(uint32_t hand, float amplitude, int durationMs, const char* reason);
     void SetStereoSubmissionEnabled(bool enabled);
     bool MarkRenderedStereoEye(uint32_t eyeIndex, const OpenXREyeView& view);
+    bool CapturePendingStereoEye(uint64_t frameIndex, const char* source);
     void InvalidateStereoCaches(const char* reason);
     void RequestComfortBlackout(uint32_t frames, const char* reason);
     void SetPresentationBlackout(bool active, const char* reason);

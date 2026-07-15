@@ -21,10 +21,19 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.34.0-subtitles-menus`, layered on the
+The active build candidate is `0.35.0-dual-render-probe`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- `Ctrl+F6` now arms the first bounded same-frame stereo experiment. Only the
+  next exact player viewport is eligible. Eye one is cached immediately, the
+  viewport is replayed once with screen GUI suppressed, and the ordinary frame
+  boundary captures eye two. The engine-wide viewport enumerator, update,
+  frame-counter reset, GUI, and presentation still run once. Logs require the
+  two renders to use opposite eyes from one tracked pose and expose replay cost
+  plus the unavoidable duplicated post-post callback. This is not yet a
+  sustained dual-render mode.
 
 - Optional compositor depth is now fully wired. The OpenXR runtime negotiates
   D24/D32F or matching depth-stencil formats, builds matching per-eye depth
@@ -78,8 +87,8 @@ compatibility probes:
   each set.
 - Periodic `hpl_render_transaction` rows summarize the complete six-stage
   viewport transaction and identify a possible world-only replay scope without
-  claiming callback safety. Same-frame stereo remains gated on a controlled
-  replay proving that omitted callbacks have no required per-eye effects.
+  claiming callback safety. The new one-frame replay supplies that live proof
+  without changing ordinary AFR frames.
 
 - Script-created screen materials are now identified only by SOMA's exact
   `Screen Particle<decimal>` billboard name. While F10 VR is active, their

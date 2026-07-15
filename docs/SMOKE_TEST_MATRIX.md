@@ -19,6 +19,7 @@ appears to work.
 | S10 | Damage/death/wake | Take damage, trigger a scripted screen material, death/game-over, reload, and complete wake transition | Exact screen-particle create/position/destroy rows, dead-state guard, camera add/roll, DoF and named post-effect policy rows, UI identity, tracking remains live | Near-field convergence, changed unrelated billboard, nauseating trail/distortion/blur/roll, invisible prompt, persistent blackout, frozen tracking, or stale effects |
 | S11 | Tracking/runtime interruption | Remove HMD/controller tracking, change runtime focus, then restore | Pose-age hold/expiry, zero-layer path, release of held inputs, recovery blackout | Stale pose, stuck input, visible invalid frame, session restart loop |
 | S12 | Normal exit | Quit from gameplay and from menu on separate runs | Pre-graphics shutdown begin/complete, per-eye CPU rows, spectator counters, and final summaries | Lingering process, graphics teardown crash, missing timing/mirror evidence, or missing bounded summaries |
+| S13 | Dual-render test scenes | In F10 VR, press Ctrl+F6 once in quiet, shadowed, reflective, and post-heavy views | One same-pose/opposite-eye replay per press, first-eye immediate cache, GUI bit removed, bounded cost and callback counts | Crash, extra replay, simulation advance, eye/pose mismatch, persistent temporal artifact, or broken AFR fallback |
 
 ## Build Record
 

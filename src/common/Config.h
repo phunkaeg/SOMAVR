@@ -205,6 +205,7 @@ struct Config {
     bool hplStereoAfr = false;
     float hplWorldScale = 1.0f;
     bool hplRenderStageProbe = false;
+    bool hplDualRenderReplayProbe = false;
     bool hplPerEyePerformanceTelemetry = false;
     bool hplPerEyeGpuTelemetry = false;
     int hplGpuQueryPoolSize = 128;

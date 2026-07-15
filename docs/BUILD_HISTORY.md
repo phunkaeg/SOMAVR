@@ -2,6 +2,28 @@
 
 ## 2026-07-15
 
+### 0.35.0-dual-render-probe
+
+- Added the first executable `FEATURE.DUAL_RENDER` experiment. `Ctrl+F6` arms
+  exactly one replay of the next exact player viewport; all secondary cameras
+  and ordinary frames remain on the proven AFR path.
+- The first native eye is copied into its OpenXR cache immediately. The same
+  `HPL3_Scene_RenderViewport` is then invoked once with screen-GUI mask bit `2`
+  cleared, preserving world and active-post bits. The normal frame boundary
+  captures the second eye, while the once-per-frame viewport enumerator,
+  renderer frame advance, script update, and presentation remain untouched.
+- Added hard eligibility checks, same-pose/opposite-eye validation, immediate
+  fallback on cache failure, replay CPU/draw/clear telemetry, and explicit
+  accounting for the native post-post callback that the viewport function runs
+  unconditionally. Generated configuration remains disabled; the active
+  development profile enables the one-frame probe.
+- Refactored pending-eye cache capture into a reusable OpenXR runtime operation
+  and added pure replay-mask/eligibility/eye-sequence tests. Both Release flavors
+  and all three CTest suites pass. OpenXR DLL SHA-256:
+  `570F925B93B87CA29214D733940A1DC6DD52BB7DA06DB87094390733C58942B7`.
+  Package SHA-256:
+  `25B952922C7D6C23F28388FC1E7D657DF5BC0AA6FCDB2863F1392677D9D73C50`.
+
 ### 0.34.0-subtitles-menus
 
 - Added a dedicated, signature-guarded native subtitle bridge at

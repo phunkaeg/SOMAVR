@@ -86,6 +86,10 @@ leave VR camera/stereo mode. F8 and F11 remain diagnostic runtime/stereo control
 F3-F6 retain the existing targeted diagnostics. Plain F12 toggles the entire
 post chain, `Ctrl+F12` cycles reversible render-only isolation across currently
 active effects, and `Shift+F12` restores the normal effect chain.
+The development-only `HPLDualRenderReplayProbe=1` adds `Ctrl+F6`: one press
+replays only the next exact player viewport once, suppresses screen GUI on the
+second pass, and logs whether both eyes came from the same tracked pose. This is
+a bounded evidence probe, not a persistent dual-render toggle.
 With `HudLayer=1`, the exact gameplay HUD set is removed from the eye render and
 submitted once as a transparent, compositor head-locked OpenXR quad. Menus,
 ImGui, subtitles not owned by that set, and diegetic terminal GUIs remain on
@@ -141,7 +145,10 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
 
 ## Current Goal
 
-This is not yet a simultaneous dual-eye renderer. OpenXR transport, native head tracking, and AFR stereo geometry are proven. The current goal is to classify shader/post compatibility and finish head-relative presentation before attempting two renders per game frame:
+This is not yet a sustained simultaneous dual-eye renderer. OpenXR transport,
+native head tracking, and AFR stereo geometry are proven; `0.35.0` adds a
+one-frame exact-player replay to validate the remaining callback, temporal, and
+performance contracts before promotion:
 
 - signature-guarded native eye view/projection integration,
 - persistent per-eye OpenGL cache transfer,
@@ -153,7 +160,7 @@ This is not yet a simultaneous dual-eye renderer. OpenXR transport, native head 
 - gameplay HUD extraction into a configurable OpenXR quad layer,
 - controller-owned native hands with calibration and authored-state fallback,
 - paused-menu aim pointer and hard gameplay-input suppression,
-- same-frame dual rendering after callback and temporal ownership are proven.
+- promote same-frame dual rendering only after repeated one-frame replay evidence.
 
 The active `somavr.ini` is currently set up for the OpenXR probe build:
 
@@ -210,6 +217,7 @@ HPLCameraLogInterval=120
 HPLStereoAFR=1
 HPLWorldScale=1.0
 HPLRenderStageProbe=1
+HPLDualRenderReplayProbe=1
 HPLPerEyePerformanceTelemetry=1
 HPLPerEyeGpuTelemetry=1
 HPLGpuQueryPoolSize=128

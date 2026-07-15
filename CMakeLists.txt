@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.34.0-subtitles-menus")
+set(SOMAVR_BUILD_VERSION "0.35.0-dual-render-probe")
 
 include(FetchContent)
 
@@ -72,6 +72,7 @@ add_library(somavr_render_math STATIC
     src/dll/HPLMenuMath.cpp
     src/dll/HPLScreenEffectMath.cpp
     src/dll/HPLSubtitleMath.cpp
+    src/dll/HPLDualRenderMath.cpp
     src/dll/OpenGLMatrixAnalysis.cpp
     src/dll/OpenXRSpectatorMath.cpp
     src/dll/OpenXRDepthMath.cpp

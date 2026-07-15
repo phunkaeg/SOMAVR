@@ -2,6 +2,7 @@
 
 #include "HPLCameraBridge.h"
 #include "HPLCameraMath.h"
+#include "HPLDualRenderMath.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
 #include "OpenGLHooks.h"
@@ -214,6 +215,14 @@ std::atomic<uint64_t> g_viewportIdentitySamples = 0;
 std::atomic<uint64_t> g_viewportIdentityChanges = 0;
 std::atomic<uint64_t> g_playerViewportCalls = 0;
 std::atomic<uint64_t> g_secondaryViewportCalls = 0;
+std::atomic<uint64_t> g_dualRenderArms = 0;
+std::atomic<uint64_t> g_dualRenderAttempts = 0;
+std::atomic<uint64_t> g_dualRenderFirstEyeCaptures = 0;
+std::atomic<uint64_t> g_dualRenderReplays = 0;
+std::atomic<uint64_t> g_dualRenderSamePoseOppositeEye = 0;
+std::atomic<uint64_t> g_dualRenderFailures = 0;
+std::atomic<bool> g_dualRenderArmed = false;
+std::atomic<bool> g_dualRenderKeyDown = false;
 std::mutex g_viewportIdentityMutex;
 std::unordered_map<void*, ViewportIdentity> g_viewportIdentities;
 int64_t g_performanceFrequency = 0;
@@ -742,6 +751,36 @@ void ObserveViewportIdentity(void* viewport, uint64_t renderMask)
             static_cast<unsigned int>(identity.visible),
             static_cast<unsigned int>(identity.listener));
     }
+}
+
+bool IsExactPlayerViewport(void* viewport)
+{
+    void* viewportCamera = nullptr;
+    HPLPlayerStateSnapshot player{};
+    const HPLCameraBridgeStatus camera = GetHPLCameraBridgeStatus();
+    return ReadField(viewport, kViewportCameraOffset, viewportCamera)
+        && GetHPLPlayerStateSnapshot(player)
+        && player.playerValid
+        && player.camera != nullptr
+        && viewportCamera == player.camera
+        && viewportCamera == camera.activeCamera;
+}
+
+void PollDualRenderReplayHotkey()
+{
+    const bool keyDown = (GetAsyncKeyState(VK_F6) & 0x8000) != 0
+        && (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    const bool previousKeyDown = g_dualRenderKeyDown.exchange(keyDown, std::memory_order_relaxed);
+    if (!g_config.hplDualRenderReplayProbe || !keyDown || previousKeyDown) {
+        return;
+    }
+
+    g_dualRenderArmed.store(true, std::memory_order_relaxed);
+    const uint64_t arms = g_dualRenderArms.fetch_add(1, std::memory_order_relaxed) + 1;
+    Logger::Instance().Write(
+        LogLevel::Warn,
+        "hpl_dual_render armed=1 key=Ctrl+F6 arms=%llu policy=next_exact_player_viewport_one_frame",
+        static_cast<unsigned long long>(arms));
 }
 
 const char* PostEffectName(void* effect)
@@ -1350,6 +1389,7 @@ bool IsFinite(const Vector3& value)
 
 void HookRenderViewport(void* scene, void* viewport, float frameTime, uint64_t renderMask)
 {
+    PollDualRenderReplayHotkey();
     void* previousViewport = g_activeViewport;
     const uint64_t previousMask = g_activeRenderMask;
     g_activeViewport = viewport;
@@ -1359,6 +1399,97 @@ void HookRenderViewport(void* scene, void* viewport, float frameTime, uint64_t r
     const StageSample sample = BeginStage(HPLRenderStage::Viewport, viewport, renderMask);
     g_originalRenderViewport(scene, viewport, frameTime, renderMask);
     EndStage(sample);
+
+    if (g_dualRenderArmed.load(std::memory_order_relaxed) && IsExactPlayerViewport(viewport)) {
+        g_dualRenderArmed.store(false, std::memory_order_relaxed);
+        const uint64_t attempt = g_dualRenderAttempts.fetch_add(1, std::memory_order_relaxed) + 1;
+        const uint64_t frame = GetOpenGLRenderFrameHint();
+        const HPLCameraBridgeStatus firstStatus = GetHPLCameraBridgeStatus();
+        const bool eligible = dual_render_math::IsReplayEligible(
+            g_config.hplDualRenderReplayProbe,
+            true,
+            firstStatus.trackingEnabled,
+            firstStatus.stereoEnabled,
+            g_openxr != nullptr,
+            firstStatus.stereoRenderEye,
+            firstStatus.stereoRenderPoseFrame,
+            renderMask);
+        if (!eligible) {
+            g_dualRenderFailures.fetch_add(1, std::memory_order_relaxed);
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_dual_render skipped attempt=%llu frame=%llu reason=eligibility tracking=%d stereo=%d runtime=%d firstEye=%d poseFrame=%llu mask=0x%llx fallback=native_afr",
+                static_cast<unsigned long long>(attempt),
+                static_cast<unsigned long long>(frame),
+                firstStatus.trackingEnabled ? 1 : 0,
+                firstStatus.stereoEnabled ? 1 : 0,
+                g_openxr != nullptr ? 1 : 0,
+                firstStatus.stereoRenderEye,
+                static_cast<unsigned long long>(firstStatus.stereoRenderPoseFrame),
+                static_cast<unsigned long long>(renderMask));
+        } else if (!g_openxr->CapturePendingStereoEye(frame, "dual_render_first_eye")) {
+            g_dualRenderFailures.fetch_add(1, std::memory_order_relaxed);
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_dual_render skipped attempt=%llu frame=%llu reason=first_eye_capture_failed firstEye=%d poseFrame=%llu fallback=native_afr",
+                static_cast<unsigned long long>(attempt),
+                static_cast<unsigned long long>(frame),
+                firstStatus.stereoRenderEye,
+                static_cast<unsigned long long>(firstStatus.stereoRenderPoseFrame));
+        } else {
+            g_dualRenderFirstEyeCaptures.fetch_add(1, std::memory_order_relaxed);
+            const uint64_t replayMask = dual_render_math::BuildReplayMask(renderMask);
+            const OpenGLTelemetrySnapshot telemetryBefore = GetOpenGLTelemetrySnapshot();
+            LARGE_INTEGER replayStart = {};
+            LARGE_INTEGER replayEnd = {};
+            QueryPerformanceCounter(&replayStart);
+            g_activeRenderMask = replayMask;
+            const StageSample replaySample = BeginStage(
+                HPLRenderStage::Viewport, viewport, replayMask);
+            g_originalRenderViewport(scene, viewport, frameTime, replayMask);
+            EndStage(replaySample);
+            g_activeRenderMask = renderMask;
+            QueryPerformanceCounter(&replayEnd);
+            const OpenGLTelemetrySnapshot telemetryAfter = GetOpenGLTelemetrySnapshot();
+            const HPLCameraBridgeStatus secondStatus = GetHPLCameraBridgeStatus();
+            const bool oppositeEye = dual_render_math::IsSamePoseOppositeEye(
+                firstStatus.stereoRenderEye,
+                firstStatus.stereoRenderPoseFrame,
+                secondStatus.stereoRenderEye,
+                secondStatus.stereoRenderPoseFrame);
+            const uint64_t replay = g_dualRenderReplays.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (oppositeEye) {
+                g_dualRenderSamePoseOppositeEye.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                g_dualRenderFailures.fetch_add(1, std::memory_order_relaxed);
+                g_openxr->InvalidateStereoCaches("dual_render_eye_sequence_mismatch");
+            }
+            const double durationUs = g_performanceFrequency > 0
+                ? static_cast<double>(replayEnd.QuadPart - replayStart.QuadPart) * 1000000.0
+                    / static_cast<double>(g_performanceFrequency)
+                : 0.0;
+            Logger::Instance().Write(
+                oppositeEye ? LogLevel::Warn : LogLevel::Error,
+                "hpl_dual_render replay=%llu attempt=%llu frame=%llu result=%s firstEye=%d secondEye=%d firstPoseFrame=%llu secondPoseFrame=%llu originalMask=0x%llx replayMask=0x%llx screenGuiSuppressed=1 postPostCallbacksDuplicated=1 durationUs=%.2f draws=%llu clears=%llu secondEyePendingForFrameBoundary=%d cachesInvalidated=%d",
+                static_cast<unsigned long long>(replay),
+                static_cast<unsigned long long>(attempt),
+                static_cast<unsigned long long>(frame),
+                oppositeEye ? "same_pose_opposite_eye" : "eye_sequence_mismatch",
+                firstStatus.stereoRenderEye,
+                secondStatus.stereoRenderEye,
+                static_cast<unsigned long long>(firstStatus.stereoRenderPoseFrame),
+                static_cast<unsigned long long>(secondStatus.stereoRenderPoseFrame),
+                static_cast<unsigned long long>(renderMask),
+                static_cast<unsigned long long>(replayMask),
+                durationUs,
+                static_cast<unsigned long long>(
+                    telemetryAfter.drawElements - telemetryBefore.drawElements
+                    + telemetryAfter.drawArrays - telemetryBefore.drawArrays),
+                static_cast<unsigned long long>(telemetryAfter.clears - telemetryBefore.clears),
+                oppositeEye ? 1 : 0,
+                oppositeEye ? 0 : 1);
+        }
+    }
 
     g_activeViewport = previousViewport;
     g_activeRenderMask = previousMask;
@@ -1609,6 +1740,7 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
 {
     std::lock_guard lock(g_installMutex);
     if (!config.hplRenderStageProbe
+        && !config.hplDualRenderReplayProbe
         && !config.hplPerEyePerformanceTelemetry
         && !config.hplPerEyeGpuTelemetry
         && !config.hplAudioListenerProbe
@@ -1625,6 +1757,14 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
     g_viewportIdentityChanges.store(0, std::memory_order_relaxed);
     g_playerViewportCalls.store(0, std::memory_order_relaxed);
     g_secondaryViewportCalls.store(0, std::memory_order_relaxed);
+    g_dualRenderArms.store(0, std::memory_order_relaxed);
+    g_dualRenderAttempts.store(0, std::memory_order_relaxed);
+    g_dualRenderFirstEyeCaptures.store(0, std::memory_order_relaxed);
+    g_dualRenderReplays.store(0, std::memory_order_relaxed);
+    g_dualRenderSamePoseOppositeEye.store(0, std::memory_order_relaxed);
+    g_dualRenderFailures.store(0, std::memory_order_relaxed);
+    g_dualRenderArmed.store(false, std::memory_order_relaxed);
+    g_dualRenderKeyDown.store(false, std::memory_order_relaxed);
     {
         std::lock_guard identityLock(g_viewportIdentityMutex);
         g_viewportIdentities.clear();
@@ -1700,6 +1840,7 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
 
     size_t installed = 0;
     const bool stageHooksEnabled = config.hplRenderStageProbe
+        || config.hplDualRenderReplayProbe
         || config.hplPerEyePerformanceTelemetry
         || config.hplPerEyeGpuTelemetry;
     if (stageHooksEnabled) {
@@ -1736,8 +1877,9 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
 
     Logger::Instance().Write(
         installed > 0 ? LogLevel::Warn : LogLevel::Error,
-        "hpl_compat_probe install_complete renderStages=%d perEyeCpu=%d perEyeGpu=%d gpuQueryPairs=%d audioListener=%d audioCorrection=%d audioTranslation=%d postEffectControl=%d postEffectBypass=%d postEffectComfort={imageTrail=%d videoDistortion=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
+        "hpl_compat_probe install_complete renderStages=%d dualRenderReplayProbe=%d dualRenderKey=Ctrl+F6 perEyeCpu=%d perEyeGpu=%d gpuQueryPairs=%d audioListener=%d audioCorrection=%d audioTranslation=%d postEffectControl=%d postEffectBypass=%d postEffectComfort={imageTrail=%d videoDistortion=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
         config.hplRenderStageProbe ? 1 : 0,
+        config.hplDualRenderReplayProbe ? 1 : 0,
         config.hplPerEyePerformanceTelemetry ? 1 : 0,
         config.hplPerEyeGpuTelemetry ? 1 : 0,
         config.hplGpuQueryPoolSize,
@@ -1770,7 +1912,7 @@ void LogHPLCompatibilityProbeSummary()
     }
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu renderTransactions=%llu canonicalRenderTransactions=%llu viewportIdentitySamples=%llu viewportIdentityChanges=%llu knownViewports=%llu playerViewportCalls=%llu secondaryViewportCalls=%llu audioUpdates=%llu audioSamples=%llu audioCorrections=%llu audioTranslations=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
+        "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postPostEffect=%llu screenGui=%llu renderTransactions=%llu canonicalRenderTransactions=%llu viewportIdentitySamples=%llu viewportIdentityChanges=%llu knownViewports=%llu playerViewportCalls=%llu secondaryViewportCalls=%llu dualRender={arms=%llu attempts=%llu firstEyeCaptures=%llu replays=%llu samePoseOppositeEye=%llu failures=%llu armed=%d} audioUpdates=%llu audioSamples=%llu audioCorrections=%llu audioTranslations=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::Viewport)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::World)].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stageCalls[StageIndex(HPLRenderStage::WorldCallbacks)].load(std::memory_order_relaxed)),
@@ -1784,6 +1926,13 @@ void LogHPLCompatibilityProbeSummary()
         static_cast<unsigned long long>(knownViewports),
         static_cast<unsigned long long>(g_playerViewportCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_secondaryViewportCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_dualRenderArms.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_dualRenderAttempts.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_dualRenderFirstEyeCaptures.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_dualRenderReplays.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_dualRenderSamePoseOppositeEye.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_dualRenderFailures.load(std::memory_order_relaxed)),
+        g_dualRenderArmed.load(std::memory_order_relaxed) ? 1 : 0,
         static_cast<unsigned long long>(g_audioCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioPoseSamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_audioCorrections.load(std::memory_order_relaxed)),
@@ -1820,6 +1969,8 @@ void RemoveHPLCompatibilityProbe()
     g_postEffectBypassEnabled.store(false, std::memory_order_relaxed);
     g_postEffectIsolated.store(nullptr, std::memory_order_relaxed);
     g_f12Down.store(false, std::memory_order_relaxed);
+    g_dualRenderArmed.store(false, std::memory_order_relaxed);
+    g_dualRenderKeyDown.store(false, std::memory_order_relaxed);
     g_openxr = nullptr;
     g_glGetIntegerv = nullptr;
     g_glGetBooleanv = nullptr;

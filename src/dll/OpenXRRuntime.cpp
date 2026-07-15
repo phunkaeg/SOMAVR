@@ -723,6 +723,12 @@ struct OpenXRRuntime::Impl {
         return true;
     }
 
+    bool CapturePendingStereoEye(uint64_t frameIndex, const char* source)
+    {
+        std::lock_guard lock(mutex_);
+        return CapturePendingStereoEyeLocked(frameIndex, source);
+    }
+
     void InvalidateStereoCaches(const char* reason)
     {
         std::lock_guard lock(mutex_);
@@ -1876,46 +1882,64 @@ private:
         trackingLost_ = false;
     }
 
+    bool CapturePendingStereoEyeLocked(uint64_t frameIndex, const char* source)
+    {
+        if (!stereoSubmissionEnabled_ || !pendingRenderedEyeValid_ || !glBridge_.Ready()) {
+            return false;
+        }
+
+        const char* captureSource = source != nullptr ? source : "unspecified";
+        const uint32_t eyeIndex = pendingRenderedEye_;
+        const OpenXREyeView renderedView = pendingRenderedView_;
+        const bool captured = glBridge_.CaptureBackbufferToCache(eyeIndex);
+        pendingRenderedEyeValid_ = false;
+        if (captured) {
+            renderedStereoViews_[eyeIndex] = renderedView;
+            renderedStereoViewValid_[eyeIndex] = true;
+            lastCapturedStereoEye_ = eyeIndex;
+            ++stereoCapturedEyeCount_;
+            stereoCaptureFailures_ = 0;
+            if (stereoCapturedEyeCount_ <= 2
+                || (stereoCapturedEyeCount_ % 120) == 0
+                || std::strcmp(captureSource, "frame_boundary") != 0) {
+                Logger::Instance().Write(
+                    LogLevel::Info,
+                    "openxr_stereo_cache captured=%llu eye=%u poseFrame=%llu cachesReady=%d source=%s frame=%llu",
+                    static_cast<unsigned long long>(stereoCapturedEyeCount_),
+                    eyeIndex,
+                    static_cast<unsigned long long>(renderedView.gameFrame),
+                    glBridge_.StereoCachesReady() ? 1 : 0,
+                    captureSource,
+                    static_cast<unsigned long long>(frameIndex));
+            }
+            return true;
+        }
+
+        ++stereoCaptureFailures_;
+        if (stereoCaptureFailures_ <= 4) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_stereo_cache capture_failed eye=%u consecutive=%u source=%s frame=%llu",
+                eyeIndex,
+                stereoCaptureFailures_,
+                captureSource,
+                static_cast<unsigned long long>(frameIndex));
+        }
+        if (stereoCaptureFailures_ >= 8) {
+            stereoSubmissionEnabled_ = false;
+            renderedStereoViewValid_[0] = false;
+            renderedStereoViewValid_[1] = false;
+            Logger::Instance().Write(
+                LogLevel::Error,
+                "openxr_stereo_submission suspended reason=cache_capture_failures consecutive=%u",
+                stereoCaptureFailures_);
+        }
+        return false;
+    }
+
     void SubmitFrameLocked(uint64_t frameIndex, const HPLCameraBridgeStatus& cameraStatus)
     {
-        if (stereoSubmissionEnabled_ && pendingRenderedEyeValid_ && glBridge_.Ready()) {
-            const uint32_t eyeIndex = pendingRenderedEye_;
-            if (glBridge_.CaptureBackbufferToCache(eyeIndex)) {
-                renderedStereoViews_[eyeIndex] = pendingRenderedView_;
-                renderedStereoViewValid_[eyeIndex] = true;
-                lastCapturedStereoEye_ = eyeIndex;
-                ++stereoCapturedEyeCount_;
-                stereoCaptureFailures_ = 0;
-                if (stereoCapturedEyeCount_ <= 2 || (stereoCapturedEyeCount_ % 120) == 0) {
-                    Logger::Instance().Write(
-                        LogLevel::Info,
-                        "openxr_stereo_cache captured=%llu eye=%u poseFrame=%llu cachesReady=%d",
-                        static_cast<unsigned long long>(stereoCapturedEyeCount_),
-                        eyeIndex,
-                        static_cast<unsigned long long>(pendingRenderedView_.gameFrame),
-                        glBridge_.StereoCachesReady() ? 1 : 0);
-                }
-            } else {
-                ++stereoCaptureFailures_;
-                if (stereoCaptureFailures_ <= 4) {
-                    Logger::Instance().Write(
-                        LogLevel::Warn,
-                        "openxr_stereo_cache capture_failed eye=%u consecutive=%u",
-                        eyeIndex,
-                        stereoCaptureFailures_);
-                }
-                if (stereoCaptureFailures_ >= 8) {
-                    stereoSubmissionEnabled_ = false;
-                    renderedStereoViewValid_[0] = false;
-                    renderedStereoViewValid_[1] = false;
-                    Logger::Instance().Write(
-                        LogLevel::Error,
-                        "openxr_stereo_submission suspended reason=cache_capture_failures consecutive=%u",
-                        stereoCaptureFailures_);
-                }
-            }
-            pendingRenderedEyeValid_ = false;
-        }
+        CapturePendingStereoEyeLocked(frameIndex, "frame_boundary");
 
         XrFrameWaitInfo waitInfo{XR_TYPE_FRAME_WAIT_INFO};
         XrFrameState frameState{XR_TYPE_FRAME_STATE};
@@ -2798,6 +2822,7 @@ struct OpenXRRuntime::Impl {
 
     void SetStereoSubmissionEnabled(bool) {}
     bool MarkRenderedStereoEye(uint32_t, const OpenXREyeView&) { return false; }
+    bool CapturePendingStereoEye(uint64_t, const char*) { return false; }
     void InvalidateStereoCaches(const char*) {}
     void RequestComfortBlackout(uint32_t, const char*) {}
     void SetPresentationBlackout(bool, const char*) {}
@@ -3005,6 +3030,11 @@ void OpenXRRuntime::SetStereoSubmissionEnabled(bool enabled)
 bool OpenXRRuntime::MarkRenderedStereoEye(uint32_t eyeIndex, const OpenXREyeView& view)
 {
     return impl_->MarkRenderedStereoEye(eyeIndex, view);
+}
+
+bool OpenXRRuntime::CapturePendingStereoEye(uint64_t frameIndex, const char* source)
+{
+    return impl_->CapturePendingStereoEye(frameIndex, source);
 }
 
 void OpenXRRuntime::InvalidateStereoCaches(const char* reason)

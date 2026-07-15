@@ -21,5 +21,17 @@ void RemoveOpenGLHooks();
 void LogOpenGLProofSummary();
 uint64_t GetOpenGLRenderFrameHint();
 OpenGLTelemetrySnapshot GetOpenGLTelemetrySnapshot();
+void BeginPostEffectResourceCapture(
+    uint64_t frame,
+    uint64_t sequence,
+    int eye,
+    uint64_t poseFrame,
+    const char* effectName,
+    void* effect,
+    void* inputTexture,
+    void* renderTarget,
+    bool lastEffect,
+    bool forceCapture);
+void EndPostEffectResourceCapture(void* outputTexture);
 
 } // namespace somavr

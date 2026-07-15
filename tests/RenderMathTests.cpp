@@ -11,6 +11,7 @@
 #include "HPLSubtitleMath.h"
 #include "HPLDualRenderMath.h"
 #include "HPLTwoHandMath.h"
+#include "HPLPostEffectResourceMath.h"
 #include "OpenGLMatrixAnalysis.h"
 #include "OpenXRSpectatorMath.h"
 #include "OpenXRDepthMath.h"
@@ -43,6 +44,37 @@ int main()
     using namespace somavr;
 
     int failures = 0;
+    const post_effect_resource_math::TextureResource postTextures[] = {
+        {0x84f5u, 17u, 1920, 1080, 1, 0x8058},
+        {0x0de1u, 9u, 256, 16, 1, 0x8058},
+    };
+    const post_effect_resource_math::TextureResource postTexturesReordered[] = {
+        postTextures[1], postTextures[0],
+    };
+    const post_effect_resource_math::FramebufferResource postFramebuffers[] = {
+        {0x8d40u, 11u}, {0x8ca9u, 12u},
+    };
+    const uint64_t postSignature = post_effect_resource_math::HashResourceFootprint(
+        postTextures, 2, postFramebuffers, 2);
+    failures += Check(
+        postSignature == post_effect_resource_math::HashResourceFootprint(
+            postTexturesReordered, 2, postFramebuffers, 2),
+        "post-effect resource signature is independent of bind order");
+    failures += Check(
+        post_effect_resource_math::ClassifyEyeResourceOwnership(
+            true, postSignature, true, postSignature)
+            == post_effect_resource_math::EyeResourceOwnership::Shared,
+        "matching eye resource signatures classify as shared");
+    failures += Check(
+        post_effect_resource_math::ClassifyEyeResourceOwnership(
+            true, postSignature, true, postSignature + 1)
+            == post_effect_resource_math::EyeResourceOwnership::EyeDistinct,
+        "different eye resource signatures classify as eye-distinct");
+    failures += Check(
+        post_effect_resource_math::ClassifyEyeResourceOwnership(
+            true, postSignature, false, 0)
+            == post_effect_resource_math::EyeResourceOwnership::Unknown,
+        "single-eye resource evidence remains unknown");
     two_hand_math::TwoHandBasis twoHandBasis;
     failures += Check(
         two_hand_math::BuildTwoHandBasis(

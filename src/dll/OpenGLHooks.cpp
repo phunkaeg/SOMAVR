@@ -3,6 +3,7 @@
 #include "HPLCameraBridge.h"
 #include "HPLCompatibilityProbe.h"
 #include "HPLInputBridge.h"
+#include "HPLPostEffectResourceMath.h"
 #include "HPLPresentationBridge.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
@@ -73,6 +74,12 @@ constexpr GLenum kGLUniformIsRowMajor = 0x8A3E;
 constexpr GLenum kGLUniformBufferBinding = 0x8A28;
 constexpr GLenum kGLUniformBufferStart = 0x8A29;
 constexpr GLenum kGLUniformBufferSize = 0x8A2A;
+constexpr GLenum kGLTextureWidth = 0x1000;
+constexpr GLenum kGLTextureHeight = 0x1001;
+constexpr GLenum kGLTextureInternalFormat = 0x1003;
+constexpr GLenum kGLTextureDepth = 0x8071;
+constexpr GLenum kGLTextureCubeMap = 0x8513;
+constexpr GLenum kGLTextureCubeMapPositiveX = 0x8515;
 
 using SwapBuffersFn = BOOL(WINAPI*)(HDC);
 using WglMakeCurrentFn = BOOL(WINAPI*)(HDC, HGLRC);
@@ -82,6 +89,8 @@ using WglSwapIntervalEXTFn = BOOL(WINAPI*)(int);
 using GlGetStringFn = const GLubyte*(APIENTRY*)(GLenum);
 using GlGetIntegervFn = void(APIENTRY*)(GLenum, GLint*);
 using GlGetFloatvFn = void(APIENTRY*)(GLenum, GLfloat*);
+using GlGetTexLevelParameterivFn = void(APIENTRY*)(GLenum, GLint, GLenum, GLint*);
+using GlBindTextureFn = void(APIENTRY*)(GLenum, GLuint);
 using GlMatrixModeFn = void(APIENTRY*)(GLenum);
 using GlLoadMatrixfFn = void(APIENTRY*)(const GLfloat*);
 using GlViewportFn = void(APIENTRY*)(GLint, GLint, GLsizei, GLsizei);
@@ -129,6 +138,39 @@ struct ReflectionFadePatch {
     std::array<float, 2> authored = {};
 };
 
+constexpr size_t kMaxPostEffectTextures = 32;
+constexpr size_t kMaxPostEffectFramebuffers = 16;
+
+struct PostEffectResourceCapture {
+    bool active = false;
+    uint64_t frame = 0;
+    uint64_t sequence = 0;
+    int eye = -1;
+    uint64_t poseFrame = 0;
+    const char* effectName = "Unknown";
+    void* effect = nullptr;
+    void* inputTexture = nullptr;
+    void* renderTarget = nullptr;
+    bool lastEffect = false;
+    std::array<post_effect_resource_math::TextureResource, kMaxPostEffectTextures> textures{};
+    size_t textureCount = 0;
+    std::array<post_effect_resource_math::FramebufferResource, kMaxPostEffectFramebuffers> framebuffers{};
+    size_t framebufferCount = 0;
+    bool textureOverflow = false;
+    bool framebufferOverflow = false;
+};
+
+struct PostEffectEyeResourceState {
+    std::array<uint64_t, 2> signatures{};
+    std::array<uint64_t, 2> poseFrames{};
+    std::array<bool, 2> seen{};
+    std::array<bool, 2> resourcesObserved{};
+    post_effect_resource_math::EyeResourceOwnership ownership =
+        post_effect_resource_math::EyeResourceOwnership::Unknown;
+    uint64_t attempts = 0;
+    uint64_t calls = 0;
+};
+
 Config g_config = {};
 OpenXRRuntime* g_openxr = nullptr;
 
@@ -139,6 +181,7 @@ std::mutex g_uniformNameMutex;
 std::mutex g_matrixCaptureMutex;
 std::mutex g_renderDiagnosticMutex;
 std::mutex g_reflectionFadeMutex;
+std::mutex g_postEffectResourceMutex;
 
 bool g_minHookInitialized = false;
 bool g_hooksInstalled = false;
@@ -154,6 +197,8 @@ WglSwapIntervalEXTFn g_originalWglSwapIntervalEXT = nullptr;
 GlGetStringFn g_glGetString = nullptr;
 GlGetIntegervFn g_glGetIntegerv = nullptr;
 GlGetFloatvFn g_glGetFloatv = nullptr;
+GlGetTexLevelParameterivFn g_glGetTexLevelParameteriv = nullptr;
+GlBindTextureFn g_originalGlBindTexture = nullptr;
 GlMatrixModeFn g_originalGlMatrixMode = nullptr;
 GlLoadMatrixfFn g_originalGlLoadMatrixf = nullptr;
 GlViewportFn g_originalGlViewport = nullptr;
@@ -219,6 +264,14 @@ std::atomic<uint64_t> g_renderDiagnosticSequence = 0;
 std::atomic<bool> g_renderDiagnosticF6Down = false;
 std::atomic<bool> g_reflectionFadeF3Down = false;
 std::atomic<bool> g_reflectionFadeBypassed = false;
+std::atomic<uint64_t> g_postEffectResourceCaptures = 0;
+std::atomic<uint64_t> g_postEffectResourceLogs = 0;
+std::atomic<uint64_t> g_postEffectTextureResources = 0;
+std::atomic<uint64_t> g_postEffectFramebufferResources = 0;
+std::atomic<uint64_t> g_postEffectSharedClassifications = 0;
+std::atomic<uint64_t> g_postEffectDistinctClassifications = 0;
+thread_local PostEffectResourceCapture g_postEffectResourceCapture;
+std::unordered_map<void*, PostEffectEyeResourceState> g_postEffectEyeResources;
 std::atomic<uint64_t> g_reflectionFadePatches = 0;
 
 uint64_t g_matrixCaptureUploads = 0;
@@ -1265,7 +1318,66 @@ void APIENTRY HookGlBindFramebuffer(GLenum target, GLuint framebuffer)
     g_framebufferBindsThisFrame.fetch_add(1, std::memory_order_relaxed);
     g_totalFramebufferBinds.fetch_add(1, std::memory_order_relaxed);
     g_currentFramebuffer.store(framebuffer, std::memory_order_relaxed);
+    if (g_postEffectResourceCapture.active) {
+        bool found = false;
+        for (size_t i = 0; i < g_postEffectResourceCapture.framebufferCount; ++i) {
+            const auto& resource = g_postEffectResourceCapture.framebuffers[i];
+            if (resource.target == target && resource.framebuffer == framebuffer) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            if (g_postEffectResourceCapture.framebufferCount
+                < g_postEffectResourceCapture.framebuffers.size()) {
+                g_postEffectResourceCapture.framebuffers[
+                    g_postEffectResourceCapture.framebufferCount++] = {target, framebuffer};
+                g_postEffectFramebufferResources.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                g_postEffectResourceCapture.framebufferOverflow = true;
+            }
+        }
+    }
     g_originalGlBindFramebuffer(target, framebuffer);
+}
+
+void APIENTRY HookGlBindTexture(GLenum target, GLuint texture)
+{
+    g_originalGlBindTexture(target, texture);
+    if (!g_postEffectResourceCapture.active || texture == 0
+        || g_glGetTexLevelParameteriv == nullptr) {
+        return;
+    }
+
+    for (size_t i = 0; i < g_postEffectResourceCapture.textureCount; ++i) {
+        const auto& resource = g_postEffectResourceCapture.textures[i];
+        if (resource.target == target && resource.texture == texture) return;
+    }
+    if (g_postEffectResourceCapture.textureCount >= g_postEffectResourceCapture.textures.size()) {
+        g_postEffectResourceCapture.textureOverflow = true;
+        return;
+    }
+
+    const GLenum queryTarget = target == kGLTextureCubeMap
+        ? kGLTextureCubeMapPositiveX
+        : target;
+    GLint width = 0;
+    GLint height = 0;
+    GLint depth = 0;
+    GLint internalFormat = 0;
+    g_glGetTexLevelParameteriv(queryTarget, 0, kGLTextureWidth, &width);
+    g_glGetTexLevelParameteriv(queryTarget, 0, kGLTextureHeight, &height);
+    g_glGetTexLevelParameteriv(queryTarget, 0, kGLTextureDepth, &depth);
+    g_glGetTexLevelParameteriv(queryTarget, 0, kGLTextureInternalFormat, &internalFormat);
+    g_postEffectResourceCapture.textures[g_postEffectResourceCapture.textureCount++] = {
+        target,
+        texture,
+        width,
+        height,
+        depth,
+        internalFormat,
+    };
+    g_postEffectTextureResources.fetch_add(1, std::memory_order_relaxed);
 }
 
 BOOL WINAPI HookWglSwapIntervalEXT(int interval)
@@ -1365,7 +1477,7 @@ void MaybeInstallExtensionHook(const char* name, PROC proc)
         }
         detour = reinterpret_cast<void*>(&HookGlUseProgram);
         original = reinterpret_cast<void**>(&g_originalGlUseProgram);
-    } else if (g_config.hookFramebuffer &&
+    } else if ((g_config.hookFramebuffer || g_config.hplPostEffectResourceProbe) &&
                (NameEquals(name, "glBindFramebuffer") || NameEquals(name, "glBindFramebufferEXT"))) {
         if (g_originalGlBindFramebuffer != nullptr) {
             return;
@@ -1733,6 +1845,8 @@ void LoadCoreGLHelpers(HMODULE opengl32)
     g_glGetString = reinterpret_cast<GlGetStringFn>(GetProcAddress(opengl32, "glGetString"));
     g_glGetIntegerv = reinterpret_cast<GlGetIntegervFn>(GetProcAddress(opengl32, "glGetIntegerv"));
     g_glGetFloatv = reinterpret_cast<GlGetFloatvFn>(GetProcAddress(opengl32, "glGetFloatv"));
+    g_glGetTexLevelParameteriv = reinterpret_cast<GlGetTexLevelParameterivFn>(
+        GetProcAddress(opengl32, "glGetTexLevelParameteriv"));
 }
 
 } // namespace
@@ -1798,19 +1912,178 @@ bool InstallOpenGLHooks(const Config& config, OpenXRRuntime* openxr)
     if (config.hplRenderStageProbe) {
         anyHook |= HookExport(opengl32, "glClear", reinterpret_cast<void*>(&HookGlClear), reinterpret_cast<void**>(&g_originalGlClear));
     }
+    if (config.hplPostEffectResourceProbe) {
+        anyHook |= HookExport(opengl32, "glBindTexture", reinterpret_cast<void*>(&HookGlBindTexture), reinterpret_cast<void**>(&g_originalGlBindTexture));
+    }
 
     g_hooksInstalled = anyHook;
     Logger::Instance().Write(
         LogLevel::Info,
-        "opengl_hooks install_complete anyHook=%d opengl32=%s gdi32=%s shadowJitterControl=%d shadowJitterSuppressed=%d shadowJitterKey=F7 reflectionFadeControl=%d reflectionFadeKey=F3 renderDiagnostic=%d renderDiagnosticKey=F6",
+        "opengl_hooks install_complete anyHook=%d opengl32=%s gdi32=%s shadowJitterControl=%d shadowJitterSuppressed=%d shadowJitterKey=F7 reflectionFadeControl=%d reflectionFadeKey=F3 renderDiagnostic=%d renderDiagnosticKey=F6 postEffectResourceProbe=%d textureQuery=%d",
         anyHook ? 1 : 0,
         HexPointer(opengl32).c_str(),
         HexPointer(gdi32).c_str(),
         config.hplShadowJitterControl ? 1 : 0,
         g_shadowJitterSuppressed.load(std::memory_order_relaxed) ? 1 : 0,
         config.hplReflectionFadeControl ? 1 : 0,
-        config.renderDiagnosticCapture ? 1 : 0);
+        config.renderDiagnosticCapture ? 1 : 0,
+        config.hplPostEffectResourceProbe ? 1 : 0,
+        g_glGetTexLevelParameteriv != nullptr ? 1 : 0);
     return anyHook;
+}
+
+void BeginPostEffectResourceCapture(
+    uint64_t frame,
+    uint64_t sequence,
+    int eye,
+    uint64_t poseFrame,
+    const char* effectName,
+    void* effect,
+    void* inputTexture,
+    void* renderTarget,
+    bool lastEffect,
+    bool forceCapture)
+{
+    g_postEffectResourceCapture = {};
+    if (!g_config.hplPostEffectResourceProbe || effect == nullptr
+        || wglGetCurrentContext() == nullptr) {
+        return;
+    }
+    bool sample = forceCapture;
+    {
+        std::lock_guard lock(g_postEffectResourceMutex);
+        if (g_postEffectEyeResources.size() < 64
+            || g_postEffectEyeResources.find(effect) != g_postEffectEyeResources.end()) {
+            PostEffectEyeResourceState& state = g_postEffectEyeResources[effect];
+            const uint64_t attempt = ++state.attempts;
+            const uint64_t interval = static_cast<uint64_t>(
+                std::max(g_config.hplCompatibilityLogInterval, 1));
+            sample = sample || attempt <= 4 || attempt % interval == 0;
+        }
+    }
+    if (!sample) return;
+    g_postEffectResourceCapture.active = true;
+    g_postEffectResourceCapture.frame = frame;
+    g_postEffectResourceCapture.sequence = sequence;
+    g_postEffectResourceCapture.eye = eye;
+    g_postEffectResourceCapture.poseFrame = poseFrame;
+    g_postEffectResourceCapture.effectName = effectName != nullptr ? effectName : "Unknown";
+    g_postEffectResourceCapture.effect = effect;
+    g_postEffectResourceCapture.inputTexture = inputTexture;
+    g_postEffectResourceCapture.renderTarget = renderTarget;
+    g_postEffectResourceCapture.lastEffect = lastEffect;
+}
+
+void EndPostEffectResourceCapture(void* outputTexture)
+{
+    if (!g_postEffectResourceCapture.active) return;
+    PostEffectResourceCapture capture = g_postEffectResourceCapture;
+    g_postEffectResourceCapture = {};
+
+    const uint64_t signature = post_effect_resource_math::HashResourceFootprint(
+        capture.textures.data(),
+        capture.textureCount,
+        capture.framebuffers.data(),
+        capture.framebufferCount);
+    const uint64_t captureCount = g_postEffectResourceCaptures.fetch_add(
+        1, std::memory_order_relaxed) + 1;
+
+    post_effect_resource_math::EyeResourceOwnership ownership =
+        post_effect_resource_math::EyeResourceOwnership::Unknown;
+    bool signatureChanged = false;
+    bool ownershipChanged = false;
+    bool pairComparable = false;
+    uint64_t pairedPoseFrame = 0;
+    uint64_t effectCalls = 0;
+    {
+        std::lock_guard lock(g_postEffectResourceMutex);
+        if (g_postEffectEyeResources.size() < 64
+            || g_postEffectEyeResources.find(capture.effect) != g_postEffectEyeResources.end()) {
+            PostEffectEyeResourceState& state = g_postEffectEyeResources[capture.effect];
+            effectCalls = ++state.calls;
+            if (capture.eye == 0 || capture.eye == 1) {
+                const size_t eye = static_cast<size_t>(capture.eye);
+                signatureChanged = !state.seen[eye] || state.signatures[eye] != signature;
+                state.seen[eye] = true;
+                state.signatures[eye] = signature;
+                state.poseFrames[eye] = capture.poseFrame;
+                state.resourcesObserved[eye] = capture.textureCount != 0
+                    || capture.framebufferCount != 0;
+            }
+            pairComparable = state.seen[0] && state.seen[1]
+                && state.resourcesObserved[0] && state.resourcesObserved[1]
+                && state.poseFrames[0] != 0
+                && state.poseFrames[0] == state.poseFrames[1];
+            ownership = state.ownership;
+            if (pairComparable) {
+                pairedPoseFrame = state.poseFrames[0];
+                const auto pairedOwnership =
+                    post_effect_resource_math::ClassifyEyeResourceOwnership(
+                        true, state.signatures[0], true, state.signatures[1]);
+                ownershipChanged = pairedOwnership != state.ownership;
+                ownership = pairedOwnership;
+                if (ownershipChanged) {
+                    state.ownership = ownership;
+                    if (ownership == post_effect_resource_math::EyeResourceOwnership::Shared) {
+                        g_postEffectSharedClassifications.fetch_add(1, std::memory_order_relaxed);
+                    } else if (ownership == post_effect_resource_math::EyeResourceOwnership::EyeDistinct) {
+                        g_postEffectDistinctClassifications.fetch_add(1, std::memory_order_relaxed);
+                    }
+                }
+            }
+        }
+    }
+
+    const uint64_t interval = static_cast<uint64_t>(
+        std::max(g_config.hplCompatibilityLogInterval, 1));
+    const bool shouldLog = effectCalls <= 2 || signatureChanged || ownershipChanged
+        || captureCount % interval == 0;
+    if (!shouldLog) return;
+
+    std::ostringstream textures;
+    for (size_t i = 0; i < capture.textureCount; ++i) {
+        if (i != 0) textures << ';';
+        const auto& resource = capture.textures[i];
+        textures << "target=0x" << std::hex << resource.target
+            << ",id=" << std::dec << resource.texture
+            << ",size=" << resource.width << 'x' << resource.height << 'x' << resource.depth
+            << ",format=0x" << std::hex << resource.internalFormat << std::dec;
+    }
+    std::ostringstream framebuffers;
+    for (size_t i = 0; i < capture.framebufferCount; ++i) {
+        if (i != 0) framebuffers << ';';
+        const auto& resource = capture.framebuffers[i];
+        framebuffers << "target=0x" << std::hex << resource.target
+            << ",id=" << std::dec << resource.framebuffer;
+    }
+    g_postEffectResourceLogs.fetch_add(1, std::memory_order_relaxed);
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_post_effect_resources frame=%llu sequence=%llu capture=%llu effectCall=%llu eye=%d poseFrame=%llu pairedPoseFrame=%llu pairComparable=%d name=%s effect=%p inputObject=%p outputObject=%p renderTargetObject=%p last=%d signature=0x%llx eyeOwnership=%s signatureChanged=%d ownershipChanged=%d textures=%llu textureOverflow=%d textureBindings={%s} framebuffers=%llu framebufferOverflow=%d framebufferBindings={%s}",
+        static_cast<unsigned long long>(capture.frame),
+        static_cast<unsigned long long>(capture.sequence),
+        static_cast<unsigned long long>(captureCount),
+        static_cast<unsigned long long>(effectCalls),
+        capture.eye,
+        static_cast<unsigned long long>(capture.poseFrame),
+        static_cast<unsigned long long>(pairedPoseFrame),
+        pairComparable ? 1 : 0,
+        capture.effectName,
+        capture.effect,
+        capture.inputTexture,
+        outputTexture,
+        capture.renderTarget,
+        capture.lastEffect ? 1 : 0,
+        static_cast<unsigned long long>(signature),
+        post_effect_resource_math::EyeResourceOwnershipName(ownership),
+        signatureChanged ? 1 : 0,
+        ownershipChanged ? 1 : 0,
+        static_cast<unsigned long long>(capture.textureCount),
+        capture.textureOverflow ? 1 : 0,
+        textures.str().c_str(),
+        static_cast<unsigned long long>(capture.framebufferCount),
+        capture.framebufferOverflow ? 1 : 0,
+        framebuffers.str().c_str());
 }
 
 void RemoveOpenGLHooks()
@@ -1832,20 +2105,30 @@ void RemoveOpenGLHooks()
         std::lock_guard reflectionLock(g_reflectionFadeMutex);
         g_reflectionFadeLocations.clear();
     }
+    {
+        std::lock_guard resourceLock(g_postEffectResourceMutex);
+        g_postEffectEyeResources.clear();
+    }
+    g_postEffectResourceCapture = {};
     Logger::Instance().Write(LogLevel::Info, "opengl_hooks removed");
 }
 
 void LogOpenGLProofSummary()
 {
     LastSamples samplesCopy;
+    size_t postEffectResourceEffects = 0;
     {
         std::lock_guard lock(g_sampleMutex);
         samplesCopy = g_lastSamples;
     }
+    {
+        std::lock_guard lock(g_postEffectResourceMutex);
+        postEffectResourceEffects = g_postEffectEyeResources.size();
+    }
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "proof_summary frames=%llu swaps=%llu wglMakeCurrent=%llu renderThread=%lu shadowJitterControl=%d shadowJitterSuppressed=%d shadowJitterUploads=%llu shadowJitterOverrides=%llu reflectionFadeControl=%d reflectionFadeBypassed=%d reflectionFadePatches=%llu fixedProjection={%s} uniformProjectionName=\"%s\" uniformProjectionProgram=%u uniformProjectionLocation=%d uniformProjection={%s} %s",
+        "proof_summary frames=%llu swaps=%llu wglMakeCurrent=%llu renderThread=%lu shadowJitterControl=%d shadowJitterSuppressed=%d shadowJitterUploads=%llu shadowJitterOverrides=%llu reflectionFadeControl=%d reflectionFadeBypassed=%d reflectionFadePatches=%llu postEffectResources={enabled=%d captures=%llu logs=%llu textures=%llu framebuffers=%llu sharedClassifications=%llu distinctClassifications=%llu effects=%llu} fixedProjection={%s} uniformProjectionName=\"%s\" uniformProjectionProgram=%u uniformProjectionLocation=%d uniformProjection={%s} %s",
         static_cast<unsigned long long>(g_frameIndex.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_swapCount.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_wglMakeCurrentCount.load(std::memory_order_relaxed)),
@@ -1857,6 +2140,14 @@ void LogOpenGLProofSummary()
         g_config.hplReflectionFadeControl ? 1 : 0,
         g_reflectionFadeBypassed.load(std::memory_order_relaxed) ? 1 : 0,
         static_cast<unsigned long long>(g_reflectionFadePatches.load(std::memory_order_relaxed)),
+        g_config.hplPostEffectResourceProbe ? 1 : 0,
+        static_cast<unsigned long long>(g_postEffectResourceCaptures.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_postEffectResourceLogs.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_postEffectTextureResources.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_postEffectFramebufferResources.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_postEffectSharedClassifications.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_postEffectDistinctClassifications.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(postEffectResourceEffects),
         MatrixSummaryText(samplesCopy.fixedProjection).c_str(),
         samplesCopy.uniformName.c_str(),
         samplesCopy.uniformProgram,

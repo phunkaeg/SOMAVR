@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.36.0-two-hand-tools")
+set(SOMAVR_BUILD_VERSION "0.37.0-post-resource-probe")
 
 include(FetchContent)
 
@@ -74,6 +74,7 @@ add_library(somavr_render_math STATIC
     src/dll/HPLSubtitleMath.cpp
     src/dll/HPLDualRenderMath.cpp
     src/dll/HPLTwoHandMath.cpp
+    src/dll/HPLPostEffectResourceMath.cpp
     src/dll/OpenGLMatrixAnalysis.cpp
     src/dll/OpenXRSpectatorMath.cpp
     src/dll/OpenXRDepthMath.cpp

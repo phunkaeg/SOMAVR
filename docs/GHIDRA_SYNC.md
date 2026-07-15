@@ -1,5 +1,15 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Post-Effect Resource Ownership Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1402d7a40` | `HPL3_PostEffect_RenderOne` | Existing name retained. The function now has the exact five-argument fastcall prototype `(effect, composite, inputTexture, tempFramebuffer, isLastEffect) -> outputTexture`. The plate comment records virtual `+0x68`, native final-copy ownership, and the read-only `0.37.0` same-pose GL resource-correlation contract. |
+
+The explicitly selected `Soma_NoSteam.exe` database was saved after prototype
+and plate-comment synchronization. No texture object layout or effect-specific
+history field is claimed before live bound-resource evidence.
+
 ## 2026-07-15 Two-Hand Tool And Grab Sync
 
 | Address | Ghidra name | Evidence/use |

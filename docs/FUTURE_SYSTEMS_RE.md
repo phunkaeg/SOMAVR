@@ -773,6 +773,10 @@ Use that state to select feedback at the controller ray hit:
 - `0x14033c240`: inserts a post effect into the priority-sorted container and retains it in the effect list.
 - `0x14033b8f0`: reports whether any post effect is active.
 - `0x14033bd80`: iterates active effects in priority order and ping-pongs the render target.
+- `0x1402d7a40`: executes one exact effect with `(effect, composite,
+  inputTexture, tempFramebuffer, isLast)` and returns its output texture.
+  `0.37.0` signature-guards this boundary and correlates the call with bound GL
+  textures and framebuffer writes without changing effect execution.
 - `0x14038ae60`: creates the `ImageTrailTexture` and `ImageTrailBuffer` history resources.
 - `0x1403896e0`: initializes the chromatic-aberration shader and uniforms.
 - `0x14038a5d0`: initializes the radial-blur shader and uniforms.
@@ -796,7 +800,12 @@ Same-frame dual rendering can later restore more effects, but temporal effects s
 
 ### Implementation Stages
 
-1. **Effect activity probe:** built through `0.8.0`; logs named vtable identity, priority-tree result, active flags, input texture, render target, stage GL flow, and transitions. `Ctrl+F12` isolates one active effect per render call and `Shift+F12` restores policy. Texture dimensions remain to be mapped.
+1. **Effect activity and resource probe:** built through `0.37.0`; logs named
+   vtable identity, priority-tree result, active flags, HPL input/output objects,
+   GL texture IDs/dimensions/formats, framebuffer writes, stage GL flow, and
+   transitions. Same-pose eye pairs are classified as shared or eye-distinct.
+   `Ctrl+F12` isolates one active effect, `Shift+F12` restores policy, and
+   `Ctrl+F6` forces a paired resource capture during the bounded replay.
 2. **VR comfort policy:** first named policy built in `0.8.0`. It temporarily suppresses ImageTrail, ChromaticAberration, and RadialBlur during active stereo rendering and restores their native active bytes immediately after the compositor call.
 3. **Per-eye post chain:** ensure the scene and post composite execute inside each eye render before caching/submission.
 4. **Per-eye history:** duplicate image-trail/temporal resources only if those effects are intentionally restored.
@@ -823,7 +832,10 @@ These probes are ordered to minimize runtime risk and maximize reusable informat
 1. Player/body/action telemetry with no input mutation. **Built.**
 2. Active player/move state and camera-mode telemetry. **Built; first authored ownership policy added in `0.7.2`.**
 3. Hands/tool entity classification and matrix telemetry.
-4. Post-effect active list, priorities, framebuffer flow, and eye attribution. **Named identity, priority lookup, isolation, temporary comfort policy, and GL flow are built; texture dimensions and per-eye history ownership remain.**
+4. Post-effect active list, priorities, framebuffer flow, and eye attribution.
+   **Named identity, priority lookup, isolation, temporary comfort policy, GL
+   flow, texture dimensions/formats, and same-pose resource ownership are built;
+   live representative captures now decide which histories need duplication.**
 5. GUI-set final target and alpha behavior. **GL state/flow probe built; transparent-target redirection remains.**
 6. OpenXR controller action set and semantic input bridge. **Built; `0.14.0`
    adds a guarded native normal-state fast path with semantic fallback.**

@@ -180,6 +180,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "HPLAudioListenerCorrection=0\n"
         << "HPLAudioListenerTranslation=0\n"
         << "HPLPostEffectControl=0\n"
+        << "HPLPostEffectResourceProbe=0\n"
         << "HPLPostEffectBypassDefault=0\n"
         << "HPLPostEffectDisableImageTrail=1\n"
         << "HPLPostEffectDisableVideoDistortion=1\n"
@@ -440,6 +441,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplaudiolistenercorrection") config_.hplAudioListenerCorrection = ParseBool(value, config_.hplAudioListenerCorrection);
             else if (key == "hplaudiolistenertranslation") config_.hplAudioListenerTranslation = ParseBool(value, config_.hplAudioListenerTranslation);
             else if (key == "hplposteffectcontrol") config_.hplPostEffectControl = ParseBool(value, config_.hplPostEffectControl);
+            else if (key == "hplposteffectresourceprobe") config_.hplPostEffectResourceProbe = ParseBool(value, config_.hplPostEffectResourceProbe);
             else if (key == "hplposteffectbypassdefault") config_.hplPostEffectBypassDefault = ParseBool(value, config_.hplPostEffectBypassDefault);
             else if (key == "hplposteffectdisableimagetrail") config_.hplPostEffectDisableImageTrail = ParseBool(value, config_.hplPostEffectDisableImageTrail);
             else if (key == "hplposteffectdisablevideodistortion") config_.hplPostEffectDisableVideoDistortion = ParseBool(value, config_.hplPostEffectDisableVideoDistortion);

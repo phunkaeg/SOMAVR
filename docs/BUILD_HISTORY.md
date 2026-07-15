@@ -2,6 +2,27 @@
 
 ## 2026-07-15
 
+### 0.37.0-post-resource-probe
+
+- Added an exact-signature hook at `HPL3_PostEffect_RenderOne` (`0x1402d7a40`)
+  using the confirmed five-argument ABI and native output texture return.
+- Added bounded per-effect GL capture for bound texture target/ID, level-zero
+  dimensions/depth/internal format, framebuffer writes, HPL input/output object
+  identity, eye, and pose frame. Captures run for startup samples, the normal
+  diagnostic interval, and both halves of an armed `Ctrl+F6` replay.
+- Added canonical resource-footprint hashing and conservative eye ownership
+  classification. Shared/eye-distinct results require observed resources from
+  both eyes at the same nonzero pose frame; ordinary AFR timing cannot satisfy
+  the gate accidentally. No effect state, texture data, framebuffer attachment,
+  or render order is mutated.
+- Added generated-off/active-development-on configuration, overflow/call
+  telemetry, summary counts, and pure tests for bind-order-independent hashes
+  plus shared/distinct/unknown classification.
+- Both Release flavors and all three CTest suites pass. OpenXR DLL SHA-256:
+  `87B683886D9737C7A52CE6D9013D0DF068E355D794D8AB0D17D057E08FD54468`.
+  Package SHA-256:
+  `1EB2BB1CE6D03F8AB1262FB931EDCCA66E57F54EFDC9C6841E648436EFC991D0`.
+
 ### 0.36.0-two-hand-tools
 
 - Added support-hand pose composition for exact independent `HudObject` tools.

@@ -1,5 +1,27 @@
 # Test Checklists
 
+## 0.37.0 Post-Effect Resource Ownership
+
+1. Confirm `version=0.37.0-post-resource-probe`,
+   `postEffectResourceProbe=1`, `post_effect_render_one` hook success, and
+   `textureQuery=1`. Stop on a signature failure or missing GL helper.
+2. Enter F10 VR in a quiet lit scene and wait for both AFR eyes. Confirm named
+   `hpl_post_effect_resources` rows contain nonzero texture dimensions and/or
+   framebuffer bindings without continuous per-frame log spam.
+3. Press `Ctrl+F6` once. The replay must still report
+   `same_pose_opposite_eye`; matching effect rows must show the same nonzero
+   `pairedPoseFrame`, `pairComparable=1`, and an explicit
+   `eyeOwnership=shared_across_eyes` or `eye_distinct` result.
+4. Repeat in a bright bloom/tone-mapping view, during an authored image fade,
+   and where a named video/screen effect is active. Use `Ctrl+F12` when needed
+   to isolate one effect, then `Shift+F12` to restore the chain.
+5. Stop on changed visuals, missing effects, new stereo mismatch, texture/FBO
+   overflow, zero-sized resources, a large sustained frame-time regression, or
+   ownership classification without a same-pose pair.
+6. Set `HPLPostEffectResourceProbe=0` to verify independent rollback; post
+   policy, AFR, dual-render arming, HUD, depth, and OpenXR submission must remain
+   unchanged.
+
 ## 0.36.0 Two-Hand Tools And Grab Rotation
 
 1. Confirm `version=0.36.0-two-hand-tools`, `twoHandHudObject=1`, and

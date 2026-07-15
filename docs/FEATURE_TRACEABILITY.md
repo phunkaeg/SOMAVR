@@ -45,6 +45,7 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 | `FEATURE.SUBTITLE_PRESENTATION` | BUILT | `HPLSubtitleBridge`, `HPLSubtitleMath`, `HPLHudBridge` | `0x1401c8dd0`, `0x1401d3ba0`, `cLuxVoiceHandler +0x174/+0x178/+0x17c/+0x180`, native game HUD draw | `ADDRESS_REGISTRY.md`, `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test language, speaker names, gradual reveal, multiline wrapping, large-font mode, scale/Y calibration, immediate restoration, and HUD-layer placement |
 | `FEATURE.DESKTOP_SPECTATOR` | BUILT | `OpenXRRuntime`, `OpenXRGLBridge`, `OpenXRSpectatorMath` | AFR eye caches, pre-SwapBuffers frame boundary, GL backbuffer blit | `BUILD_HISTORY.md`, `ARCHITECTURE.md`, `TEST_CHECKLISTS.md` | Live-test left/right eye identity, fit/fill/stretch, window modes, HUD expectations, and native rollback |
 | `FEATURE.POST_EFFECT_POLICY` | BUILT | `HPLCompatibilityProbe`, `OpenGLHooks` | `0x14033b8f0`, `0x14033bd80`, priority tree `+0x328`, named vtables, active byte `+0x31`, exact VideoDistortion type | `FUTURE_SYSTEMS_RE.md`, `BUILD_HISTORY.md`, `RUNTIME_ANALYSIS_0.5.2.md` | Live-test suppression of ImageTrail, VideoDistortion, ChromaticAberration, and RadialBlur while fades/tone mapping remain intact |
+| `FEATURE.POST_EFFECT_RESOURCES` | BUILT | `HPLCompatibilityProbe`, `OpenGLHooks`, `HPLPostEffectResourceMath` | `0x1402d7a40`, effect virtual `+0x68`, HPL input/output texture identity, GL texture target/ID/dimensions/format, framebuffer writes, same-pose eye signatures | `FUTURE_SYSTEMS_RE.md`, `ADDRESS_REGISTRY.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Run `Ctrl+F6` in representative tone/bloom/fade/video scenes; classify shared versus eye-distinct resources and use direct evidence to split histories or promote stateless effects |
 | `FEATURE.SCREEN_MATERIAL_CONVERGENCE` | BUILT | `HPLScreenEffectBridge`, `HPLScreenEffectMath`, `HPLCameraBridge` | `0x14024a2f0`, `0x140252700`, `0x1402936c0`, `0x140291700`, exact `Screen Particle<decimal>` identity | `FUTURE_SYSTEMS_RE.md`, `ADDRESS_REGISTRY.md`, `BUILD_HISTORY.md`, `TEST_CHECKLISTS.md` | Live-test shipped screen effects at 1.5 m, F10 rollback, native timing/opacity, destruction pairing, and zero unrelated billboard changes |
 | `FEATURE.SHADOW_STABILITY` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | fully centered projection, programs `942/944` | `VR_COMPATIBILITY_RE.md`, `RUNTIME_ANALYSIS_0.5.6.md` | Regression-test additional levels and light types |
 | `FEATURE.REFLECTION_STABILITY` | PROVEN | `HPLCameraBridge`, `HPLCameraMath` | fully centered projection, program `985` redirect | `VR_COMPATIBILITY_RE.md`, `RUNTIME_ANALYSIS_0.5.6.md` | Regression-test additional reflective materials and levels |
@@ -104,6 +105,8 @@ FEATURE.AFR_STEREO requires FEATURE.XR_GL_SUBMISSION
 FEATURE.DUAL_RENDER requires FEATURE.AFR_STEREO
 FEATURE.DUAL_RENDER requires FEATURE.TELEMETRY
 FEATURE.POST_EFFECT_POLICY requires FEATURE.DUAL_RENDER
+FEATURE.POST_EFFECT_RESOURCES requires FEATURE.DUAL_RENDER
+FEATURE.POST_EFFECT_POLICY requires FEATURE.POST_EFFECT_RESOURCES
 FEATURE.SHADOW_STABILITY requires FEATURE.AFR_STEREO
 FEATURE.REFLECTION_STABILITY requires FEATURE.AFR_STEREO
 FEATURE.DUAL_RENDER requires FEATURE.SHADOW_STABILITY

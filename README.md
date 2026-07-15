@@ -153,7 +153,10 @@ This is not yet a sustained simultaneous dual-eye renderer. OpenXR transport,
 native head tracking, and AFR stereo geometry are proven. `0.35.0` adds a
 one-frame exact-player replay to validate the remaining callback, temporal, and
 performance contracts before promotion. `0.36.0` also advances physical
-presence with bounded two-hand independent-tool and carried-object control:
+presence with bounded two-hand independent-tool and carried-object control.
+`0.37.0` maps each active post effect's bound GL textures, dimensions, formats,
+and framebuffer writes, and classifies same-pose left/right resources as shared
+or eye-distinct:
 
 - signature-guarded native eye view/projection integration,
 - persistent per-eye OpenGL cache transfer,
@@ -230,6 +233,7 @@ HPLAudioListenerProbe=1
 HPLAudioListenerCorrection=1
 HPLAudioListenerTranslation=1
 HPLPostEffectControl=1
+HPLPostEffectResourceProbe=1
 HPLPostEffectBypassDefault=0
 HPLPostEffectDisableImageTrail=1
 HPLPostEffectDisableVideoDistortion=1

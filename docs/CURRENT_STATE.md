@@ -21,10 +21,20 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.36.0-two-hand-tools`, layered on the
+The active build candidate is `0.37.0-post-resource-probe`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- The exact `HPL3_PostEffect_RenderOne` boundary now wraps each active effect in
+  a read-only GL resource capture. Bound textures are identified by target, GL
+  ID, level-zero dimensions, depth, and internal format; framebuffer writes and
+  HPL input/output object identities are recorded alongside eye and pose frame.
+  Ownership is classified only from resource-bearing left/right captures with
+  the same nonzero pose frame. Startup and interval sampling are bounded, while
+  `Ctrl+F6` forces both halves of the one-frame replay pair. This closes the
+  evidence gap before per-eye tone/bloom/grading promotion or temporal-history
+  duplication.
 
 - Exact independent `HudObject` tools and Grab-state physics bodies now have an
   optional two-hand direction owner. The dominant grip remains the position

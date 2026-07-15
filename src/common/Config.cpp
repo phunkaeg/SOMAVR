@@ -299,6 +299,8 @@ void ConfigManager::WriteDefaultConfig() const
         << "SmoothTurnDegreesPerSecond=120\n"
         << "NativeTurnSign=-1\n"
         << "Interaction=1\n"
+        << "AimGuide=0\n"
+        << "AimGuideLengthMeters=1.2\n"
         << "Flashlight=1\n"
         << "Inventory=1\n"
         << "Menu=1\n"
@@ -358,6 +360,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "ManipulationMappings=1\n"
         << "ManipulationMotion=0\n"
         << "ManipulationMotionPixelsPerMeter=900\n"
+        << "ManipulationSlidePixelsPerMeter=2700\n"
         << "ManipulationMotionDeadzoneMeters=0.0005\n"
         << "ManipulationMotionMaxPixelsPerFrame=80\n"
         << "ManipulationMotionHorizontalSign=1\n"
@@ -718,7 +721,9 @@ void ConfigManager::LoadFromFile()
             else if (key == "nativelocomotion") config_.hplControllerNativeLocomotion = ParseBool(value, config_.hplControllerNativeLocomotion);
             else if (key == "movementreference") {
                 const std::string reference = Lower(Trim(value));
-                if (reference == "body" || reference == "head") config_.hplControllerMovementReference = reference;
+                if (reference == "body" || reference == "head" || reference == "controller") {
+                    config_.hplControllerMovementReference = reference;
+                }
             }
             else if (key == "physicalcrouch") config_.hplControllerPhysicalCrouch = ParseBool(value, config_.hplControllerPhysicalCrouch);
             else if (key == "physicalcrouchentermeters") config_.hplControllerPhysicalCrouchEnterMeters = ParseFloat(value, config_.hplControllerPhysicalCrouchEnterMeters, 0.10f, 1.20f);
@@ -733,6 +738,8 @@ void ConfigManager::LoadFromFile()
             else if (key == "smoothturndegreespersecond") config_.hplControllerSmoothTurnDegreesPerSecond = ParseFloat(value, config_.hplControllerSmoothTurnDegreesPerSecond, 1.0f, 720.0f);
             else if (key == "nativeturnsign") config_.hplControllerNativeTurnSign = ParseFloat(value, config_.hplControllerNativeTurnSign, -1.0f, 1.0f);
             else if (key == "interaction") config_.hplControllerInteraction = ParseBool(value, config_.hplControllerInteraction);
+            else if (key == "aimguide") config_.hplControllerAimGuide = ParseBool(value, config_.hplControllerAimGuide);
+            else if (key == "aimguidelengthmeters") config_.hplControllerAimGuideLengthMeters = ParseFloat(value, config_.hplControllerAimGuideLengthMeters, 0.3f, 4.0f);
             else if (key == "flashlight") config_.hplControllerFlashlight = ParseBool(value, config_.hplControllerFlashlight);
             else if (key == "inventory") config_.hplControllerInventory = ParseBool(value, config_.hplControllerInventory);
             else if (key == "menu") config_.hplControllerMenu = ParseBool(value, config_.hplControllerMenu);
@@ -795,6 +802,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "manipulationmappings") config_.hplControllerManipulationMappings = ParseBool(value, config_.hplControllerManipulationMappings);
             else if (key == "manipulationmotion") config_.hplControllerManipulationMotion = ParseBool(value, config_.hplControllerManipulationMotion);
             else if (key == "manipulationmotionpixelspermeter") config_.hplControllerManipulationMotionPixelsPerMeter = ParseFloat(value, config_.hplControllerManipulationMotionPixelsPerMeter, 10.0f, 10000.0f);
+            else if (key == "manipulationslidepixelspermeter") config_.hplControllerManipulationSlidePixelsPerMeter = ParseFloat(value, config_.hplControllerManipulationSlidePixelsPerMeter, 10.0f, 20000.0f);
             else if (key == "manipulationmotiondeadzonemeters") config_.hplControllerManipulationMotionDeadzoneMeters = ParseFloat(value, config_.hplControllerManipulationMotionDeadzoneMeters, 0.0f, 0.05f);
             else if (key == "manipulationmotionmaxpixelsperframe") config_.hplControllerManipulationMotionMaxPixelsPerFrame = ParseInt(value, config_.hplControllerManipulationMotionMaxPixelsPerFrame, 1, 1000);
             else if (key == "manipulationmotionhorizontalsign") config_.hplControllerManipulationMotionHorizontalSign = ParseFloat(value, config_.hplControllerManipulationMotionHorizontalSign, -1.0f, 1.0f);

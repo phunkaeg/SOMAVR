@@ -86,6 +86,14 @@ struct OpenXRInteractionReticleState {
     OpenXRControllerPose aimPose{};
 };
 
+struct OpenXRControllerAimGuideState {
+    bool valid = false;
+    uint64_t gameFrame = 0;
+    uint32_t handIndex = 1;
+    float lengthMeters = 1.2f;
+    OpenXRControllerPose aimPose{};
+};
+
 struct OpenXRStatusPanelState {
     bool visible = false;
     int selectedAction = 0;
@@ -238,6 +246,8 @@ public:
     void SetInteractionReticle(const OpenXRInteractionReticleState& state);
     void SetInteractionReticleSemantic(int crosshairState);
     void ClearInteractionReticle();
+    void SetControllerAimGuide(const OpenXRControllerAimGuideState& state);
+    void ClearControllerAimGuide();
     void SetStatusPanel(const OpenXRStatusPanelState& state);
     void SetHudRuntimeVisible(bool visible);
     bool ToggleHudLayerShape();

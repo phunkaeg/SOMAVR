@@ -167,35 +167,46 @@ bool Near(float left, float right)
     return std::abs(left - right) <= 1.0e-5f * std::max(1.0f, std::max(std::abs(left), std::abs(right)));
 }
 
-bool Equivalent(const ToneMappingPacket& left, const ToneMappingPacket& right)
+uint32_t DifferenceMask(const ToneMappingPacket& left, const ToneMappingPacket& right)
 {
+    enum : uint32_t {
+        Exposure = 1u << 0,
+        WhiteCut = 1u << 1,
+        GradingPointers = 1u << 2,
+        GradingTransition = 1u << 3,
+        ExposureWindow = 1u << 4,
+        Transition = 1u << 5,
+        FilmGrain = 1u << 6,
+    };
+    uint32_t differences = 0;
     bool filmGrainEquivalent = Near(left.filmGrainPhase, right.filmGrainPhase);
     for (size_t i = 0; i < 4; ++i) {
         filmGrainEquivalent = filmGrainEquivalent
             && Near(left.filmGrainCurrent[i], right.filmGrainCurrent[i])
             && Near(left.filmGrainNext[i], right.filmGrainNext[i]);
     }
-    return filmGrainEquivalent
-        && left.gradingTexture == right.gradingTexture
-        && left.targetGradingTexture == right.targetGradingTexture
-        && left.queuedGradingTexture == right.queuedGradingTexture
-        && left.gradingTransition == right.gradingTransition
-        && Near(left.exposure, right.exposure)
-        && Near(left.whiteCut, right.whiteCut)
-        && Near(left.gradingTransitionSpeed, right.gradingTransitionSpeed)
-        && Near(left.queuedGradingTransitionSpeed, right.queuedGradingTransitionSpeed)
-        && Near(left.gradingTransitionWeight, right.gradingTransitionWeight)
-        && Near(left.exposureSrc, right.exposureSrc)
-        && Near(left.exposureDst, right.exposureDst)
-        && Near(left.whiteCutSrc, right.whiteCutSrc)
-        && Near(left.whiteCutDst, right.whiteCutDst)
-        && Near(left.windowExposure, right.windowExposure)
-        && Near(left.windowWhiteCut, right.windowWhiteCut)
-        && Near(left.windowExposureTarget, right.windowExposureTarget)
-        && Near(left.windowWhiteCutTarget, right.windowWhiteCutTarget)
-        && Near(left.transition, right.transition)
-        && Near(left.transitionTime, right.transitionTime)
-        && Near(left.transitionSpeed, right.transitionSpeed);
+    if (!Near(left.exposure, right.exposure)
+        || !Near(left.exposureSrc, right.exposureSrc)
+        || !Near(left.exposureDst, right.exposureDst)) differences |= Exposure;
+    if (!Near(left.whiteCut, right.whiteCut)
+        || !Near(left.whiteCutSrc, right.whiteCutSrc)
+        || !Near(left.whiteCutDst, right.whiteCutDst)) differences |= WhiteCut;
+    if (left.gradingTexture != right.gradingTexture
+        || left.targetGradingTexture != right.targetGradingTexture
+        || left.queuedGradingTexture != right.queuedGradingTexture) differences |= GradingPointers;
+    if (left.gradingTransition != right.gradingTransition
+        || !Near(left.gradingTransitionSpeed, right.gradingTransitionSpeed)
+        || !Near(left.queuedGradingTransitionSpeed, right.queuedGradingTransitionSpeed)
+        || !Near(left.gradingTransitionWeight, right.gradingTransitionWeight)) differences |= GradingTransition;
+    if (!Near(left.windowExposure, right.windowExposure)
+        || !Near(left.windowWhiteCut, right.windowWhiteCut)
+        || !Near(left.windowExposureTarget, right.windowExposureTarget)
+        || !Near(left.windowWhiteCutTarget, right.windowWhiteCutTarget)) differences |= ExposureWindow;
+    if (!Near(left.transition, right.transition)
+        || !Near(left.transitionTime, right.transitionTime)
+        || !Near(left.transitionSpeed, right.transitionSpeed)) differences |= Transition;
+    if (!filmGrainEquivalent) differences |= FilmGrain;
+    return differences;
 }
 
 void Fault(const char* reason, void* effect)
@@ -313,18 +324,32 @@ void EndHPLToneMappingFrame(void* effect)
             Fault("committed_packet_missing", effect);
             return;
         }
-        if (!Equivalent(output, state.committed)) {
+        const uint32_t differences = DifferenceMask(output, state.committed);
+        if (differences != 0) {
             const uint64_t mismatch = g_mismatches.fetch_add(1, std::memory_order_relaxed) + 1;
-            Logger::Instance().Write(
-                LogLevel::Warn,
-                "hpl_tone_mapping_frame mismatch=%llu effect=%p poseFrame=%llu firstExposure=%.6f replayExposure=%.6f firstWhiteCut=%.6f replayWhiteCut=%.6f action=restore_first_commit",
-                static_cast<unsigned long long>(mismatch),
-                effect,
-                static_cast<unsigned long long>(pass.poseFrame),
-                state.committed.exposure,
-                output.exposure,
-                state.committed.whiteCut,
-                output.whiteCut);
+            if (mismatch <= 8 || mismatch % 300 == 0) {
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "hpl_tone_mapping_frame mismatch=%llu effect=%p poseFrame=%llu differenceMask=0x%x firstExposure=%.6f replayExposure=%.6f firstWhiteCut=%.6f replayWhiteCut=%.6f firstTransition=%.6f replayTransition=%.6f firstFilmPhase=%.6f replayFilmPhase=%.6f firstGrading=%p,%p,%p replayGrading=%p,%p,%p action=restore_first_commit",
+                    static_cast<unsigned long long>(mismatch),
+                    effect,
+                    static_cast<unsigned long long>(pass.poseFrame),
+                    differences,
+                    state.committed.exposure,
+                    output.exposure,
+                    state.committed.whiteCut,
+                    output.whiteCut,
+                    state.committed.transition,
+                    output.transition,
+                    state.committed.filmGrainPhase,
+                    output.filmGrainPhase,
+                    state.committed.gradingTexture,
+                    state.committed.targetGradingTexture,
+                    state.committed.queuedGradingTexture,
+                    output.gradingTexture,
+                    output.targetGradingTexture,
+                    output.queuedGradingTexture);
+            }
         }
         if (!WritePacket(effect, state.committed)) {
             Fault("committed_packet_restore_failed", effect);

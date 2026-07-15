@@ -282,12 +282,14 @@ struct OpenXRRuntime::Impl {
             statusPanelVerticalOffsetMeters_);
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_comfort_vignette_config configured=%d enabled=%d size=%d distance=%.3f widthMeters=%.3f strength=%.3f innerRadius=%.3f fadeMs=%d maxMotionAgeFrames=%d",
+            "openxr_comfort_vignette_config configured=%d enabled=%d size=%d distance=%.3f widthMeters=%.3f angularWidthDegrees=%.2f strength=%.3f innerRadius=%.3f fadeMs=%d maxMotionAgeFrames=%d",
             comfortVignetteConfigured_ ? 1 : 0,
             comfortVignetteEnabled_ ? 1 : 0,
             comfortVignetteSizePixels_,
             comfortVignetteDistanceMeters_,
             comfortVignetteWidthMeters_,
+            2.0f * std::atan(comfortVignetteWidthMeters_
+                / (2.0f * comfortVignetteDistanceMeters_)) * 180.0f / 3.14159265358979323846f,
             comfortVignetteStrength_,
             comfortVignetteInnerRadius_,
             comfortVignetteFadeMilliseconds_,
@@ -502,6 +504,7 @@ struct OpenXRRuntime::Impl {
         hudSubmissionSuspended_ = false;
         hudConsecutiveFailures_ = 0;
         interactionReticleState_ = {};
+        controllerAimGuideState_ = {};
         interactionReticleSubmissionSuspended_ = false;
         interactionReticleConsecutiveFailures_ = 0;
         releaseFrame_ = 0;
@@ -576,6 +579,10 @@ struct OpenXRRuntime::Impl {
             << " openxrComfortVignetteEnabled=" << (comfortVignetteEnabled_ ? 1 : 0)
             << " openxrComfortVignetteReady=" << (glBridge_.ComfortVignetteReady() ? 1 : 0)
             << " openxrComfortVignetteLevel=" << comfortVignetteLevel_
+            << " openxrComfortVignetteDistanceMeters=" << comfortVignetteDistanceMeters_
+            << " openxrComfortVignetteWidthMeters=" << comfortVignetteWidthMeters_
+            << " openxrComfortVignetteStrength=" << comfortVignetteStrength_
+            << " openxrComfortVignetteInnerRadius=" << comfortVignetteInnerRadius_
             << " openxrComfortVignetteSubmittedFrames="
                 << static_cast<unsigned long long>(comfortVignetteSubmittedFrames_)
             << " openxrComfortVignetteSubmissionFailures="
@@ -587,6 +594,10 @@ struct OpenXRRuntime::Impl {
             << " openxrStereoSubmission=" << (stereoSubmissionEnabled_ ? 1 : 0)
             << " openxrStereoCapturedEyes=" << static_cast<unsigned long long>(stereoCapturedEyeCount_)
             << " openxrStereoSubmittedFrames=" << static_cast<unsigned long long>(stereoSubmittedFrameCount_)
+            << " openxrStereoPoseFrameGapLatest=" << static_cast<unsigned long long>(stereoPoseFrameGapLatest_)
+            << " openxrStereoPoseFrameGapMax=" << static_cast<unsigned long long>(stereoPoseFrameGapMax_)
+            << " openxrStereoPoseFrameGapNonzero=" << static_cast<unsigned long long>(stereoPoseFrameGapNonzero_)
+            << " openxrStereoPoseFrameGapSamples=" << static_cast<unsigned long long>(stereoPoseFrameGapSamples_)
             << " openxrHudLayer=" << (hudLayerEnabled_ ? 1 : 0)
             << " openxrHudShapeRequested=" << (hudCylinderRequested_ ? "cylinder" : "quad")
             << " openxrHudShapeEffective=" << (hudCylinderRequested_
@@ -619,6 +630,9 @@ struct OpenXRRuntime::Impl {
             << " openxrInteractionReticleExpired=" << static_cast<unsigned long long>(interactionReticleExpired_)
             << " openxrInteractionReticleSubmittedFrames=" << static_cast<unsigned long long>(interactionReticleSubmittedFrames_)
             << " openxrInteractionReticleSubmissionFailures=" << static_cast<unsigned long long>(interactionReticleSubmissionFailures_)
+            << " openxrControllerAimGuideValid=" << (controllerAimGuideState_.valid ? 1 : 0)
+            << " openxrControllerAimGuideUpdates=" << static_cast<unsigned long long>(controllerAimGuideUpdates_)
+            << " openxrControllerAimGuideSubmittedFrames=" << static_cast<unsigned long long>(controllerAimGuideSubmittedFrames_)
             << " openxrStatusPanel=" << (statusPanelEnabled_ ? 1 : 0)
             << " openxrStatusPanelReady=" << (glBridge_.StatusPanelReady() ? 1 : 0)
             << " openxrStatusPanelVisible=" << (statusPanelState_.visible ? 1 : 0)
@@ -783,6 +797,31 @@ struct OpenXRRuntime::Impl {
             interactionReticleState_ = {};
             ++interactionReticleClears_;
         }
+    }
+
+    void SetControllerAimGuide(const OpenXRControllerAimGuideState& state)
+    {
+        std::lock_guard lock(mutex_);
+        if (!interactionReticleEnabled_
+            || !state.valid
+            || state.handIndex >= 2
+            || !state.aimPose.valid
+            || !state.aimPose.orientationTracked
+            || !state.aimPose.positionTracked
+            || !std::isfinite(state.lengthMeters)
+            || state.lengthMeters < 0.3f
+            || state.lengthMeters > 4.0f) {
+            controllerAimGuideState_ = {};
+            return;
+        }
+        controllerAimGuideState_ = state;
+        ++controllerAimGuideUpdates_;
+    }
+
+    void ClearControllerAimGuide()
+    {
+        std::lock_guard lock(mutex_);
+        controllerAimGuideState_ = {};
     }
 
     void SetStatusPanel(const OpenXRStatusPanelState& state)
@@ -1567,6 +1606,7 @@ private:
             properties.graphicsProperties.maxLayerCount,
             properties.trackingProperties.orientationTracking ? 1 : 0,
             properties.trackingProperties.positionTracking ? 1 : 0);
+        maxLayerCount_ = std::max(properties.graphicsProperties.maxLayerCount, 1u);
     }
 
     void LogViewConfigurationLocked()
@@ -2413,9 +2453,10 @@ private:
         XrCompositionLayerQuad hudLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
         XrCompositionLayerCylinderKHR hudCylinderLayer{XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
         XrCompositionLayerQuad interactionReticleLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
+        std::array<XrCompositionLayerQuad, 3> controllerAimGuideLayers{};
         XrCompositionLayerQuad statusPanelLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
         XrCompositionLayerQuad comfortVignetteLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
-        const XrCompositionLayerBaseHeader* layers[5] = {};
+        const XrCompositionLayerBaseHeader* layers[8] = {};
         uint32_t layerCount = 0;
         uint32_t locatedViewCount = 0;
         XrViewState viewState{XR_TYPE_VIEW_STATE};
@@ -2424,6 +2465,7 @@ private:
         bool submittedHud = false;
         bool submittedHudCylinder = false;
         bool submittedInteractionReticle = false;
+        bool submittedControllerAimGuide = false;
         bool submittedStatusPanel = false;
         bool submittedComfortVignette = false;
         bool viewsLocatedValid = false;
@@ -2480,6 +2522,16 @@ private:
                     && glBridge_.StereoCachesReady()
                     && renderedStereoViewValid_[0]
                     && renderedStereoViewValid_[1];
+                if (stereoReady) {
+                    const uint64_t leftFrame = renderedStereoViews_[0].gameFrame;
+                    const uint64_t rightFrame = renderedStereoViews_[1].gameFrame;
+                    const uint64_t gap = leftFrame >= rightFrame
+                        ? leftFrame - rightFrame : rightFrame - leftFrame;
+                    ++stereoPoseFrameGapSamples_;
+                    if (gap != 0) ++stereoPoseFrameGapNonzero_;
+                    stereoPoseFrameGapMax_ = std::max(stereoPoseFrameGapMax_, gap);
+                    stereoPoseFrameGapLatest_ = gap;
+                }
                 if (stereoSubmissionEnabled_ && !stereoReady) {
                     copied = false;
                     if (!stereoWarmupLogged_) {
@@ -2765,6 +2817,94 @@ private:
             }
         }
 
+        const bool controllerAimGuideFresh = controllerAimGuideState_.valid
+            && frameIndex >= controllerAimGuideState_.gameFrame
+            && frameIndex - controllerAimGuideState_.gameFrame
+                <= static_cast<uint64_t>(interactionReticleMaxAgeFrames_);
+        const uint32_t reservedGuideLayers =
+            (statusPanelEnabled_ && statusPanelState_.visible ? 1u : 0u)
+            + (comfortVignetteEnabled_ && comfortVignetteLevel_ > 0.001f ? 1u : 0u);
+        const size_t controllerAimGuideSegmentCount = maxLayerCount_ > layerCount + reservedGuideLayers
+            ? std::min<size_t>(
+                controllerAimGuideLayers.size(),
+                maxLayerCount_ - layerCount - reservedGuideLayers)
+            : 0;
+        if (frameState.shouldRender == XR_TRUE
+            && layerCount > 0
+            && !submittedInteractionReticle
+            && interactionReticleEnabled_
+            && interactionReticleRuntimeVisible_
+            && !interactionReticleSubmissionSuspended_
+            && stereoSubmissionEnabled_
+            && appSpace_ != XR_NULL_HANDLE
+            && controllerAimGuideFresh
+            && controllerAimGuideSegmentCount > 0
+            && glBridge_.InteractionReticleReady()) {
+            const OpenXRControllerPose& aim = controllerAimGuideState_.aimPose;
+            bool guideValid = glBridge_.DrawInteractionReticleToSwapchain(
+                1, 0.20f, 0.90f, 1.0f, 0.82f);
+            for (size_t segment = 0; segment < controllerAimGuideSegmentCount && guideValid; ++segment) {
+                const float distanceMeters = controllerAimGuideState_.lengthMeters
+                    * static_cast<float>(segment + 1)
+                    / static_cast<float>(controllerAimGuideSegmentCount);
+                float guideSizeMeters = 0.0f;
+                hud_math::HudQuadPose guidePose;
+                guideValid = hud_math::ComputeAngularQuadSize(
+                        distanceMeters,
+                        interactionReticleAngularSizeDegrees_ * 0.72f,
+                        interactionReticleMinSizeMeters_,
+                        interactionReticleMaxSizeMeters_,
+                        guideSizeMeters)
+                    && hud_math::BuildHeadLockedQuadPose(
+                        {aim.positionX, aim.positionY, aim.positionZ},
+                        {aim.orientationX, aim.orientationY, aim.orientationZ, aim.orientationW},
+                        distanceMeters,
+                        0.0f,
+                        guideSizeMeters,
+                        1.0f,
+                        guidePose);
+                if (!guideValid) break;
+
+                XrCompositionLayerQuad& guideLayer = controllerAimGuideLayers[segment];
+                guideLayer = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+                guideLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                guideLayer.space = appSpace_;
+                guideLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                guideLayer.pose.orientation = {
+                    guidePose.orientation.x,
+                    guidePose.orientation.y,
+                    guidePose.orientation.z,
+                    guidePose.orientation.w,
+                };
+                guideLayer.pose.position = {
+                    guidePose.position.x,
+                    guidePose.position.y,
+                    guidePose.position.z,
+                };
+                guideLayer.size = {guidePose.widthMeters, guidePose.heightMeters};
+                guideLayer.subImage.swapchain = glBridge_.InteractionReticle().handle;
+                guideLayer.subImage.imageRect.offset = {0, 0};
+                guideLayer.subImage.imageRect.extent = {
+                    glBridge_.InteractionReticle().width,
+                    glBridge_.InteractionReticle().height,
+                };
+                guideLayer.subImage.imageArrayIndex = 0;
+            }
+            if (guideValid) {
+                for (size_t segment = 0; segment < controllerAimGuideSegmentCount; ++segment) {
+                    XrCompositionLayerQuad& guideLayer = controllerAimGuideLayers[segment];
+                    layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
+                        &guideLayer);
+                }
+                submittedControllerAimGuide = true;
+                interactionReticleConsecutiveFailures_ = 0;
+                ++controllerAimGuideSubmittedFrames_;
+            } else {
+                ++interactionReticleSubmissionFailures_;
+                ++interactionReticleConsecutiveFailures_;
+            }
+        }
+
         if (frameState.shouldRender == XR_TRUE
             && layerCount > 0
             && statusPanelEnabled_
@@ -3004,17 +3144,21 @@ private:
         if (completedXrFrameCount_ == 1 || (completedXrFrameCount_ % 300) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d depth=%d hud=%d hudShape=%s reticle=%d statusPanel=%d comfortVignette=%d comfortVignetteLevel=%.3f spectatorFrames=%llu stereoCaptured=%llu stereoSubmitted=%llu depthSubmitted=%llu depthFailures=%llu hudSubmitted=%llu reticleSubmitted=%llu panelSubmitted=%llu vignetteSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
+                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d stereoPoseFrames=%llu,%llu stereoPoseGap=%llu depth=%d hud=%d hudShape=%s reticle=%d aimGuide=%d statusPanel=%d comfortVignette=%d comfortVignetteLevel=%.3f spectatorFrames=%llu stereoCaptured=%llu stereoSubmitted=%llu depthSubmitted=%llu depthFailures=%llu hudSubmitted=%llu reticleSubmitted=%llu aimGuideSubmitted=%llu panelSubmitted=%llu vignetteSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
                 static_cast<unsigned long long>(frameIndex),
                 static_cast<unsigned long long>(completedXrFrameCount_),
                 frameState.shouldRender == XR_TRUE ? 1 : 0,
                 layerCount,
                 locatedViewCount,
                 submittedStereo ? 1 : 0,
+                static_cast<unsigned long long>(renderedStereoViews_[0].gameFrame),
+                static_cast<unsigned long long>(renderedStereoViews_[1].gameFrame),
+                static_cast<unsigned long long>(stereoPoseFrameGapLatest_),
                 submittedDepth ? 1 : 0,
                 submittedHud ? 1 : 0,
                 submittedHud ? (submittedHudCylinder ? "cylinder" : "quad") : "none",
                 submittedInteractionReticle ? 1 : 0,
+                submittedControllerAimGuide ? 1 : 0,
                 submittedStatusPanel ? 1 : 0,
                 submittedComfortVignette ? 1 : 0,
                 comfortVignetteLevel_,
@@ -3025,6 +3169,7 @@ private:
                 static_cast<unsigned long long>(depthSubmissionFailures_),
                 static_cast<unsigned long long>(hudSubmittedFrames_),
                 static_cast<unsigned long long>(interactionReticleSubmittedFrames_),
+                static_cast<unsigned long long>(controllerAimGuideSubmittedFrames_),
                 static_cast<unsigned long long>(statusPanelSubmittedFrames_),
                 static_cast<unsigned long long>(comfortVignetteSubmittedFrames_),
                 static_cast<long long>(frameState.predictedDisplayTime),
@@ -3247,6 +3392,10 @@ private:
     uint32_t stereoCaptureFailures_ = 0;
     uint64_t stereoCapturedEyeCount_ = 0;
     uint64_t stereoSubmittedFrameCount_ = 0;
+    uint64_t stereoPoseFrameGapLatest_ = 0;
+    uint64_t stereoPoseFrameGapMax_ = 0;
+    uint64_t stereoPoseFrameGapNonzero_ = 0;
+    uint64_t stereoPoseFrameGapSamples_ = 0;
     uint64_t depthSubmittedFrameCount_ = 0;
     uint64_t depthSubmissionFailures_ = 0;
     uint64_t foveationApplications_ = 0;
@@ -3264,6 +3413,8 @@ private:
     uint64_t interactionReticleExpired_ = 0;
     uint64_t interactionReticleSubmittedFrames_ = 0;
     uint64_t interactionReticleSubmissionFailures_ = 0;
+    uint64_t controllerAimGuideUpdates_ = 0;
+    uint64_t controllerAimGuideSubmittedFrames_ = 0;
     uint64_t statusPanelSubmittedFrames_ = 0;
     uint64_t statusPanelSubmissionFailures_ = 0;
     uint64_t comfortVignetteMotionFrame_ = 0;
@@ -3288,6 +3439,7 @@ private:
     OpenXREyeView pendingRenderedView_{};
     OpenXREyeView renderedStereoViews_[2] = {};
     OpenXRInteractionReticleState interactionReticleState_{};
+    OpenXRControllerAimGuideState controllerAimGuideState_{};
     OpenXRStatusPanelState statusPanelState_{};
     std::vector<uint8_t> statusPanelPixels_;
     std::vector<uint8_t> comfortVignettePixels_;
@@ -3318,6 +3470,7 @@ private:
     uint32_t eventLogCount_ = 0;
     uint32_t viewCount_ = 0;
     uint32_t swapchainFormatCount_ = 0;
+    uint32_t maxLayerCount_ = 1;
     std::vector<XrViewConfigurationView> viewConfigurationViews_;
     std::vector<int64_t> swapchainFormats_;
     std::vector<XrView> locatedViews_;
@@ -3570,6 +3723,8 @@ struct OpenXRRuntime::Impl {
     void SetInteractionReticle(const OpenXRInteractionReticleState&) {}
     void SetInteractionReticleSemantic(int) {}
     void ClearInteractionReticle() {}
+    void SetControllerAimGuide(const OpenXRControllerAimGuideState&) {}
+    void ClearControllerAimGuide() {}
     void SetStatusPanel(const OpenXRStatusPanelState&) {}
     void SetHudRuntimeVisible(bool) {}
     bool ToggleHudLayerShape() { return false; }
@@ -3807,6 +3962,16 @@ void OpenXRRuntime::SetInteractionReticleSemantic(int crosshairState)
 void OpenXRRuntime::ClearInteractionReticle()
 {
     impl_->ClearInteractionReticle();
+}
+
+void OpenXRRuntime::SetControllerAimGuide(const OpenXRControllerAimGuideState& state)
+{
+    impl_->SetControllerAimGuide(state);
+}
+
+void OpenXRRuntime::ClearControllerAimGuide()
+{
+    impl_->ClearControllerAimGuide();
 }
 
 void OpenXRRuntime::SetStatusPanel(const OpenXRStatusPanelState& state)

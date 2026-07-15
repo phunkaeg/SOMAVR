@@ -21,10 +21,23 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.58.0-grab-contact-haptics`, layered on the
+The active build candidate is `0.59.0-live-usability`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- The first broad 0.58 headset pass accepted the rigid world, tracking, eye
+  height, same-frame shader compatibility, F1 panel, analog movement, input
+  exclusion, and controller reconnect path. Same-frame stereo removed the only
+  perceived inter-eye latency, so the packaged profile now enables it and logs
+  exact left/right rendered pose-frame gaps. AFR remains a one-action rollback.
+
+- Left-controller-relative movement, a temporary three-point aim guide,
+  dominant-secondary inspection cancel, grip-held readable rotation, and a
+  dedicated 3x Slide-state scale are built for the next live pass. The packaged
+  center-HUD clear is disabled because it was the exact source of the clipped
+  interaction icon and missing square. Quest 3 vignette coverage is wider and
+  explicitly logged; native font-scale subtitle tuning is restored.
 
 - Native grabbed-object impacts now have an opt-in dominant-hand haptic path.
   Ghidra plus released HPL2 source confirm `cSurfaceData::OnImpact` at

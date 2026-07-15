@@ -1,5 +1,39 @@
 # Test Checklists
 
+## 0.59.0 Live Usability
+
+1. Run packaged doctor and require `version=0.59.0-live-usability`, OpenXR
+   flavor, and `fail=0`. Press F10 once in a loaded save; continuous same-frame
+   stereo should already be active. Require rigid tracking and no shader,
+   shadow, reflection, eye-height, or positional regression.
+2. Rotate and translate the HMD while inspecting fine nearby geometry. Require
+   `stereoPoseGap=0` in periodic `openxr_frame` rows and summary maximum/nonzero
+   counts of zero. Toggle Same Frame Stereo off/on in F1 to confirm the reported
+   gap and perceived latency change together.
+3. Point the left controller in several horizontal directions while moving the
+   left stick forward, including after mouse and snap yaw. Direction must follow
+   controller yaw, ignore controller pitch/roll, preserve analog magnitude, and
+   report growing `controllerRelativeMovementFrames`.
+4. Confirm three cyan aim markers follow the dominant controller ray, disappear
+   while F1/menu/authored ownership is active, remain stereo-stable, and yield
+   to any valid native semantic hit icon. Set `AimGuide=0` for hard rollback.
+5. Recheck the native interaction icon, subtitles, readable-object description,
+   and overlay center. The old square must be gone and no content may be clipped.
+   If voice subtitles appear, retain `hpl_subtitle_layout` rows for calibration.
+6. Open a drawer and compare hand travel with the prior build. Slide should be
+   approximately 3x stronger while Wheel, Door, Lever, and Tear remain unchanged.
+   Set `ManipulationSlidePixelsPerMeter=900` to reproduce the old mapping.
+7. Enter a Read/inspection view. Hold dominant grip and move the controller to
+   rotate the readable; press dominant Secondary to put it away. Repeat Secondary
+   cancel in wall/handheld terminals and Zoom views. Normal-state Secondary must
+   still crouch.
+8. Walk and smooth-turn on Quest 3. Require a visible, centered peripheral mask,
+   logged angular width near 127 degrees, clean fade-out on stop/panel/pause, and
+   no opaque center. Toggle it in F1 and use `ComfortVignette=0` for rollback.
+9. Exercise a bright/dark transition. Mismatch logs must be bounded to first
+   eight/every 300 and include `differenceMask`; stereo tone/grading must remain
+   visually matched. Attach the full shutdown summaries.
+
 ## 0.58.0 Native Grab-Contact Haptics
 
 1. Run packaged doctor and require

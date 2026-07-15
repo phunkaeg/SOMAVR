@@ -2,6 +2,37 @@
 
 ## 2026-07-15
 
+### 0.59.0-live-usability
+
+- Promoted continuous same-frame stereo in the packaged test profile after the
+  first full controller/HUD playtest found that it removed visible inter-eye
+  latency without reintroducing shader, shadow, reflection, tracking, or eye-
+  height regressions. OpenXR now measures rendered left/right pose-frame gaps
+  directly and reports latest, maximum, nonzero, and sample counts.
+- Added calibrated left-controller-relative locomotion. Raw controller aim is
+  transformed through the same neutral frame used by HMD tracking before it
+  reaches SOMA's native analog body movement, so pitch is ignored and virtual
+  body yaw remains the sole world-space owner.
+- Added a temporary three-point cyan OpenXR aim guide. It reuses the semantic
+  reticle swapchain, respects the runtime's reported layer limit, disappears in
+  menus/authored ownership, and yields to a valid native interaction reticle.
+- Removed the packaged 96x96 center-HUD clear after live evidence proved it was
+  clipping SOMA's interaction icon and producing the missing center square.
+  The config rollback remains. Subtitle test tuning returns to native font scale
+  with wider margins while exact voice-subtitle calls remain separately logged.
+- Added a dedicated 2700 px/m Slide-state scale, dominant-grip Read rotation,
+  and dominant-secondary native cancel for Read, Zoom, and terminal ownership.
+  Other physical manipulation states retain the accepted 900 px/m scale.
+- Increased test-profile vignette angular coverage to about 127 degrees,
+  reduced the clear-center radius, increased strength, and added exact geometry
+  telemetry. Tone-mapping mismatch logging now identifies field groups and is
+  bounded to first/every-300 evidence instead of flooding successful runs.
+- Both default and OpenXR Release trees pass all four CTest suites. The packaged
+  doctor reports `pass=7 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `5C382B86E7582489186A6A57ADE6620D6101595323483DCC30431ECB2CAF4811`.
+  Package SHA-256:
+  `9279D414C948C7E7B89C8AB7A7433CDAC15C05F11793A3437212E526A7A5428B`.
+
 ### 0.58.0-grab-contact-haptics
 
 - Confirmed HPL3's native physics-contact path from Newton update

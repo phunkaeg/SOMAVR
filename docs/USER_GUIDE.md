@@ -68,13 +68,32 @@ keep their short black-frame guard.
 ```ini
 [OpenXR]
 ComfortVignette=1
-ComfortVignetteStrength=0.60
-ComfortVignetteInnerRadius=0.50
+ComfortVignetteWidthMeters=1.2
+ComfortVignetteStrength=0.75
+ComfortVignetteInnerRadius=0.32
 ComfortVignetteFadeMilliseconds=250
 ```
 
 Set `ComfortVignette=0` for immediate hard rollback. Increase `InnerRadius` for
 a wider clear center or reduce `Strength` for a lighter peripheral mask.
+
+The packaged controller profile uses calibrated left-controller-relative
+movement and a temporary three-point aim guide:
+
+```ini
+[Controller]
+MovementReference=controller
+AimGuide=1
+AimGuideLengthMeters=1.2
+ManipulationMotionPixelsPerMeter=900
+ManipulationSlidePixelsPerMeter=2700
+```
+
+Use `MovementReference=head` for HMD-relative direction or `body` for SOMA's
+native body-relative input. Set `AimGuide=0` to remove the diagnostic markers.
+In Read views, hold dominant grip while moving the controller to rotate and use
+dominant Secondary to exit. Slide has its own scale so drawer travel can be
+tuned without changing wheels, doors, levers, or tear interactions.
 
 Supporting runtimes can apply fixed foveation directly to the OpenXR eye
 swapchains:

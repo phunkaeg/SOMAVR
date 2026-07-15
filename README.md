@@ -176,8 +176,10 @@ stable cached eye after headset submission. `DesktopMirrorAspect` accepts `fit`,
 `fill`, or `stretch`; `native` eye mode restores SOMA's untouched backbuffer.
 Paused menus suppress all gameplay injection. The dominant controller aim moves
 the native menu cursor and trigger/select clicks when `MenuPointer=1`.
-With the opt-in `MovementReference=head`, movement follows calibrated HMD yaw
-without inheriting pitch/roll. `PhysicalCrouch=1` drives SOMA's native crouch
+With `MovementReference=head`, movement follows calibrated HMD yaw. The
+`controller` mode instead follows the calibrated left movement-controller yaw;
+both ignore pitch/roll and preserve SOMA's native analog body movement.
+`PhysicalCrouch=1` drives SOMA's native crouch
 toggle from tracked height with hysteresis. `GrabTranslation=1` augments only
 the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
   mass, collision, constraints, gravity, and callbacks. `GrabRotation=1` extends
@@ -186,8 +188,10 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
   optionally points an independent held tool from the dominant grip toward a
   squeezed support grip. `TwoHandGrabRotation=1` applies the same bounded
   direction contract to Grab-state torque without replacing native physics.
-  The compositor HUD can
-  suppress the fixed gaze crosshair with `HudSuppressCenterCrosshair=1`.
+  `AimGuide=1` adds a temporary three-point controller-ray guide until a fresh
+  semantic world-hit reticle is available. The compositor HUD can suppress the
+  fixed gaze crosshair with `HudSuppressCenterCrosshair=1`, but this also clears
+  native center content and is disabled in the packaged profile.
   `HPLComfortCameraAddControl=1` removes semantic Bob, Shake, and optional Sway
   only while F10 tracking is active. `HPLComfortCameraRollControl=1` separately
   suppresses configured Script, Lean, Move, or Climb roll at the exact native
@@ -333,7 +337,7 @@ HPLDualRenderAutoProbeCount=3
 HPLDualRenderAutoProbeDelayFrames=180
 HPLDualRenderAutoProbeIntervalFrames=180
 HPLDualRenderContinuousControl=1
-HPLDualRenderContinuousDefault=0
+HPLDualRenderContinuousDefault=1
 HPLPerEyeViewHistoryControl=1
 HPLPerEyeImageTrailControl=1
 HPLToneMappingFrameControl=1
@@ -404,7 +408,9 @@ StatusPanelVerticalOffsetMeters=0.0
 [Controller]
 Enabled=1
 NativeLocomotion=1
-MovementReference=head
+MovementReference=controller
+AimGuide=1
+AimGuideLengthMeters=1.2
 PhysicalCrouch=1
 PhysicalCrouchEnterMeters=0.35
 PhysicalCrouchExitMeters=0.25

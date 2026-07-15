@@ -97,6 +97,8 @@ struct Config {
     float hplControllerSmoothTurnDegreesPerSecond = 120.0f;
     float hplControllerNativeTurnSign = -1.0f;
     bool hplControllerInteraction = true;
+    bool hplControllerAimGuide = false;
+    float hplControllerAimGuideLengthMeters = 1.2f;
     bool hplControllerFlashlight = true;
     bool hplControllerInventory = true;
     bool hplControllerMenu = true;
@@ -156,6 +158,7 @@ struct Config {
     bool hplControllerManipulationMappings = true;
     bool hplControllerManipulationMotion = false;
     float hplControllerManipulationMotionPixelsPerMeter = 900.0f;
+    float hplControllerManipulationSlidePixelsPerMeter = 2700.0f;
     float hplControllerManipulationMotionDeadzoneMeters = 0.0005f;
     int hplControllerManipulationMotionMaxPixelsPerFrame = 80;
     float hplControllerManipulationMotionHorizontalSign = 1.0f;

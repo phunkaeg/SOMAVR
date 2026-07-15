@@ -1,5 +1,42 @@
 # Future Systems Reverse Engineering
 
+## 0.59.0 Live Usability Result
+
+The 0.58 live run is the first broad acceptance pass over the integrated VR
+stack. Tracking, stereo geometry, eye height, shadows, reflections, and shader
+compatibility remained visually stable. Continuous same-frame stereo removed a
+small perceived eye-to-eye delay, so 0.59 makes it the packaged default and
+records the exact rendered pose-frame gap for each submitted stereo pair. AFR
+remains the panel/config rollback.
+
+The clipped interaction icon and recurring missing center square were not a
+shader fault: `OpenXRGLBridge::EndHudCapture` was clearing a 96x96 scissored
+square around the GameHud center. Since the native hit snapshot was not decoded
+in this run (`interactionReticleUpdates=0`), that clear removed useful native UI
+without a compositor replacement. The active profile now preserves the full HUD.
+A temporary controller aim guide publishes three application-space markers from
+the dominant aim pose and yields automatically once the true semantic reticle
+has a fresh world hit.
+
+Shipped player scripts confirm Read state `10` exits through native right-click
+`InteractCancel` and rotates from look/analog input. Terminal states `8/9` share
+the cancel route. The controller bridge now maps dominant Secondary to that
+native action and converts grip-held Read displacement to the existing mouse-
+look path. Slide state `4` already reached `RotateBase::OnAnalogInput`, but live
+motion was about one third physical scale; it now has an independent 2700 px/m
+mapping while Wheel/Door/Lever/Tear retain 900 px/m.
+
+Comfort-vignette submission was healthy and ordered last, with zero submission
+failures and full motion levels. Its invisibility on Quest 3 was therefore a
+coverage/alpha issue. The test profile expands the quad to roughly 127 degrees,
+uses inner radius `0.32`, and reports its exact angular width. A future
+projection-space per-eye mask is justified only if this visible calibration
+still cannot cover the runtime FOV cleanly.
+
+The requested fixed-foveation path did not become operational: Virtual Desktop
+did not expose the complete FB swapchain-update/foveation extension set. This is
+a correct native-swapchain fallback, not a successful foveation test.
+
 ## 0.58.0 Native Grab-Contact Haptics Result
 
 Ghidra confirms `cPhysicsWorldNewton::Update` at `0x1405548b0` consumes each

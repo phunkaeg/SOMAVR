@@ -370,6 +370,9 @@ void ConfigManager::WriteDefaultConfig() const
         << "SlideDirectVelocity=1\n"
         << "SlideVelocityScale=1\n"
         << "SlideMaxVelocityMetersPerSecond=2.5\n"
+        << "RotateDirectVelocity=1\n"
+        << "RotateVelocityScale=1\n"
+        << "RotateMaxAngularSpeed=4\n"
         << "HandTrackingProbe=0\n"
         << "HandControllerRoot=0\n"
         << "HandRootOffsetX=0.0\n"
@@ -817,6 +820,9 @@ void ConfigManager::LoadFromFile()
             else if (key == "slidedirectvelocity") config_.hplControllerSlideDirectVelocity = ParseBool(value, config_.hplControllerSlideDirectVelocity);
             else if (key == "slidevelocityscale") config_.hplControllerSlideVelocityScale = ParseFloat(value, config_.hplControllerSlideVelocityScale, 0.05f, 5.0f);
             else if (key == "slidemaxvelocitymeterspersecond") config_.hplControllerSlideMaxVelocityMetersPerSecond = ParseFloat(value, config_.hplControllerSlideMaxVelocityMetersPerSecond, 0.1f, 10.0f);
+            else if (key == "rotatedirectvelocity") config_.hplControllerRotateDirectVelocity = ParseBool(value, config_.hplControllerRotateDirectVelocity);
+            else if (key == "rotatevelocityscale") config_.hplControllerRotateVelocityScale = ParseFloat(value, config_.hplControllerRotateVelocityScale, 0.05f, 5.0f);
+            else if (key == "rotatemaxangularspeed") config_.hplControllerRotateMaxAngularSpeed = ParseFloat(value, config_.hplControllerRotateMaxAngularSpeed, 0.1f, 20.0f);
             else if (key == "handtrackingprobe") config_.hplHandTrackingProbe = ParseBool(value, config_.hplHandTrackingProbe);
             else if (key == "handcontrollerroot") config_.hplHandControllerRoot = ParseBool(value, config_.hplHandControllerRoot);
             else if (key == "handrootoffsetx") config_.hplHandRootOffsetX = ParseFloat(value, config_.hplHandRootOffsetX, -5.0f, 5.0f);

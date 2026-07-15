@@ -21,10 +21,23 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.61.0-native-manipulation`, layered on the
+The active build candidate is `0.62.0-physical-hinges`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- The 0.61 live pass retained the visually accepted stereo/tracking path and
+  exposed two interaction/performance causes. Controller velocity was being
+  normalized during the HPL reference transform, making hand speed ineffective,
+  while Door/Lever still consumed camera-relative synthetic mouse input.
+  Version 0.62 preserves velocity magnitude for Slide/grab/throw paths and maps
+  controller world-space arcs directly onto native hinge angular velocity.
+
+- Same-frame stereo remains healthy: 194 measured eye pairs averaged 2.61 ms,
+  p95 4.36 ms, maximum 12.29 ms, and retained zero pose-frame gap. High-volume
+  synchronous render probes, not scene GPU time, were the strongest stutter
+  candidate. The active profile now returns to bounded operational telemetry and
+  the logger batches ordinary rows without delaying warnings or errors.
 
 - The 0.60 live pass proved same-frame stereo removes the perceived eye delay,
   controller-relative locomotion is stable, and Slide's mouse projection is the

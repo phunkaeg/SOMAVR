@@ -846,7 +846,9 @@ void ApplyControllerManipulationMotion(
     const bool physicalState = player.playerStateId >= kWheelPlayerState
         && player.playerStateId <= kLastPhysicalManipulationState
         && !(player.playerStateId == kSlidePlayerState
-            && g_config.hplControllerSlideDirectVelocity);
+            && g_config.hplControllerSlideDirectVelocity)
+        && !((player.playerStateId == 5 || player.playerStateId == 6)
+            && g_config.hplControllerRotateDirectVelocity);
     const bool inspectionState = player.playerStateId == kReadPlayerState
         && dominant.squeeze >= 0.75f;
     if (!g_config.hplControllerManipulationMotion

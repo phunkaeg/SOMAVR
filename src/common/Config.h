@@ -167,6 +167,9 @@ struct Config {
     bool hplControllerSlideDirectVelocity = true;
     float hplControllerSlideVelocityScale = 1.0f;
     float hplControllerSlideMaxVelocityMetersPerSecond = 2.5f;
+    bool hplControllerRotateDirectVelocity = true;
+    float hplControllerRotateVelocityScale = 1.0f;
+    float hplControllerRotateMaxAngularSpeed = 4.0f;
     bool hplHandTrackingProbe = false;
     bool hplHandControllerRoot = false;
     float hplHandRootOffsetX = 0.0f;

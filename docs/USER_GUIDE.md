@@ -91,6 +91,9 @@ ManipulationReadPixelsPerRadian=900
 SlideDirectVelocity=1
 SlideVelocityScale=1
 SlideMaxVelocityMetersPerSecond=2.5
+RotateDirectVelocity=1
+RotateVelocityScale=1
+RotateMaxAngularSpeed=4
 ```
 
 Use `MovementReference=head` for HMD-relative direction or `body` for SOMA's
@@ -100,7 +103,10 @@ right-controller A or B exits. Turn input is ignored while SOMA owns a physical
 manipulation or Read state. Slide projects controller world velocity onto the
 actual drawer/curtain joint. Set `SlideDirectVelocity=0` to restore the old 2D
 mouse route; tune `SlideVelocityScale` without changing wheels, doors, levers,
-or tear interactions.
+or tear interactions. Doors and levers use controller motion around their native
+hinge pivot and pin. Set `RotateDirectVelocity=0` to restore their native
+camera-relative mouse route; tune `RotateVelocityScale` or
+`RotateMaxAngularSpeed` without changing Slide, Grab, Read, Wheel, or Tear.
 
 The active profile captures HUD content at the observed `1920x1080` SOMA target.
 Quest currently requests `2688x2880` per eye, but world detail still originates

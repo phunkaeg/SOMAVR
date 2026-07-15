@@ -11,4 +11,12 @@ camera_math::Vector3 ResolveAngularTargetVelocity(
     float sign,
     float maxAngularSpeed);
 
+float ResolveHingeAngularVelocity(
+    const camera_math::Vector3& pivot,
+    const camera_math::Vector3& point,
+    const camera_math::Vector3& pointVelocity,
+    const camera_math::Vector3& pin,
+    float gain,
+    float maxAngularSpeed);
+
 } // namespace somavr::grab_math

@@ -42,6 +42,7 @@ private:
     std::ofstream logStream_;
     LogLevel level_ = LogLevel::Info;
     std::atomic<int> fastLevel_ = static_cast<int>(LogLevel::Info);
+    uint32_t pendingBufferedLines_ = 0;
     bool initialized_ = false;
 };
 

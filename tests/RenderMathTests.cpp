@@ -937,6 +937,34 @@ int main()
             && Near(equivalentGrabRotation.z, 0.0f),
         "grab rotation treats negated quaternion as equivalent");
 
+    using grab_math::ResolveHingeAngularVelocity;
+    failures += Check(
+        Near(ResolveHingeAngularVelocity(
+                 {}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f},
+                 {0.0f, 1.0f, 0.0f}, 1.0f, 4.0f),
+            1.0f)
+            && Near(ResolveHingeAngularVelocity(
+                        {}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f},
+                        {0.0f, 1.0f, 0.0f}, 1.0f, 4.0f),
+                -1.0f),
+        "hinge velocity follows signed controller arc around joint pin");
+    failures += Check(
+        Near(ResolveHingeAngularVelocity(
+                 {}, {1.0f, 2.0f, 0.0f}, {0.0f, 3.0f, -10.0f},
+                 {0.0f, 2.0f, 0.0f}, 1.0f, 4.0f),
+            4.0f),
+        "hinge velocity ignores axial offsets and clamps angular speed");
+    failures += Check(
+        Near(ResolveHingeAngularVelocity(
+                 {}, {1.0f, 0.0f, 0.0f}, {2.0f, 3.0f, 0.0f},
+                 {0.0f, 1.0f, 0.0f}, 1.0f, 4.0f),
+            0.0f)
+            && Near(ResolveHingeAngularVelocity(
+                        {}, {}, {0.0f, 0.0f, -1.0f},
+                        {0.0f, 1.0f, 0.0f}, 1.0f, 4.0f),
+                0.0f),
+        "hinge velocity rejects radial motion and degenerate radius");
+
     menu_math::MenuPointerPosition menuPointer;
     failures += Check(
         menu_math::ProjectAimToMenu({}, {}, 70.0f, 50.0f, menuPointer)

@@ -1,5 +1,15 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Native Hinge Pivot Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1401822e0` | `HPL3_PhysicsJoint_GetPivotPoint` | Created, tagged, and documented two-instruction leaf returning joint `+0xf4`. Registered method string and `0x14049d430` registration bind independently confirm identity. Version 0.62 consumes it with pin `+0xe8` only for exact SwingDoor/Lever torque ownership. |
+
+Released SwingDoor and Lever scripts independently confirm the camera-relative
+mouse torque that this controller-arc route replaces. The explicitly selected
+`Soma_NoSteam.exe` database was saved after the function and comments were added.
+
 ## 2026-07-15 Native Slide And Interaction ABI Sync
 
 | Address | Ghidra name | Evidence/use |

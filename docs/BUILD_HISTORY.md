@@ -2,6 +2,33 @@
 
 ## 2026-07-15
 
+### 0.62.0-physical-hinges
+
+- Corrected a controller-velocity transform bug exposed by the 0.61 live log.
+  `ResolveHPLReferenceVectorWorld` normalized velocity as though it were an aim
+  direction, so slow and fast hand motion both reached Slide as unit speed.
+  Velocity and throw vectors now retain magnitude across the HPL transform.
+- Added native SwingDoor/Lever hinge control. Exact player states `5/6` and
+  torque PID `10/0/1` resolve selected-body joint 0, read its native pin at
+  `+0xe8` and pivot at `+0xf4`, then convert the controller's world-space arc
+  into signed angular velocity. SOMA retains PID integration, joint limits,
+  physics, sounds, callbacks, and release lifecycle. The old camera-relative
+  synthetic mouse route is excluded while direct hinge control owns the state.
+- Reduced instrumentation-induced stutter. Normal log rows flush in bounded
+  batches, while warnings/errors still flush immediately. The active test
+  profile disables render-stage, replay, per-eye CPU/GPU, post-resource, and
+  uniform probes after the required evidence was captured.
+- Corrected stereo timing diagnostics to compare only same-frame eye pairs.
+  The 0.61 log measured 194 valid pairs at 2.61 ms average, 4.36 ms p95, and
+  12.29 ms maximum, with zero pose-frame gap. Prior-frame comparisons averaged
+  57.76 ms and were expected scheduling differences, not same-frame stalls.
+- Added signed hinge-arc, axial-motion rejection, degenerate-radius, and speed-
+  clamp tests. Both default and OpenXR Release trees pass all four CTest suites.
+  The packaged doctor reports `pass=7 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `C4E74A5E090FC1FBE3275BAFAED28D770F58B4E0F3DAAA633DB95E31817B035C`.
+  Package SHA-256:
+  `2BD270C82919A24870F5B5EF7EB82F1B1DC3C2AB414DCDDB1FE030A448091F8B`.
+
 ### 0.61.0-native-manipulation
 
 - Corrected the closest-entity result ABI from live evidence and native

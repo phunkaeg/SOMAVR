@@ -2,12 +2,13 @@
 
 Date: 2026-07-15
 
-Use `0.61.0-native-manipulation` for the next run. It consumes the 0.60 evidence:
-corrected interaction payload, native 3D Slide joint velocity, orientation-based
-Read rotation, A/B cancel, non-Normal turn exclusion, VR horizon pitch policy,
-and `1920x1080` HUD capture. No diagnostic hotkey is required. Follow the 0.61
-checklist and attach the complete shutdown log, especially `hpl_slide_*`,
-`hpl_interaction_*`, and `hpl_read_entity_candidate` rows.
+Use `0.62.0-physical-hinges` for the next run. It consumes the 0.61 evidence:
+velocity magnitude is preserved for Slide/grab/throw transforms, SwingDoor and
+Lever use controller arcs about SOMA's native pivot/pin, and the completed
+high-volume render probes are disabled to test the strongest stutter cause.
+No diagnostic hotkey is required. Follow the 0.62 checklist and attach the
+complete shutdown log, especially `hpl_slide_*`, `hpl_rotate_*`, stereo summary,
+and any rows immediately surrounding a felt hitch.
 
 SOMAVR has reached the point where the feature registry contains no unimplemented
 VR system with enough static evidence for another responsible native mutation.

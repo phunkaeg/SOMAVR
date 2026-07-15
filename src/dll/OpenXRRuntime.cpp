@@ -2424,19 +2424,21 @@ private:
                     ? renderedView.gameFrame - otherFrame
                     : otherFrame - renderedView.gameFrame;
                 sameFramePair = captureFrameGap == 0;
-                stereoCaptureDeltaUsLatest_ = captureDeltaUs;
-                stereoCaptureDeltaUsMax_ = std::max(
-                    stereoCaptureDeltaUsMax_, captureDeltaUs);
-                ++stereoCaptureDeltaSamples_;
-                if (sameFramePair) ++stereoCaptureDeltaSameFrameSamples_;
-                if (captureDeltaUs > 20000) ++stereoCaptureDeltaOver20ms_;
+                if (sameFramePair) {
+                    stereoCaptureDeltaUsLatest_ = captureDeltaUs;
+                    stereoCaptureDeltaUsMax_ = std::max(
+                        stereoCaptureDeltaUsMax_, captureDeltaUs);
+                    ++stereoCaptureDeltaSamples_;
+                    ++stereoCaptureDeltaSameFrameSamples_;
+                    if (captureDeltaUs > 20000) ++stereoCaptureDeltaOver20ms_;
+                }
             }
             lastCapturedStereoEye_ = eyeIndex;
             ++stereoCapturedEyeCount_;
             stereoCaptureFailures_ = 0;
             if (stereoCapturedEyeCount_ <= 4
                 || (stereoCapturedEyeCount_ % 120) == 0
-                || captureDeltaUs > 20000) {
+                || (sameFramePair && captureDeltaUs > 20000)) {
                 Logger::Instance().Write(
                     LogLevel::Info,
                     "openxr_stereo_cache captured=%llu eye=%u poseFrame=%llu cachesReady=%d source=%s frame=%llu pairDeltaUs=%llu pairFrameGap=%llu sameFramePair=%d",

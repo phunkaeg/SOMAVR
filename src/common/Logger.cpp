@@ -56,6 +56,7 @@ void Logger::Initialize(const std::filesystem::path& logPath, LogLevel level)
 
     logStream_.close();
     logStream_.open(logPath_, std::ios::out | std::ios::trunc, _SH_DENYNO);
+    pendingBufferedLines_ = 0;
     if (logStream_.is_open()) {
         logStream_ << "SOMAVR log started " << NowString() << "\n";
         logStream_.flush();
@@ -108,7 +109,12 @@ void Logger::WriteV(LogLevel level, const char* fmt, va_list args)
         }
         if (logStream_.is_open()) {
             logStream_ << text;
-            logStream_.flush();
+            ++pendingBufferedLines_;
+            if (static_cast<int>(level) >= static_cast<int>(LogLevel::Warn)
+                || pendingBufferedLines_ >= 64) {
+                logStream_.flush();
+                pendingBufferedLines_ = 0;
+            }
         }
     }
 

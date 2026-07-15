@@ -1,5 +1,37 @@
 # Test Checklists
 
+## 0.62.0 Physical Hinges And Stutter
+
+1. Run packaged doctor and require `version=0.62.0-physical-hinges`, OpenXR
+   flavor, and `fail=0`. Press F10 once and first confirm rigid stereo, eye
+   height, tracking, shadows, reflections, HUD, locomotion, and interaction ray.
+2. Open the same drawer or curtain with deliberately slow, medium, and fast hand
+   motion along its physical axis. Motion must now reflect hand speed and remain
+   independent of camera yaw. Require `hpl_slide_target` velocity magnitudes to
+   vary materially rather than remaining approximately `1.0`.
+3. Grab a hinged door and move the controller through the door's physical arc.
+   Repeat with a lever. Require `hpl_rotate_anchor` and `hpl_rotate_target` rows,
+   signed target speed, native limits/sounds, and no dependency on snap turn.
+   Test both opening/closing directions and a hinge from each side if available.
+4. While holding a door or lever, move the controller primarily along the hinge
+   axis or directly toward the pivot. The mechanism should move little; a
+   tangential arc should produce the strongest motion. Release must restore
+   normal state without a jump or continuing torque.
+5. Compare head rotation, walking, object grab, Slide, Door, and Lever smoothness
+   with 0.61. The log should be much smaller and free of continuous
+   `hpl_render_stage` and `hpl_per_eye_gpu/cpu` rows. Report whether periodic
+   stutter is gone, reduced, unchanged, or tied to a specific interaction.
+6. Open F1 and toggle Same Frame Stereo off/on once. Accepted mode should retain
+   zero pose-frame gap. Same-frame capture deltas over 20 ms should be rare and
+   must no longer include prior-frame comparisons.
+7. Recheck Read rotation and A/B cancel plus ordinary grabbed-object translation,
+   rotation, throw, and collision. Velocity-magnitude correction must not create
+   excessive throws or unstable physics. Exit normally and attach the full log.
+
+Rollback: set `RotateDirectVelocity=0` to restore native mouse-derived Door and
+Lever input; set `SlideDirectVelocity=0` for the old Slide route. Keep only one
+rollback changed per comparison.
+
 ## 0.61.0 Native Manipulation
 
 1. Run packaged doctor and require `version=0.61.0-native-manipulation`, OpenXR

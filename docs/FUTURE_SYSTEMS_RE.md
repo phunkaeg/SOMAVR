@@ -1,5 +1,31 @@
 # Future Systems Reverse Engineering
 
+## 0.62.0 Physical Hinge And Timing Result
+
+The 0.61 log proves Slide was receiving direction rather than velocity. Every
+`controllerVelocity` vector had magnitude approximately one because
+`ResolveHPLReferenceVectorWorld` used the normalized direction transform. The
+reference-space conversion now uses the offset/vector transform so gentle and
+fast motion remain distinguishable before native joint projection and clamps.
+
+SwingDoor state `5` and Lever state `6` use the RotateBase torque PID tuple
+`10/0/1`, but their shipped scripts synthesize torque from mouse X/Y and camera
+Up/Forward/Right. This makes mechanism motion depend on view yaw and snap-turn.
+The registered `iPhysicsJoint::GetPivotPoint()` leaf at `0x1401822e0` returns
+`joint+0xf4`; paired with pin `joint+0xe8`, it closes a camera-independent route.
+Version 0.62 anchors the native hit point, follows controller translation, and
+computes signed angular velocity as `(r x v) dot axis / |r|^2`. It adds that
+velocity only to the native PID axis, preserving SOMA's mechanism authority.
+
+Timing evidence clears same-frame XR scheduling as the primary stutter source:
+194 valid eye pairs averaged 2.61 ms separation, p95 was 4.36 ms, maximum was
+12.29 ms, and pose-frame gaps remained zero. The prior diagnostic counted
+comparisons against the other eye from the previous frame, which naturally
+measured roughly 51-100 ms. The capture also emitted thousands of synchronously
+flushed stage, CPU/GPU query, resource, and uniform rows. Version 0.62 corrects
+the pair classifier, batches normal logs, and disables those completed probes in
+the active profile. A headset comparison remains the acceptance gate.
+
 ## 0.61.0 Native Manipulation Result
 
 The 0.60 log resolved the Slide failure. `PlayerState_Interact_Slide.hps`

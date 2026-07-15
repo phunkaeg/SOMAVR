@@ -1780,7 +1780,7 @@ bool ResolveHPLReferenceVectorWorld(
         local.y *= scale;
         local.z *= scale;
     }
-    const Vector3 world = TransformLocalDirectionToWorld(local, g_state.baseView);
+    const Vector3 world = TransformLocalOffsetToWorld(local, g_state.baseView);
     if (!std::isfinite(world.x) || !std::isfinite(world.y) || !std::isfinite(world.z)) {
         return false;
     }

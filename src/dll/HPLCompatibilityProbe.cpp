@@ -8,6 +8,7 @@
 #include "HPLPerEyeViewHistory.h"
 #include "HPLPerEyePostEffect.h"
 #include "HPLToneMappingFrame.h"
+#include "HPLSSAOTemporalHistory.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
 #include "OpenGLHooks.h"
@@ -49,6 +50,8 @@ constexpr uintptr_t kPostEffectHasActiveEffectsRva = 0x33b8f0;
 constexpr uintptr_t kAudioListenerUpdateRva = 0x289340;
 constexpr uintptr_t kImageTrailCreateResourcesRva = 0x38ae60;
 constexpr uintptr_t kImageTrailDestroyResourcesRva = 0x38a8b0;
+constexpr uintptr_t kSSAORenderRva = 0x3f2b50;
+constexpr uintptr_t kRendererSetTextureUnitRva = 0x2aba30;
 
 constexpr size_t kViewportCameraOffset = 0x18;
 constexpr size_t kViewportWorldOffset = 0x20;
@@ -114,6 +117,8 @@ using RenderScreenGuiFn = void (*)(void*, void*, float);
 using PostEffectHasActiveEffectsFn = bool (*)(void*);
 using AudioListenerUpdateFn = void (*)(void*);
 using ImageTrailResourceFn = void (*)(void*);
+using SSAORenderFn = void (*)(void*);
+using RendererSetTextureUnitFn = void (*)(void*, uint32_t, void*);
 
 constexpr size_t kStageCount = 6;
 
@@ -275,6 +280,8 @@ RenderScreenGuiFn g_originalRenderScreenGui = nullptr;
 PostEffectHasActiveEffectsFn g_originalPostEffectHasActiveEffects = nullptr;
 AudioListenerUpdateFn g_originalAudioListenerUpdate = nullptr;
 ImageTrailResourceFn g_originalImageTrailDestroyResources = nullptr;
+SSAORenderFn g_originalSSAORender = nullptr;
+RendererSetTextureUnitFn g_originalRendererSetTextureUnit = nullptr;
 
 thread_local uint64_t g_traceFrame = UINT64_MAX;
 thread_local uint64_t g_traceSequence = 0;
@@ -1794,6 +1801,44 @@ void HookImageTrailDestroyResources(void* effect)
     DestroyHPLPerEyeImageTrail(effect);
 }
 
+void HookSSAORender(void* renderer)
+{
+    void* nativeHistoryTexture = nullptr;
+    void* settings = nullptr;
+    void* temporalProgram = nullptr;
+    uint8_t ssaoEnabled = 0;
+    if (renderer != nullptr) {
+        std::memcpy(&nativeHistoryTexture, static_cast<uint8_t*>(renderer) + 0xe78, sizeof(nativeHistoryTexture));
+        std::memcpy(&settings, static_cast<uint8_t*>(renderer) + 0x438, sizeof(settings));
+        std::memcpy(&temporalProgram, static_cast<uint8_t*>(renderer) + 0xf48, sizeof(temporalProgram));
+        if (settings != nullptr) {
+            std::memcpy(&ssaoEnabled, static_cast<uint8_t*>(settings) + 0x170, sizeof(ssaoEnabled));
+        }
+    }
+    const HPLCameraBridgeStatus camera = GetHPLCameraBridgeStatus();
+    const bool stereoEligible = ssaoEnabled != 0
+        && temporalProgram != nullptr
+        && camera.trackingEnabled
+        && camera.stereoEnabled
+        && IsExactPlayerViewport(g_activeViewport);
+    BeginHPLSSAOTemporalPass(
+        renderer,
+        nativeHistoryTexture,
+        stereoEligible,
+        camera.stereoRenderEye,
+        camera.stereoRenderPoseFrame,
+        camera.calibrationGeneration);
+    g_originalSSAORender(renderer);
+    EndHPLSSAOTemporalPass(renderer);
+}
+
+void HookRendererSetTextureUnit(void* rendererState, uint32_t unit, void* texture)
+{
+    BeginHPLSSAOTemporalTextureBind(texture);
+    g_originalRendererSetTextureUnit(rendererState, unit, texture);
+    EndHPLSSAOTemporalTextureBind();
+}
+
 void HookRenderPostPostEffects(void* renderer, void* frustum, void* renderTarget, void* settings)
 {
     ObserveHPLPerEyeViewHistoryRenderer(renderer);
@@ -2121,6 +2166,14 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
         0x40, 0x53, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8b, 0x51, 0x58,
         0x48, 0x8b, 0xd9, 0x48, 0x8b, 0x49, 0x10,
     };
+    static constexpr uint8_t kSSAORenderSignature[] = {
+        0x4c, 0x8b, 0xdc, 0x55, 0x56, 0x49, 0x8d, 0xab, 0x38, 0xff,
+        0xff, 0xff, 0x48, 0x81, 0xec, 0xb8, 0x01, 0x00, 0x00,
+    };
+    static constexpr uint8_t kRendererSetTextureUnitSignature[] = {
+        0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10,
+        0x57, 0x48, 0x83, 0xec, 0x20, 0x80, 0x79, 0x58, 0x00,
+    };
 
     size_t installed = 0;
     const bool stageHooksEnabled = config.hplRenderStageProbe
@@ -2129,6 +2182,7 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
         || config.hplPerEyeViewHistoryControl
         || config.hplPerEyeImageTrailControl
         || config.hplToneMappingFrameControl
+        || config.hplPerEyeSSAOTemporalControl
         || config.hplPerEyePerformanceTelemetry
         || config.hplPerEyeGpuTelemetry;
     if (stageHooksEnabled) {
@@ -2190,18 +2244,29 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
             "image_trail_destroy_resources", reinterpret_cast<void*>(&HookImageTrailDestroyResources),
             reinterpret_cast<void**>(&g_originalImageTrailDestroyResources));
     }
+    if (config.hplPerEyeSSAOTemporalControl) {
+        installed += InstallHook(executable, kSSAORenderRva,
+            kSSAORenderSignature, sizeof(kSSAORenderSignature),
+            "ssao_render", reinterpret_cast<void*>(&HookSSAORender),
+            reinterpret_cast<void**>(&g_originalSSAORender));
+        installed += InstallHook(executable, kRendererSetTextureUnitRva,
+            kRendererSetTextureUnitSignature, sizeof(kRendererSetTextureUnitSignature),
+            "renderer_set_texture_unit", reinterpret_cast<void*>(&HookRendererSetTextureUnit),
+            reinterpret_cast<void**>(&g_originalRendererSetTextureUnit));
+    }
     InitializeHPLPerEyePostEffect(
         config,
         imageTrailCreateResources,
         g_originalImageTrailDestroyResources);
     InitializeHPLToneMappingFrame(config);
+    InitializeHPLSSAOTemporalHistory(config);
 
     SetHPLDualRenderControlReady(
         config.hplDualRenderContinuousControl && g_originalRenderViewport != nullptr);
 
     Logger::Instance().Write(
         installed > 0 ? LogLevel::Warn : LogLevel::Error,
-        "hpl_compat_probe install_complete renderStages=%d dualRenderReplayProbe=%d dualRenderAutoProbe=%d dualRenderAutoCount=%d dualRenderAutoDelayFrames=%d dualRenderAutoIntervalFrames=%d dualRenderKey=Ctrl+F6 continuousControl=%d continuousDefault=%d continuousReady=%d perEyeViewHistory=%d perEyeImageTrail=%d perEyeImageTrailAvailable=%d toneMappingFrameControl=%d perEyeCpu=%d perEyeGpu=%d gpuQueryPairs=%d audioListener=%d audioCorrection=%d audioTranslation=%d postEffectControl=%d postEffectResourceProbe=%d postEffectResourceRva=0x%llx postEffectBypass=%d postEffectComfort={imageTrail=%d videoDistortion=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
+        "hpl_compat_probe install_complete renderStages=%d dualRenderReplayProbe=%d dualRenderAutoProbe=%d dualRenderAutoCount=%d dualRenderAutoDelayFrames=%d dualRenderAutoIntervalFrames=%d dualRenderKey=Ctrl+F6 continuousControl=%d continuousDefault=%d continuousReady=%d perEyeViewHistory=%d perEyeImageTrail=%d perEyeImageTrailAvailable=%d toneMappingFrameControl=%d perEyeSSAOTemporal=%d perEyeCpu=%d perEyeGpu=%d gpuQueryPairs=%d audioListener=%d audioCorrection=%d audioTranslation=%d postEffectControl=%d postEffectResourceProbe=%d postEffectResourceRva=0x%llx postEffectBypass=%d postEffectComfort={imageTrail=%d videoDistortion=%d chromaticAberration=%d radialBlur=%d} postEffectKeys=F12,Ctrl+F12,Shift+F12 installed=%llu requested=%d logInterval=%d base=%p",
         config.hplRenderStageProbe ? 1 : 0,
         config.hplDualRenderReplayProbe ? 1 : 0,
         config.hplDualRenderAutoProbe ? 1 : 0,
@@ -2215,6 +2280,7 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
         config.hplPerEyeImageTrailControl ? 1 : 0,
         IsHPLPerEyeImageTrailAvailable() ? 1 : 0,
         config.hplToneMappingFrameControl ? 1 : 0,
+        config.hplPerEyeSSAOTemporalControl ? 1 : 0,
         config.hplPerEyePerformanceTelemetry ? 1 : 0,
         config.hplPerEyeGpuTelemetry ? 1 : 0,
         config.hplGpuQueryPoolSize,
@@ -2235,7 +2301,8 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
             + (config.hplPostEffectControl ? 1 : 0)
             + ((config.hplPostEffectResourceProbe || config.hplPerEyeImageTrailControl
                 || config.hplToneMappingFrameControl) ? 1 : 0)
-            + (config.hplPerEyeImageTrailControl ? 1 : 0),
+            + (config.hplPerEyeImageTrailControl ? 1 : 0)
+            + (config.hplPerEyeSSAOTemporalControl ? 2 : 0),
         config.hplCompatibilityLogInterval,
         executable);
     return installed > 0;
@@ -2255,6 +2322,7 @@ void LogHPLCompatibilityProbeSummary()
     const HPLPerEyeViewHistoryStatus viewHistory = GetHPLPerEyeViewHistoryStatus();
     const HPLPerEyePostEffectStatus perEyePostEffect = GetHPLPerEyePostEffectStatus();
     const HPLToneMappingFrameStatus toneMapping = GetHPLToneMappingFrameStatus();
+    const HPLSSAOTemporalHistoryStatus ssaoTemporal = GetHPLSSAOTemporalHistoryStatus();
     Logger::Instance().Write(
         LogLevel::Info,
         "hpl_per_eye_post_effect_summary configured=%d available=%d faulted=%d effects=%llu allocations=%llu restores=%llu captures=%llu resets=%llu releases=%llu failures=%llu",
@@ -2280,6 +2348,19 @@ void LogHPLCompatibilityProbeSummary()
         static_cast<unsigned long long>(toneMapping.committedRestores),
         static_cast<unsigned long long>(toneMapping.mismatches),
         static_cast<unsigned long long>(toneMapping.failures));
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_ssao_temporal_summary configured=%d available=%d faulted=%d renderers=%llu allocations=%llu restores=%llu commits=%llu seeds=%llu resets=%llu failures=%llu",
+        ssaoTemporal.configured ? 1 : 0,
+        ssaoTemporal.available ? 1 : 0,
+        ssaoTemporal.faulted ? 1 : 0,
+        static_cast<unsigned long long>(ssaoTemporal.trackedRenderers),
+        static_cast<unsigned long long>(ssaoTemporal.allocations),
+        static_cast<unsigned long long>(ssaoTemporal.restores),
+        static_cast<unsigned long long>(ssaoTemporal.commits),
+        static_cast<unsigned long long>(ssaoTemporal.seeds),
+        static_cast<unsigned long long>(ssaoTemporal.resets),
+        static_cast<unsigned long long>(ssaoTemporal.failures));
     Logger::Instance().Write(
         LogLevel::Info,
         "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postEffectRenderOne=%llu postPostEffects=%llu screenGui=%llu renderTransactions=%llu canonicalRenderTransactions=%llu viewportIdentitySamples=%llu viewportIdentityChanges=%llu knownViewports=%llu playerViewportCalls=%llu secondaryViewportCalls=%llu dualRender={arms=%llu attempts=%llu firstEyeCaptures=%llu replays=%llu samePoseOppositeEye=%llu failures=%llu armed=%d autoCompleted=%llu continuousConfigured=%d continuousReady=%d continuousEnabled=%d continuousDefault=%d continuousReplays=%llu continuousSkips=%llu continuousChanges=%llu continuousRejections=%llu temporalCaptures=%llu temporalFailedRegions=%llu temporalCorrelatedPairs=%llu temporalEquivalentPairs=%llu viewHistoryConfigured=%d viewHistoryActive=%d viewHistoryFaulted=%d viewHistoryActivations=%llu viewHistoryResets=%llu viewHistorySeeds=%llu viewHistoryRestores=%llu viewHistoryCaptures=%llu viewHistoryFailures=%llu} audioUpdates=%llu audioSamples=%llu audioCorrections=%llu audioTranslations=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",
@@ -2346,6 +2427,7 @@ void RemoveHPLCompatibilityProbe()
     std::lock_guard lock(g_installMutex);
     ResetGpuTimingState(wglGetCurrentContext() == g_gpuTimingContext);
     g_gpuTimingUnavailableContext = nullptr;
+    RemoveHPLSSAOTemporalHistory();
     RemoveHPLToneMappingFrame();
     RemoveHPLPerEyePostEffect();
     for (void* target : g_hookTargets) {
@@ -2363,6 +2445,8 @@ void RemoveHPLCompatibilityProbe()
     g_originalPostEffectHasActiveEffects = nullptr;
     g_originalAudioListenerUpdate = nullptr;
     g_originalImageTrailDestroyResources = nullptr;
+    g_originalSSAORender = nullptr;
+    g_originalRendererSetTextureUnit = nullptr;
     g_postEffectBypassEnabled.store(false, std::memory_order_relaxed);
     g_postEffectIsolated.store(nullptr, std::memory_order_relaxed);
     g_f12Down.store(false, std::memory_order_relaxed);

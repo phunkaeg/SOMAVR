@@ -5,6 +5,7 @@
 #include "HPLInputBridge.h"
 #include "HPLPostEffectResourceMath.h"
 #include "HPLPresentationBridge.h"
+#include "HPLSSAOTemporalHistory.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
 #include "OpenGLMatrixAnalysis.h"
@@ -1344,6 +1345,7 @@ void APIENTRY HookGlBindFramebuffer(GLenum target, GLuint framebuffer)
 void APIENTRY HookGlBindTexture(GLenum target, GLuint texture)
 {
     g_originalGlBindTexture(target, texture);
+    ObserveHPLSSAOTemporalGLBind(target, texture);
     if (!g_postEffectResourceCapture.active || texture == 0
         || g_glGetTexLevelParameteriv == nullptr) {
         return;
@@ -1912,7 +1914,7 @@ bool InstallOpenGLHooks(const Config& config, OpenXRRuntime* openxr)
     if (config.hplRenderStageProbe) {
         anyHook |= HookExport(opengl32, "glClear", reinterpret_cast<void*>(&HookGlClear), reinterpret_cast<void**>(&g_originalGlClear));
     }
-    if (config.hplPostEffectResourceProbe) {
+    if (config.hplPostEffectResourceProbe || config.hplPerEyeSSAOTemporalControl) {
         anyHook |= HookExport(opengl32, "glBindTexture", reinterpret_cast<void*>(&HookGlBindTexture), reinterpret_cast<void**>(&g_originalGlBindTexture));
     }
 

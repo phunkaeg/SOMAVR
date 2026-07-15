@@ -125,6 +125,11 @@ window fade, color-grading transitions, and film-grain sampling advance once
 per same-pose stereo pair. Eye two replays eye one's pre-update state and only
 one native update is retained. It is guarded and opt-in; set it to `0` for
 immediate native behavior.
+`HPLPerEyeSSAOTemporalControl=1` isolates SOMA's temporal SSAO history per eye.
+It signature-hooks the confirmed native SSAO writer and keeps two matching GPU
+history copies while leaving the original AO shaders and render targets intact.
+It is opt-in and faults back to native shared history if GL copy support,
+resource identity, or allocation disagrees; set it to `0` for immediate rollback.
 With `HudLayer=1`, the exact gameplay HUD set is removed from the eye render and
 submitted once as a transparent, compositor head-locked OpenXR layer.
 `HudShape=cylinder` requests `XR_KHR_composition_layer_cylinder` and preserves

@@ -2,6 +2,30 @@
 
 ## 2026-07-15
 
+### 0.54.0-per-eye-ssao-history
+
+- Confirmed SOMA's complete temporal SSAO ownership chain. Deferred renderer
+  `0x1403f2b50` samples previous AO texture `renderer+0xe78` through temporal
+  shader `+0xf40`, then overwrites the same texture through framebuffer
+  `+0xed8` on every eye render. Allocator/destructor `0x1403f4530` /
+  `0x1403f2880` prove it is a persistent owned history, while the other SSAO
+  targets are pass scratch.
+- Added signature-guarded `HPLSSAOTemporalHistory`. During the exact player
+  stereo path it correlates native `+0xe78` with its GL texture at renderer
+  texture-unit boundary `0x1402aba30`, allocates two matching GPU histories,
+  restores the current eye before native SSAO, and commits the result after
+  native SSAO with `glCopyImageSubData`. First observation seeds both eyes;
+  calibration, resource, size, format, or context changes invalidate history.
+- Generated configs remain off and the active test profile enables
+  `HPLPerEyeSSAOTemporalControl=1`. Unsupported GL copy/storage entry points,
+  non-2D targets, signature drift, or copy/allocation failures fault closed to
+  native shared history. Added deterministic schedule/reset tests and bounded
+  allocation/restore/commit/failure telemetry.
+- Both default and OpenXR Release trees pass all four CTest suites. Ghidra
+  confirms each hook signature has one exact match at its registered address,
+  and the packaged doctor reports `pass=7 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `623A448B41719BD0B42689C0261383E7CF503668BB484B3CF195E910101D7CAA`.
+
 ### 0.53.0-tone-mapping-frame-owner
 
 - Confirmed that `HPL3_PostEffect_ToneMapping_RenderEffect` at

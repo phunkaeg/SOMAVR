@@ -68,7 +68,7 @@ int main()
     {
         std::ofstream out(configPath, std::ios::trunc);
         out << "[Comfort]\nPreset=maximum\n"
-            << "[Hooks]\nHPLComfortSuppressScriptRoll=0\nHPLPerEyeImageTrailControl=1\nHPLToneMappingFrameControl=1\n"
+            << "[Hooks]\nHPLComfortSuppressScriptRoll=0\nHPLPerEyeImageTrailControl=1\nHPLToneMappingFrameControl=1\nHPLPerEyeSSAOTemporalControl=1\n"
             << "[Controller]\nComfortBlackoutFrames=7\n"
             << "[OpenXR]\nHudShape=CYLINDER\nHudCylinderAngleDegrees=80\n"
             << "ComfortVignette=0\nComfortVignetteStrength=0.33\n";
@@ -80,6 +80,7 @@ int main()
             && !manager.Get().hplComfortSuppressScriptRoll
             && manager.Get().hplPerEyeImageTrailControl
             && manager.Get().hplToneMappingFrameControl
+            && manager.Get().hplPerEyeSSAOTemporalControl
             && manager.Get().hplControllerComfortBlackoutFrames == 7
             && manager.Get().openxrHudShape == "cylinder"
             && manager.Get().openxrHudCylinderAngleDegrees == 80.0f

@@ -105,6 +105,8 @@ headset, GPU, and relevant timestamps with every report.
 - Set `HPLPerEyeImageTrailControl=0` and
   `HPLPostEffectDisableImageTrail=1` to restore the proven ImageTrail
   suppression policy.
+- Set `HPLPerEyeSSAOTemporalControl=0` to restore SOMA's native shared temporal
+  SSAO history.
 - Disable `SAME FRAME STEREO` in F1 to return immediately to AFR.
 - Press F10 to restore the native desktop camera/input path.
 - Restore `Preset=custom` to use only explicit comfort settings.

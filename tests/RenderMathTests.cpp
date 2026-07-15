@@ -15,6 +15,7 @@
 #include "HPLPerEyeViewHistoryMath.h"
 #include "HPLPerEyePostEffectMath.h"
 #include "HPLToneMappingFrameMath.h"
+#include "HPLSSAOTemporalMath.h"
 #include "HPLTemporalMutationMath.h"
 #include "HPLTwoHandMath.h"
 #include "HPLPostEffectResourceMath.h"
@@ -81,6 +82,33 @@ int main()
                 == tone_mapping_frame_math::PassRole::None
             && toneState.effect == 0,
         "tone mapping releases frame ownership outside eligible stereo");
+    ssao_temporal_math::State ssaoState;
+    auto ssaoBegin = ssao_temporal_math::Begin(ssaoState, true, 0, 300, 4, false);
+    failures += Check(
+        ssaoBegin.action == ssao_temporal_math::BeginAction::Observe
+            && ssaoBegin.reset
+            && ssao_temporal_math::Commit(ssaoState, 0, 300),
+        "SSAO history observes and seeds an unallocated eye");
+    ssao_temporal_math::SeedBoth(ssaoState, 300);
+    ssaoBegin = ssao_temporal_math::Begin(ssaoState, true, 1, 300, 4, true);
+    failures += Check(
+        ssaoBegin.action == ssao_temporal_math::BeginAction::Restore
+            && !ssaoBegin.reset
+            && ssao_temporal_math::Commit(ssaoState, 1, 300),
+        "SSAO history restores the opposite eye bank for the same pose");
+    ssaoBegin = ssao_temporal_math::Begin(ssaoState, true, 0, 301, 5, true);
+    failures += Check(
+        ssaoBegin.action == ssao_temporal_math::BeginAction::Observe
+            && ssaoBegin.reset
+            && !ssaoState.seeded[0] && !ssaoState.seeded[1],
+        "SSAO history invalidates both banks after calibration changes");
+    ssao_temporal_math::SeedBoth(ssaoState, 301);
+    ssaoBegin = ssao_temporal_math::Begin(ssaoState, false, 0, 301, 5, true);
+    failures += Check(
+        ssaoBegin.action == ssao_temporal_math::BeginAction::None
+            && ssaoBegin.reset
+            && !ssaoState.seeded[0] && !ssaoState.seeded[1],
+        "SSAO history invalidates stale banks while native mono rendering owns updates");
     per_eye_post_effect_math::Bank imageTrailBank;
     const per_eye_post_effect_math::ResourcePair imageTrailLeft{0x1000, 0x2000};
     const per_eye_post_effect_math::ResourcePair imageTrailRight{0x3000, 0x4000};

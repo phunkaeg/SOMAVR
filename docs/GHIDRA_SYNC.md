@@ -1,5 +1,15 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 Temporal SSAO Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1403f2b50` | `HPL3_RendererDeferred_RenderSSAO` | Renamed/documented complete AO, blur, temporal reprojection, and final `+0xe78` overwrite path; exact `0.54.0` control hook. |
+| `0x1402aba30` | `HPL3_Renderer_SetTextureUnit` | Renamed/documented native texture-unit bridge used to map `iTexture*` to GL texture ID. |
+| `0x1403f4530` / `0x1403f2880` | `HPL3_RendererDeferred_CreateSSAOAndReflectionResources` / `DestroySSAOAndReflectionResources` | Renamed/documented lifecycle and exact renderer field map. |
+| `0x1403f40d0` | `HPL3_RendererDeferred_RenderLocalReflection` | Renamed/documented next per-eye temporal-resource candidate. |
+| `0x1403f9bb0` | `HPL3_RendererDeferred_RenderSSAOViewportOverlay` | Renamed/documented distinct viewport overlay/upscale consumer of `+0xe78`. |
+
 ## 2026-07-15 ToneMapping Frame-Ownership Sync
 
 | Address | Ghidra name | Evidence/use |

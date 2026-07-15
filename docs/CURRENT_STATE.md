@@ -21,10 +21,17 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.53.0-tone-mapping-frame-owner`, layered on the
+The active build candidate is `0.54.0-per-eye-ssao-history`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Temporal SSAO now has explicit per-eye GPU history. The exact native writer
+  at `0x1403f2b50` reads and overwrites renderer texture `+0xe78` once per eye;
+  the active profile banks two same-format GL copies around that function while
+  preserving SOMA's shaders, framebuffer, and AO pipeline. Generated configs
+  leave it off. Live headset acceptance must confirm stable AO during head
+  translation/rotation, reset behavior, and no new GL errors or shutdown leak.
 
 - ToneMapping now has explicit same-frame ownership for its authored exposure,
   white-cut, window fade, color-grading transition, and film-grain sampling

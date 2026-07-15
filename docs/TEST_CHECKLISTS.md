@@ -1,5 +1,26 @@
 # Test Checklists
 
+## 0.54.0 Per-Eye Temporal SSAO History
+
+1. Run packaged doctor and require `version=0.54.0-per-eye-ssao-history`,
+   OpenXR flavor, and `fail=0`. Load a save, press F10, and require
+   `perEyeSSAOTemporal=1`, both `ssao_render` and `renderer_set_texture_unit`
+   hooks installed, and no `hpl_ssao_temporal fault` row.
+2. Require one allocation row with nonzero, distinct left/right GL history IDs
+   and plausible AO dimensions/format. After warm-up, `restores` and `commits`
+   must increase once per eligible eye render.
+3. Inspect contact AO and moving character/object occlusion while translating,
+   yawing, pitching, and rolling. Require stereo-consistent AO with no eye-to-eye
+   rivalry, one-eye lag, alternating dark halos, persistence, or regression to
+   the previously fixed shadow/reflection path.
+4. Recenter, pause/resume, load a save, toggle F10, and lose/recover tracking.
+   Require resets/reseeding without stale AO flashes, GL errors, crash, or
+   increasing allocation count during steady-state play.
+5. Test same-frame stereo and AFR. Both must remain rigid; non-player and mono
+   viewports must stay native. Exit normally and require clean removal telemetry.
+6. Hard rollback: set `HPLPerEyeSSAOTemporalControl=0`. All established visual
+   behavior must remain available through native shared SSAO history.
+
 ## 0.53.0 ToneMapping Frame Owner
 
 1. Run packaged doctor and require `version=0.53.0-tone-mapping-frame-owner`,

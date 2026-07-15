@@ -80,6 +80,8 @@ bool ResolveHPLReferenceVectorWorld(
     float& worldY,
     float& worldZ);
 bool RequestHPLRecenter(const char* source);
+bool SetHPLRoomscaleEnabled(bool enabled, const char* source);
+bool SetHPLProjectionCentered(bool enabled, const char* source);
 void NotifyHPLPlayerCameraChanged(void* previousCamera, void* currentCamera);
 
 } // namespace somavr

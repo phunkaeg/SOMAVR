@@ -158,6 +158,12 @@ presence with bounded two-hand independent-tool and carried-object control.
 and framebuffer writes, and classifies same-pose left/right resources as shared
 or eye-distinct.
 
+`0.39.0` adds a head-locked in-VR status and control panel. Press `F1` or
+`Menu + Secondary`, navigate with the movement stick, and activate with dominant
+select/trigger. It exposes recenter plus reversible roomscale, centered
+projection, HUD-layer, and interaction-reticle controls while suppressing all
+underlying gameplay input.
+
 `0.38.0` adds controller-addressable diegetic wall and handheld terminals.
 During exact terminal states `8/9`, dominant aim drives SOMA's native virtual ImGui cursor and
 select/trigger uses the native click route. Exact current-owner, GameHud
@@ -286,6 +292,12 @@ InteractionReticleMaxSizeMeters=0.08
 InteractionReticleMinDistanceMeters=0.15
 InteractionReticleMaxDistanceMeters=8.0
 InteractionReticleMaxAgeFrames=2
+StatusPanel=1
+StatusPanelWidthPixels=1024
+StatusPanelHeightPixels=512
+StatusPanelDistanceMeters=1.25
+StatusPanelWidthMeters=1.15
+StatusPanelVerticalOffsetMeters=0.0
 
 [Controller]
 Enabled=1

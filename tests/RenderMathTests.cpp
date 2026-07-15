@@ -15,11 +15,14 @@
 #include "OpenGLMatrixAnalysis.h"
 #include "OpenXRSpectatorMath.h"
 #include "OpenXRDepthMath.h"
+#include "OpenXRStatusPanelMath.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -859,6 +862,31 @@ int main()
             && Near(hapticAmplitudeScale, 1.15f)
             && Near(hapticDurationScale, 1.25f),
         "semantic focus haptics classify manipulation state");
+
+    status_panel_math::PanelModel panel;
+    panel.visible = true;
+    panel.selectedAction = 2;
+    panel.trackingEnabled = true;
+    panel.stereoEnabled = true;
+    panel.roomscaleEnabled = true;
+    panel.projectionCentered = true;
+    panel.hudVisible = true;
+    panel.reticleVisible = true;
+    panel.inputAvailable = true;
+    panel.controllerTracked = true;
+    panel.playerState = 8;
+    panel.gameFrame = 1234;
+    std::vector<uint8_t> panelPixels;
+    failures += Check(
+        status_panel_math::RasterizePanel(panel, 1024, 512, panelPixels)
+            && panelPixels.size() == 1024u * 512u * 4u,
+        "VR status panel raster dimensions");
+    failures += Check(
+        std::any_of(panelPixels.begin() + 3, panelPixels.end(), [](uint8_t value) { return value != 0; }),
+        "VR status panel raster is visible");
+    failures += Check(
+        !status_panel_math::RasterizePanel(panel, 128, 128, panelPixels),
+        "VR status panel rejects undersized targets");
 
     if (failures == 0) {
         std::cout << "Render math tests passed\n";

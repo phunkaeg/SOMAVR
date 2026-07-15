@@ -86,6 +86,22 @@ struct OpenXRInteractionReticleState {
     OpenXRControllerPose aimPose{};
 };
 
+struct OpenXRStatusPanelState {
+    bool visible = false;
+    int selectedAction = 0;
+    bool trackingEnabled = false;
+    bool stereoEnabled = false;
+    bool roomscaleEnabled = false;
+    bool projectionCentered = false;
+    bool hudVisible = false;
+    bool reticleVisible = false;
+    bool inputAvailable = false;
+    bool controllerTracked = false;
+    bool authoredCameraActive = false;
+    int playerState = -1;
+    uint64_t gameFrame = 0;
+};
+
 struct OpenXREyeView {
     bool valid = false;
     uint64_t gameFrame = 0;
@@ -153,7 +169,13 @@ public:
         float interactionReticleMaxSizeMeters,
         float interactionReticleMinDistanceMeters,
         float interactionReticleMaxDistanceMeters,
-        int interactionReticleMaxAgeFrames);
+        int interactionReticleMaxAgeFrames,
+        bool statusPanelEnabled,
+        int statusPanelWidthPixels,
+        int statusPanelHeightPixels,
+        float statusPanelDistanceMeters,
+        float statusPanelWidthMeters,
+        float statusPanelVerticalOffsetMeters);
     void OnOpenGLContext(HDC deviceContext, HGLRC glContext);
     void OnFrameBoundary(HDC deviceContext, HGLRC glContext, uint64_t frameIndex);
     bool RequestManualStart();
@@ -176,6 +198,9 @@ public:
     void SetInteractionReticle(const OpenXRInteractionReticleState& state);
     void SetInteractionReticleSemantic(int crosshairState);
     void ClearInteractionReticle();
+    void SetStatusPanel(const OpenXRStatusPanelState& state);
+    void SetHudRuntimeVisible(bool visible);
+    void SetInteractionReticleRuntimeVisible(bool visible);
 
 private:
     struct Impl;

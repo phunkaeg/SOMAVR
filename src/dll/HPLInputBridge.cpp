@@ -8,6 +8,7 @@
 #include "HPLNativeLocomotion.h"
 #include "HPLPhysicalCrouchMath.h"
 #include "HPLPlayerState.h"
+#include "HPLStatusPanelBridge.h"
 #include "HPLPresentationBridge.h"
 #include "HPLTerminalBridge.h"
 #include "Logger.h"
@@ -864,12 +865,21 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
     if (loadingScreenActive) {
         g_loadingSuppressedFrames.fetch_add(1, std::memory_order_relaxed);
     }
+    const bool rawInputAvailable = g_openxr != nullptr
+        && g_openxr->GetLatestInput(input) && input.active;
     const bool available = !loadingScreenActive
         && g_config.hplControllerInput && camera.trackingEnabled
-        && g_openxr != nullptr && g_openxr->GetLatestInput(input) && input.active;
+        && rawInputAvailable;
     const uint64_t age = available && frameIndex >= input.gameFrame ? frameIndex - input.gameFrame : UINT64_MAX;
     if (!available || age > static_cast<uint64_t>(g_config.hplControllerMaxInputAgeFrames)) {
         if (available) g_staleInputFrames.fetch_add(1, std::memory_order_relaxed);
+        const int dominantHand = g_config.hplControllerDominantHand == "left" ? 0 : 1;
+        UpdateHPLStatusPanelBridge(
+            frameIndex,
+            rawInputAvailable ? &input : nullptr,
+            dominantHand,
+            player,
+            camera);
         ReleaseAll();
         g_state.lastTickMs = TickMs();
         return;
@@ -878,6 +888,22 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
     g_activeUpdates.fetch_add(1, std::memory_order_relaxed);
     const uint64_t nowMs = TickMs();
     const ControllerRoles roles = ResolveControllerRoles(input);
+    if (UpdateHPLStatusPanelBridge(
+            frameIndex,
+            &input,
+            roles.dominantHand,
+            player,
+            camera)) {
+        ReleaseAll();
+        DeactivateHPLMenuPointer();
+        DeactivateHPLTerminalPointer();
+        g_state.menuPointerActive = false;
+        g_state.terminalPointerActive = false;
+        g_state.nativeMovementActive = false;
+        g_state.nativeTurnActive = false;
+        g_state.lastTickMs = TickMs();
+        return;
+    }
     if (roles.oneHand) g_oneHandFallbackFrames.fetch_add(1, std::memory_order_relaxed);
     if (roles.oneHand != g_state.oneHandFallbackActive) {
         Logger::Instance().Write(

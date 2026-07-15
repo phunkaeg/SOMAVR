@@ -1733,6 +1733,35 @@ bool RequestHPLRecenter(const char* source)
     return true;
 }
 
+bool SetHPLRoomscaleEnabled(bool enabled, const char* source)
+{
+    std::lock_guard lock(g_stateMutex);
+    if (!g_config.hplRoomscaleControl || g_cameraGetFrustumTarget == nullptr) return false;
+    g_roomscaleEnabled.store(enabled, std::memory_order_relaxed);
+    InvalidateRoomscaleSafetyCache();
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_roomscale enabled=%d source=%s policy=retain_ipd_and_orientation stereo=%d",
+        enabled ? 1 : 0,
+        source != nullptr ? source : "api",
+        g_state.stereoEnabled ? 1 : 0);
+    return true;
+}
+
+bool SetHPLProjectionCentered(bool enabled, const char* source)
+{
+    std::lock_guard lock(g_stateMutex);
+    if (!g_config.hplProjectionCenterControl || g_cameraGetFrustumTarget == nullptr) return false;
+    g_projectionCentered.store(enabled, std::memory_order_relaxed);
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_projection_center enabled=%d source=%s policy=fully_symmetric_fov stereo=%d",
+        enabled ? 1 : 0,
+        source != nullptr ? source : "api",
+        g_state.stereoEnabled ? 1 : 0);
+    return true;
+}
+
 void NotifyHPLPlayerCameraChanged(void* previousCamera, void* currentCamera)
 {
     std::lock_guard lock(g_stateMutex);

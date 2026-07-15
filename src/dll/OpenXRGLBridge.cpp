@@ -104,7 +104,10 @@ bool OpenXRGLBridge::Initialize(
     int crosshairClearRadiusPixels,
     bool interactionReticleEnabled,
     bool interactionReticleNativeIconsEnabled,
-    int interactionReticleSizePixels)
+    int interactionReticleSizePixels,
+    bool statusPanelEnabled,
+    int statusPanelWidthPixels,
+    int statusPanelHeightPixels)
 {
     Shutdown();
 
@@ -209,10 +212,18 @@ bool OpenXRGLBridge::Initialize(
     if (InteractionReticleReady() && interactionReticleNativeIconsEnabled_) {
         LoadInteractionReticleAssets();
     }
+    if (statusPanelEnabled
+        && !CreateStatusPanelSwapchain(session, statusPanelWidthPixels, statusPanelHeightPixels)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_status_panel disabled reason=swapchain_creation_failed requested=%dx%d",
+            statusPanelWidthPixels,
+            statusPanelHeightPixels);
+    }
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "openxr_gl_bridge ready eyes=%zu format=0x%llx(%s) resolutionScalePercent=%d depthCaptureProbe=%d depthSubmitRequested=%d depthFormat=0x%llx(%s) depthCachesReady=%d depthSwapchainsReady=%d hudReady=%d hudSize=%dx%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d interactionReticleReady=%d reticleSize=%dx%d nativeReticleIcons=%u",
+        "openxr_gl_bridge ready eyes=%zu format=0x%llx(%s) resolutionScalePercent=%d depthCaptureProbe=%d depthSubmitRequested=%d depthFormat=0x%llx(%s) depthCachesReady=%d depthSwapchainsReady=%d hudReady=%d hudSize=%dx%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d interactionReticleReady=%d reticleSize=%dx%d nativeReticleIcons=%u statusPanelReady=%d statusPanelSize=%dx%d",
         eyes_.size(),
         static_cast<unsigned long long>(colorFormat_),
         GlFormatName(colorFormat_),
@@ -231,7 +242,10 @@ bool OpenXRGLBridge::Initialize(
         InteractionReticleReady() ? 1 : 0,
         interactionReticle_.width,
         interactionReticle_.height,
-        interactionReticleAssetsLoaded_);
+        interactionReticleAssetsLoaded_,
+        StatusPanelReady() ? 1 : 0,
+        statusPanel_.width,
+        statusPanel_.height);
     return true;
 }
 
@@ -303,6 +317,10 @@ void OpenXRGLBridge::Shutdown(bool deleteGlResources)
     interactionReticleUploadPixels_.clear();
     interactionReticleNativeIconsEnabled_ = false;
     interactionReticleAssetsLoaded_ = 0;
+    if (statusPanel_.handle != XR_NULL_HANDLE) {
+        xrDestroySwapchain(statusPanel_.handle);
+    }
+    statusPanel_ = {};
     hudCaptureState_ = {};
     session_ = XR_NULL_HANDLE;
     colorFormat_ = 0;
@@ -905,6 +923,74 @@ const OpenXRGLBridge::ReticleSwapchain& OpenXRGLBridge::InteractionReticle() con
     return interactionReticle_;
 }
 
+bool OpenXRGLBridge::DrawStatusPanelToSwapchain(const std::vector<uint8_t>& rgbaPixels)
+{
+    if (!StatusPanelReady()
+        || rgbaPixels.size() != static_cast<size_t>(statusPanel_.width) * statusPanel_.height * 4) {
+        return false;
+    }
+
+    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+    uint32_t imageIndex = 0;
+    XrResult result = xrAcquireSwapchainImage(statusPanel_.handle, &acquireInfo, &imageIndex);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(LogLevel::Warn,
+            "openxr_status_panel acquire_failed result=%d", static_cast<int>(result));
+        return false;
+    }
+    XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+    waitInfo.timeout = XR_INFINITE_DURATION;
+    result = xrWaitSwapchainImage(statusPanel_.handle, &waitInfo);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(LogLevel::Warn,
+            "openxr_status_panel wait_failed image=%u result=%d", imageIndex, static_cast<int>(result));
+        XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+        xrReleaseSwapchainImage(statusPanel_.handle, &releaseInfo);
+        return false;
+    }
+
+    int32_t savedTexture = 0;
+    int32_t savedUnpackAlignment = 0;
+    glGetIntegerv(kGlTextureBinding2D, &savedTexture);
+    glGetIntegerv(kGlUnpackAlignment, &savedUnpackAlignment);
+    glBindTexture(kGlTexture2D, statusPanel_.images[imageIndex].image);
+    glPixelStorei(kGlUnpackAlignment, 1);
+    glTexSubImage2D(
+        kGlTexture2D,
+        0,
+        0,
+        0,
+        statusPanel_.width,
+        statusPanel_.height,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        rgbaPixels.data());
+    glPixelStorei(kGlUnpackAlignment, savedUnpackAlignment);
+    glBindTexture(kGlTexture2D, static_cast<uint32_t>(savedTexture));
+    glFlush();
+
+    XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+    result = xrReleaseSwapchainImage(statusPanel_.handle, &releaseInfo);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(LogLevel::Warn,
+            "openxr_status_panel release_failed image=%u result=%d", imageIndex, static_cast<int>(result));
+        return false;
+    }
+    return true;
+}
+
+bool OpenXRGLBridge::StatusPanelReady() const
+{
+    return session_ != XR_NULL_HANDLE
+        && statusPanel_.handle != XR_NULL_HANDLE
+        && !statusPanel_.images.empty();
+}
+
+const OpenXRGLBridge::StatusPanelSwapchain& OpenXRGLBridge::StatusPanel() const
+{
+    return statusPanel_;
+}
+
 void OpenXRGLBridge::InvalidateStereoCaches()
 {
     for (EyeSwapchain& eye : eyes_) {
@@ -1466,6 +1552,62 @@ bool OpenXRGLBridge::CreateInteractionReticleSwapchain(XrSession session, int si
         imageCount,
         static_cast<unsigned long long>(interactionReticle_.format),
         GlFormatName(interactionReticle_.format));
+    return true;
+}
+
+bool OpenXRGLBridge::CreateStatusPanelSwapchain(XrSession session, int width, int height)
+{
+    statusPanel_ = {};
+    statusPanel_.width = std::clamp(width, 512, 4096);
+    statusPanel_.height = std::clamp(height, 256, 4096);
+    statusPanel_.format = colorFormat_;
+
+    XrSwapchainCreateInfo createInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+    createInfo.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+    createInfo.format = colorFormat_;
+    createInfo.sampleCount = 1;
+    createInfo.width = statusPanel_.width;
+    createInfo.height = statusPanel_.height;
+    createInfo.faceCount = 1;
+    createInfo.arraySize = 1;
+    createInfo.mipCount = 1;
+    XrResult result = xrCreateSwapchain(session, &createInfo, &statusPanel_.handle);
+    if (XR_FAILED(result)) {
+        statusPanel_ = {};
+        return false;
+    }
+
+    uint32_t imageCount = 0;
+    result = xrEnumerateSwapchainImages(statusPanel_.handle, 0, &imageCount, nullptr);
+    if (XR_FAILED(result) || imageCount == 0) {
+        xrDestroySwapchain(statusPanel_.handle);
+        statusPanel_ = {};
+        return false;
+    }
+    statusPanel_.images.resize(imageCount);
+    for (XrSwapchainImageOpenGLKHR& image : statusPanel_.images) {
+        image.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR;
+        image.next = nullptr;
+    }
+    result = xrEnumerateSwapchainImages(
+        statusPanel_.handle,
+        imageCount,
+        &imageCount,
+        reinterpret_cast<XrSwapchainImageBaseHeader*>(statusPanel_.images.data()));
+    if (XR_FAILED(result)) {
+        xrDestroySwapchain(statusPanel_.handle);
+        statusPanel_ = {};
+        return false;
+    }
+    statusPanel_.images.resize(imageCount);
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "openxr_status_panel swapchain_created size=%dx%d images=%u format=0x%llx(%s)",
+        statusPanel_.width,
+        statusPanel_.height,
+        imageCount,
+        static_cast<unsigned long long>(statusPanel_.format),
+        GlFormatName(statusPanel_.format));
     return true;
 }
 

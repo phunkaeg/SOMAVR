@@ -15,6 +15,7 @@
 #include "HPLPresentationBridge.h"
 #include "HPLScreenEffectBridge.h"
 #include "HPLSubtitleBridge.h"
+#include "HPLStatusPanelBridge.h"
 #include "HPLTerminalBridge.h"
 #include "Logger.h"
 #include "OpenGLHooks.h"
@@ -334,7 +335,13 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrInteractionReticleMaxSizeMeters,
         g_config->Get().openxrInteractionReticleMinDistanceMeters,
         g_config->Get().openxrInteractionReticleMaxDistanceMeters,
-        g_config->Get().openxrInteractionReticleMaxAgeFrames);
+        g_config->Get().openxrInteractionReticleMaxAgeFrames,
+        g_config->Get().openxrStatusPanel,
+        g_config->Get().openxrStatusPanelWidthPixels,
+        g_config->Get().openxrStatusPanelHeightPixels,
+        g_config->Get().openxrStatusPanelDistanceMeters,
+        g_config->Get().openxrStatusPanelWidthMeters,
+        g_config->Get().openxrStatusPanelVerticalOffsetMeters);
 
     if (!somavr::InstallOpenGLHooks(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "opengl_hooks install_failed");
@@ -365,6 +372,9 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     }
     if (!somavr::InstallHPLTerminalBridge(g_config->Get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_terminal_bridge install_failed");
+    }
+    if (!somavr::InstallHPLStatusPanelBridge(g_config->Get(), g_openxr.get())) {
+        somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_status_panel install_failed");
     }
     if (!somavr::InstallHPLInputBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_input_bridge install_failed");
@@ -434,6 +444,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::LogHPLCameraBridgeSummary();
     somavr::LogHPLInputBridgeSummary();
     somavr::RemoveHPLInputBridge();
+    somavr::LogHPLStatusPanelBridgeSummary();
+    somavr::RemoveHPLStatusPanelBridge();
     somavr::LogHPLTerminalBridgeSummary();
     somavr::RemoveHPLTerminalBridge();
     somavr::LogHPLMenuBridgeSummary();

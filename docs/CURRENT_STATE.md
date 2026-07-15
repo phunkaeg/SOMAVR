@@ -21,10 +21,17 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.38.0-terminal-pointer`, layered on the
+The active build candidate is `0.39.0-vr-control-panel`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- A dedicated head-locked OpenXR status/options panel is now available through
+  `F1` or `Menu + Secondary`. It owns a separate alpha swapchain and reports
+  tracking, stereo, input, player/authored-camera, roomscale, projection, HUD,
+  and reticle state. Stick plus select/trigger controls recenter and reversible
+  runtime options while exclusive input ownership prevents actions leaking into
+  SOMA. This is built and unit-tested but still needs headset acceptance.
 
 - Exact wall/handheld terminal states `8/9` now route dominant-controller aim through
   SOMA's native virtual ImGui cursor boundary. Current-ImGui identity,

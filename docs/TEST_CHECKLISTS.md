@@ -1,5 +1,29 @@
 # Test Checklists
 
+## 0.39.0 VR Control Panel
+
+1. Confirm `version=0.39.0-vr-control-panel`,
+   `openxr_status_panel swapchain_created`, `statusPanelReady=1`, and
+   `hpl_status_panel install enabled=1`. Enter the known-good F10 VR path.
+2. Press `F1`. A stable head-locked panel should appear in both eyes without
+   changing world scale, eye height, shadows, reflections, HUD convergence, or
+   desktop mirror output. Press `F1` again and confirm immediate removal.
+3. Open with `Menu + Secondary`. Move the movement stick once in each direction
+   and confirm one-row-per-deflection navigation. Dominant select or trigger
+   must activate exactly once per press; no movement, turn, pause, terminal
+   click, grab, or manipulation action may leak through while the panel is open.
+4. Exercise recenter and roomscale. Recenter must use the stable-pose latch;
+   roomscale off/on must preserve IPD, orientation, calibrated eye height, and
+   collision safety on re-enable.
+5. Toggle centered projection only in a scene with known shadow/reflection
+   anchors, then restore it to ON. Toggle HUD and reticle off/on and confirm only
+   their compositor layers change. Close through the CLOSE row and controller
+   Menu, then verify ordinary controls resume with no held inputs.
+6. Stop on an upside-down panel, per-eye mismatch, opaque rectangle outside the
+   panel, repeated actions, input leakage, compositor failure/suspension, or any
+   world-render regression. Attach the log with `hpl_status_panel_summary` and
+   `openxrStatusPanelSubmittedFrames`.
+
 ## 0.38.0 Diegetic Terminal Pointer
 
 1. Confirm `version=0.38.0-terminal-pointer`,

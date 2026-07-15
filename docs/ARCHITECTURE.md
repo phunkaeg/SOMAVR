@@ -27,6 +27,12 @@ HPLInputBridge
   -> HPLNativeLocomotion guarded normal-state fast path
   -> HPLMenuBridge paused pointer and click policy
   -> HPLPhysicalCrouchMath tested height/hysteresis state machine
+  -> HPLStatusPanelBridge exclusive user-interface input owner
+
+HPLStatusPanelBridge
+  -> immutable player/camera/input snapshots
+  -> guarded recenter, roomscale, projection, HUD, and reticle controls
+  -> OpenXRRuntime status model publication
 
 HPLGrabBridge
   -> signature-guarded vector PID output
@@ -87,6 +93,7 @@ OpenXRGLBridge
   -> OpenXR swapchain/FBO ownership
   -> guarded uncompressed TGA decode/cache for SOMA's shipped crosshair artwork
   -> procedural reticle fallback when native artwork cannot be used
+  -> status-panel texture upload and independent alpha swapchain
 
 HPLCompatibilityProbe / HPLLifecycle
   -> signature-guarded native HPL boundaries
@@ -107,6 +114,7 @@ lifecycle.
 | `OpenXRInput` | OpenXR action set, suggested bindings, action synchronization, grip/aim spaces, immutable input snapshots | SOMA movement, interaction, hand placement, or camera policy |
 | `OpenXRHelpers` | OpenXR names, format strings, pose/view conversion | Handles, session lifetime, swapchain ownership |
 | `OpenXRGLBridge` | OpenGL projection/HUD/reticle swapchain images, FBOs, invalidatable eye caches, transparent HUD capture, reticle drawing, image transfer, and state-preserving spectator backbuffer blit | OpenXR event/session, spectator selection policy, or HPL GUI/interaction identity policy |
+| `OpenXRStatusPanelMath` | Pure fixed-glyph status/options rasterization into an OpenGL-oriented RGBA buffer | OpenXR/GL handles, input state, native pointers, or runtime policy |
 | `OpenXRSpectatorMath` | Pure fit/fill/stretch source and destination rectangle calculation | GL state, eye-cache ownership, runtime policy, logging, or native window handles |
 | `HPLCameraBridge` | Signature-guarded player-camera interception, VR mode state, and cached static/dynamic-filtered room-scale query orchestration | Generic quaternion/projection/collision-fraction algorithms |
 | `HPLCameraMath` | Pure pose, matrix, FOV centering, projection construction, room-scale clearance/head-volume sampling, and tracked-component decomposition | HPL pointers, hotkeys, logging, OpenXR handles, or native collision calls |
@@ -114,6 +122,7 @@ lifecycle.
 | `HPLPhysicalCrouchMath` | Pure standing-height calibration and crouch hysteresis | Native input injection, OpenXR handles, player state, or logging |
 | `HPLPlayerState` | Signature-guarded player/camera/body discovery, player/move IDs, camera ownership classification, immutable snapshots | Controller injection, camera transforms, OpenXR actions |
 | `HPLInputBridge` | Reversible SOMA input-path controls plus authored-camera/hard-pause suppression and bounded high-motion player-state transition blackouts | Native player discovery, OpenXR action ownership, camera math, or authored pose replacement |
+| `HPLStatusPanelBridge` | Exclusive panel input lifecycle and guarded user-facing VR option commands | Text rasterization, swapchains, native discovery, or world rendering |
 | `HPLNativeLocomotion` | Guarded analog Move and exact-radian AddYaw calls only in unpaused normal player/move state; exposes the confirmed pause state to input policy | Player discovery, special-state input semantics, direct capsule transforms, or bypassing pause ownership |
 | `HPLMenuBridge` | Paused-only head-relative controller aim to native client cursor routing | GUI rendering/capture, pause ownership, OpenXR actions, or gameplay clicks |
 | `HPLMenuMath` | Pure HMD/controller orientation projection into normalized menu coordinates | HWND state, cursor mutation, native pointers, or logging |

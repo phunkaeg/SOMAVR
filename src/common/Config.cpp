@@ -548,6 +548,18 @@ void ConfigManager::LoadFromFile()
                 config_.openxrInteractionReticleMaxDistanceMeters = ParseFloat(value, config_.openxrInteractionReticleMaxDistanceMeters, 0.1f, 100.0f);
             } else if (key == "interactionreticlemaxageframes") {
                 config_.openxrInteractionReticleMaxAgeFrames = ParseInt(value, config_.openxrInteractionReticleMaxAgeFrames, 0, 30);
+            } else if (key == "statuspanel") {
+                config_.openxrStatusPanel = ParseBool(value, config_.openxrStatusPanel);
+            } else if (key == "statuspanelwidthpixels") {
+                config_.openxrStatusPanelWidthPixels = ParseInt(value, config_.openxrStatusPanelWidthPixels, 512, 4096);
+            } else if (key == "statuspanelheightpixels") {
+                config_.openxrStatusPanelHeightPixels = ParseInt(value, config_.openxrStatusPanelHeightPixels, 256, 4096);
+            } else if (key == "statuspaneldistancemeters") {
+                config_.openxrStatusPanelDistanceMeters = ParseFloat(value, config_.openxrStatusPanelDistanceMeters, 0.25f, 10.0f);
+            } else if (key == "statuspanelwidthmeters") {
+                config_.openxrStatusPanelWidthMeters = ParseFloat(value, config_.openxrStatusPanelWidthMeters, 0.25f, 5.0f);
+            } else if (key == "statuspanelverticaloffsetmeters") {
+                config_.openxrStatusPanelVerticalOffsetMeters = ParseFloat(value, config_.openxrStatusPanelVerticalOffsetMeters, -5.0f, 5.0f);
             }
             continue;
         }

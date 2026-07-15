@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.38.0-terminal-pointer")
+set(SOMAVR_BUILD_VERSION "0.39.0-vr-control-panel")
 
 include(FetchContent)
 
@@ -78,6 +78,7 @@ add_library(somavr_render_math STATIC
     src/dll/OpenGLMatrixAnalysis.cpp
     src/dll/OpenXRSpectatorMath.cpp
     src/dll/OpenXRDepthMath.cpp
+    src/dll/OpenXRStatusPanelMath.cpp
 )
 target_include_directories(somavr_render_math PUBLIC src/dll)
 target_compile_definitions(somavr_render_math PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
@@ -95,6 +96,7 @@ add_library(somavr SHARED
     src/dll/HPLPresentationBridge.cpp
     src/dll/HPLScreenEffectBridge.cpp
     src/dll/HPLSubtitleBridge.cpp
+    src/dll/HPLStatusPanelBridge.cpp
     src/dll/HPLNativeLocomotion.cpp
     src/dll/HPLInteractionBridge.cpp
     src/dll/HPLCrosshairBridge.cpp

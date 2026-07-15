@@ -58,6 +58,12 @@ struct Config {
     float openxrInteractionReticleMinDistanceMeters = 0.15f;
     float openxrInteractionReticleMaxDistanceMeters = 8.0f;
     int openxrInteractionReticleMaxAgeFrames = 2;
+    bool openxrStatusPanel = false;
+    int openxrStatusPanelWidthPixels = 1024;
+    int openxrStatusPanelHeightPixels = 512;
+    float openxrStatusPanelDistanceMeters = 1.25f;
+    float openxrStatusPanelWidthMeters = 1.15f;
+    float openxrStatusPanelVerticalOffsetMeters = 0.0f;
     bool hplControllerInput = false;
     float hplControllerMoveDeadzone = 0.35f;
     float hplControllerMoveReleaseDeadzone = 0.25f;

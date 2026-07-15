@@ -2,6 +2,25 @@
 
 ## 2026-07-15
 
+### 0.39.0-vr-control-panel
+
+- Added `FEATURE.VR_CONTROL_PANEL`: a dedicated head-locked OpenXR alpha quad
+  with a tested CPU rasterizer and independent swapchain. It reports live
+  tracking, stereo, controller, player-state, authored-camera, HUD, reticle,
+  roomscale, and centered-projection state without modifying SOMA render data.
+- `F1` or `Menu + Secondary` opens the panel. Movement-stick navigation and
+  dominant select/trigger expose recenter, roomscale, centered projection, HUD
+  layer, reticle, and close actions. Panel ownership is exclusive: gameplay,
+  pause, terminal, locomotion, and manipulation input is released while open.
+- Runtime HUD/reticle visibility and camera roomscale/projection setters use the
+  existing guarded owners. Missing OpenXR resources remain fail-closed; the
+  world projection/stereo path is untouched. Both Release flavors and all
+  three CTest suites pass; live compositor/input acceptance remains. OpenXR
+  DLL SHA-256:
+  `ADA0F6D7574E46B4D17AABBB073764EA3CC933A0BD516E921D0B9DD18F68BF82`.
+  Package SHA-256:
+  `F45A87F2C6F9E472E702409D441272B279B7B413C9B79E7A6672AC99BFDDC827`.
+
 ### 0.38.0-terminal-pointer
 
 - Added a signature-guarded detour at the exact 3D GUI input boundary,

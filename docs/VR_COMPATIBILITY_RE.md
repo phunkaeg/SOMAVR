@@ -461,9 +461,11 @@ where native shared history otherwise alternates eye ownership each game frame.
 It also treats recenter generation and pose gaps over eight frames as camera cuts,
 reseeding both banks from live state before rendering resumes.
 
-Temporal resources such as image trail, previous projection matrices,
-exposure, and velocity history must either be isolated per eye or disabled. Sharing
-one history between alternating eye transforms produces cross-eye contamination.
+Temporal resources such as image trail, previous projection matrices, and
+velocity history must either be isolated per eye or disabled. Exposure is now
+classified differently: `0.53.0` owns it as shared authored frame state that
+advances once per same-pose stereo pair. Sharing one camera-dependent history
+between alternating eye transforms still produces cross-eye contamination.
 
 ## Additional High-Value RE
 

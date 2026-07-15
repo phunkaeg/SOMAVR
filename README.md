@@ -120,6 +120,10 @@ and falls back to `HPLPostEffectDisableImageTrail=1` on any disagreement.
 Generated configs leave this experimental path off. The active test profile
 enables it and sets `HPLPostEffectDisableImageTrail=0`; restore those two values
 to `0` and `1` respectively for the proven suppression baseline.
+`HPLToneMappingFrameControl=1` makes shared ToneMapping exposure, white-cut,
+window fade, and color-grading transitions advance once per same-pose stereo
+pair. Eye two replays eye one's pre-update state and only one native update is
+retained. It is guarded and opt-in; set it to `0` for immediate native behavior.
 With `HudLayer=1`, the exact gameplay HUD set is removed from the eye render and
 submitted once as a transparent, compositor head-locked OpenXR layer.
 `HudShape=cylinder` requests `XR_KHR_composition_layer_cylinder` and preserves
@@ -200,7 +204,8 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
 ## Current Goal
 
 The proven default remains OpenXR transport, native head tracking, and AFR stereo
-geometry. `0.52.0` adds guarded per-eye ImageTrail resource and clear-state
+geometry. `0.53.0` adds guarded once-per-frame ToneMapping exposure, fade, and
+grading-transition ownership for same-frame stereo. `0.52.0` adds guarded per-eye ImageTrail resource and clear-state
 ownership with exact native teardown and automatic suppression fallback.
 `0.51.0` adds locomotion-gated compositor comfort tunneling with
 tested fade/radial math, preset integration, and a live F1 toggle. `0.50.0`
@@ -316,6 +321,7 @@ HPLDualRenderContinuousControl=1
 HPLDualRenderContinuousDefault=0
 HPLPerEyeViewHistoryControl=1
 HPLPerEyeImageTrailControl=1
+HPLToneMappingFrameControl=1
 HPLPerEyePerformanceTelemetry=1
 HPLPerEyeGpuTelemetry=1
 HPLGpuQueryPoolSize=128

@@ -254,6 +254,7 @@ struct Config {
     bool hplDualRenderContinuousDefault = false;
     bool hplPerEyeViewHistoryControl = false;
     bool hplPerEyeImageTrailControl = false;
+    bool hplToneMappingFrameControl = false;
     bool hplPerEyePerformanceTelemetry = false;
     bool hplPerEyeGpuTelemetry = false;
     int hplGpuQueryPoolSize = 128;

@@ -14,6 +14,7 @@
 #include "HPLDualRenderMath.h"
 #include "HPLPerEyeViewHistoryMath.h"
 #include "HPLPerEyePostEffectMath.h"
+#include "HPLToneMappingFrameMath.h"
 #include "HPLTemporalMutationMath.h"
 #include "HPLTwoHandMath.h"
 #include "HPLPostEffectResourceMath.h"
@@ -53,6 +54,33 @@ int main()
     using namespace somavr;
 
     int failures = 0;
+    tone_mapping_frame_math::State toneState;
+    auto toneRole = tone_mapping_frame_math::Begin(
+        toneState, 0x6000, true, 1, 200, 9);
+    failures += Check(
+        toneRole == tone_mapping_frame_math::PassRole::FirstEye
+            && tone_mapping_frame_math::Commit(toneState, toneRole),
+        "tone mapping assigns the first eye one frame update");
+    toneRole = tone_mapping_frame_math::Begin(
+        toneState, 0x6000, true, 0, 200, 9);
+    failures += Check(
+        toneRole == tone_mapping_frame_math::PassRole::ReplayEye
+            && tone_mapping_frame_math::Commit(toneState, toneRole),
+        "tone mapping replays the baseline for the opposite eye");
+    failures += Check(
+        tone_mapping_frame_math::Begin(toneState, 0x6000, true, 0, 200, 9)
+            == tone_mapping_frame_math::PassRole::None,
+        "tone mapping rejects a duplicate replay in one pose frame");
+    toneRole = tone_mapping_frame_math::Begin(
+        toneState, 0x6000, true, 0, 201, 9);
+    failures += Check(
+        toneRole == tone_mapping_frame_math::PassRole::FirstEye,
+        "tone mapping starts one update for the next pose frame regardless of eye order");
+    failures += Check(
+        tone_mapping_frame_math::Begin(toneState, 0x6000, false, 0, 201, 9)
+                == tone_mapping_frame_math::PassRole::None
+            && toneState.effect == 0,
+        "tone mapping releases frame ownership outside eligible stereo");
     per_eye_post_effect_math::Bank imageTrailBank;
     const per_eye_post_effect_math::ResourcePair imageTrailLeft{0x1000, 0x2000};
     const per_eye_post_effect_math::ResourcePair imageTrailRight{0x3000, 0x4000};

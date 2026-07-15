@@ -163,6 +163,8 @@ lifecycle.
 | `HPLCompatibilityProbe` | Bounded render/audio/post-effect telemetry, left/right/mono CPU stage totals, temporary probes, and the single exact-player viewport replay hook shared by bounded and continuous dual render; shared pose math comes from `HPLCameraMath` | Permanent dual-render user policy, GUI/HUD feature policy, GPU timing ownership, or unrelated gameplay systems |
 | `HPLPerEyeViewHistory` | Guarded native access and per-eye transaction ownership for the confirmed renderer previous-view packet during continuous exact-player stereo | Other temporal resources, post-effect policy, camera scheduling, or viewport replay policy |
 | `HPLPerEyeViewHistoryMath` | Pure two-eye packet banking, identity reseed, frame-regression reset, prepare, and commit rules | Native pointers, hooks, logging, or OpenXR state |
+| `HPLToneMappingFrame` | Guarded native access and once-per-pose ownership for ToneMapping exposure, white-cut, window fade, and grading-transition state | Bloom scratch allocation, post-effect suppression, shader policy, camera scheduling, or XR submission |
+| `HPLToneMappingFrameMath` | Pure first-eye/replay-eye scheduling across pose frames, calibration changes, eye-order changes, duplicates, and stereo release | Native pointers, packet offsets, hooks, logging, or rendering |
 | `HPLLifecycle` | Pre-graphics OpenXR teardown boundary | General shutdown orchestration |
 
 ## Growth Rules

@@ -21,10 +21,18 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.52.0-per-eye-image-trail`, layered on the
+The active build candidate is `0.53.0-tone-mapping-frame-owner`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- ToneMapping now has explicit same-frame ownership for its authored exposure,
+  white-cut, window fade, and color-grading transition packet. Ghidra confirms
+  native update `0x1402842d0` runs inside each render. The first eye commits one
+  update; the opposite eye replays the same baseline and leaves the first
+  commit resident. AFR remains native. The active profile enables this guarded
+  prototype; generated configs and `HPLToneMappingFrameControl=0` retain native
+  behavior. Live tone/bloom/fade acceptance remains.
 
 - ImageTrail is the first full post-effect temporal resource with explicit
   per-eye ownership. Confirmed native fields hold its framebuffer at `+0x50`,

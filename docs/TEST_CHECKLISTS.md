@@ -1,5 +1,25 @@
 # Test Checklists
 
+## 0.53.0 ToneMapping Frame Owner
+
+1. Run packaged doctor and require `version=0.53.0-tone-mapping-frame-owner`,
+   OpenXR flavor, and `fail=0`. Launch, load a save, press F10, and require
+   `toneMappingFrameControl=1` plus no `hpl_tone_mapping_frame fault` row.
+2. In same-frame stereo, move between dark and bright spaces and trigger an
+   authored fade or grading transition. Require paired `replay` rows with one
+   `committedRestore` per opposite-eye pass. Both eyes must have identical
+   exposure, fade timing, grading, and bloom intensity without pumping.
+3. Require `mismatches=0`. A mismatch is useful evidence but blocks promotion;
+   attach the full log and identify the scene/event if one occurs.
+4. Toggle same-frame stereo off and continue in AFR. Tone mapping, bloom, film
+   grain, and fades must remain native with no replay rows for single-eye pose
+   frames. Re-enable and confirm pairing resumes regardless of first-eye order.
+5. Recenter, pause, load, lose/recover tracking, and toggle F10 off/on. Require
+   no stale grading pointer, exposure jump, persistent fade, crash, or fault.
+6. Hard rollback: set `HPLToneMappingFrameControl=0`. All established geometry,
+   ImageTrail isolation, shadows/reflections, HUD, and native ToneMapping must
+   remain functional.
+
 ## 0.52.0 Per-Eye ImageTrail
 
 1. Run the packaged doctor and confirm

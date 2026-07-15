@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.52.0-per-eye-image-trail")
+set(SOMAVR_BUILD_VERSION "0.53.0-tone-mapping-frame-owner")
 
 include(FetchContent)
 
@@ -78,6 +78,7 @@ add_library(somavr_render_math STATIC
     src/dll/HPLDualRenderMath.cpp
     src/dll/HPLPerEyeViewHistoryMath.cpp
     src/dll/HPLPerEyePostEffectMath.cpp
+    src/dll/HPLToneMappingFrameMath.cpp
     src/dll/HPLTemporalMutationMath.cpp
     src/dll/HPLTwoHandMath.cpp
     src/dll/HPLPostEffectResourceMath.cpp
@@ -97,6 +98,7 @@ add_library(somavr SHARED
     src/dll/HPLDualRenderDiagnostics.cpp
     src/dll/HPLPerEyeViewHistory.cpp
     src/dll/HPLPerEyePostEffect.cpp
+    src/dll/HPLToneMappingFrame.cpp
     src/dll/HPLCameraBridge.cpp
     src/dll/HPLComfortBridge.cpp
     src/dll/HPLHudBridge.cpp

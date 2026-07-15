@@ -1,5 +1,18 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-15 ToneMapping Frame-Ownership Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1402842d0` | `HPL3_PostEffect_ToneMapping_AdvanceFrameState` | Renamed/documented as the exact renderer-time update of exposure, white-cut, window fade, authored transition, and grading-transition state now owned once per same-pose stereo pair. |
+| `0x140284fd0` | `HPL3_PostEffect_ToneMapping_RenderEffect` | Renamed/documented as the virtual render that advances the packet before selecting final shader features. |
+| `0x140284d70` / `0x140283fd0` | `HPL3_PostEffect_ToneMapping_CreateBloomResources` / `DestroyBloomResources` | Renamed/documented as six bloom scratch-pair lifecycle functions. |
+| `0x140284e40` / `0x140284770` | `HPL3_PostEffect_ToneMapping_RenderBloomBrightPass` / `RenderBloomBlurPass` | Renamed/documented; full-overwrite behavior classifies bloom targets as sequential scratch, not temporal history. |
+| `0x1402845d0` / `0x140284570` | `HPL3_PostEffect_ToneMapping_AdvanceFilmGrainOffsets` / `LoadDefaultGrading` | Renamed/documented to keep film-grain sampling and grading resource setup distinct from shared frame-state ownership. |
+
+The explicitly selected `Soma_NoSteam.exe` database was saved after all eight
+renames and plate comments.
+
 ## 2026-07-15 Per-Eye ImageTrail Sync
 
 | Address | Ghidra name | Evidence/use |

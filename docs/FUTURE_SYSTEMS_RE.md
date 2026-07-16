@@ -1,5 +1,23 @@
 # Future Systems Reverse Engineering
 
+## 0.63.0 Diegetic Terminal Takeover Result
+
+Released `PlayerState_Interact_Terminal.hps` identifies all three parts of the
+wall-terminal camera takeover: `iCharacterBody::SetFeetPosition`,
+`cLuxPlayer::RotateCameraTowards`, and camera-add type Terminal `4`. Version
+0.63 signature-guards those exact native boundaries and suppresses them only
+while F10 tracking and live player state `8` agree. State `9` is deliberately
+excluded because its handheld prop-to-camera presentation has separate ownership.
+
+`SOMA_ImGuiManager_UpdateInput` reaches a native spatial projector at
+`0x1403132d0`. It intersects the focused `cGuiSetEntity` mesh, barycentrically
+interpolates UV set `7`, and multiplies by cGuiSet virtual dimensions
+`+0x100/+0x104`. Version 0.63 reuses this function with the calibrated dominant
+controller world ray. Hits become exact virtual cursor coordinates; misses
+deactivate the pointer, while unavailable spatial ownership alone falls back to
+the older head-cone projection. SOMA continues to own focus, widgets, sounds,
+click dispatch, callbacks, and exit.
+
 ## 0.62.0 Physical Hinge And Timing Result
 
 The 0.61 log proves Slide was receiving direction rather than velocity. Every
@@ -303,10 +321,10 @@ route. All failed gates forward the original arguments unchanged.
 state `9`: it creates an open world prop, calls `CreateAndSetupGui`, and focuses
 that prop when its authored lock-camera policy allows it. The same route is
 therefore enabled for `8/9`, while exact current-owner and 3D-set gates reject
-unfocused or differently authored variants. Exact controller-ray-to-terminal-
-plane UV remains a later refinement; the current implementation maps
-head-relative controller aim to the focused terminal's virtual surface while
-preserving native widget policy.
+unfocused or differently authored variants. Version 0.63 supersedes the
+head-relative approximation with SOMA's exact controller-ray-to-GUI-mesh UV
+projection. The old route remains only as a fail-safe when the focused spatial
+entity cannot be resolved.
 
 ## 0.29.0 Presentation And Authored-Optics Result
 

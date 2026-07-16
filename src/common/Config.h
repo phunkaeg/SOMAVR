@@ -107,6 +107,9 @@ struct Config {
     float hplControllerMenuPointerVerticalDegrees = 50.0f;
     float hplControllerMenuPointerSmoothing = 0.35f;
     bool hplControllerTerminalPointer = true;
+    bool hplControllerTerminalDiegetic = true;
+    bool hplControllerTerminalRayPointer = true;
+    float hplControllerTerminalRayLengthMeters = 8.0f;
     float hplControllerTerminalPointerHorizontalDegrees = 70.0f;
     float hplControllerTerminalPointerVerticalDegrees = 50.0f;
     float hplControllerTerminalPointerSmoothing = 0.35f;

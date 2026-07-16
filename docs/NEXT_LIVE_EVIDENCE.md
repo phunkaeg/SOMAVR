@@ -1,14 +1,15 @@
 # Next Live Evidence
 
-Date: 2026-07-15
+Date: 2026-07-16
 
-Use `0.62.0-physical-hinges` for the next run. It consumes the 0.61 evidence:
-velocity magnitude is preserved for Slide/grab/throw transforms, SwingDoor and
-Lever use controller arcs about SOMA's native pivot/pin, and the completed
-high-volume render probes are disabled to test the strongest stutter cause.
-No diagnostic hotkey is required. Follow the 0.62 checklist and attach the
-complete shutdown log, especially `hpl_slide_*`, `hpl_rotate_*`, stereo summary,
-and any rows immediately surrounding a felt hitch.
+Use `out\SOMAVR-latest` (`0.63.0-diegetic-terminals`) for the next run. The
+highest-value evidence is one wall terminal: verify there is no body teleport,
+scripted camera rotation, or camera pull; physically lean into the authored
+screen; point/click across its full mesh and just outside every edge; then exit
+and re-enter. Follow the 0.63 checklist and attach the complete shutdown log,
+especially `hpl_terminal_diegetic`, `hpl_terminal_pointer`, and
+`hpl_terminal_bridge_summary` rows. Recheck the 0.62 hinge/stutter items in the
+same session when convenient.
 
 SOMAVR has reached the point where the feature registry contains no unimplemented
 VR system with enough static evidence for another responsible native mutation.

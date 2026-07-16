@@ -71,6 +71,7 @@ int main()
             << "[Hooks]\nHPLComfortSuppressScriptRoll=0\nHPLPerEyeImageTrailControl=1\nHPLToneMappingFrameControl=1\nHPLPerEyeSSAOTemporalControl=1\nHPLSSAOFrameOwnerControl=1\n"
             << "[Controller]\nComfortBlackoutFrames=7\n"
             << "MovementReference=controller\nAimGuide=1\nAimGuideLengthMeters=9\n"
+            << "TerminalPointer=0\nTerminalDiegetic=0\nTerminalRayPointer=0\nTerminalRayLengthMeters=99\n"
             << "ManipulationSlidePixelsPerMeter=99999\n"
             << "ContactHaptics=1\nContactHapticMinSpeed=-1\nContactHapticMaxSpeed=99\n"
             << "ContactHapticMaxDistanceMeters=9\nContactHapticMinAmplitude=-1\n"
@@ -92,6 +93,10 @@ int main()
             && manager.Get().hplControllerMovementReference == "controller"
             && manager.Get().hplControllerAimGuide
             && manager.Get().hplControllerAimGuideLengthMeters == 4.0f
+            && !manager.Get().hplControllerTerminalPointer
+            && !manager.Get().hplControllerTerminalDiegetic
+            && !manager.Get().hplControllerTerminalRayPointer
+            && manager.Get().hplControllerTerminalRayLengthMeters == 20.0f
             && manager.Get().hplControllerManipulationSlidePixelsPerMeter == 20000.0f
             && manager.Get().hplControllerContactHaptics
             && manager.Get().hplControllerContactHapticMinSpeed == 0.0f
@@ -119,6 +124,10 @@ int main()
             && !manager.Get().hplControllerContactHaptics
             && manager.Get().hplControllerMovementReference == "body"
             && !manager.Get().hplControllerAimGuide
+            && manager.Get().hplControllerTerminalPointer
+            && manager.Get().hplControllerTerminalDiegetic
+            && manager.Get().hplControllerTerminalRayPointer
+            && manager.Get().hplControllerTerminalRayLengthMeters == 8.0f
             && manager.Get().hplControllerManipulationSlidePixelsPerMeter == 2700.0f
             && !manager.Get().hplComfortSuppressSway,
         "reloading a manager resets stale preset state before parsing");

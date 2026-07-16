@@ -1,5 +1,34 @@
 # Build History
 
+## 2026-07-16
+
+### 0.63.0-diegetic-terminals
+
+- Added a diegetic wall-terminal mode for exact player state `8`. While F10 VR
+  tracking is active, SOMAVR suppresses the terminal script's body teleport,
+  `RotateCameraTowards` request, and Terminal camera-position add. The terminal
+  remains at its authored world position and the player can physically lean in.
+- Replaced guessed head-relative terminal coordinates with SOMA's own spatial
+  GUI projector at `0x1403132d0`. A tracked controller world ray intersects the
+  actual GUI mesh, uses native triangle UVs, and feeds exact virtual coordinates
+  to the existing ImGui cursor path. A mesh miss does not click through; the old
+  head-cone route is retained only when the native spatial owner is unavailable.
+- Extended the visible controller guide to the terminal ray length while states
+  `8/9` own input. Trigger/select, focus, sounds, widgets, callbacks, and native
+  terminal exit remain engine-owned. Handheld terminal state `9` keeps its
+  authored presentation and can share the exact spatial pointer.
+- Added independent rollback keys: `TerminalDiegetic=0`,
+  `TerminalRayPointer=0`, and `TerminalPointer=0`. New counters distinguish
+  mesh hits/misses/unavailable owners and each suppressed takeover call.
+- Changed release packaging to the stable `out\SOMAVR-latest` folder and ZIP.
+  Successful default packaging prunes superseded SOMAVR package artifacts;
+  `-Versioned` is now an explicit archival option.
+- Both default and OpenXR Release trees pass all four CTest suites. Stable
+  package doctor reports `pass=7 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `0FF9F583F4B3BD41F85B71BCF3425839410AF610195E1265C1AF5CF2354DAF13`.
+  Stable package SHA-256:
+  `8F487A256D9770A22CC6D333816CACD8D3344FA61D25690BB91488FD9304CCBC`.
+
 ## 2026-07-15
 
 ### 0.62.0-physical-hinges

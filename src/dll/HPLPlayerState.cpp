@@ -236,6 +236,34 @@ bool GetHPLPlayerStateSnapshot(HPLPlayerStateSnapshot& snapshot)
     return snapshot.installed;
 }
 
+bool IsHPLPlayerStateActiveNow(
+    int playerStateId,
+    void* expectedPlayer,
+    void* expectedCharacterBody)
+{
+    std::lock_guard lock(g_mutex);
+    if (g_getPlayer == nullptr || g_getPlayerStateId == nullptr || g_gameContextSlot == nullptr)
+        return false;
+
+    void* gameContext = nullptr;
+    if (!ReadField(g_gameContextSlot, 0, gameContext) || !IsReadable(gameContext, 0x148))
+        return false;
+    void* player = g_getPlayer();
+    if (!IsReadable(player, 0x208) || (expectedPlayer != nullptr && player != expectedPlayer))
+        return false;
+    if (expectedCharacterBody != nullptr)
+    {
+        void* characterBody = nullptr;
+        if (!ReadField(player, kPlayerCharacterBodyOffset, characterBody)
+            || characterBody != expectedCharacterBody)
+            return false;
+    }
+    void* stateObject = nullptr;
+    return ReadField(player, 0x1d8, stateObject)
+        && (stateObject == nullptr || IsReadable(stateObject, 0x164))
+        && g_getPlayerStateId(player) == playerStateId;
+}
+
 void LogHPLPlayerStateSummary()
 {
     std::lock_guard lock(g_mutex);

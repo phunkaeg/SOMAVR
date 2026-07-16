@@ -1,6 +1,6 @@
 # Current State
 
-Date: 2026-07-15
+Date: 2026-07-16
 
 ## Objective
 
@@ -21,10 +21,18 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.62.0-physical-hinges`, layered on the
+The active build candidate is `0.63.0-diegetic-terminals`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Wall terminal state `8` now stays diegetic in VR: exact native hooks suppress
+  only its body teleport, scripted camera rotation, and Terminal camera offset.
+  SOMA's existing mesh projector converts the dominant-controller world ray to
+  native GUI UV/virtual coordinates, so pointing follows the physical screen
+  rather than a head-relative cone. Static RE and implementation are complete;
+  headset acceptance is the current gate. Handheld state `9` retains its native
+  authored presentation.
 
 - The 0.61 live pass retained the visually accepted stereo/tracking path and
   exposed two interaction/performance causes. Controller velocity was being
@@ -225,7 +233,7 @@ compatibility probes:
   acceptance.
 
 - Exact wall/handheld terminal states `8/9` now route dominant-controller aim through
-  SOMA's native virtual ImGui cursor boundary. Current-ImGui identity,
+  SOMA's native spatial mesh projector and virtual ImGui cursor boundary. Current-ImGui identity,
   GameHud exclusion, 3D-set ownership, readable virtual layout, tracking, and
   config gates all fail closed to the original engine path. Trigger/select
   remains a native mouse click and releases on every terminal-state exit.

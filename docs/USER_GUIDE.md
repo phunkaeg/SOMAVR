@@ -108,6 +108,24 @@ hinge pivot and pin. Set `RotateDirectVelocity=0` to restore their native
 camera-relative mouse route; tune `RotateVelocityScale` or
 `RotateMaxAngularSpeed` without changing Slide, Grab, Read, Wheel, or Tear.
 
+Wall terminals remain at their authored position instead of moving the player
+and taking over the camera. Lean toward the physical display and point the
+dominant-controller guide at its surface; SOMA's own GUI mesh converts the ray
+to cursor coordinates. Trigger/select clicks and the existing cancel action
+exits. The relevant rollback controls are:
+
+```ini
+[Controller]
+TerminalPointer=1
+TerminalDiegetic=1
+TerminalRayPointer=1
+TerminalRayLengthMeters=8
+```
+
+Set `TerminalRayPointer=0` to compare the older head-relative pointer without
+restoring camera takeover. Set `TerminalDiegetic=0` to restore the original wall
+terminal body/camera placement. Handheld terminals keep their authored movement.
+
 The active profile captures HUD content at the observed `1920x1080` SOMA target.
 Quest currently requests `2688x2880` per eye, but world detail still originates
 from SOMA's `1920x1080` backbuffer and is upscaled; `ResolutionScalePercent`

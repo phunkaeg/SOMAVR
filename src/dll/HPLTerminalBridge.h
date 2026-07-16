@@ -8,7 +8,8 @@ namespace somavr {
 bool InstallHPLTerminalBridge(const Config& config);
 bool UpdateHPLTerminalPointer(
     const OpenXRHeadPose& headPose,
-    const OpenXRControllerPose& aimPose);
+    const OpenXRControllerPose& aimPose,
+    uint64_t gameFrame);
 void DeactivateHPLTerminalPointer();
 void LogHPLTerminalBridgeSummary();
 void RemoveHPLTerminalBridge();

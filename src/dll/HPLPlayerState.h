@@ -26,6 +26,10 @@ struct HPLPlayerStateSnapshot
 bool InstallHPLPlayerState(const Config& config);
 void UpdateHPLPlayerState(uint64_t frameIndex);
 bool GetHPLPlayerStateSnapshot(HPLPlayerStateSnapshot& snapshot);
+bool IsHPLPlayerStateActiveNow(
+    int playerStateId,
+    void* expectedPlayer = nullptr,
+    void* expectedCharacterBody = nullptr);
 void LogHPLPlayerStateSummary();
 void RemoveHPLPlayerState();
 

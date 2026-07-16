@@ -662,7 +662,7 @@ bool ApplyTerminalPointerActions(const OpenXRInputSnapshot& input, const Control
     const bool pointerActive = g_config.hplControllerTerminalPointer
         && g_openxr != nullptr
         && g_openxr->GetLatestHeadPose(headPose)
-        && UpdateHPLTerminalPointer(headPose, dominant.aimPose);
+        && UpdateHPLTerminalPointer(headPose, dominant.aimPose, input.gameFrame);
     if (!pointerActive) {
         SetMouseButton(g_state.interact, false);
         DeactivateHPLTerminalPointer();
@@ -681,7 +681,8 @@ bool ApplyTerminalPointerActions(const OpenXRInputSnapshot& input, const Control
 void UpdateControllerAimGuide(
     const OpenXRInputSnapshot& input,
     const ControllerRoles& roles,
-    bool visible)
+    bool visible,
+    float lengthMeters = 0.0f)
 {
     if (g_openxr == nullptr || !g_config.hplControllerAimGuide || !visible) {
         if (g_openxr != nullptr) g_openxr->ClearControllerAimGuide();
@@ -695,7 +696,9 @@ void UpdateControllerAimGuide(
         && dominant.aimPose.positionTracked;
     guide.gameFrame = input.gameFrame;
     guide.handIndex = roles.dominantHand;
-    guide.lengthMeters = g_config.hplControllerAimGuideLengthMeters;
+    guide.lengthMeters = lengthMeters > 0.0f
+        ? lengthMeters
+        : g_config.hplControllerAimGuideLengthMeters;
     guide.aimPose = dominant.aimPose;
     if (guide.valid) {
         g_openxr->SetControllerAimGuide(guide);
@@ -1263,6 +1266,8 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
             || player.playerStateId == kHandheldTerminalPlayerState)
         && g_config.hplControllerTerminalPointer) {
         g_state.menuPointerActive = false;
+        UpdateControllerAimGuide(
+            input, roles, true, g_config.hplControllerTerminalRayLengthMeters);
         g_state.terminalPointerActive = ApplyTerminalPointerActions(input, roles);
         g_state.nativeMovementActive = false;
         g_state.nativeTurnActive = false;

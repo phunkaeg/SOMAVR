@@ -1,5 +1,16 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-16 Diegetic Terminal Mode Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1401562e0` | `SOMA_cLuxPlayer_RotateCameraTowards` | Created the missing 74-byte leaf, typed its float/vector/local-space ABI, and documented the player control fields plus state-8-only VR suppression. |
+| `0x1403132d0` | `HPL3_GuiSetEntity_ProjectRayToVirtual` | Renamed and typed the native world-ray-to-spatial-GUI projector; documented mesh intersection, barycentric UV set `7`, and cGuiSet virtual-size output used by 0.63. |
+
+Both functions received SOMAVR/terminal ownership tags, bookmarks, plate
+comments, and exact source signatures. The explicitly selected
+`Soma_NoSteam.exe` database was saved after synchronization.
+
 ## 2026-07-15 Native Hinge Pivot Sync
 
 | Address | Ghidra name | Evidence/use |

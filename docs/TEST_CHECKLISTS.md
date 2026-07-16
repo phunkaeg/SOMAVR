@@ -1,5 +1,35 @@
 # Test Checklists
 
+## 0.63.0 Diegetic Terminals
+
+1. Run the stable package doctor and require
+   `version=0.63.0-diegetic-terminals`, OpenXR flavor, and `fail=0`. Launch from
+   `out\SOMAVR-latest`, press F10 once, and first confirm the accepted rigid
+   world, eye height, same-frame stereo, shadows, reflections, and locomotion.
+2. Activate a wall terminal from an ordinary standing distance. The player body
+   must not teleport, the view must not rotate toward the display, and the
+   camera must not be pulled into it. Physically lean closer and around the
+   screen; head translation and rotation must remain 1:1.
+3. Aim the dominant controller at the actual terminal surface. The extended
+   guide and cursor should agree, including near screen edges. Aim just outside
+   the mesh: the cursor must stop rather than click through a guessed rectangle.
+   Trigger/select must activate native controls with normal sounds and feedback.
+4. Exit with the existing controller cancel and re-enter several times. Focus,
+   callbacks, movement suppression, and release must remain native, with no
+   stuck click, beam, body offset, camera offset, or terminal state.
+5. If available, test a handheld terminal. Its authored state-9 presentation
+   must remain unchanged; evaluate spatial pointing separately from the wall
+   terminal takeover. Also test pause/menu and one non-terminal world GUI.
+6. Exit normally and attach the full log. Require nonzero
+   `spatial={attempts=... hits=...}` and takeover suppression counts for a wall
+   terminal. `headConeFallbacks` should stay zero when the focused spatial owner
+   resolves normally.
+
+Rollback: `TerminalRayPointer=0` keeps diegetic camera behavior but restores the
+head-relative pointer. `TerminalDiegetic=0` restores the authored wall-terminal
+camera/body takeover. `TerminalPointer=0` restores SOMA's complete pointer path.
+Change one rollback at a time.
+
 ## 0.62.0 Physical Hinges And Stutter
 
 1. Run packaged doctor and require `version=0.62.0-physical-hinges`, OpenXR

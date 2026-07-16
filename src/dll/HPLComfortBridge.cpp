@@ -2,6 +2,7 @@
 
 #include "HPLCameraBridge.h"
 #include "HPLComfortMath.h"
+#include "HPLPlayerState.h"
 #include "Logger.h"
 
 #include <Windows.h>
@@ -94,6 +95,7 @@ std::atomic<uint64_t> g_cameraAddSuppressed = 0;
 std::atomic<uint64_t> g_bobSuppressed = 0;
 std::atomic<uint64_t> g_shakeSuppressed = 0;
 std::atomic<uint64_t> g_swaySuppressed = 0;
+std::atomic<uint64_t> g_terminalSuppressed = 0;
 std::atomic<uint64_t> g_rollCalls = 0;
 std::atomic<uint64_t> g_rollSuppressed = 0;
 std::atomic<uint64_t> g_rollSetSuppressed = 0;
@@ -147,12 +149,15 @@ void HookSetCameraPosAdd(void* player, int type, const float* vector)
 {
     const uint64_t call = g_cameraAddCalls.fetch_add(1, std::memory_order_relaxed) + 1;
     const bool tracking = TrackingActive();
+    const bool terminalTakeover = g_config.hplControllerTerminalDiegetic
+        && type == static_cast<int>(comfort_math::CameraAddType::Terminal)
+        && IsHPLPlayerStateActiveNow(8, player, nullptr);
     const bool suppress = tracking
-        && comfort_math::ShouldSuppressCameraAdd(
+        && (terminalTakeover || comfort_math::ShouldSuppressCameraAdd(
             type,
             g_config.hplComfortSuppressHeadBob,
             g_config.hplComfortSuppressCameraShake,
-            g_config.hplComfortSuppressSway);
+            g_config.hplComfortSuppressSway));
     if (!suppress) {
         if (!tracking) g_trackingInactive.fetch_add(1, std::memory_order_relaxed);
         g_originalSetCameraPosAdd(player, type, vector);
@@ -170,6 +175,9 @@ void HookSetCameraPosAdd(void* player, int type, const float* vector)
         break;
     case comfort_math::CameraAddType::Sway:
         g_swaySuppressed.fetch_add(1, std::memory_order_relaxed);
+        break;
+    case comfort_math::CameraAddType::Terminal:
+        g_terminalSuppressed.fetch_add(1, std::memory_order_relaxed);
         break;
     default:
         break;
@@ -461,7 +469,8 @@ bool InstallHPLComfortBridge(const Config& config)
 {
     std::lock_guard lock(g_installMutex);
     g_config = config;
-    const bool cameraAddEnabled = config.hplComfortCameraAddControl;
+    const bool cameraAddEnabled = config.hplComfortCameraAddControl
+        || config.hplControllerTerminalDiegetic;
     const bool rollEnabled = config.hplComfortCameraRollControl;
     const bool dofEnabled = config.hplComfortDepthOfFieldControl;
     const bool opticsEnabled = config.hplComfortOpticsControl;
@@ -600,7 +609,7 @@ bool InstallHPLComfortBridge(const Config& config)
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_comfort_bridge install_ok cameraAdd=%d cameraAddRva=0x%llx cameraRoll=%d fadeRollRva=0x%llx setRollRva=0x%llx depthOfField=%d dofRva=0x%llx optics=%d opticsRvas={fovMul=0x%llx aspectMul=0x%llx fov=0x%llx} addPolicy={bob=%d shake=%d sway=%d} rollPolicy={script=%d lean=%d move=%d climb=%d} opticsPolicy={fov=%d fovMul=%d aspectMul=%d} policy=vr_active_semantic_zero",
+        "hpl_comfort_bridge install_ok cameraAdd=%d cameraAddRva=0x%llx cameraRoll=%d fadeRollRva=0x%llx setRollRva=0x%llx depthOfField=%d dofRva=0x%llx optics=%d opticsRvas={fovMul=0x%llx aspectMul=0x%llx fov=0x%llx} addPolicy={bob=%d shake=%d sway=%d terminalDiegetic=%d} rollPolicy={script=%d lean=%d move=%d climb=%d} opticsPolicy={fov=%d fovMul=%d aspectMul=%d} policy=vr_active_semantic_zero",
         cameraAddEnabled ? 1 : 0,
         static_cast<unsigned long long>(kSetCameraPosAddRva),
         rollEnabled ? 1 : 0,
@@ -615,6 +624,7 @@ bool InstallHPLComfortBridge(const Config& config)
         config.hplComfortSuppressHeadBob ? 1 : 0,
         config.hplComfortSuppressCameraShake ? 1 : 0,
         config.hplComfortSuppressSway ? 1 : 0,
+        config.hplControllerTerminalDiegetic ? 1 : 0,
         config.hplComfortSuppressScriptRoll ? 1 : 0,
         config.hplComfortSuppressLeanRoll ? 1 : 0,
         config.hplComfortSuppressMoveRoll ? 1 : 0,
@@ -636,7 +646,7 @@ void LogHPLComfortBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_comfort_bridge_summary cameraAddInstalled=%d rollInstalled=%d dofInstalled=%d opticsInstalled=%d cameraAddCalls=%llu cameraAddSuppressed=%llu bob=%llu shake=%llu sway=%llu rollCalls=%llu rollSuppressed=%llu rollSet=%llu rollFade=%llu dofCalls=%llu dofEnableRequests=%llu dofSuppressed=%llu opticsCalls=%llu opticsSuppressed=%llu fov=%llu fovMultiplier=%llu aspectMultiplier=%llu trackingInactive=%llu",
+        "hpl_comfort_bridge_summary cameraAddInstalled=%d rollInstalled=%d dofInstalled=%d opticsInstalled=%d cameraAddCalls=%llu cameraAddSuppressed=%llu bob=%llu shake=%llu sway=%llu terminal=%llu rollCalls=%llu rollSuppressed=%llu rollSet=%llu rollFade=%llu dofCalls=%llu dofEnableRequests=%llu dofSuppressed=%llu opticsCalls=%llu opticsSuppressed=%llu fov=%llu fovMultiplier=%llu aspectMultiplier=%llu trackingInactive=%llu",
         g_setCameraPosAddTarget != nullptr ? 1 : 0,
         g_setCameraRollTarget != nullptr && g_fadeCameraRollTarget != nullptr ? 1 : 0,
         g_setDepthOfFieldActiveTarget != nullptr ? 1 : 0,
@@ -649,6 +659,7 @@ void LogHPLComfortBridgeSummary()
         static_cast<unsigned long long>(g_bobSuppressed.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_shakeSuppressed.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_swaySuppressed.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_terminalSuppressed.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_rollCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_rollSuppressed.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_rollSetSuppressed.load(std::memory_order_relaxed)),

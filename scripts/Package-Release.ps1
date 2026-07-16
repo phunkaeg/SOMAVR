@@ -2,7 +2,8 @@
 param(
     [string]$BuildDirectory = "build-openxr\Release",
     [string]$OutputDirectory = "out",
-    [switch]$IncludeDumper
+    [switch]$IncludeDumper,
+    [switch]$Versioned
 )
 
 $ErrorActionPreference = "Stop"
@@ -54,7 +55,7 @@ foreach ($file in $runtimeFiles) {
 }
 
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
-$packageName = "SOMAVR-$($flavor.version)"
+$packageName = if ($Versioned) { "SOMAVR-$($flavor.version)" } else { "SOMAVR-latest" }
 $stagePath = [System.IO.Path]::GetFullPath((Join-Path $outputRoot $packageName))
 $outputPrefix = $outputRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
 if (-not $stagePath.StartsWith($outputPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -101,6 +102,34 @@ if (Test-Path -LiteralPath $archivePath) {
 Compress-Archive -LiteralPath $stagePath -DestinationPath $archivePath -CompressionLevel Optimal
 
 $archiveHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToUpperInvariant()
+if (-not $Versioned) {
+    $preservedPaths = @(
+        $stagePath,
+        [System.IO.Path]::GetFullPath($archivePath)
+    )
+    $obsoletePackages = Get-ChildItem -LiteralPath $outputRoot -Force |
+        Where-Object {
+            $_.Name -like "SOMAVR-*" -and
+            $_.FullName -notin $preservedPaths -and
+            ($_.PSIsContainer -or $_.Extension -eq ".zip")
+        }
+    foreach ($obsolete in $obsoletePackages) {
+        $obsoletePath = [System.IO.Path]::GetFullPath($obsolete.FullName)
+        if (-not $obsoletePath.StartsWith($outputPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Unsafe obsolete package path: $obsoletePath"
+        }
+        if (($obsolete.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Refusing to prune reparse-point package: $obsoletePath"
+        }
+        if ($obsolete.PSIsContainer) {
+            Remove-Item -LiteralPath $obsoletePath -Recurse -Force
+        } else {
+            Remove-Item -LiteralPath $obsoletePath -Force
+        }
+    }
+    Write-Host "Pruned $($obsoletePackages.Count) obsolete SOMAVR package artifact(s)"
+}
+
 Write-Host "Packaged $packageName"
 Write-Host "Staging: $stagePath"
 Write-Host "Archive: $archivePath"

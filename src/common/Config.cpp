@@ -310,6 +310,9 @@ void ConfigManager::WriteDefaultConfig() const
         << "MenuPointerVerticalDegrees=50\n"
         << "MenuPointerSmoothing=0.35\n"
         << "TerminalPointer=1\n"
+        << "TerminalDiegetic=1\n"
+        << "TerminalRayPointer=1\n"
+        << "TerminalRayLengthMeters=8\n"
         << "TerminalPointerHorizontalDegrees=70\n"
         << "TerminalPointerVerticalDegrees=50\n"
         << "TerminalPointerSmoothing=0.35\n"
@@ -723,6 +726,17 @@ void ConfigManager::LoadFromFile()
             continue;
         }
 
+        if (section == "controller" && key.rfind("terminal", 0) == 0) {
+            if (key == "terminalpointer") config_.hplControllerTerminalPointer = ParseBool(value, config_.hplControllerTerminalPointer);
+            else if (key == "terminaldiegetic") config_.hplControllerTerminalDiegetic = ParseBool(value, config_.hplControllerTerminalDiegetic);
+            else if (key == "terminalraypointer") config_.hplControllerTerminalRayPointer = ParseBool(value, config_.hplControllerTerminalRayPointer);
+            else if (key == "terminalraylengthmeters") config_.hplControllerTerminalRayLengthMeters = ParseFloat(value, config_.hplControllerTerminalRayLengthMeters, 0.5f, 20.0f);
+            else if (key == "terminalpointerhorizontaldegrees") config_.hplControllerTerminalPointerHorizontalDegrees = ParseFloat(value, config_.hplControllerTerminalPointerHorizontalDegrees, 10.0f, 170.0f);
+            else if (key == "terminalpointerverticaldegrees") config_.hplControllerTerminalPointerVerticalDegrees = ParseFloat(value, config_.hplControllerTerminalPointerVerticalDegrees, 10.0f, 170.0f);
+            else if (key == "terminalpointersmoothing") config_.hplControllerTerminalPointerSmoothing = ParseFloat(value, config_.hplControllerTerminalPointerSmoothing, 0.01f, 1.0f);
+            continue;
+        }
+
         if (section == "controller") {
             if (key == "enabled") config_.hplControllerInput = ParseBool(value, config_.hplControllerInput);
             else if (key == "movedeadzone") config_.hplControllerMoveDeadzone = ParseFloat(value, config_.hplControllerMoveDeadzone, 0.05f, 0.95f);
@@ -756,10 +770,6 @@ void ConfigManager::LoadFromFile()
             else if (key == "menupointerhorizontaldegrees") config_.hplControllerMenuPointerHorizontalDegrees = ParseFloat(value, config_.hplControllerMenuPointerHorizontalDegrees, 10.0f, 170.0f);
             else if (key == "menupointerverticaldegrees") config_.hplControllerMenuPointerVerticalDegrees = ParseFloat(value, config_.hplControllerMenuPointerVerticalDegrees, 10.0f, 170.0f);
             else if (key == "menupointersmoothing") config_.hplControllerMenuPointerSmoothing = ParseFloat(value, config_.hplControllerMenuPointerSmoothing, 0.01f, 1.0f);
-            else if (key == "terminalpointer") config_.hplControllerTerminalPointer = ParseBool(value, config_.hplControllerTerminalPointer);
-            else if (key == "terminalpointerhorizontaldegrees") config_.hplControllerTerminalPointerHorizontalDegrees = ParseFloat(value, config_.hplControllerTerminalPointerHorizontalDegrees, 10.0f, 170.0f);
-            else if (key == "terminalpointerverticaldegrees") config_.hplControllerTerminalPointerVerticalDegrees = ParseFloat(value, config_.hplControllerTerminalPointerVerticalDegrees, 10.0f, 170.0f);
-            else if (key == "terminalpointersmoothing") config_.hplControllerTerminalPointerSmoothing = ParseFloat(value, config_.hplControllerTerminalPointerSmoothing, 0.01f, 1.0f);
             else if (key == "recenterchord") config_.hplControllerRecenterChord = ParseBool(value, config_.hplControllerRecenterChord);
             else if (key == "haptics") config_.hplControllerHaptics = ParseBool(value, config_.hplControllerHaptics);
             else if (key == "hapticamplitude") config_.hplControllerHapticAmplitude = ParseFloat(value, config_.hplControllerHapticAmplitude, 0.0f, 1.0f);

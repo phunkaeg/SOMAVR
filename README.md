@@ -25,13 +25,16 @@ ctest --test-dir build -C Release --output-on-failure
 ctest --test-dir build-openxr -C Release --output-on-failure
 ```
 
-Create a validated versioned OpenXR bundle and ZIP:
+Create or replace the validated stable OpenXR bundle and ZIP:
 
 ```powershell
 & ".\scripts\Package-Release.ps1" -IncludeDumper
 ```
 
-The packager rejects non-OpenXR build metadata, stages the injector, DLL,
+The default output is `out\SOMAVR-latest` plus `out\SOMAVR-latest.zip`; older
+generated SOMAVR package folders and ZIPs are removed after the new archive is
+successfully created. Pass `-Versioned` only when intentionally preserving an
+archival release. The packager rejects non-OpenXR build metadata, stages the injector, DLL,
 OpenXR loader, active config, diagnostics, and core docs, then writes
 `SHA256SUMS.txt` beside the runtime files. Output is under `out\`.
 The concise player-facing instructions are in `docs\USER_GUIDE.md`.
@@ -74,7 +77,7 @@ Launch suspended and inject before OpenGL/GLEW initialization:
 OpenXR launch:
 
 ```powershell
-& "D:\Dev Debug\SOMAVR\build-openxr\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
+& "D:\Dev Debug\SOMAVR\out\SOMAVR-latest\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
 Attach to an already-running process:
@@ -250,12 +253,13 @@ or eye-distinct.
   comfort-vignette controls
   while suppressing all underlying gameplay input.
 
-`0.38.0` adds controller-addressable diegetic wall and handheld terminals.
-During exact terminal states `8/9`, dominant aim drives SOMA's native virtual ImGui cursor and
-select/trigger uses the native click route. Exact current-owner, GameHud
-exclusion, 3D-set, signature, tracking, and layout guards restore original
-behavior on every unsupported path. Configure this under `[Controller]` with
-`TerminalPointer` and its horizontal/vertical angle and smoothing controls.
+`0.63.0` keeps wall terminals diegetic by suppressing only state `8` body
+teleport, camera rotation, and terminal camera offset during active VR. Dominant
+aim is projected through SOMA's native spatial GUI mesh/UV routine in states
+`8/9`; select/trigger still uses the native click route. Handheld state `9`
+retains its authored presentation. Configure `TerminalDiegetic`,
+`TerminalRayPointer`, `TerminalRayLengthMeters`, and `TerminalPointer` under
+`[Controller]`; each control has a fail-closed rollback path.
 
 - signature-guarded native eye view/projection integration,
 - persistent per-eye OpenGL cache transfer,

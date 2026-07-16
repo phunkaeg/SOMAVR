@@ -2,6 +2,33 @@
 
 ## 2026-07-16
 
+### 0.64.0-dual-hand-interaction
+
+- Added simultaneous left- and right-controller native interaction probes. The
+  bridge calls `SOMA_Lux_GetClosestEntityRaycast` once per tracked hand, chooses
+  one result deterministically, writes only that result to SOMA's outer closest-
+  entity object, and invokes its native vtable `+0x40` finalizer exactly once.
+  Native range, LOS, `CanInteract`, focus, callbacks, and player states remain
+  authoritative.
+- Added sticky focus arbitration: an exclusively pressed hand wins immediately,
+  a unique native hit wins while pointing, overlapping hits retain the previous
+  owner, and the configured dominant hand breaks an unresolved tie. The selected
+  owner now follows native Slide, hinge, Grab, Read, terminal click, and contact-
+  haptic routes instead of snapping back to the configured hand.
+- Added simultaneous left/right application-space aim guides. The selected hit
+  clips its guide to native hit depth, and SOMA's semantic context icon is placed
+  at that selected beam endpoint. A dedicated guide swapchain allows both beams
+  and the native context icon to coexist without overwriting one another.
+- Added `InteractionBothHands=1` with a single-hand rollback, per-hand probe/hit/
+  selection telemetry, deterministic selector tests, and dual-hand live checks.
+  Ghidra comments for `0x1400cd750` and `0x1401438c0` were synchronized and the
+  `Soma_NoSteam.exe` database was saved.
+- The OpenXR Release tree passes all four CTest suites. Stable package doctor
+  reports `pass=7 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `B91BF2243328BF7F5A7007FC9AF97E20B74DA0A94BDA6B32C3F5B36F25B5AAE4`.
+  Stable package SHA-256:
+  `962ED5068871DE2950BAE3486281725B2C60DFB7F0D7F9A60BB6382F7860D4A0`.
+
 ### 0.63.0-diegetic-terminals
 
 - Added a diegetic wall-terminal mode for exact player state `8`. While F10 VR

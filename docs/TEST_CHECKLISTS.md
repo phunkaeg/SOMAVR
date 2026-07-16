@@ -1,5 +1,34 @@
 # Test Checklists
 
+## 0.64.0 Dual-Hand Interaction
+
+1. Run the stable package doctor and require
+   `version=0.64.0-dual-hand-interaction`, OpenXR flavor, and `fail=0`. Press F10
+   once and confirm the established rigid world, eye height, stereo, shadows,
+   reflections, locomotion, HUD, and terminal presentation remain unchanged.
+2. Hold both controllers in view. Require a left and right cyan guide at the
+   same time. Point only the left beam at a pickup, drawer, door, readable, or
+   terminal control; SOMA's context icon must sit at the left beam endpoint and
+   left trigger/select must activate it. Repeat independently with the right.
+3. Aim both beams at the same target and move them across one another. Focus and
+   the icon must remain stable rather than flicker each frame. Press the non-
+   owning trigger: ownership and the icon must transfer immediately and exactly
+   one native interaction must fire.
+4. Start a Slide, hinge, Grab, and Read interaction with each hand where content
+   permits. Motion, rotation, release, and contact haptics must stay attached to
+   the initiating hand after its beam moves off the original hit surface.
+5. Enter a wall or handheld terminal. Either beam may claim the pointer with its
+   trigger; clicking, edge misses, native sounds, and cancel must remain correct.
+   Both guides and a semantic world icon may coexist without either changing
+   texture or disappearing unexpectedly.
+6. Exit normally and attach the full log. Require per-hand nonzero probe/hit/
+   selection counts and plausible switch counts, with no signature, finalizer,
+   layer-limit, swapchain, or submission failure.
+
+Rollback: set `InteractionBothHands=0` to restore preferred-hand-only native
+probing and a single preferred-hand guide. `AimGuide=0` hides guides without
+disabling dual-hand native interaction.
+
 ## 0.63.0 Diegetic Terminals
 
 1. Run the stable package doctor and require

@@ -464,6 +464,14 @@ const OpenXRHandInput* SelectDominantHand(
     uint32_t* selectedHandIndex = nullptr)
 {
     uint32_t handIndex = g_config.hplControllerDominantHand == "left" ? 0u : 1u;
+    uint32_t interactionHand = handIndex;
+    if (GetHPLInteractionOwnerHand(input.gameFrame, 120, interactionHand)) {
+        const OpenXRHandInput* owner = interactionHand == 0 ? &input.left : &input.right;
+        if (owner->active) {
+            if (selectedHandIndex != nullptr) *selectedHandIndex = interactionHand;
+            return owner;
+        }
+    }
     const OpenXRHandInput* preferred = handIndex == 0 ? &input.left : &input.right;
     if (preferred->active) {
         if (selectedHandIndex != nullptr) *selectedHandIndex = handIndex;

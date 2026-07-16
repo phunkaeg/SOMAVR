@@ -126,6 +126,13 @@ public:
         float alpha);
     bool InteractionReticleReady() const;
     const ReticleSwapchain& InteractionReticle() const;
+    bool DrawControllerAimGuideToSwapchain(
+        float red,
+        float green,
+        float blue,
+        float alpha);
+    bool ControllerAimGuideReady() const;
+    const ReticleSwapchain& ControllerAimGuide() const;
     bool DrawStatusPanelToSwapchain(const std::vector<uint8_t>& rgbaPixels);
     bool StatusPanelReady() const;
     const StatusPanelSwapchain& StatusPanel() const;
@@ -149,6 +156,7 @@ private:
     bool CreateHudCaptureTarget();
     bool CopyHudCaptureToImage(uint32_t imageIndex);
     bool CreateInteractionReticleSwapchain(XrSession session, int sizePixels);
+    bool CreateControllerAimGuideSwapchain(XrSession session, int sizePixels);
     bool CreateStatusPanelSwapchain(XrSession session, int width, int height);
     bool CreateComfortVignetteSwapchain(XrSession session, int sizePixels);
     void LoadInteractionReticleAssets();
@@ -167,6 +175,7 @@ private:
     std::vector<EyeSwapchain> eyes_;
     HudSwapchain hud_;
     ReticleSwapchain interactionReticle_;
+    ReticleSwapchain controllerAimGuide_;
     StatusPanelSwapchain statusPanel_;
     ComfortVignetteSwapchain comfortVignette_;
 

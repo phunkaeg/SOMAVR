@@ -97,6 +97,7 @@ struct Config {
     float hplControllerSmoothTurnDegreesPerSecond = 120.0f;
     float hplControllerNativeTurnSign = -1.0f;
     bool hplControllerInteraction = true;
+    bool hplControllerInteractionBothHands = true;
     bool hplControllerAimGuide = false;
     float hplControllerAimGuideLengthMeters = 1.2f;
     bool hplControllerFlashlight = true;

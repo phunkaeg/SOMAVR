@@ -527,7 +527,7 @@ struct OpenXRRuntime::Impl {
         hudSubmissionSuspended_ = false;
         hudConsecutiveFailures_ = 0;
         interactionReticleState_ = {};
-        controllerAimGuideState_ = {};
+        controllerAimGuideStates_ = {};
         interactionReticleSubmissionSuspended_ = false;
         interactionReticleConsecutiveFailures_ = 0;
         releaseFrame_ = 0;
@@ -651,6 +651,7 @@ struct OpenXRRuntime::Impl {
             << " openxrInteractionReticleSemantic=" << (interactionReticleSemanticEnabled_ ? 1 : 0)
             << " openxrInteractionReticleNativeIcons=" << (interactionReticleNativeIconsEnabled_ ? 1 : 0)
             << " openxrInteractionReticleReady=" << (glBridge_.InteractionReticleReady() ? 1 : 0)
+            << " openxrControllerAimGuideReady=" << (glBridge_.ControllerAimGuideReady() ? 1 : 0)
             << " openxrInteractionReticleValid=" << (interactionReticleState_.valid ? 1 : 0)
             << " openxrInteractionReticleSemanticValid=" << (interactionReticleState_.semanticValid ? 1 : 0)
             << " openxrInteractionReticleSemanticState=" << interactionReticleState_.semanticState
@@ -662,7 +663,9 @@ struct OpenXRRuntime::Impl {
             << " openxrInteractionReticleExpired=" << static_cast<unsigned long long>(interactionReticleExpired_)
             << " openxrInteractionReticleSubmittedFrames=" << static_cast<unsigned long long>(interactionReticleSubmittedFrames_)
             << " openxrInteractionReticleSubmissionFailures=" << static_cast<unsigned long long>(interactionReticleSubmissionFailures_)
-            << " openxrControllerAimGuideValid=" << (controllerAimGuideState_.valid ? 1 : 0)
+            << " openxrControllerAimGuideValid="
+            << (controllerAimGuideStates_[0].valid ? 1 : 0)
+            << (controllerAimGuideStates_[1].valid ? 1 : 0)
             << " openxrControllerAimGuideUpdates=" << static_cast<unsigned long long>(controllerAimGuideUpdates_)
             << " openxrControllerAimGuideSubmittedFrames=" << static_cast<unsigned long long>(controllerAimGuideSubmittedFrames_)
             << " openxrStatusPanel=" << (statusPanelEnabled_ ? 1 : 0)
@@ -842,18 +845,28 @@ struct OpenXRRuntime::Impl {
             || !state.aimPose.positionTracked
             || !std::isfinite(state.lengthMeters)
             || state.lengthMeters < 0.3f
-            || state.lengthMeters > 4.0f) {
-            controllerAimGuideState_ = {};
+            || state.lengthMeters > 20.0f) {
+            if (state.handIndex < controllerAimGuideStates_.size()) {
+                controllerAimGuideStates_[state.handIndex] = {};
+            }
             return;
         }
-        controllerAimGuideState_ = state;
+        controllerAimGuideStates_[state.handIndex] = state;
         ++controllerAimGuideUpdates_;
+    }
+
+    void ClearControllerAimGuide(uint32_t handIndex)
+    {
+        std::lock_guard lock(mutex_);
+        if (handIndex < controllerAimGuideStates_.size()) {
+            controllerAimGuideStates_[handIndex] = {};
+        }
     }
 
     void ClearControllerAimGuide()
     {
         std::lock_guard lock(mutex_);
-        controllerAimGuideState_ = {};
+        controllerAimGuideStates_ = {};
     }
 
     void SetStatusPanel(const OpenXRStatusPanelState& state)
@@ -2520,10 +2533,10 @@ private:
         XrCompositionLayerQuad hudLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
         XrCompositionLayerCylinderKHR hudCylinderLayer{XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
         XrCompositionLayerQuad interactionReticleLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
-        std::array<XrCompositionLayerQuad, 3> controllerAimGuideLayers{};
+        std::array<std::array<XrCompositionLayerQuad, 3>, 2> controllerAimGuideLayers{};
         XrCompositionLayerQuad statusPanelLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
         XrCompositionLayerQuad comfortVignetteLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
-        const XrCompositionLayerBaseHeader* layers[8] = {};
+        const XrCompositionLayerBaseHeader* layers[12] = {};
         uint32_t layerCount = 0;
         uint32_t locatedViewCount = 0;
         XrViewState viewState{XR_TYPE_VIEW_STATE};
@@ -2894,84 +2907,107 @@ private:
             }
         }
 
-        const bool controllerAimGuideFresh = controllerAimGuideState_.valid
-            && frameIndex >= controllerAimGuideState_.gameFrame
-            && frameIndex - controllerAimGuideState_.gameFrame
-                <= static_cast<uint64_t>(interactionReticleMaxAgeFrames_);
+        bool controllerAimGuideFresh[2] = {};
+        size_t controllerAimGuideHandCount = 0;
+        for (uint32_t handIndex = 0; handIndex < 2; ++handIndex) {
+            OpenXRControllerAimGuideState& guide = controllerAimGuideStates_[handIndex];
+            controllerAimGuideFresh[handIndex] = guide.valid
+                && frameIndex >= guide.gameFrame
+                && frameIndex - guide.gameFrame
+                    <= static_cast<uint64_t>(interactionReticleMaxAgeFrames_);
+            if (guide.valid && frameIndex >= guide.gameFrame
+                && !controllerAimGuideFresh[handIndex]) {
+                guide = {};
+            }
+            if (controllerAimGuideFresh[handIndex]) ++controllerAimGuideHandCount;
+        }
         const uint32_t reservedGuideLayers =
             (statusPanelEnabled_ && statusPanelState_.visible ? 1u : 0u)
             + (comfortVignetteEnabled_ && comfortVignetteLevel_ > 0.001f ? 1u : 0u);
-        const size_t controllerAimGuideSegmentCount = maxLayerCount_ > layerCount + reservedGuideLayers
+        const size_t layerCapacity = std::min<size_t>(maxLayerCount_, std::size(layers));
+        const size_t availableGuideLayers = layerCapacity > layerCount + reservedGuideLayers
+            ? layerCapacity - layerCount - reservedGuideLayers : 0;
+        const size_t controllerAimGuideSegmentCount = controllerAimGuideHandCount > 0
             ? std::min<size_t>(
-                controllerAimGuideLayers.size(),
-                maxLayerCount_ - layerCount - reservedGuideLayers)
+                controllerAimGuideLayers[0].size(),
+                availableGuideLayers / controllerAimGuideHandCount)
             : 0;
         if (frameState.shouldRender == XR_TRUE
             && layerCount > 0
-            && !submittedInteractionReticle
             && interactionReticleEnabled_
             && interactionReticleRuntimeVisible_
             && !interactionReticleSubmissionSuspended_
             && stereoSubmissionEnabled_
             && appSpace_ != XR_NULL_HANDLE
-            && controllerAimGuideFresh
+            && controllerAimGuideHandCount > 0
             && controllerAimGuideSegmentCount > 0
-            && glBridge_.InteractionReticleReady()) {
-            const OpenXRControllerPose& aim = controllerAimGuideState_.aimPose;
-            bool guideValid = glBridge_.DrawInteractionReticleToSwapchain(
-                1, 0.20f, 0.90f, 1.0f, 0.82f);
-            for (size_t segment = 0; segment < controllerAimGuideSegmentCount && guideValid; ++segment) {
-                const float distanceMeters = controllerAimGuideState_.lengthMeters
-                    * static_cast<float>(segment + 1)
-                    / static_cast<float>(controllerAimGuideSegmentCount);
-                float guideSizeMeters = 0.0f;
-                hud_math::HudQuadPose guidePose;
-                guideValid = hud_math::ComputeAngularQuadSize(
-                        distanceMeters,
-                        interactionReticleAngularSizeDegrees_ * 0.72f,
-                        interactionReticleMinSizeMeters_,
-                        interactionReticleMaxSizeMeters_,
-                        guideSizeMeters)
-                    && hud_math::BuildHeadLockedQuadPose(
-                        {aim.positionX, aim.positionY, aim.positionZ},
-                        {aim.orientationX, aim.orientationY, aim.orientationZ, aim.orientationW},
-                        distanceMeters,
-                        0.0f,
-                        guideSizeMeters,
-                        1.0f,
-                        guidePose);
-                if (!guideValid) break;
+            && glBridge_.ControllerAimGuideReady()) {
+            bool guideValid = glBridge_.DrawControllerAimGuideToSwapchain(
+                0.20f, 0.90f, 1.0f, 0.82f);
+            for (uint32_t handIndex = 0; handIndex < 2 && guideValid; ++handIndex) {
+                if (!controllerAimGuideFresh[handIndex]) continue;
+                const OpenXRControllerAimGuideState& guide = controllerAimGuideStates_[handIndex];
+                const OpenXRControllerPose& aim = guide.aimPose;
+                for (size_t segment = 0;
+                    segment < controllerAimGuideSegmentCount && guideValid;
+                    ++segment) {
+                    const float distanceMeters = guide.lengthMeters
+                        * static_cast<float>(segment + 1)
+                        / static_cast<float>(controllerAimGuideSegmentCount);
+                    float guideSizeMeters = 0.0f;
+                    hud_math::HudQuadPose guidePose;
+                    guideValid = hud_math::ComputeAngularQuadSize(
+                            distanceMeters,
+                            interactionReticleAngularSizeDegrees_ * 0.72f,
+                            interactionReticleMinSizeMeters_,
+                            interactionReticleMaxSizeMeters_,
+                            guideSizeMeters)
+                        && hud_math::BuildHeadLockedQuadPose(
+                            {aim.positionX, aim.positionY, aim.positionZ},
+                            {aim.orientationX, aim.orientationY, aim.orientationZ, aim.orientationW},
+                            distanceMeters,
+                            0.0f,
+                            guideSizeMeters,
+                            1.0f,
+                            guidePose);
+                    if (!guideValid) break;
 
-                XrCompositionLayerQuad& guideLayer = controllerAimGuideLayers[segment];
-                guideLayer = {XR_TYPE_COMPOSITION_LAYER_QUAD};
-                guideLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
-                guideLayer.space = appSpace_;
-                guideLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-                guideLayer.pose.orientation = {
-                    guidePose.orientation.x,
-                    guidePose.orientation.y,
-                    guidePose.orientation.z,
-                    guidePose.orientation.w,
-                };
-                guideLayer.pose.position = {
-                    guidePose.position.x,
-                    guidePose.position.y,
-                    guidePose.position.z,
-                };
-                guideLayer.size = {guidePose.widthMeters, guidePose.heightMeters};
-                guideLayer.subImage.swapchain = glBridge_.InteractionReticle().handle;
-                guideLayer.subImage.imageRect.offset = {0, 0};
-                guideLayer.subImage.imageRect.extent = {
-                    glBridge_.InteractionReticle().width,
-                    glBridge_.InteractionReticle().height,
-                };
-                guideLayer.subImage.imageArrayIndex = 0;
+                    XrCompositionLayerQuad& guideLayer =
+                        controllerAimGuideLayers[handIndex][segment];
+                    guideLayer = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+                    guideLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                    guideLayer.space = appSpace_;
+                    guideLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                    guideLayer.pose.orientation = {
+                        guidePose.orientation.x,
+                        guidePose.orientation.y,
+                        guidePose.orientation.z,
+                        guidePose.orientation.w,
+                    };
+                    guideLayer.pose.position = {
+                        guidePose.position.x,
+                        guidePose.position.y,
+                        guidePose.position.z,
+                    };
+                    guideLayer.size = {guidePose.widthMeters, guidePose.heightMeters};
+                    guideLayer.subImage.swapchain = glBridge_.ControllerAimGuide().handle;
+                    guideLayer.subImage.imageRect.offset = {0, 0};
+                    guideLayer.subImage.imageRect.extent = {
+                        glBridge_.ControllerAimGuide().width,
+                        glBridge_.ControllerAimGuide().height,
+                    };
+                    guideLayer.subImage.imageArrayIndex = 0;
+                }
             }
             if (guideValid) {
-                for (size_t segment = 0; segment < controllerAimGuideSegmentCount; ++segment) {
-                    XrCompositionLayerQuad& guideLayer = controllerAimGuideLayers[segment];
-                    layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
-                        &guideLayer);
+                for (uint32_t handIndex = 0; handIndex < 2; ++handIndex) {
+                    if (!controllerAimGuideFresh[handIndex]) continue;
+                    for (size_t segment = 0; segment < controllerAimGuideSegmentCount; ++segment) {
+                        XrCompositionLayerQuad& guideLayer =
+                            controllerAimGuideLayers[handIndex][segment];
+                        layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
+                            &guideLayer);
+                    }
                 }
                 submittedControllerAimGuide = true;
                 interactionReticleConsecutiveFailures_ = 0;
@@ -3527,7 +3563,7 @@ private:
     OpenXREyeView pendingRenderedView_{};
     OpenXREyeView renderedStereoViews_[2] = {};
     OpenXRInteractionReticleState interactionReticleState_{};
-    OpenXRControllerAimGuideState controllerAimGuideState_{};
+    std::array<OpenXRControllerAimGuideState, 2> controllerAimGuideStates_{};
     OpenXRStatusPanelState statusPanelState_{};
     std::vector<uint8_t> statusPanelPixels_;
     std::vector<uint8_t> comfortVignettePixels_;
@@ -3812,6 +3848,7 @@ struct OpenXRRuntime::Impl {
     void SetInteractionReticleSemantic(int) {}
     void ClearInteractionReticle() {}
     void SetControllerAimGuide(const OpenXRControllerAimGuideState&) {}
+    void ClearControllerAimGuide(uint32_t) {}
     void ClearControllerAimGuide() {}
     void SetStatusPanel(const OpenXRStatusPanelState&) {}
     void SetHudRuntimeVisible(bool) {}
@@ -4055,6 +4092,11 @@ void OpenXRRuntime::ClearInteractionReticle()
 void OpenXRRuntime::SetControllerAimGuide(const OpenXRControllerAimGuideState& state)
 {
     impl_->SetControllerAimGuide(state);
+}
+
+void OpenXRRuntime::ClearControllerAimGuide(uint32_t handIndex)
+{
+    impl_->ClearControllerAimGuide(handIndex);
 }
 
 void OpenXRRuntime::ClearControllerAimGuide()

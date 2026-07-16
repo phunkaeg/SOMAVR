@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.63.0-diegetic-terminals")
+set(SOMAVR_BUILD_VERSION "0.64.0-dual-hand-interaction")
 
 include(FetchContent)
 
@@ -72,6 +72,7 @@ add_library(somavr_render_math STATIC
     src/dll/HPLPhysicalCrouchMath.cpp
     src/dll/HPLRoomscaleReconciliationMath.cpp
     src/dll/HPLHudMath.cpp
+    src/dll/HPLInteractionMath.cpp
     src/dll/HPLInputMath.cpp
     src/dll/HPLMenuMath.cpp
     src/dll/HPLScreenEffectMath.cpp

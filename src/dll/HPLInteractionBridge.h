@@ -24,6 +24,10 @@ bool InstallHPLInteractionBridge(const Config& config, OpenXRRuntime* openxr);
 void RemoveHPLInteractionBridge();
 void LogHPLInteractionBridgeSummary();
 bool GetHPLInteractionHitSnapshot(HPLInteractionHitSnapshot& snapshot);
+bool GetHPLInteractionOwnerHand(
+    uint64_t gameFrame,
+    uint64_t maximumAgeFrames,
+    uint32_t& handIndex);
 void PublishHPLInteractionCrosshairState(int crosshairState);
 
 } // namespace somavr

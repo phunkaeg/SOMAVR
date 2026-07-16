@@ -46,7 +46,7 @@ HPLGrabBridge
   -> HPLGrabMath shortest-arc angular target
   -> HPLPlayerState Grab ownership snapshot
   -> HPLCameraBridge world-pose conversion and camera origin
-  -> OpenXRInput dominant grip pose/velocity snapshot
+  -> OpenXRInput interaction-owner grip pose/velocity snapshot
 
 HPLNativeLocomotion
   -> signature-guarded iCharacterBody Move/AddYaw/GetFeetPosition/SetFeetPosition and game-pause getter
@@ -59,6 +59,9 @@ HPLInteractionBridge
   -> OpenXRInput snapshots through OpenXRRuntime
   -> HPLPlayerState authored-camera snapshot
   -> HPLCameraBridge world-pose conversion and camera origin
+  -> HPLInteractionMath deterministic pressed/hit/sticky/preferred hand selection
+  -> native inner closest-entity probes for both hands and one outer finalizer
+  -> HPLInputBridge/HPLGrabBridge selected-hand action and manipulation ownership
   -> immutable native entity/body/distance/world-hit snapshot
   -> narrow OpenXR interaction-reticle and focus-haptic updates
 
@@ -144,10 +147,10 @@ lifecycle.
 | `HPLMenuBridge` | Paused-only head-relative controller aim to native client cursor routing | GUI rendering/capture, pause ownership, OpenXR actions, or gameplay clicks |
 | `HPLMenuMath` | Pure HMD/controller orientation projection into normalized menu coordinates | HWND state, cursor mutation, native pointers, or logging |
 | `HPLTerminalBridge` | Signature-guarded state-8 body/camera takeover suppression plus native spatial-GUI mesh ray projection for exact terminal states `8/9` | Terminal focus, widget policy, HUD/menu capture, non-terminal GUI ownership, or handheld state-9 presentation |
-| `HPLInteractionBridge` | Signature-guarded native closest-entity query substitution, immutable finalized hit snapshot, and narrow reticle/focus-haptic publication | `CanInteract`, distance policy, focus callbacks, object physics, reticle rendering, or controller action ownership |
+| `HPLInteractionBridge` | Signature-guarded dual-hand inner closest-entity probes, deterministic single-result selection, exactly one outer finalizer, immutable hit snapshot, and selected-hand ownership publication | `CanInteract`, distance policy, focus callbacks, object physics, or reticle rendering |
 | `HPLGameplayHapticsBridge` | Exact-signature preservation/mirroring of SOMA's script-authored global rumble into bilateral OpenXR output | Raw collision synthesis, material classification, VR-hand inference from gamepad index, or script timing ownership |
 | `HPLGameplayHapticsMath` | Pure rising-edge, strength-retrigger, refresh, bounded-segment, and falling-edge envelope policy | Native pointers, OpenXR handles, hook lifecycle, or logging |
-| `HPLContactHapticsBridge` | Exact-signature observation of native surface impacts plus Grab-state/fresh dominant-grip proximity gating and one-hand OpenXR pulse dispatch | Physics mutation, native sound/particle suppression, exact grabbed-body ownership, sustained scrape synthesis, or non-Grab collision feedback |
+| `HPLContactHapticsBridge` | Exact-signature observation of native surface impacts plus Grab-state/fresh interaction-owner-grip proximity gating and one-hand OpenXR pulse dispatch | Physics mutation, native sound/particle suppression, exact grabbed-body ownership, sustained scrape synthesis, or non-Grab collision feedback |
 | `HPLContactHapticsMath` | Pure finite/speed/distance/cooldown validation and bounded linear amplitude mapping | Native pointers, controller poses, OpenXR handles, hook lifecycle, or logging |
 | `HPLComfortBridge` | Transactional guarded ownership of semantic camera-add, Set/Fade camera-roll, authored FOV/multiplier, and world DoF boundaries during active VR | Lower-level camera transforms, player-state ownership, fades/tone mapping, or broad post chains |
 | `HPLComfortMath` | Pure camera-add/roll enum classification, optics target policy, independent suppression policy, and high-motion player-state transition classification | Native pointers, hook lifecycle, tracking state, or logging |

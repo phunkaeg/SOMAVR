@@ -1,5 +1,15 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-16 Dual-Hand Interaction Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1400cd750` | `SOMA_GetClosestEntity` | Updated plate comment with the exact outer wrapper lifecycle: result fields at `+0x18/+0x20/+0x28`, then vtable `+0x40` finalization exactly once. Documented 0.64 two-candidate selection and rollback policy. |
+| `0x1401438c0` | `SOMA_Lux_GetClosestEntityRaycast` | Updated plate comment with the raw three-out-field ABI, absence of outer finalization, entry RIP game-context slot, and context `+0xc0` ray owner consumed by the dual-hand probes. |
+
+The explicitly selected `Soma_NoSteam.exe` database was saved after both plate
+comments were synchronized.
+
 ## 2026-07-16 Diegetic Terminal Mode Sync
 
 | Address | Ghidra name | Evidence/use |

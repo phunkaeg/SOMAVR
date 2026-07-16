@@ -2,13 +2,14 @@
 
 Date: 2026-07-16
 
-Use `out\SOMAVR-latest` (`0.63.0-diegetic-terminals`) for the next run. The
-highest-value evidence is one wall terminal: verify there is no body teleport,
-scripted camera rotation, or camera pull; physically lean into the authored
-screen; point/click across its full mesh and just outside every edge; then exit
-and re-enter. Follow the 0.63 checklist and attach the complete shutdown log,
-especially `hpl_terminal_diegetic`, `hpl_terminal_pointer`, and
-`hpl_terminal_bridge_summary` rows. Recheck the 0.62 hinge/stutter items in the
+Use `out\SOMAVR-latest` (`0.64.0-dual-hand-interaction`) for the next run. First
+verify both beams are visible simultaneously, then acquire and activate targets
+with each hand independently. Confirm SOMA's context icon follows the selected
+beam endpoint, overlapping rays do not flicker, and drawers, curtains, doors,
+props, readables, and terminals remain owned by the hand that initiated them.
+Follow the 0.64 checklist and attach the complete shutdown log, especially
+`hpl_interaction_ray`, `hpl_interaction_bridge_summary`, OpenXR guide readiness,
+and terminal/manipulation rows. Recheck the 0.63 wall-terminal takeover in the
 same session when convenient.
 
 SOMAVR has reached the point where the feature registry contains no unimplemented
@@ -70,7 +71,7 @@ Required evidence:
 - no capsule tunnelling or body catch-up while authored camera ownership is set;
 - controller ray hit depth/semantic icon agreement and stable reticle depth;
 - native physics remains authoritative for grab, torque, throw, and mechanisms;
-- light/hard grabbed-object impacts produce speed-scaled dominant-hand pulses,
+- light/hard grabbed-object impacts produce speed-scaled initiating-hand pulses,
   duplicate material callbacks are cooled down, and unrelated impacts stay
   silent; preserve native impact sound, particles, collision, and gamepad rumble;
 - HUD/current-ImGui ownership is limited to its confirmed semantic surfaces;

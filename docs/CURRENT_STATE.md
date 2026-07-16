@@ -21,14 +21,22 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.63.0-diegetic-terminals`, layered on the
+The active build candidate is `0.64.0-dual-hand-interaction`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
 
+- Both tracked controllers now feed SOMA's native closest-entity raycast. A
+  deterministic pressed/hit/sticky/preferred policy selects one focus owner,
+  while the outer native result is finalized exactly once. Both beams remain
+  visible, the semantic context icon follows the selected beam depth, and the
+  selected hand owns subsequent manipulation, terminal clicks, and Grab contact
+  feedback. Static implementation and unit coverage are complete; headset
+  acceptance is the current gate.
+
 - Wall terminal state `8` now stays diegetic in VR: exact native hooks suppress
   only its body teleport, scripted camera rotation, and Terminal camera offset.
-  SOMA's existing mesh projector converts the dominant-controller world ray to
+  SOMA's existing mesh projector converts the selected-controller world ray to
   native GUI UV/virtual coordinates, so pointing follows the physical screen
   rather than a head-relative cone. Static RE and implementation are complete;
   headset acceptance is the current gate. Handheld state `9` retains its native
@@ -71,18 +79,18 @@ compatibility probes:
   perceived inter-eye latency, so the packaged profile now enables it and logs
   exact left/right rendered pose-frame gaps. AFR remains a one-action rollback.
 
-- Left-controller-relative movement, a temporary three-point aim guide,
+- Left-controller-relative movement, simultaneous left/right aim guides,
   dominant-secondary inspection cancel, grip-held readable rotation, and a
   dedicated 3x Slide-state scale are built for the next live pass. The packaged
   center-HUD clear is disabled because it was the exact source of the clipped
   interaction icon and missing square. Quest 3 vignette coverage is wider and
   explicitly logged; native font-scale subtitle tuning is restored.
 
-- Native grabbed-object impacts now have an opt-in dominant-hand haptic path.
+- Native grabbed-object impacts now have an opt-in interaction-owner haptic path.
   Ghidra plus released HPL2 source confirm `cSurfaceData::OnImpact` at
   `0x14032f0e0` receives normal collision speed, contact position/count, and a
   physics body after Newton simulation. The exact-signature hook always runs
-  SOMA first, then requires Grab state, a fresh tracked dominant grip, and a
+  SOMA first, then requires Grab state, a fresh tracked selected grip, and a
   contact point within a bounded radius before mapping speed to one OpenXR
   pulse. A 45 ms cooldown collapses duplicate material callbacks. Generated
   configs remain off; the active profile enables it for live evidence.

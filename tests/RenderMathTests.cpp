@@ -6,6 +6,7 @@
 #include "HPLGrabMath.h"
 #include "HPLGameplayHapticsMath.h"
 #include "HPLHudMath.h"
+#include "HPLInteractionMath.h"
 #include "HPLInputMath.h"
 #include "HPLMenuMath.h"
 #include "HPLPhysicalCrouchMath.h"
@@ -56,6 +57,22 @@ int main()
     using namespace somavr;
 
     int failures = 0;
+    failures += Check(
+        interaction_math::SelectInteractionHand(
+            {true, true, false, 2.0f}, {true, false, false, 0.0f}, 1, -1) == 0,
+        "interaction selects the only hand with a native hit");
+    failures += Check(
+        interaction_math::SelectInteractionHand(
+            {true, true, false, 2.0f}, {true, true, true, 1.0f}, 0, 0) == 1,
+        "interaction press transfers ownership immediately");
+    failures += Check(
+        interaction_math::SelectInteractionHand(
+            {true, true, false, 2.0f}, {true, true, false, 1.0f}, 1, 0) == 0,
+        "interaction preserves the previous owner while both hands hit");
+    failures += Check(
+        interaction_math::SelectInteractionHand(
+            {true, false, false, 0.0f}, {true, false, false, 0.0f}, 1, -1) == 1,
+        "interaction falls back to the configured preferred hand");
     tone_mapping_frame_math::State toneState;
     auto toneRole = tone_mapping_frame_math::Begin(
         toneState, 0x6000, true, 1, 200, 9);

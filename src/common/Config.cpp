@@ -300,6 +300,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "SmoothTurnDegreesPerSecond=120\n"
         << "NativeTurnSign=-1\n"
         << "Interaction=1\n"
+        << "InteractionBothHands=1\n"
         << "AimGuide=0\n"
         << "AimGuideLengthMeters=1.2\n"
         << "Flashlight=1\n"
@@ -761,6 +762,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "smoothturndegreespersecond") config_.hplControllerSmoothTurnDegreesPerSecond = ParseFloat(value, config_.hplControllerSmoothTurnDegreesPerSecond, 1.0f, 720.0f);
             else if (key == "nativeturnsign") config_.hplControllerNativeTurnSign = ParseFloat(value, config_.hplControllerNativeTurnSign, -1.0f, 1.0f);
             else if (key == "interaction") config_.hplControllerInteraction = ParseBool(value, config_.hplControllerInteraction);
+            else if (key == "interactionbothhands") config_.hplControllerInteractionBothHands = ParseBool(value, config_.hplControllerInteractionBothHands);
             else if (key == "aimguide") config_.hplControllerAimGuide = ParseBool(value, config_.hplControllerAimGuide);
             else if (key == "aimguidelengthmeters") config_.hplControllerAimGuideLengthMeters = ParseFloat(value, config_.hplControllerAimGuideLengthMeters, 0.3f, 4.0f);
             else if (key == "flashlight") config_.hplControllerFlashlight = ParseBool(value, config_.hplControllerFlashlight);

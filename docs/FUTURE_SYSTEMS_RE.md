@@ -1,5 +1,22 @@
 # Future Systems Reverse Engineering
 
+## 0.64.0 Dual-Hand Interaction Result
+
+The outer closest-entity wrapper at `0x1400cd750` is not safe to call twice for
+one gameplay focus update because it invokes the result object's vtable `+0x40`
+finalizer. Its inner native raycast at `0x1401438c0` writes only distance, body,
+and entity out fields. Version 0.64 probes that inner function once per tracked
+hand into local candidates, deterministically selects one, copies only that
+candidate to the real result, and finalizes once. This preserves SOMA's single
+focus/`CanInteract`/callback lifecycle while enabling either hand.
+
+Selected-hand identity is latched with the input frame and consumed by input,
+Grab/Slide/hinge/Read control, terminal clicks, and Grab contact haptics. The
+visual path keeps one guide state per hand and uses a dedicated guide swapchain;
+the semantic native icon remains in its own swapchain at selected hit depth.
+Headset evidence must now settle overlap stability, callback singularity, layer
+capacity, and initiating-hand continuity through all physical player states.
+
 ## 0.63.0 Diegetic Terminal Takeover Result
 
 Released `PlayerState_Interact_Terminal.hps` identifies all three parts of the

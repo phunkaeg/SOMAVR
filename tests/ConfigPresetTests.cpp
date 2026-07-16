@@ -70,7 +70,7 @@ int main()
         out << "[Comfort]\nPreset=maximum\n"
             << "[Hooks]\nHPLComfortSuppressScriptRoll=0\nHPLPerEyeImageTrailControl=1\nHPLToneMappingFrameControl=1\nHPLPerEyeSSAOTemporalControl=1\nHPLSSAOFrameOwnerControl=1\n"
             << "[Controller]\nComfortBlackoutFrames=7\n"
-            << "MovementReference=controller\nAimGuide=1\nAimGuideLengthMeters=9\n"
+            << "MovementReference=controller\nInteractionBothHands=0\nAimGuide=1\nAimGuideLengthMeters=9\n"
             << "TerminalPointer=0\nTerminalDiegetic=0\nTerminalRayPointer=0\nTerminalRayLengthMeters=99\n"
             << "ManipulationSlidePixelsPerMeter=99999\n"
             << "ContactHaptics=1\nContactHapticMinSpeed=-1\nContactHapticMaxSpeed=99\n"
@@ -91,6 +91,7 @@ int main()
             && manager.Get().hplSSAOFrameOwnerControl
             && manager.Get().hplControllerComfortBlackoutFrames == 7
             && manager.Get().hplControllerMovementReference == "controller"
+            && !manager.Get().hplControllerInteractionBothHands
             && manager.Get().hplControllerAimGuide
             && manager.Get().hplControllerAimGuideLengthMeters == 4.0f
             && !manager.Get().hplControllerTerminalPointer

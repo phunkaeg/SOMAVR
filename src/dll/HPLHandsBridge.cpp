@@ -3,6 +3,7 @@
 #include "HPLCameraBridge.h"
 #include "HPLFlashlightMath.h"
 #include "HPLHandsMath.h"
+#include "HPLInteractionBridge.h"
 #include "HPLPlayerState.h"
 #include "HPLTwoHandMath.h"
 #include "Logger.h"
@@ -294,9 +295,21 @@ float ColumnLength(const std::array<float, 16>& matrix, size_t column)
         + matrix[column + 8] * matrix[column + 8]);
 }
 
-const OpenXRHandInput* SelectDominantHand(const OpenXRInputSnapshot& input, uint32_t& handIndex)
+const OpenXRHandInput* SelectDominantHand(
+    const OpenXRInputSnapshot& input,
+    uint32_t& handIndex,
+    bool useInteractionOwner = true)
 {
     handIndex = g_config.hplControllerDominantHand == "left" ? 0u : 1u;
+    uint32_t interactionHand = handIndex;
+    if (useInteractionOwner
+        && GetHPLInteractionOwnerHand(input.gameFrame, 120, interactionHand)) {
+        const OpenXRHandInput* owner = interactionHand == 0 ? &input.left : &input.right;
+        if (owner->active) {
+            handIndex = interactionHand;
+            return owner;
+        }
+    }
     const OpenXRHandInput* preferred = handIndex == 0 ? &input.left : &input.right;
     if (preferred->active) return preferred;
     if (!g_config.hplControllerOneHandFallback) return nullptr;
@@ -754,7 +767,7 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
         if (g_openxr != nullptr
             && g_openxr->GetLatestInput(input)
             && input.active) {
-            const OpenXRHandInput* hand = SelectDominantHand(input, handIndex);
+            const OpenXRHandInput* hand = SelectDominantHand(input, handIndex, false);
             aimValid = hand != nullptr
                 && hand->aimPose.valid
                 && ResolveHPLTrackedPoseWorld(hand->aimPose, input.gameFrame, worldAim)

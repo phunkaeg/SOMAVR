@@ -184,15 +184,18 @@ With `MovementReference=head`, movement follows calibrated HMD yaw. The
 both ignore pitch/roll and preserve SOMA's native analog body movement.
 `PhysicalCrouch=1` drives SOMA's native crouch
 toggle from tracked height with hysteresis. `GrabTranslation=1` augments only
-the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
+the exact Grab-state force PID with interaction-owner controller displacement; SOMA keeps
   mass, collision, constraints, gravity, and callbacks. `GrabRotation=1` extends
   that contract through SOMA's torque PID, while `ThrowRedirect=1` redirects one
   native Grab impulse along tracked release velocity. `TwoHandHudObject=1`
-  optionally points an independent held tool from the dominant grip toward a
+  optionally points an independent held tool from the interaction-owner grip toward a
   squeezed support grip. `TwoHandGrabRotation=1` applies the same bounded
   direction contract to Grab-state torque without replacing native physics.
-  `AimGuide=1` adds a temporary three-point controller-ray guide until a fresh
-  semantic world-hit reticle is available. The compositor HUD can suppress the
+  `InteractionBothHands=1` probes SOMA's native closest-entity ray with both
+  tracked controllers and latches the initiating hand through physical
+  interaction states. `AimGuide=1` displays both controller-ray guides while
+  the selected native semantic icon follows the winning beam's hit depth. The
+  compositor HUD can suppress the
   fixed gaze crosshair with `HudSuppressCenterCrosshair=1`, but this also clears
   native center content and is disabled in the packaged profile.
   `HPLComfortCameraAddControl=1` removes semantic Bob, Shake, and optional Sway
@@ -214,7 +217,7 @@ the exact Grab-state force PID with dominant-controller displacement; SOMA keeps
   for damage, scripted tools/actions, death, and environmental effects through
   bounded bilateral OpenXR segments. `ContactHaptics=1` separately observes
   SOMA's native surface-impact speed and contact point, then pulses only the
-  dominant hand while a freshly tracked Grab-state grip is near the collision.
+  initiating hand while its freshly tracked Grab-state grip is near the collision.
   Native physics, impact audio/effects, and physical-gamepad output remain
   authoritative. Contact and focus feedback remain generated-off,
   live-acceptance features.
@@ -413,6 +416,7 @@ StatusPanelVerticalOffsetMeters=0.0
 Enabled=1
 NativeLocomotion=1
 MovementReference=controller
+InteractionBothHands=1
 AimGuide=1
 AimGuideLengthMeters=1.2
 PhysicalCrouch=1

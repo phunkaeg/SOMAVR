@@ -247,6 +247,7 @@ public:
     void SetInteractionReticleSemantic(int crosshairState);
     void ClearInteractionReticle();
     void SetControllerAimGuide(const OpenXRControllerAimGuideState& state);
+    void ClearControllerAimGuide(uint32_t handIndex);
     void ClearControllerAimGuide();
     void SetStatusPanel(const OpenXRStatusPanelState& state);
     void SetHudRuntimeVisible(bool visible);

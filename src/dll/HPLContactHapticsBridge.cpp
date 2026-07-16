@@ -2,6 +2,7 @@
 
 #include "HPLCameraBridge.h"
 #include "HPLContactHapticsMath.h"
+#include "HPLInteractionBridge.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
 
@@ -125,7 +126,8 @@ void HookSurfaceImpact(
         return;
     }
 
-    const uint32_t handIndex = g_config.hplControllerDominantHand == "left" ? 0u : 1u;
+    uint32_t handIndex = g_config.hplControllerDominantHand == "left" ? 0u : 1u;
+    GetHPLInteractionOwnerHand(input.gameFrame, 120, handIndex);
     const OpenXRHandInput& hand = handIndex == 0 ? input.left : input.right;
     HPLTrackedPoseWorld grip;
     if (!hand.active
@@ -170,7 +172,7 @@ void HookSurfaceImpact(
         || pulse % static_cast<uint64_t>(g_config.hplControllerLogInterval) == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_contact_haptics pulse=%llu hand=%s speed=%.3f contacts=%d distanceWorld=%.3f amplitude=%.3f durationMs=%d body=%p applied=%d policy=grab_state_near_dominant_grip",
+            "hpl_contact_haptics pulse=%llu hand=%s speed=%.3f contacts=%d distanceWorld=%.3f amplitude=%.3f durationMs=%d body=%p applied=%d policy=grab_state_near_interaction_owner_grip",
             static_cast<unsigned long long>(pulse),
             handIndex == 0 ? "left" : "right",
             speed,
@@ -232,7 +234,7 @@ bool InstallHPLContactHapticsBridge(const Config& config, OpenXRRuntime* openxr)
 
     g_surfaceImpactTarget = target;
     Logger::Instance().Write(LogLevel::Info,
-        "hpl_contact_haptics install_ok function=cSurfaceData::OnImpact rva=0x%llx target=%p hand=%s speedMeters=%.3f..%.3f distanceMeters=%.3f amplitude=%.3f..%.3f durationMs=%d cooldownMs=%d policy=grab_state_near_dominant_grip",
+        "hpl_contact_haptics install_ok function=cSurfaceData::OnImpact rva=0x%llx target=%p fallbackHand=%s speedMeters=%.3f..%.3f distanceMeters=%.3f amplitude=%.3f..%.3f durationMs=%d cooldownMs=%d policy=grab_state_near_interaction_owner_grip",
         static_cast<unsigned long long>(kSurfaceImpactRva),
         target,
         config.hplControllerDominantHand.c_str(),

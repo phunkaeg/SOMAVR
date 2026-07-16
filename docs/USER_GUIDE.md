@@ -78,11 +78,12 @@ Set `ComfortVignette=0` for immediate hard rollback. Increase `InnerRadius` for
 a wider clear center or reduce `Strength` for a lighter peripheral mask.
 
 The packaged controller profile uses calibrated left-controller-relative
-movement and a temporary three-point aim guide:
+movement and simultaneous left/right aim guides:
 
 ```ini
 [Controller]
 MovementReference=controller
+InteractionBothHands=1
 AimGuide=1
 AimGuideLengthMeters=1.2
 ManipulationMotionPixelsPerMeter=900
@@ -97,8 +98,11 @@ RotateMaxAngularSpeed=4
 ```
 
 Use `MovementReference=head` for HMD-relative direction or `body` for SOMA's
-native body-relative input. Set `AimGuide=0` to remove the diagnostic markers.
-In Read views, hold dominant grip and rotate the controller to rotate the object;
+native body-relative input. With `InteractionBothHands=1`, both guides are
+visible and either trigger can claim SOMA's native interaction focus; its context
+icon follows the selected guide to native hit depth. Set `InteractionBothHands=0`
+for preferred-hand-only probing, or `AimGuide=0` to hide only the markers.
+In Read views, hold the initiating hand's grip and rotate it to rotate the object;
 right-controller A or B exits. Turn input is ignored while SOMA owns a physical
 manipulation or Read state. Slide projects controller world velocity onto the
 actual drawer/curtain joint. Set `SlideDirectVelocity=0` to restore the old 2D
@@ -109,8 +113,8 @@ camera-relative mouse route; tune `RotateVelocityScale` or
 `RotateMaxAngularSpeed` without changing Slide, Grab, Read, Wheel, or Tear.
 
 Wall terminals remain at their authored position instead of moving the player
-and taking over the camera. Lean toward the physical display and point the
-dominant-controller guide at its surface; SOMA's own GUI mesh converts the ray
+and taking over the camera. Lean toward the physical display and point either
+controller guide at its surface; SOMA's own GUI mesh converts the selected ray
 to cursor coordinates. Trigger/select clicks and the existing cancel action
 exits. The relevant rollback controls are:
 
@@ -147,7 +151,7 @@ foveation extensions and automatically keeps native swapchains when unsupported.
 Set `Foveation=0` for hard rollback. Compare GPU telemetry and peripheral image
 quality before keeping it enabled.
 
-Grabbed objects can produce dominant-hand feedback from SOMA's native surface
+Grabbed objects can produce initiating-hand feedback from SOMA's native surface
 impacts:
 
 ```ini
@@ -162,7 +166,7 @@ ContactHapticDurationMs=35
 ContactHapticCooldownMs=45
 ```
 
-The pulse requires Grab state and a fresh tracked dominant grip near the native
+The pulse requires Grab state and a fresh tracked interaction-owner grip near the native
 contact point. It does not replace collision physics, impact sounds, particles,
 or gamepad rumble. Increase the minimum speed or reduce the distance if weak or
 nearby unrelated impacts feel noisy. Set `ContactHaptics=0` for hard rollback.

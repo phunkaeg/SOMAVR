@@ -191,14 +191,16 @@ Do not replace `CanInteract`, distance handling, focus state, or map-script
 callbacks with a parallel VR interaction database. A head-gaze fallback can feed
 the same query when motion controllers are unavailable.
 
-`0.12.0` closes the query boundary at registered global wrapper
+`0.12.0` closed the query boundary at registered global wrapper
 `SOMA_GetClosestEntity` (`0x1400cd750`). `Utility_PickBasics.UpdatePickCheck`
 passes camera position plus offset, camera forward, ray length, interaction type,
-LOS policy, and an output object to this wrapper. `HPLInteractionBridge` replaces
-only the first two arguments with the dominant controller's tracked HPL world
-pose. It requires interaction type `0`, an incoming origin near the current
-native frustum origin, full aim tracking, fresh active input, and no detected
-authored-camera owner. Any failed gate calls the original query unchanged.
+LOS policy, and an output object to this wrapper. Version 0.64 calls its inner
+native raycast (`0x1401438c0`) with each tracked controller's HPL world pose,
+chooses one candidate by pressed hand, unique hit, sticky previous owner, then
+configured preference, and writes only that candidate to the outer result. It
+requires interaction type `0`, an incoming origin near the current native
+frustum origin, fresh active input, and no detected authored-camera owner. Any
+failed gate calls the original query unchanged.
 
 This leaves native ray length, LOS, `CanInteract`, entity distance policy,
 focused entity/body IDs, player-state dispatch, and map callbacks authoritative.
@@ -206,13 +208,15 @@ Bounded `hpl_interaction_ray` telemetry reports substitutions, hits, controller
 origin/direction, and each fallback class. Live focus behavior remains the gate
 before the feature is considered proven.
 
-`0.19.0` also decodes the finalized native result rather than inventing a second
-focus test. The wrapper writes entity `+0x18`, body `+0x20`, and distance `+0x28`;
-the bridge validates distance against native ray length and publishes the HPL
-world hit point with frame and hand identity. `0.20.0` submits that exact aim and
-distance as a generic application-space OpenXR reticle, with age/tracking/range
-guards and optional focus-change haptics. No-hit and invalid results clear both
-snapshot and layer validity.
+`0.19.0` also decoded the finalized native result rather than inventing a second
+focus test. The corrected wrapper layout is distance `+0x18`, body `+0x20`, and
+entity `+0x28`; its vtable `+0x40` finalizer must run exactly once. Version 0.64
+therefore probes both local candidates below the wrapper and finalizes only the
+selected outer result, preserving native focus/callback lifecycle. The bridge
+publishes selected HPL world hit point, frame, and hand identity. `0.20.0`
+submits that exact aim and distance as an application-space OpenXR reticle; 0.64
+adds simultaneous left/right guide layers from an independent swapchain so the
+semantic icon follows the selected beam without hiding either guide.
 
 `0.21.0` observes the post-policy crosshair callback through registered global
 script dispatch `0x140484ea0` and argument reader `0x1404851d0`. The exact

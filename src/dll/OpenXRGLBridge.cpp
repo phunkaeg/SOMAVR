@@ -14,6 +14,7 @@
 #include <fstream>
 #include <limits>
 #include <string>
+#include <utility>
 
 namespace somavr {
 namespace {
@@ -213,6 +214,13 @@ bool OpenXRGLBridge::Initialize(
             "openxr_interaction_reticle disabled reason=swapchain_creation_failed requestedSize=%d",
             interactionReticleSizePixels);
     }
+    if (interactionReticleEnabled
+        && !CreateControllerAimGuideSwapchain(session, interactionReticleSizePixels)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_controller_aim_guide disabled reason=swapchain_creation_failed requestedSize=%d",
+            interactionReticleSizePixels);
+    }
     if (InteractionReticleReady() && interactionReticleNativeIconsEnabled_) {
         LoadInteractionReticleAssets();
     }
@@ -234,7 +242,7 @@ bool OpenXRGLBridge::Initialize(
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "openxr_gl_bridge ready eyes=%zu format=0x%llx(%s) resolutionScalePercent=%d foveationSwapchains=%d depthCaptureProbe=%d depthSubmitRequested=%d depthFormat=0x%llx(%s) depthCachesReady=%d depthSwapchainsReady=%d hudReady=%d hudSize=%dx%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d interactionReticleReady=%d reticleSize=%dx%d nativeReticleIcons=%u statusPanelReady=%d statusPanelSize=%dx%d comfortVignetteReady=%d comfortVignetteSize=%dx%d",
+        "openxr_gl_bridge ready eyes=%zu format=0x%llx(%s) resolutionScalePercent=%d foveationSwapchains=%d depthCaptureProbe=%d depthSubmitRequested=%d depthFormat=0x%llx(%s) depthCachesReady=%d depthSwapchainsReady=%d hudReady=%d hudSize=%dx%d suppressCenterCrosshair=%d crosshairClearRadiusPixels=%d interactionReticleReady=%d controllerAimGuideReady=%d reticleSize=%dx%d nativeReticleIcons=%u statusPanelReady=%d statusPanelSize=%dx%d comfortVignetteReady=%d comfortVignetteSize=%dx%d",
         eyes_.size(),
         static_cast<unsigned long long>(colorFormat_),
         GlFormatName(colorFormat_),
@@ -252,6 +260,7 @@ bool OpenXRGLBridge::Initialize(
         suppressCenterCrosshair_ ? 1 : 0,
         crosshairClearRadiusPixels_,
         InteractionReticleReady() ? 1 : 0,
+        ControllerAimGuideReady() ? 1 : 0,
         interactionReticle_.width,
         interactionReticle_.height,
         interactionReticleAssetsLoaded_,
@@ -328,6 +337,15 @@ void OpenXRGLBridge::Shutdown(bool deleteGlResources)
         xrDestroySwapchain(interactionReticle_.handle);
     }
     interactionReticle_ = {};
+    if (canDeleteFramebuffers && !controllerAimGuide_.framebuffers.empty()) {
+        glDeleteFramebuffers_(
+            static_cast<int32_t>(controllerAimGuide_.framebuffers.size()),
+            controllerAimGuide_.framebuffers.data());
+    }
+    if (controllerAimGuide_.handle != XR_NULL_HANDLE) {
+        xrDestroySwapchain(controllerAimGuide_.handle);
+    }
+    controllerAimGuide_ = {};
     interactionReticleAssets_ = {};
     interactionReticleUploadPixels_.clear();
     interactionReticleNativeIconsEnabled_ = false;
@@ -941,6 +959,33 @@ bool OpenXRGLBridge::InteractionReticleReady() const
 const OpenXRGLBridge::ReticleSwapchain& OpenXRGLBridge::InteractionReticle() const
 {
     return interactionReticle_;
+}
+
+bool OpenXRGLBridge::DrawControllerAimGuideToSwapchain(
+    float red,
+    float green,
+    float blue,
+    float alpha)
+{
+    if (!ControllerAimGuideReady()) return false;
+    std::swap(interactionReticle_, controllerAimGuide_);
+    const bool drawn = DrawInteractionReticleToSwapchain(
+        1, red, green, blue, alpha);
+    std::swap(interactionReticle_, controllerAimGuide_);
+    return drawn;
+}
+
+bool OpenXRGLBridge::ControllerAimGuideReady() const
+{
+    return session_ != XR_NULL_HANDLE
+        && controllerAimGuide_.handle != XR_NULL_HANDLE
+        && !controllerAimGuide_.images.empty()
+        && !controllerAimGuide_.framebuffers.empty();
+}
+
+const OpenXRGLBridge::ReticleSwapchain& OpenXRGLBridge::ControllerAimGuide() const
+{
+    return controllerAimGuide_;
 }
 
 bool OpenXRGLBridge::DrawStatusPanelToSwapchain(const std::vector<uint8_t>& rgbaPixels)
@@ -1650,6 +1695,23 @@ bool OpenXRGLBridge::CreateInteractionReticleSwapchain(XrSession session, int si
         static_cast<unsigned long long>(interactionReticle_.format),
         GlFormatName(interactionReticle_.format));
     return true;
+}
+
+bool OpenXRGLBridge::CreateControllerAimGuideSwapchain(XrSession session, int sizePixels)
+{
+    ReticleSwapchain semanticReticle = std::move(interactionReticle_);
+    const bool created = CreateInteractionReticleSwapchain(session, sizePixels);
+    if (created) {
+        controllerAimGuide_ = std::move(interactionReticle_);
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "openxr_controller_aim_guide swapchain_created size=%dx%d images=%zu",
+            controllerAimGuide_.width,
+            controllerAimGuide_.height,
+            controllerAimGuide_.images.size());
+    }
+    interactionReticle_ = std::move(semanticReticle);
+    return created;
 }
 
 bool OpenXRGLBridge::CreateStatusPanelSwapchain(XrSession session, int width, int height)

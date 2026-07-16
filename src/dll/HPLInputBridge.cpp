@@ -4,6 +4,7 @@
 #include "HPLComfortMath.h"
 #include "HPLGrabBridge.h"
 #include "HPLInputMath.h"
+#include "HPLInteractionBridge.h"
 #include "HPLMenuBridge.h"
 #include "HPLNativeLocomotion.h"
 #include "HPLPhysicalCrouchMath.h"
@@ -71,6 +72,7 @@ struct BridgeState {
     bool paused = false;
     bool menuPointerActive = false;
     bool terminalPointerActive = false;
+    uint32_t terminalPointerHand = 1;
     bool menuClickLatchedUntilRelease = false;
     crouch_math::PhysicalCrouchState physicalCrouch{};
     bool playerStateInitialized = false;
@@ -436,6 +438,27 @@ const OpenXRHandInput& HandInput(const OpenXRInputSnapshot& input, uint32_t hand
     return hand == 0 ? input.left : input.right;
 }
 
+bool InteractionPressed(const OpenXRHandInput& hand)
+{
+    return hand.active && (hand.select || hand.trigger >= 0.75f);
+}
+
+uint32_t ResolveInteractionActionHand(
+    const OpenXRInputSnapshot& input,
+    const ControllerRoles& roles)
+{
+    const bool leftPressed = InteractionPressed(input.left);
+    const bool rightPressed = InteractionPressed(input.right);
+    if (leftPressed != rightPressed) return leftPressed ? 0u : 1u;
+
+    uint32_t owner = roles.dominantHand;
+    if (GetHPLInteractionOwnerHand(input.gameFrame, 120, owner)
+        && HandInput(input, owner).active) {
+        return owner;
+    }
+    return roles.dominantHand;
+}
+
 ControllerRoles ResolveControllerRoles(const OpenXRInputSnapshot& input)
 {
     ControllerRoles roles;
@@ -652,26 +675,33 @@ bool ApplyTerminalPointerActions(const OpenXRInputSnapshot& input, const Control
 {
     ReleaseGameplayExceptPointer();
     DeactivateHPLMenuPointer();
-    const OpenXRHandInput& dominant = HandInput(input, roles.dominantHand);
-    if (dominant.secondary && dominant.secondaryChanged) {
+    const bool leftPressed = InteractionPressed(input.left);
+    const bool rightPressed = InteractionPressed(input.right);
+    uint32_t pointerHand = g_state.terminalPointerActive
+        ? g_state.terminalPointerHand : roles.dominantHand;
+    if (leftPressed != rightPressed) pointerHand = leftPressed ? 0u : 1u;
+    if (!HandInput(input, pointerHand).active) pointerHand = roles.dominantHand;
+    g_state.terminalPointerHand = pointerHand;
+    const OpenXRHandInput& hand = HandInput(input, pointerHand);
+    if (hand.secondary && hand.secondaryChanged) {
         TapMouseButton(MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP);
-        PulseHaptic(roles.dominantHand, "inspection_exit");
+        PulseHaptic(pointerHand, "inspection_exit");
         g_inspectionExitActions.fetch_add(1, std::memory_order_relaxed);
     }
     OpenXRHeadPose headPose;
     const bool pointerActive = g_config.hplControllerTerminalPointer
         && g_openxr != nullptr
         && g_openxr->GetLatestHeadPose(headPose)
-        && UpdateHPLTerminalPointer(headPose, dominant.aimPose, input.gameFrame);
+        && UpdateHPLTerminalPointer(headPose, hand.aimPose, input.gameFrame);
     if (!pointerActive) {
         SetMouseButton(g_state.interact, false);
         DeactivateHPLTerminalPointer();
         return false;
     }
 
-    const bool pressed = dominant.select || dominant.trigger >= 0.75f;
+    const bool pressed = InteractionPressed(hand);
     if (pressed && !g_state.interact.down) {
-        PulseHaptic(roles.dominantHand, "terminal_click");
+        PulseHaptic(pointerHand, "terminal_click");
     }
     SetMouseButton(g_state.interact, pressed);
     g_terminalPointerFrames.fetch_add(1, std::memory_order_relaxed);
@@ -688,23 +718,40 @@ void UpdateControllerAimGuide(
         if (g_openxr != nullptr) g_openxr->ClearControllerAimGuide();
         return;
     }
-    const OpenXRHandInput& dominant = HandInput(input, roles.dominantHand);
-    OpenXRControllerAimGuideState guide;
-    guide.valid = dominant.active
-        && dominant.aimPose.valid
-        && dominant.aimPose.orientationTracked
-        && dominant.aimPose.positionTracked;
-    guide.gameFrame = input.gameFrame;
-    guide.handIndex = roles.dominantHand;
-    guide.lengthMeters = lengthMeters > 0.0f
-        ? lengthMeters
-        : g_config.hplControllerAimGuideLengthMeters;
-    guide.aimPose = dominant.aimPose;
-    if (guide.valid) {
-        g_openxr->SetControllerAimGuide(guide);
-        g_controllerAimGuideFrames.fetch_add(1, std::memory_order_relaxed);
-    } else {
-        g_openxr->ClearControllerAimGuide();
+    HPLInteractionHitSnapshot hit;
+    GetHPLInteractionHitSnapshot(hit);
+    for (uint32_t handIndex = 0; handIndex < 2; ++handIndex) {
+        if (!g_config.hplControllerInteractionBothHands
+            && handIndex != roles.dominantHand) {
+            g_openxr->ClearControllerAimGuide(handIndex);
+            continue;
+        }
+        const OpenXRHandInput& hand = HandInput(input, handIndex);
+        OpenXRControllerAimGuideState guide;
+        guide.valid = hand.active
+            && hand.aimPose.valid
+            && hand.aimPose.orientationTracked
+            && hand.aimPose.positionTracked;
+        guide.gameFrame = input.gameFrame;
+        guide.handIndex = handIndex;
+        guide.lengthMeters = lengthMeters > 0.0f
+            ? lengthMeters
+            : g_config.hplControllerAimGuideLengthMeters;
+        if (hit.valid && hit.handIndex == handIndex
+            && input.gameFrame >= hit.gameFrame
+            && input.gameFrame - hit.gameFrame <= 4) {
+            guide.lengthMeters = std::clamp(
+                hit.distance / std::max(g_config.hplWorldScale, 0.001f),
+                0.3f,
+                20.0f);
+        }
+        guide.aimPose = hand.aimPose;
+        if (guide.valid) {
+            g_openxr->SetControllerAimGuide(guide);
+            g_controllerAimGuideFrames.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            g_openxr->ClearControllerAimGuide(handIndex);
+        }
     }
 }
 
@@ -1083,13 +1130,14 @@ void ApplyGameplayActions(
         g_inventoryActions.fetch_add(1, std::memory_order_relaxed);
     }
     if (g_config.hplControllerInteraction) {
-        bool interact = dominant.select || dominant.trigger >= 0.75f;
+        const uint32_t interactionHand = ResolveInteractionActionHand(input, roles);
+        bool interact = InteractionPressed(HandInput(input, interactionHand));
         if (g_state.menuClickLatchedUntilRelease) {
             if (!interact) g_state.menuClickLatchedUntilRelease = false;
             interact = false;
         }
         if (interact && !g_state.interact.down) {
-            PulseHaptic(roles.dominantHand, "interaction");
+            PulseHaptic(interactionHand, "interaction");
         }
         SetMouseButton(g_state.interact, interact);
     }
@@ -1193,7 +1241,16 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
 
     g_activeUpdates.fetch_add(1, std::memory_order_relaxed);
     const uint64_t nowMs = TickMs();
-    const ControllerRoles roles = ResolveControllerRoles(input);
+    ControllerRoles roles = ResolveControllerRoles(input);
+    uint32_t interactionOwner = roles.dominantHand;
+    const bool interactionOwnedState = player.playerStateId >= kGrabPlayerState
+        && player.playerStateId <= kReadPlayerState;
+    if (interactionOwnedState
+        && GetHPLInteractionOwnerHand(input.gameFrame, 120, interactionOwner)
+        && HandInput(input, interactionOwner).active) {
+        roles.dominantHand = interactionOwner;
+        roles.supportHand = roles.oneHand ? interactionOwner : (interactionOwner ^ 1u);
+    }
     if (UpdateHPLStatusPanelBridge(
             frameIndex,
             &input,

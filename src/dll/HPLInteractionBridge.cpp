@@ -2,6 +2,7 @@
 
 #include "HPLCameraBridge.h"
 #include "HPLHudMath.h"
+#include "HPLInteractionMath.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
 
@@ -21,11 +22,17 @@ namespace somavr {
 namespace {
 
 constexpr uintptr_t kGetClosestEntityRva = 0x0cd750;
+constexpr uintptr_t kGetClosestEntityRaycastRva = 0x1438c0;
 constexpr uint8_t kGetClosestEntitySignature[] = {
     0x48, 0x89, 0x5c, 0x24, 0x08,
     0x57,
     0x48, 0x83, 0xec, 0x50,
     0x48, 0x8b, 0xbc, 0x24, 0x88, 0x00, 0x00, 0x00,
+};
+constexpr uint8_t kGetClosestEntityRaycastSignature[] = {
+    0x57, 0x48, 0x83, 0xec, 0x60,
+    0x48, 0x8b, 0x05, 0x13, 0xed, 0x64, 0x00,
+    0x48, 0x8b, 0xf9, 0x4d, 0x8b, 0xd0,
 };
 
 using GetClosestEntityFn = bool (*)(
@@ -35,15 +42,34 @@ using GetClosestEntityFn = bool (*)(
     int interactType,
     bool checkLineOfSight,
     void* output);
+using GetClosestEntityRaycastFn = bool (*)(
+    void* rayOwner,
+    const float* start,
+    const float* direction,
+    float rayLength,
+    int interactType,
+    bool checkLineOfSight,
+    float* outDistance,
+    void** outBody,
+    void** outEntity);
+using FinalizeClosestEntityOutputFn = void (*)(void* output);
 
 Config g_config;
 OpenXRRuntime* g_openxr = nullptr;
 GetClosestEntityFn g_originalGetClosestEntity = nullptr;
+GetClosestEntityRaycastFn g_getClosestEntityRaycast = nullptr;
+void** g_gameContextSlot = nullptr;
 void* g_getClosestEntityTarget = nullptr;
 std::mutex g_installMutex;
 std::atomic<uint64_t> g_calls = 0;
 std::atomic<uint64_t> g_substitutions = 0;
 std::atomic<uint64_t> g_substitutionHits = 0;
+std::atomic<uint64_t> g_handProbes[2] = {};
+std::atomic<uint64_t> g_handHits[2] = {};
+std::atomic<uint64_t> g_handSelections[2] = {};
+std::atomic<uint64_t> g_handSwitches = 0;
+std::atomic<int> g_activeInteractionHand = -1;
+std::atomic<uint64_t> g_activeInteractionFrame = 0;
 std::atomic<uint64_t> g_fallbackDisabled = 0;
 std::atomic<uint64_t> g_fallbackQueryType = 0;
 std::atomic<uint64_t> g_fallbackAuthoredCamera = 0;
@@ -85,6 +111,97 @@ bool IsFiniteVector(const float* value)
         && std::isfinite(value[0])
         && std::isfinite(value[1])
         && std::isfinite(value[2]);
+}
+
+bool ReadMemory(const void* source, void* destination, size_t bytes)
+{
+    if (source == nullptr || destination == nullptr || bytes == 0) return false;
+    SIZE_T bytesRead = 0;
+    return ReadProcessMemory(
+        GetCurrentProcess(), source, destination, bytes, &bytesRead) != FALSE
+        && bytesRead == bytes;
+}
+
+template <typename T>
+bool ReadField(const void* base, size_t offset, T& value)
+{
+    return ReadMemory(static_cast<const std::byte*>(base) + offset, &value, sizeof(value));
+}
+
+struct NativeHandRay {
+    bool tracked = false;
+    bool hit = false;
+    uint32_t handIndex = 1;
+    float distance = 10000000.0f;
+    void* body = nullptr;
+    void* entity = nullptr;
+    const OpenXRHandInput* hand = nullptr;
+    HPLTrackedPoseWorld worldAim{};
+};
+
+bool ProbeHandRay(
+    void* rayOwner,
+    const OpenXRInputSnapshot& input,
+    uint32_t handIndex,
+    float rayLength,
+    int interactType,
+    bool checkLineOfSight,
+    NativeHandRay& ray)
+{
+    ray = {};
+    ray.handIndex = handIndex;
+    ray.distance = 10000000.0f;
+    ray.hand = handIndex == 0 ? &input.left : &input.right;
+    if (rayOwner == nullptr || g_getClosestEntityRaycast == nullptr
+        || !ray.hand->active
+        || !ray.hand->aimPose.valid
+        || !ray.hand->aimPose.orientationTracked
+        || !ray.hand->aimPose.positionTracked
+        || !ResolveHPLTrackedPoseWorld(ray.hand->aimPose, input.gameFrame, ray.worldAim)
+        || !ray.worldAim.orientationTracked
+        || !ray.worldAim.positionTracked) {
+        return false;
+    }
+
+    ray.tracked = true;
+    const float controllerStart[3] = {
+        ray.worldAim.positionX, ray.worldAim.positionY, ray.worldAim.positionZ,
+    };
+    const float controllerDirection[3] = {
+        ray.worldAim.forwardX, ray.worldAim.forwardY, ray.worldAim.forwardZ,
+    };
+    g_handProbes[handIndex].fetch_add(1, std::memory_order_relaxed);
+    ray.hit = g_getClosestEntityRaycast(
+        rayOwner,
+        controllerStart,
+        controllerDirection,
+        rayLength,
+        interactType,
+        checkLineOfSight,
+        &ray.distance,
+        &ray.body,
+        &ray.entity);
+    if (ray.hit) g_handHits[handIndex].fetch_add(1, std::memory_order_relaxed);
+    return true;
+}
+
+bool FinalizeClosestEntityOutput(void* output, const NativeHandRay& ray)
+{
+    if (output == nullptr) return false;
+    void* vtable = nullptr;
+    FinalizeClosestEntityOutputFn finalize = nullptr;
+    if (!ReadMemory(output, &vtable, sizeof(vtable))
+        || !ReadField(vtable, 0x40, finalize)
+        || finalize == nullptr) {
+        return false;
+    }
+
+    auto* bytes = static_cast<std::byte*>(output);
+    std::memcpy(bytes + 0x18, &ray.distance, sizeof(ray.distance));
+    std::memcpy(bytes + 0x20, &ray.body, sizeof(ray.body));
+    std::memcpy(bytes + 0x28, &ray.entity, sizeof(ray.entity));
+    finalize(output);
+    return true;
 }
 
 void ClearHitSnapshot()
@@ -188,18 +305,6 @@ bool PublishHitSnapshot(
     return true;
 }
 
-const OpenXRHandInput* SelectDominantHand(const OpenXRInputSnapshot& input, uint32_t& handIndex)
-{
-    handIndex = g_config.hplControllerDominantHand == "left" ? 0u : 1u;
-    const OpenXRHandInput* preferred = handIndex == 0 ? &input.left : &input.right;
-    if (preferred->active) return preferred;
-    if (!g_config.hplControllerOneHandFallback) return nullptr;
-
-    handIndex ^= 1u;
-    const OpenXRHandInput* fallback = handIndex == 0 ? &input.left : &input.right;
-    return fallback->active ? fallback : nullptr;
-}
-
 bool HookGetClosestEntity(
     const float* start,
     const float* direction,
@@ -243,28 +348,13 @@ bool HookGetClosestEntity(
     }
 
     OpenXRInputSnapshot input;
-    uint32_t handIndex = 1;
-    const OpenXRHandInput* hand = nullptr;
     if (g_openxr == nullptr
         || !g_openxr->GetLatestInput(input)
         || !input.active
         || (camera.headPoseFrame >= input.gameFrame
             && camera.headPoseFrame - input.gameFrame
-                > static_cast<uint64_t>(g_config.hplControllerMaxInputAgeFrames))
-        || (hand = SelectDominantHand(input, handIndex)) == nullptr) {
+                > static_cast<uint64_t>(g_config.hplControllerMaxInputAgeFrames))) {
         g_fallbackInput.fetch_add(1, std::memory_order_relaxed);
-        ClearHitSnapshot();
-        return g_originalGetClosestEntity(start, direction, rayLength, interactType, checkLineOfSight, output);
-    }
-
-    HPLTrackedPoseWorld worldAim;
-    if (!hand->aimPose.valid
-        || !hand->aimPose.orientationTracked
-        || !hand->aimPose.positionTracked
-        || !ResolveHPLTrackedPoseWorld(hand->aimPose, input.gameFrame, worldAim)
-        || !worldAim.orientationTracked
-        || !worldAim.positionTracked) {
-        g_fallbackTracking.fetch_add(1, std::memory_order_relaxed);
         ClearHitSnapshot();
         return g_originalGetClosestEntity(start, direction, rayLength, interactType, checkLineOfSight, output);
     }
@@ -291,15 +381,89 @@ bool HookGetClosestEntity(
         return g_originalGetClosestEntity(start, direction, rayLength, interactType, checkLineOfSight, output);
     }
 
-    const float controllerStart[3] = {worldAim.positionX, worldAim.positionY, worldAim.positionZ};
-    const float controllerDirection[3] = {worldAim.forwardX, worldAim.forwardY, worldAim.forwardZ};
-    const bool hit = g_originalGetClosestEntity(
-        controllerStart,
-        controllerDirection,
-        rayLength,
-        interactType,
-        checkLineOfSight,
-        output);
+    void* gameContext = nullptr;
+    void* rayOwner = nullptr;
+    if (g_gameContextSlot == nullptr
+        || !ReadMemory(g_gameContextSlot, &gameContext, sizeof(gameContext))
+        || gameContext == nullptr
+        || !ReadField(gameContext, 0xc0, rayOwner)
+        || rayOwner == nullptr) {
+        g_fallbackTracking.fetch_add(1, std::memory_order_relaxed);
+        ClearHitSnapshot();
+        return g_originalGetClosestEntity(
+            start, direction, rayLength, interactType, checkLineOfSight, output);
+    }
+
+    NativeHandRay rays[2];
+    const uint32_t preferredHand = g_config.hplControllerDominantHand == "left" ? 0u : 1u;
+    if (g_config.hplControllerInteractionBothHands) {
+        ProbeHandRay(
+            rayOwner, input, 0, rayLength, interactType, checkLineOfSight, rays[0]);
+        ProbeHandRay(
+            rayOwner, input, 1, rayLength, interactType, checkLineOfSight, rays[1]);
+    } else {
+        const bool preferredTracked = ProbeHandRay(
+            rayOwner,
+            input,
+            preferredHand,
+            rayLength,
+            interactType,
+            checkLineOfSight,
+            rays[preferredHand]);
+        if (!preferredTracked && g_config.hplControllerOneHandFallback) {
+            ProbeHandRay(
+                rayOwner,
+                input,
+                preferredHand ^ 1u,
+                rayLength,
+                interactType,
+                checkLineOfSight,
+                rays[preferredHand ^ 1u]);
+        }
+    }
+    if (!rays[0].tracked && !rays[1].tracked) {
+        g_fallbackTracking.fetch_add(1, std::memory_order_relaxed);
+        ClearHitSnapshot();
+        return g_originalGetClosestEntity(
+            start, direction, rayLength, interactType, checkLineOfSight, output);
+    }
+
+    const bool leftPressed = rays[0].tracked
+        && (input.left.select || input.left.trigger >= 0.75f);
+    const bool rightPressed = rays[1].tracked
+        && (input.right.select || input.right.trigger >= 0.75f);
+    const int previousHand = g_activeInteractionHand.load(std::memory_order_relaxed);
+    const uint32_t handIndex = interaction_math::SelectInteractionHand(
+        {rays[0].tracked, rays[0].hit, leftPressed, rays[0].distance},
+        {rays[1].tracked, rays[1].hit, rightPressed, rays[1].distance},
+        preferredHand,
+        previousHand);
+    NativeHandRay& selected = rays[handIndex];
+    if (!selected.tracked || selected.hand == nullptr
+        || !FinalizeClosestEntityOutput(output, selected)) {
+        g_fallbackTracking.fetch_add(1, std::memory_order_relaxed);
+        ClearHitSnapshot();
+        return g_originalGetClosestEntity(
+            start, direction, rayLength, interactType, checkLineOfSight, output);
+    }
+
+    if (previousHand >= 0 && previousHand != static_cast<int>(handIndex)) {
+        g_handSwitches.fetch_add(1, std::memory_order_relaxed);
+    }
+    g_activeInteractionHand.store(static_cast<int>(handIndex), std::memory_order_relaxed);
+    g_activeInteractionFrame.store(input.gameFrame, std::memory_order_relaxed);
+    g_handSelections[handIndex].fetch_add(1, std::memory_order_relaxed);
+    const bool hit = selected.hit;
+    const float controllerStart[3] = {
+        selected.worldAim.positionX,
+        selected.worldAim.positionY,
+        selected.worldAim.positionZ,
+    };
+    const float controllerDirection[3] = {
+        selected.worldAim.forwardX,
+        selected.worldAim.forwardY,
+        selected.worldAim.forwardZ,
+    };
     const uint64_t substitution = g_substitutions.fetch_add(1, std::memory_order_relaxed) + 1;
     if (hit) g_substitutionHits.fetch_add(1, std::memory_order_relaxed);
     const bool hitSnapshot = hit
@@ -307,7 +471,7 @@ bool HookGetClosestEntity(
             output,
             input.gameFrame,
             handIndex,
-            hand->aimPose,
+            selected.hand->aimPose,
             controllerStart,
             controllerDirection,
             rayLength)
@@ -328,15 +492,25 @@ bool HookGetClosestEntity(
         || substitution % static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1)) == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_interaction_ray call=%llu inputFrame=%llu applied=1 hit=%d hitSnapshot=%d transition=%d previousState=%d currentState=%d hand=%s nativeStart=%.4f,%.4f,%.4f controllerStart=%.4f,%.4f,%.4f controllerDir=%.5f,%.5f,%.5f hitDistance=%.4f hitWorld=%.4f,%.4f,%.4f entity=%p body=%p originDelta=%.4f rayLength=%.4f type=%d los=%d",
+            "hpl_interaction_ray call=%llu inputFrame=%llu applied=1 dual=%d hit=%d hitSnapshot=%d transition=%d previousState=%d currentState=%d hand=%s previousHand=%d candidates={leftTracked=%d leftHit=%d leftPressed=%d leftDistance=%.4f rightTracked=%d rightHit=%d rightPressed=%d rightDistance=%.4f} nativeStart=%.4f,%.4f,%.4f controllerStart=%.4f,%.4f,%.4f controllerDir=%.5f,%.5f,%.5f hitDistance=%.4f hitWorld=%.4f,%.4f,%.4f entity=%p body=%p originDelta=%.4f rayLength=%.4f type=%d los=%d",
             static_cast<unsigned long long>(call),
             static_cast<unsigned long long>(input.gameFrame),
+            g_config.hplControllerInteractionBothHands ? 1 : 0,
             hit ? 1 : 0,
             hitSnapshot ? 1 : 0,
             hitStateChanged ? 1 : 0,
             previousHitState,
             hitState,
             handIndex == 0 ? "left" : "right",
+            previousHand,
+            rays[0].tracked ? 1 : 0,
+            rays[0].hit ? 1 : 0,
+            leftPressed ? 1 : 0,
+            rays[0].distance,
+            rays[1].tracked ? 1 : 0,
+            rays[1].hit ? 1 : 0,
+            rightPressed ? 1 : 0,
+            rays[1].distance,
             start[0], start[1], start[2],
             controllerStart[0], controllerStart[1], controllerStart[2],
             controllerDirection[0], controllerDirection[1], controllerDirection[2],
@@ -366,18 +540,41 @@ bool InstallHPLInteractionBridge(const Config& config, OpenXRRuntime* openxr)
     if (g_getClosestEntityTarget != nullptr) return true;
 
     HMODULE executable = GetModuleHandleW(nullptr);
-    if (!IsInsideImage(executable, kGetClosestEntityRva, sizeof(kGetClosestEntitySignature))) {
+    if (!IsInsideImage(executable, kGetClosestEntityRva, sizeof(kGetClosestEntitySignature))
+        || !IsInsideImage(
+            executable,
+            kGetClosestEntityRaycastRva,
+            sizeof(kGetClosestEntityRaycastSignature))) {
         Logger::Instance().Write(LogLevel::Error, "hpl_interaction_bridge install_failed reason=invalid_image_range");
         return false;
     }
-    auto* target = reinterpret_cast<std::byte*>(executable) + kGetClosestEntityRva;
-    if (std::memcmp(target, kGetClosestEntitySignature, sizeof(kGetClosestEntitySignature)) != 0) {
+    auto* base = reinterpret_cast<std::byte*>(executable);
+    auto* target = base + kGetClosestEntityRva;
+    auto* raycast = base + kGetClosestEntityRaycastRva;
+    if (std::memcmp(target, kGetClosestEntitySignature, sizeof(kGetClosestEntitySignature)) != 0
+        || std::memcmp(
+            raycast,
+            kGetClosestEntityRaycastSignature,
+            sizeof(kGetClosestEntityRaycastSignature)) != 0) {
         Logger::Instance().Write(
             LogLevel::Error,
             "hpl_interaction_bridge install_failed reason=signature_mismatch rva=0x%llx",
             static_cast<unsigned long long>(kGetClosestEntityRva));
         return false;
     }
+
+    int32_t gameContextDisplacement = 0;
+    std::memcpy(&gameContextDisplacement, raycast + 8, sizeof(gameContextDisplacement));
+    g_gameContextSlot = reinterpret_cast<void**>(raycast + 12 + gameContextDisplacement);
+    void* gameContextProbe = nullptr;
+    if (!ReadMemory(g_gameContextSlot, &gameContextProbe, sizeof(gameContextProbe))) {
+        g_gameContextSlot = nullptr;
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_interaction_bridge install_failed reason=invalid_game_context_slot");
+        return false;
+    }
+    g_getClosestEntityRaycast = reinterpret_cast<GetClosestEntityRaycastFn>(raycast);
 
     MH_STATUS status = MH_CreateHook(
         target,
@@ -402,9 +599,11 @@ bool InstallHPLInteractionBridge(const Config& config, OpenXRRuntime* openxr)
     g_getClosestEntityTarget = target;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_interaction_bridge install_ok function=GetClosestEntity rva=0x%llx target=%p dominantHand=%s oneHandFallback=%d originTolerance=%.3f policy=replace_start_direction_only",
+        "hpl_interaction_bridge install_ok function=GetClosestEntity rva=0x%llx raycastRva=0x%llx target=%p bothHands=%d dominantHand=%s oneHandFallback=%d originTolerance=%.3f policy=probe_both_finalize_selected_once",
         static_cast<unsigned long long>(kGetClosestEntityRva),
+        static_cast<unsigned long long>(kGetClosestEntityRaycastRva),
         target,
+        config.hplControllerInteractionBothHands ? 1 : 0,
         config.hplControllerDominantHand.c_str(),
         config.hplControllerOneHandFallback ? 1 : 0,
         config.hplControllerInteractionRayOriginTolerance);
@@ -420,6 +619,10 @@ void RemoveHPLInteractionBridge()
     }
     g_getClosestEntityTarget = nullptr;
     g_originalGetClosestEntity = nullptr;
+    g_getClosestEntityRaycast = nullptr;
+    g_gameContextSlot = nullptr;
+    g_activeInteractionHand.store(-1, std::memory_order_relaxed);
+    g_activeInteractionFrame.store(0, std::memory_order_relaxed);
     ClearHitSnapshot();
     g_openxr = nullptr;
     Logger::Instance().Write(LogLevel::Info, "hpl_interaction_bridge removed");
@@ -429,11 +632,20 @@ void LogHPLInteractionBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_interaction_bridge_summary installed=%d calls=%llu substitutions=%llu hits=%llu hitSnapshots=%llu hitPayloadRejects=%llu hitPayloadDistanceRejects=%llu hitPayloadNullTargets=%llu reticleUpdates=%llu semanticStates=%llu semanticAccepted=%llu focusHapticRequests=%llu focusHapticApplied=%llu fallbackDisabled=%llu fallbackQueryType=%llu fallbackAuthoredCamera=%llu fallbackCamera=%llu fallbackInput=%llu fallbackTracking=%llu fallbackOrigin=%llu lastHitState=%d lastSemanticState=%d",
+        "hpl_interaction_bridge_summary installed=%d bothHands=%d calls=%llu substitutions=%llu hits=%llu handProbes=%llu,%llu handHits=%llu,%llu handSelections=%llu,%llu handSwitches=%llu activeHand=%d hitSnapshots=%llu hitPayloadRejects=%llu hitPayloadDistanceRejects=%llu hitPayloadNullTargets=%llu reticleUpdates=%llu semanticStates=%llu semanticAccepted=%llu focusHapticRequests=%llu focusHapticApplied=%llu fallbackDisabled=%llu fallbackQueryType=%llu fallbackAuthoredCamera=%llu fallbackCamera=%llu fallbackInput=%llu fallbackTracking=%llu fallbackOrigin=%llu lastHitState=%d lastSemanticState=%d",
         g_getClosestEntityTarget != nullptr ? 1 : 0,
+        g_config.hplControllerInteractionBothHands ? 1 : 0,
         static_cast<unsigned long long>(g_calls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_substitutions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_substitutionHits.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_handProbes[0].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_handProbes[1].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_handHits[0].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_handHits[1].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_handSelections[0].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_handSelections[1].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_handSwitches.load(std::memory_order_relaxed)),
+        g_activeInteractionHand.load(std::memory_order_relaxed),
         static_cast<unsigned long long>(g_hitSnapshots.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hitPayloadRejects.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hitPayloadDistanceRejects.load(std::memory_order_relaxed)),
@@ -459,6 +671,21 @@ bool GetHPLInteractionHitSnapshot(HPLInteractionHitSnapshot& snapshot)
     std::lock_guard lock(g_hitMutex);
     snapshot = g_latestHit;
     return snapshot.valid;
+}
+
+bool GetHPLInteractionOwnerHand(
+    uint64_t gameFrame,
+    uint64_t maximumAgeFrames,
+    uint32_t& handIndex)
+{
+    const int activeHand = g_activeInteractionHand.load(std::memory_order_relaxed);
+    const uint64_t activeFrame = g_activeInteractionFrame.load(std::memory_order_relaxed);
+    if (activeHand < 0 || activeHand >= 2 || activeFrame == 0
+        || gameFrame < activeFrame || gameFrame - activeFrame > maximumAgeFrames) {
+        return false;
+    }
+    handIndex = static_cast<uint32_t>(activeHand);
+    return true;
 }
 
 void PublishHPLInteractionCrosshairState(int crosshairState)

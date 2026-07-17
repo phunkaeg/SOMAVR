@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.64.1-dual-hand-interaction-fix")
+set(SOMAVR_BUILD_VERSION "0.65.0-physical-interaction-polish")
 
 include(FetchContent)
 
@@ -67,6 +67,7 @@ add_library(somavr_render_math STATIC
     src/dll/HPLHandsMath.cpp
     src/dll/HPLFlashlightMath.cpp
     src/dll/HPLGrabMath.cpp
+    src/dll/HPLReadMath.cpp
     src/dll/HPLGameplayHapticsMath.cpp
     src/dll/HPLContactHapticsMath.cpp
     src/dll/HPLPhysicalCrouchMath.cpp

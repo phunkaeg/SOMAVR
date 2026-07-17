@@ -57,6 +57,8 @@ struct GrabAnchor {
     float relativeZ = 0.0f;
     camera_math::Quaternion gripOrientation{};
     bool gripOrientationTracked = false;
+    camera_math::Vector3 initialHandCorrection{};
+    bool attachedToHand = false;
     bool twoHandActive = false;
     camera_math::Vector3 twoHandAnchorDirection{};
     uint64_t lastInputFrame = 0;
@@ -346,6 +348,8 @@ bool ResolveRotateControllerMotion(
     camera_math::Vector3& position,
     camera_math::Vector3& velocity,
     bool& velocityValid,
+    camera_math::Vector3& angularVelocity,
+    bool& angularVelocityValid,
     uint64_t& inputFrame)
 {
     OpenXRInputSnapshot input;
@@ -374,6 +378,15 @@ bool ResolveRotateControllerMotion(
             velocity.x,
             velocity.y,
             velocity.z);
+    angularVelocityValid = hand->gripPose.angularVelocityValid
+        && ResolveHPLReferenceVectorWorld(
+            hand->gripPose.angularVelocityX,
+            hand->gripPose.angularVelocityY,
+            hand->gripPose.angularVelocityZ,
+            false,
+            angularVelocity.x,
+            angularVelocity.y,
+            angularVelocity.z);
     if (!velocityValid && g_rotateAnchor.valid
         && g_rotateAnchor.lastInputFrame != 0
         && input.gameFrame != g_rotateAnchor.lastInputFrame
@@ -667,8 +680,16 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
         camera_math::Vector3 gripPosition{};
         camera_math::Vector3 gripVelocity{};
         bool velocityValid = false;
+        camera_math::Vector3 gripAngularVelocity{};
+        bool angularVelocityValid = false;
         if (!ResolveRotateControllerMotion(
-                timeStep, gripPosition, gripVelocity, velocityValid, inputFrame)) {
+                timeStep,
+                gripPosition,
+                gripVelocity,
+                velocityValid,
+                gripAngularVelocity,
+                angularVelocityValid,
+                inputFrame)) {
             return g_originalPidOutput(pid, output, error, timeStep);
         }
         if (!g_rotateAnchor.valid
@@ -689,12 +710,18 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
             g_rotateAnchor.hitPoint.z
                 + gripPosition.z - g_rotateAnchor.initialGripPosition.z,
         };
-        const float targetSpeed = grab_math::ResolveHingeAngularVelocity(
+        const float pointTargetSpeed = grab_math::ResolveHingeAngularVelocity(
             g_rotateAnchor.pivot,
             virtualPoint,
             gripVelocity,
             g_rotateAnchor.pin,
             g_config.hplControllerRotateVelocityScale,
+            g_config.hplControllerRotateMaxAngularSpeed);
+        const float targetSpeed = grab_math::CombineHingeAngularVelocity(
+            pointTargetSpeed,
+            angularVelocityValid ? gripAngularVelocity : camera_math::Vector3{},
+            g_rotateAnchor.pin,
+            g_config.hplControllerRotateAngularVelocityScale,
             g_config.hplControllerRotateMaxAngularSpeed);
         g_rotateAnchor.lastGripPosition = gripPosition;
         g_rotateAnchor.lastInputFrame = inputFrame;
@@ -710,7 +737,7 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
                 std::max(g_config.hplControllerLogInterval, 1)) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "hpl_rotate_target call=%llu applied=1 state=%d frame=%llu body=%p joint=%p pin=%.5f,%.5f,%.5f pivot=%.4f,%.4f,%.4f virtualPoint=%.4f,%.4f,%.4f controllerVelocity=%.4f,%.4f,%.4f targetAngularSpeed=%.4f nativeError=%.4f,%.4f,%.4f modifiedError=%.4f,%.4f,%.4f route=controller_world_arc_about_native_joint_pivot",
+                "hpl_rotate_target call=%llu applied=1 state=%d frame=%llu body=%p joint=%p pin=%.5f,%.5f,%.5f pivot=%.4f,%.4f,%.4f virtualPoint=%.4f,%.4f,%.4f controllerVelocity=%.4f,%.4f,%.4f controllerAngularVelocity=%.4f,%.4f,%.4f angularValid=%d targetAngularSpeed={point=%.4f combined=%.4f} nativeError=%.4f,%.4f,%.4f modifiedError=%.4f,%.4f,%.4f route=controller_world_arc_plus_wrist_twist_about_native_joint_pivot",
                 static_cast<unsigned long long>(call),
                 player.playerStateId,
                 static_cast<unsigned long long>(inputFrame),
@@ -720,6 +747,9 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
                 g_rotateAnchor.pivot.x, g_rotateAnchor.pivot.y, g_rotateAnchor.pivot.z,
                 virtualPoint.x, virtualPoint.y, virtualPoint.z,
                 gripVelocity.x, gripVelocity.y, gripVelocity.z,
+                gripAngularVelocity.x, gripAngularVelocity.y, gripAngularVelocity.z,
+                angularVelocityValid ? 1 : 0,
+                pointTargetSpeed,
                 targetSpeed,
                 error[0], error[1], error[2],
                 modifiedError[0], modifiedError[1], modifiedError[2]);
@@ -896,6 +926,8 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
     float deltaY = 0.0f;
     float deltaZ = 0.0f;
     bool anchored = false;
+    bool attachedToHand = false;
+    camera_math::Vector3 initialHandCorrection{};
     {
         std::lock_guard lock(g_stateMutex);
         if (!g_anchor.valid
@@ -918,14 +950,34 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
                 gripPose.orientationW,
             };
             g_anchor.gripOrientationTracked = gripPose.orientationTracked;
+            g_anchor.initialHandCorrection = {};
+            g_anchor.attachedToHand = false;
+            if (g_config.hplControllerGrabAttachToHand) {
+                HPLInteractionHitSnapshot hit;
+                const HPLCameraBridgeStatus camera = GetHPLCameraBridgeStatus();
+                if (GetHPLInteractionHitSnapshot(hit)
+                    && hit.valid
+                    && inputFrame >= hit.gameFrame
+                    && inputFrame - hit.gameFrame <= 8
+                    && camera.cameraWorldPositionValid) {
+                    g_anchor.initialHandCorrection = {
+                        camera.cameraWorldPositionX + relativeX - hit.worldX,
+                        camera.cameraWorldPositionY + relativeY - hit.worldY,
+                        camera.cameraWorldPositionZ + relativeZ - hit.worldZ,
+                    };
+                    g_anchor.attachedToHand = true;
+                }
+            }
             g_anchor.twoHandActive = false;
             g_anchor.twoHandAnchorDirection = {};
             g_anchor.lastInputFrame = inputFrame;
+            attachedToHand = g_anchor.attachedToHand;
+            initialHandCorrection = g_anchor.initialHandCorrection;
             anchored = true;
         } else {
-            deltaX = relativeX - g_anchor.relativeX;
-            deltaY = relativeY - g_anchor.relativeY;
-            deltaZ = relativeZ - g_anchor.relativeZ;
+            deltaX = g_anchor.initialHandCorrection.x + relativeX - g_anchor.relativeX;
+            deltaY = g_anchor.initialHandCorrection.y + relativeY - g_anchor.relativeY;
+            deltaZ = g_anchor.initialHandCorrection.z + relativeZ - g_anchor.relativeZ;
             g_anchor.lastInputFrame = inputFrame;
         }
     }
@@ -934,9 +986,13 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
         if (anchors <= 8) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "hpl_grab_anchor call=%llu pid=%p player=%p camera=%p relative=%.4f,%.4f,%.4f policy=native_pid_translation_delta",
+                "hpl_grab_anchor call=%llu pid=%p player=%p camera=%p relative=%.4f,%.4f,%.4f attachToHand=%d initialCorrection=%.4f,%.4f,%.4f policy=bounded_native_pid_pull_then_controller_delta",
                 static_cast<unsigned long long>(call), pid, player.player, player.camera,
-                relativeX, relativeY, relativeZ);
+                relativeX, relativeY, relativeZ,
+                attachedToHand ? 1 : 0,
+                initialHandCorrection.x,
+                initialHandCorrection.y,
+                initialHandCorrection.z);
         }
         return g_originalPidOutput(pid, output, error, timeStep);
     }
@@ -1212,10 +1268,11 @@ bool InstallHPLGrabBridge(const Config& config, OpenXRRuntime* openxr)
     g_pidOutputTarget = target;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_grab_bridge install_ok pidOutputRva=0x%llx target=%p playerState=1 translation=%d rotation=%d twoHandRotation=%d slideDirectVelocity=%d slideVelocityScale=%.3f slideMaxVelocityMetersPerSecond=%.3f rotateDirectVelocity=%d rotateVelocityScale=%.3f rotateMaxAngularSpeed=%.3f twoHand={squeeze=%.3f separationMeters=%.3f,%.3f blend=%.3f} throwRedirect=%d addImpulseRva=0x%llx pidGains={grabForce=400,0,40 grabTorque=40,0,0.4|0.1 slideForce=6,0,0.1 rotateTorque=10,0,1} translationScale=%.3f maxOffsetMeters=%.3f rotationGain=%.2f rotationSign=%.1f maxAngularSpeed=%.2f policy=modify_target_error_preserve_native_pid_and_impulse",
+        "hpl_grab_bridge install_ok pidOutputRva=0x%llx target=%p playerState=1 translation=%d attachToHand=%d rotation=%d twoHandRotation=%d slideDirectVelocity=%d slideVelocityScale=%.3f slideMaxVelocityMetersPerSecond=%.3f rotateDirectVelocity=%d rotateVelocityScale=%.3f rotateAngularVelocityScale=%.3f rotateMaxAngularSpeed=%.3f twoHand={squeeze=%.3f separationMeters=%.3f,%.3f blend=%.3f} throwRedirect=%d addImpulseRva=0x%llx pidGains={grabForce=400,0,40 grabTorque=40,0,0.4|0.1 slideForce=6,0,0.1 rotateTorque=10,0,1} translationScale=%.3f maxOffsetMeters=%.3f rotationGain=%.2f rotationSign=%.1f maxAngularSpeed=%.2f policy=bounded_pull_to_hand_then_native_pid_and_impulse",
         static_cast<unsigned long long>(kPidVectorOutputRva),
         target,
         config.hplControllerGrabTranslation ? 1 : 0,
+        config.hplControllerGrabAttachToHand ? 1 : 0,
         config.hplControllerGrabRotation ? 1 : 0,
         config.hplControllerTwoHandGrabRotation ? 1 : 0,
         config.hplControllerSlideDirectVelocity ? 1 : 0,
@@ -1223,6 +1280,7 @@ bool InstallHPLGrabBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplControllerSlideMaxVelocityMetersPerSecond,
         config.hplControllerRotateDirectVelocity ? 1 : 0,
         config.hplControllerRotateVelocityScale,
+        config.hplControllerRotateAngularVelocityScale,
         config.hplControllerRotateMaxAngularSpeed,
         config.hplControllerTwoHandSqueezeThreshold,
         config.hplControllerTwoHandMinSeparationMeters,

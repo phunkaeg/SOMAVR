@@ -1,5 +1,18 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-17 Physical Interaction Polish Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1402f0c90` | `HPL3_ImGui_SendMouseVirtualPosition` | Updated plate comment with the 0.65 direct original dispatch required when controller-only input produces no native mouse-motion callback. |
+| `0x1403132d0` | `HPL3_GuiSetEntity_ProjectRayToVirtual` | Updated the mesh-hit contract to include immediate forwarding through the native virtual-cursor event boundary and miss deactivation. |
+| `0x1400bcd90` | `SOMA_iLuxEntity_SetMatrix` | Documented exact state-10 nearby-entity Read presentation ownership, per-entity initial-distance caching, and destroy-time eviction. |
+| `0x140238750` | `HPL3_PidControllerVec3_Output` | Documented bounded selected-hit-to-grip correction, native Slide pin projection, and combined hinge translation/wrist angular velocity. |
+| `0x1401822e0` | `HPL3_PhysicsJoint_GetPivotPoint` | Clarified translation-around-pivot versus wrist-angular contributions resolved against the native hinge pin. |
+
+The explicitly selected `Soma_NoSteam.exe` database was saved after all five
+plate comments were synchronized.
+
 ## 2026-07-17 Installed-Binary Signature Correction
 
 Direct PE-section mapping of the installed `Soma_NoSteam.exe` corrected the

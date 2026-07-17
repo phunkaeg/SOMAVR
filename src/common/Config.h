@@ -143,6 +143,7 @@ struct Config {
     bool hplControllerInteractionRay = false;
     float hplControllerInteractionRayOriginTolerance = 0.75f;
     bool hplControllerGrabTranslation = false;
+    bool hplControllerGrabAttachToHand = false;
     float hplControllerGrabTranslationScale = 1.0f;
     float hplControllerGrabMaxOffsetMeters = 0.75f;
     bool hplControllerGrabRotation = false;
@@ -173,7 +174,11 @@ struct Config {
     float hplControllerSlideMaxVelocityMetersPerSecond = 2.5f;
     bool hplControllerRotateDirectVelocity = true;
     float hplControllerRotateVelocityScale = 1.0f;
+    float hplControllerRotateAngularVelocityScale = 1.0f;
     float hplControllerRotateMaxAngularSpeed = 4.0f;
+    bool hplControllerReadPresentation = false;
+    float hplControllerReadObjectDistanceScale = 2.0f;
+    float hplControllerReadObjectScale = 2.0f;
     bool hplHandTrackingProbe = false;
     bool hplHandControllerRoot = false;
     float hplHandRootOffsetX = 0.0f;

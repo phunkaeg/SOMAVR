@@ -38,6 +38,7 @@ struct BridgeState {
     ButtonState right;
     ButtonState interact;
     ButtonState rotate;
+    ButtonState cancel;
     ButtonState sprint;
     bool snapLatched = false;
     bool recenterLatched = false;
@@ -74,6 +75,7 @@ struct BridgeState {
     bool terminalPointerActive = false;
     uint32_t terminalPointerHand = 1;
     bool menuClickLatchedUntilRelease = false;
+    bool readRotateLatched = false;
     crouch_math::PhysicalCrouchState physicalCrouch{};
     bool playerStateInitialized = false;
     int lastPlayerState = -1;
@@ -402,6 +404,16 @@ void SetMiddleMouseButton(ButtonState& state, bool down)
     state.down = down;
 }
 
+void SetRightMouseButton(ButtonState& state, bool down)
+{
+    if (state.down == down) return;
+    INPUT input{};
+    input.type = INPUT_MOUSE;
+    input.mi.dwFlags = down ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
+    SendInputs(&input, 1);
+    state.down = down;
+}
+
 void TapMouseButton(DWORD downFlag, DWORD upFlag)
 {
     std::array<INPUT, 2> inputs{};
@@ -417,10 +429,12 @@ void ReleaseGameplayInputs()
     ReleaseMovementInputs();
     SetMouseButton(g_state.interact, false);
     SetMiddleMouseButton(g_state.rotate, false);
+    SetRightMouseButton(g_state.cancel, false);
     SetKey(g_state.sprint, VK_LSHIFT, false);
     g_state.snapLatched = false;
     g_state.smoothTurnRemainder = 0.0;
     ResetManipulationMotion();
+    g_state.readRotateLatched = false;
 }
 
 void ReleaseGameplayExceptPointer()
@@ -428,6 +442,7 @@ void ReleaseGameplayExceptPointer()
     ReleaseMovementInputs();
     SetKey(g_state.sprint, VK_LSHIFT, false);
     SetMiddleMouseButton(g_state.rotate, false);
+    SetRightMouseButton(g_state.cancel, false);
     g_state.snapLatched = false;
     g_state.smoothTurnRemainder = 0.0;
     ResetManipulationMotion();
@@ -899,8 +914,15 @@ void ApplyControllerManipulationMotion(
             && g_config.hplControllerSlideDirectVelocity)
         && !((player.playerStateId == 5 || player.playerStateId == 6)
             && g_config.hplControllerRotateDirectVelocity);
+    if (player.playerStateId != kReadPlayerState) {
+        g_state.readRotateLatched = false;
+    } else if (g_state.readRotateLatched) {
+        g_state.readRotateLatched = dominant.squeeze >= 0.55f;
+    } else {
+        g_state.readRotateLatched = dominant.squeeze >= 0.75f;
+    }
     const bool inspectionState = player.playerStateId == kReadPlayerState
-        && dominant.squeeze >= 0.75f;
+        && g_state.readRotateLatched;
     if (!g_config.hplControllerManipulationMotion
         || (!physicalState && !inspectionState)
         || g_openxr == nullptr) {
@@ -1100,22 +1122,27 @@ void ApplyGameplayActions(
         PulseHaptic(roles.dominantHand, "jump");
     }
     const bool physicalCrouchOwns = ApplyPhysicalCrouch(player, camera, roles.dominantHand);
-    const bool inspectionExitPressed = (dominant.primary && dominant.primaryChanged)
-        || (dominant.secondary && dominant.secondaryChanged);
+    const bool inspectionExitHeld = input.right.primary || input.right.secondary;
+    const bool inspectionExitPressed = (input.right.primary && input.right.primaryChanged)
+        || (input.right.secondary && input.right.secondaryChanged);
     if (inspectionState && !recenterChord && inspectionExitPressed) {
         SetMouseButton(g_state.interact, false);
-        TapMouseButton(MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP);
         g_state.menuClickLatchedUntilRelease = true;
-        PulseHaptic(roles.dominantHand, "inspection_exit");
+        PulseHaptic(1, "inspection_exit");
         g_inspectionExitActions.fetch_add(1, std::memory_order_relaxed);
     } else if (!manipulationState && !inspectionState && !physicalCrouchOwns && !recenterChord
         && dominant.secondary && dominant.secondaryChanged) {
         TapKey(VK_LCONTROL);
         PulseHaptic(roles.dominantHand, "crouch");
     }
+    SetRightMouseButton(
+        g_state.cancel,
+        inspectionState && !recenterChord && inspectionExitHeld);
     const bool rotate = g_config.hplControllerManipulationMappings
         && (manipulationState || player.playerStateId == kReadPlayerState)
-        && dominant.squeeze >= 0.75f;
+        && (player.playerStateId == kReadPlayerState
+            ? g_state.readRotateLatched
+            : dominant.squeeze >= 0.75f);
     if (rotate && !g_state.rotate.down) PulseHaptic(roles.dominantHand, "interaction_rotate");
     SetMiddleMouseButton(g_state.rotate, rotate);
     if (rotate) g_manipulationRotateFrames.fetch_add(1, std::memory_order_relaxed);
@@ -1242,6 +1269,11 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
     g_activeUpdates.fetch_add(1, std::memory_order_relaxed);
     const uint64_t nowMs = TickMs();
     ControllerRoles roles = ResolveControllerRoles(input);
+    const bool interactionLockState = (player.playerStateId >= kGrabPlayerState
+        && player.playerStateId <= kLastPhysicalManipulationState)
+        || player.playerStateId == kReadPlayerState;
+    const uint32_t lockCandidate = ResolveInteractionActionHand(input, roles);
+    SetHPLInteractionOwnerLock(interactionLockState, lockCandidate, input.gameFrame);
     uint32_t interactionOwner = roles.dominantHand;
     const bool interactionOwnedState = player.playerStateId >= kGrabPlayerState
         && player.playerStateId <= kReadPlayerState;

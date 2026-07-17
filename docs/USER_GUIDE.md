@@ -90,12 +90,18 @@ AimGuideLengthMeters=1.2
 ManipulationMotionPixelsPerMeter=900
 ManipulationSlidePixelsPerMeter=2700
 ManipulationReadPixelsPerRadian=900
+GrabTranslation=1
+GrabAttachToHand=1
 SlideDirectVelocity=1
 SlideVelocityScale=1
 SlideMaxVelocityMetersPerSecond=2.5
 RotateDirectVelocity=1
 RotateVelocityScale=1
+RotateAngularVelocityScale=1
 RotateMaxAngularSpeed=4
+ReadPresentation=1
+ReadObjectDistanceScale=2
+ReadObjectScale=2
 ```
 
 Use `MovementReference=head` for HMD-relative direction or `body` for SOMA's
@@ -104,14 +110,17 @@ visible and either trigger can claim SOMA's native interaction focus; its contex
 icon follows the selected guide to native hit depth. Set `InteractionBothHands=0`
 for preferred-hand-only probing, or `AimGuide=0` to hide only the markers.
 In Read views, hold the initiating hand's grip and rotate it to rotate the object;
-right-controller A or B exits. Turn input is ignored while SOMA owns a physical
-manipulation or Read state. Slide projects controller world velocity onto the
-actual drawer/curtain joint. Set `SlideDirectVelocity=0` to restore the old 2D
-mouse route; tune `SlideVelocityScale` without changing wheels, doors, levers,
-or tear interactions. Doors and levers use controller motion around their native
-hinge pivot and pin. Set `RotateDirectVelocity=0` to restore their native
-camera-relative mouse route; tune `RotateVelocityScale` or
-`RotateMaxAngularSpeed` without changing Slide, Grab, Read, Wheel, or Tear.
+right-controller A or B exits. `ReadPresentation=1` doubles the first observed
+distance and apparent scale; tune either scale independently or set it to `0`
+for native presentation. Turn input is ignored while SOMA owns a physical
+manipulation or Read state. `GrabAttachToHand=1` starts loose-prop Grab with a
+bounded selected-hit-to-grip pull through SOMA's native PID; set it to `0` while
+retaining ordinary tracked Grab translation. Slide projects controller world
+velocity onto the actual drawer/curtain joint. Set `SlideDirectVelocity=0` to
+restore the old 2D mouse route. Doors and levers combine hand translation around
+their native pivot with wrist angular velocity projected onto the pin. Set
+`RotateAngularVelocityScale=0` to disable only wrist twist, or
+`RotateDirectVelocity=0` to restore the native camera-relative mouse route.
 
 Wall terminals remain at their authored position instead of moving the player
 and taking over the camera. Lean toward the physical display and point either

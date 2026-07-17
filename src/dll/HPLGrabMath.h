@@ -19,4 +19,11 @@ float ResolveHingeAngularVelocity(
     float gain,
     float maxAngularSpeed);
 
+float CombineHingeAngularVelocity(
+    float pointAngularVelocity,
+    const camera_math::Vector3& controllerAngularVelocity,
+    const camera_math::Vector3& pin,
+    float controllerScale,
+    float maxAngularSpeed);
+
 } // namespace somavr::grab_math

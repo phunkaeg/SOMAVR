@@ -1,5 +1,42 @@
 # Future Systems Reverse Engineering
 
+## 0.65.0 Physical Interaction Polish Result
+
+The 0.64.1 log proves the terminal mesh-ray route reached state `8`, but
+`hpl_terminal_pointer applied` never appeared. `0x1402f0c90` is both the virtual
+cursor state writer and the GUI event boundary; waiting for a native mouse-motion
+call therefore left a controller-only session inert. Version 0.65 dispatches the
+projected virtual position directly through the original function once per mesh
+hit. Native `cGuiSet` focus, widget dispatch, clicks, sounds, and callbacks remain
+unchanged.
+
+Released `PlayerState_Interact_Read.hps` confirms Read uses
+`eAction_InteractCancel`, exits on its state timer, and scales its generated prop
+with `gfReadableDistScale=0.5` and `gvReadableScale=(0.5,0.5,0.5)`. The prior
+same-tick right-mouse down/up could be missed by the script update. Version 0.65
+holds right mouse while right A/B is held, adds squeeze hysteresis to Read
+rotation, and intercepts only nearby non-special state-10 `SetMatrix` candidates.
+The first native distance is cached per entity; translation moves it to twice
+that distance and the basis is normalized to twice apparent scale. Destroy-time
+eviction prevents stale entity reuse. Live identity and visual acceptance remain
+mandatory before this becomes a proven Read ownership contract.
+
+SwingDoor/Lever scripts still source their torque intent from mouse-derived
+camera axes, but OpenXR supplies tracked grip angular velocity directly. Version
+0.65 projects that world angular velocity onto joint pin `+0xe8`, combines it
+with the existing `(r x v) dot axis / |r|^2` translation term, and applies the
+shared native speed cap before the torque PID. This adds the missing wrist-twist
+degree of freedom without replacing joint limits, callbacks, sounds, or physics.
+
+The loose-prop path follows SS2VR's select/pull/hold/release decomposition while
+retaining SOMA's native solver. A fresh selected hit point supplies a bounded
+initial hand correction to Grab's existing PID error; subsequent tracked hand
+deltas, collision response, two-hand rotation, and release impulse remain native.
+This is a conservative gravity-glove pull, not a long-range teleport or scripted
+catch. Finally, an interaction-owner lock freezes the selected hand throughout
+states `1..7` and `10`, preventing crossed rays from transferring a live native
+object while preserving either-hand acquisition between interactions.
+
 ## 0.64.0 Dual-Hand Interaction Result
 
 The outer closest-entity wrapper at `0x1400cd750` is not safe to call twice for

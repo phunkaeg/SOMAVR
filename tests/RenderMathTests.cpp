@@ -4,6 +4,7 @@
 #include "HPLFlashlightMath.h"
 #include "HPLHandsMath.h"
 #include "HPLGrabMath.h"
+#include "HPLReadMath.h"
 #include "HPLGameplayHapticsMath.h"
 #include "HPLHudMath.h"
 #include "HPLInteractionMath.h"
@@ -981,6 +982,38 @@ int main()
                         {0.0f, 1.0f, 0.0f}, 1.0f, 4.0f),
                 0.0f),
         "hinge velocity rejects radial motion and degenerate radius");
+    failures += Check(
+        Near(grab_math::CombineHingeAngularVelocity(
+                 0.5f,
+                 {0.0f, 2.0f, 0.0f},
+                 {0.0f, 1.0f, 0.0f},
+                 1.0f,
+                 4.0f),
+            2.5f)
+            && Near(grab_math::CombineHingeAngularVelocity(
+                        3.0f,
+                        {0.0f, 3.0f, 0.0f},
+                        {0.0f, 2.0f, 0.0f},
+                        1.0f,
+                        4.0f),
+                4.0f),
+        "hinge wrist twist projects onto the native pin and shares the speed cap");
+
+    std::array<float, 16> readNative{
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, -0.5f,
+        0.0f, 0.0f, 0.0f, 1.0f,
+    };
+    std::array<float, 16> readPresented{};
+    failures += Check(
+        read_math::BuildReadPresentationMatrix(
+            readNative, {}, 1.0f, 2.0f, readPresented)
+            && Near(readPresented[0], 2.0f)
+            && Near(readPresented[5], 2.0f)
+            && Near(readPresented[10], 2.0f)
+            && Near(readPresented[11], -1.0f),
+        "read presentation independently scales apparent size and camera distance");
 
     menu_math::MenuPointerPosition menuPointer;
     failures += Check(

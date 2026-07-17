@@ -1,6 +1,6 @@
 # Current State
 
-Date: 2026-07-16
+Date: 2026-07-17
 
 ## Objective
 
@@ -21,10 +21,31 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.64.1-dual-hand-interaction-fix`, layered on the
+The active build candidate is `0.65.0-physical-interaction-polish`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- The 0.64.1 live pass restored independent left/right interaction, both visual
+  guides, and native focus. Version 0.65 locks the initiating hand for every
+  native physical interaction state, preventing crossed beams from changing a
+  held object's owner until SOMA exits the state.
+
+- Wall-terminal mesh projection was live, but the log contained no applied
+  cursor rows because virtual positions only changed when native mouse motion
+  happened. The terminal bridge now calls SOMA's original virtual-position
+  dispatcher on every controller mesh hit.
+
+- Door/Lever now combine controller translation around the native pivot with
+  wrist angular velocity projected onto the native hinge pin. Grab begins with
+  a bounded native-PID pull from the selected world hit toward the initiating
+  grip, then retains the existing tracked translation, rotation, and release
+  impulse paths.
+
+- Read state holds right-click while right A/B is held, uses grip hysteresis for
+  rotation, and applies a guarded per-entity presentation transform at twice the
+  initial camera distance and twice the apparent scale. These new physical and
+  presentation routes are built but await headset acceptance.
 
 - Both tracked controllers now feed SOMA's native closest-entity raycast. A
   deterministic pressed/hit/sticky/preferred policy selects one focus owner,
@@ -38,7 +59,7 @@ compatibility probes:
   inner-raycast signature omitted its leading `0x40` REX prefix. The bridge did
   not install, so native gaze semantics appeared while controller hit snapshots
   and world icons remained absent. Version 0.64.1 corrects the exact entry bytes
-  and RIP-relative global offsets; a short headset confirmation is now required.
+  and RIP-relative global offsets; 0.64.1 live evidence accepted the fix.
 
 - Wall terminal state `8` now stays diegetic in VR: exact native hooks suppress
   only its body teleport, scripted camera rotation, and Terminal camera offset.

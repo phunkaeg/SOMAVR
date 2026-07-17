@@ -186,15 +186,20 @@ both ignore pitch/roll and preserve SOMA's native analog body movement.
 `PhysicalCrouch=1` drives SOMA's native crouch
 toggle from tracked height with hysteresis. `GrabTranslation=1` augments only
 the exact Grab-state force PID with interaction-owner controller displacement; SOMA keeps
-  mass, collision, constraints, gravity, and callbacks. `GrabRotation=1` extends
+  mass, collision, constraints, gravity, and callbacks. `GrabAttachToHand=1`
+  adds a bounded selected-hit-to-grip pull at Grab start without replacing that
+  solver. `GrabRotation=1` extends
   that contract through SOMA's torque PID, while `ThrowRedirect=1` redirects one
   native Grab impulse along tracked release velocity. `TwoHandHudObject=1`
   optionally points an independent held tool from the interaction-owner grip toward a
   squeezed support grip. `TwoHandGrabRotation=1` applies the same bounded
   direction contract to Grab-state torque without replacing native physics.
   `InteractionBothHands=1` probes SOMA's native closest-entity ray with both
-  tracked controllers and latches the initiating hand through physical
-  interaction states. `AimGuide=1` displays both controller-ray guides while
+  tracked controllers and locks the initiating hand through physical
+  interaction states. `RotateAngularVelocityScale` adds wrist twist along a
+  native door/lever pin. `ReadPresentation=1` applies separately configurable
+  Read-object distance and scale while right A/B holds native cancel.
+  `AimGuide=1` displays both controller-ray guides while
   the selected native semantic icon follows the winning beam's hit depth. The
   compositor HUD can suppress the
   fixed gaze crosshair with `HudSuppressCenterCrosshair=1`, but this also clears
@@ -461,6 +466,7 @@ SuppressDuringAuthoredCamera=1
 InteractionRay=1
 InteractionRayOriginTolerance=0.75
 GrabTranslation=1
+GrabAttachToHand=1
 GrabTranslationScale=1.0
 GrabMaxOffsetMeters=0.75
 GrabRotation=1
@@ -486,7 +492,11 @@ SlideVelocityScale=1
 SlideMaxVelocityMetersPerSecond=2.5
 RotateDirectVelocity=1
 RotateVelocityScale=1
+RotateAngularVelocityScale=1
 RotateMaxAngularSpeed=4
+ReadPresentation=1
+ReadObjectDistanceScale=2
+ReadObjectScale=2
 HandTrackingProbe=1
 HandControllerRoot=1
 HandRootOffsetX=0.0

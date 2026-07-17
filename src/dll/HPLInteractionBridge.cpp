@@ -64,6 +64,10 @@ std::atomic<uint64_t> g_handSelections[2] = {};
 std::atomic<uint64_t> g_handSwitches = 0;
 std::atomic<int> g_activeInteractionHand = -1;
 std::atomic<uint64_t> g_activeInteractionFrame = 0;
+std::atomic<int> g_lockedInteractionHand = -1;
+std::atomic<uint64_t> g_lockedInteractionFrame = 0;
+std::atomic<uint64_t> g_ownerLocks = 0;
+std::atomic<uint64_t> g_ownerUnlocks = 0;
 std::atomic<uint64_t> g_fallbackDisabled = 0;
 std::atomic<uint64_t> g_fallbackQueryType = 0;
 std::atomic<uint64_t> g_fallbackAuthoredCamera = 0;
@@ -427,11 +431,15 @@ bool HookGetClosestEntity(
     const bool rightPressed = rays[1].tracked
         && (input.right.select || input.right.trigger >= 0.75f);
     const int previousHand = g_activeInteractionHand.load(std::memory_order_relaxed);
-    const uint32_t handIndex = interaction_math::SelectInteractionHand(
-        {rays[0].tracked, rays[0].hit, leftPressed, rays[0].distance},
-        {rays[1].tracked, rays[1].hit, rightPressed, rays[1].distance},
-        preferredHand,
-        previousHand);
+    const int lockedHand = g_lockedInteractionHand.load(std::memory_order_relaxed);
+    const uint32_t handIndex = lockedHand >= 0 && lockedHand < 2
+            && rays[lockedHand].tracked
+        ? static_cast<uint32_t>(lockedHand)
+        : interaction_math::SelectInteractionHand(
+            {rays[0].tracked, rays[0].hit, leftPressed, rays[0].distance},
+            {rays[1].tracked, rays[1].hit, rightPressed, rays[1].distance},
+            preferredHand,
+            previousHand);
     NativeHandRay& selected = rays[handIndex];
     if (!selected.tracked || selected.hand == nullptr
         || !FinalizeClosestEntityOutput(output, selected)) {
@@ -640,6 +648,8 @@ void RemoveHPLInteractionBridge()
     g_gameContextSlot = nullptr;
     g_activeInteractionHand.store(-1, std::memory_order_relaxed);
     g_activeInteractionFrame.store(0, std::memory_order_relaxed);
+    g_lockedInteractionHand.store(-1, std::memory_order_relaxed);
+    g_lockedInteractionFrame.store(0, std::memory_order_relaxed);
     ClearHitSnapshot();
     g_openxr = nullptr;
     Logger::Instance().Write(LogLevel::Info, "hpl_interaction_bridge removed");
@@ -649,7 +659,7 @@ void LogHPLInteractionBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_interaction_bridge_summary installed=%d bothHands=%d calls=%llu substitutions=%llu hits=%llu handProbes=%llu,%llu handHits=%llu,%llu handSelections=%llu,%llu handSwitches=%llu activeHand=%d hitSnapshots=%llu hitPayloadRejects=%llu hitPayloadDistanceRejects=%llu hitPayloadNullTargets=%llu reticleUpdates=%llu semanticStates=%llu semanticAccepted=%llu focusHapticRequests=%llu focusHapticApplied=%llu fallbackDisabled=%llu fallbackQueryType=%llu fallbackAuthoredCamera=%llu fallbackCamera=%llu fallbackInput=%llu fallbackTracking=%llu fallbackOrigin=%llu lastHitState=%d lastSemanticState=%d",
+        "hpl_interaction_bridge_summary installed=%d bothHands=%d calls=%llu substitutions=%llu hits=%llu handProbes=%llu,%llu handHits=%llu,%llu handSelections=%llu,%llu handSwitches=%llu activeHand=%d lockedHand=%d ownerLocks=%llu ownerUnlocks=%llu hitSnapshots=%llu hitPayloadRejects=%llu hitPayloadDistanceRejects=%llu hitPayloadNullTargets=%llu reticleUpdates=%llu semanticStates=%llu semanticAccepted=%llu focusHapticRequests=%llu focusHapticApplied=%llu fallbackDisabled=%llu fallbackQueryType=%llu fallbackAuthoredCamera=%llu fallbackCamera=%llu fallbackInput=%llu fallbackTracking=%llu fallbackOrigin=%llu lastHitState=%d lastSemanticState=%d",
         g_getClosestEntityTarget != nullptr ? 1 : 0,
         g_config.hplControllerInteractionBothHands ? 1 : 0,
         static_cast<unsigned long long>(g_calls.load(std::memory_order_relaxed)),
@@ -663,6 +673,9 @@ void LogHPLInteractionBridgeSummary()
         static_cast<unsigned long long>(g_handSelections[1].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_handSwitches.load(std::memory_order_relaxed)),
         g_activeInteractionHand.load(std::memory_order_relaxed),
+        g_lockedInteractionHand.load(std::memory_order_relaxed),
+        static_cast<unsigned long long>(g_ownerLocks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_ownerUnlocks.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hitSnapshots.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hitPayloadRejects.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hitPayloadDistanceRejects.load(std::memory_order_relaxed)),
@@ -695,6 +708,13 @@ bool GetHPLInteractionOwnerHand(
     uint64_t maximumAgeFrames,
     uint32_t& handIndex)
 {
+    const int lockedHand = g_lockedInteractionHand.load(std::memory_order_relaxed);
+    const uint64_t lockedFrame = g_lockedInteractionFrame.load(std::memory_order_relaxed);
+    if (lockedHand >= 0 && lockedHand < 2 && lockedFrame != 0
+        && gameFrame >= lockedFrame && gameFrame - lockedFrame <= maximumAgeFrames) {
+        handIndex = static_cast<uint32_t>(lockedHand);
+        return true;
+    }
     const int activeHand = g_activeInteractionHand.load(std::memory_order_relaxed);
     const uint64_t activeFrame = g_activeInteractionFrame.load(std::memory_order_relaxed);
     if (activeHand < 0 || activeHand >= 2 || activeFrame == 0
@@ -703,6 +723,35 @@ bool GetHPLInteractionOwnerHand(
     }
     handIndex = static_cast<uint32_t>(activeHand);
     return true;
+}
+
+void SetHPLInteractionOwnerLock(bool active, uint32_t handIndex, uint64_t gameFrame)
+{
+    if (!active || handIndex >= 2) {
+        const int previous = g_lockedInteractionHand.exchange(-1, std::memory_order_relaxed);
+        g_lockedInteractionFrame.store(0, std::memory_order_relaxed);
+        if (previous >= 0) {
+            g_ownerUnlocks.fetch_add(1, std::memory_order_relaxed);
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_interaction_owner_lock active=0 previousHand=%s frame=%llu",
+                previous == 0 ? "left" : "right",
+                static_cast<unsigned long long>(gameFrame));
+        }
+        return;
+    }
+
+    int expected = -1;
+    if (g_lockedInteractionHand.compare_exchange_strong(
+            expected, static_cast<int>(handIndex), std::memory_order_relaxed)) {
+        g_ownerLocks.fetch_add(1, std::memory_order_relaxed);
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_interaction_owner_lock active=1 hand=%s frame=%llu policy=hold_until_native_state_exit",
+            handIndex == 0 ? "left" : "right",
+            static_cast<unsigned long long>(gameFrame));
+    }
+    g_lockedInteractionFrame.store(gameFrame, std::memory_order_relaxed);
 }
 
 void PublishHPLInteractionCrosshairState(int crosshairState)

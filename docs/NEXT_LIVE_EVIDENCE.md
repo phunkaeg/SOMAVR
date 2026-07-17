@@ -2,18 +2,20 @@
 
 Date: 2026-07-17
 
-Use `out\SOMAVR-latest` (`0.64.1-dual-hand-interaction-fix`) for the next run.
-Before entering VR, require
-`hpl_interaction_bridge install_ok ... bothHands=1` with no outer/inner signature
-or game-context-slot failure. Then verify both beams are visible simultaneously
-and acquire and activate targets
-with each hand independently. Confirm SOMA's context icon follows the selected
-beam endpoint, overlapping rays do not flicker, and drawers, curtains, doors,
-props, readables, and terminals remain owned by the hand that initiated them.
-Follow the 0.64 checklist and attach the complete shutdown log, especially
-`hpl_interaction_ray`, `hpl_interaction_bridge_summary`, OpenXR guide readiness,
-and terminal/manipulation rows. Recheck the 0.63 wall-terminal takeover in the
-same session when convenient.
+Use `out\SOMAVR-latest` (`0.65.0-physical-interaction-polish`) for the next run.
+The 0.64.1 live pass accepted independent left/right focus and activation. This
+pass should concentrate on five evidence gates: direct laptop cursor movement,
+wrist-driven tap/flush/lever motion, Read-object scale/distance plus right-A
+cancel, bounded loose-prop pull/hold/throw, and initiating-hand ownership while
+beams cross. Follow the 0.65 checklist and attach the complete shutdown log.
+
+Required markers are `hpl_terminal_pointer ... direct_dispatch`, native hinge
+rows containing controller angular contribution, `hpl_grab_anchor ...
+attachToHand=1`, `hpl_read_presentation`, `inspection_exit`, and paired
+`hpl_interaction_owner_lock active=1/0`. Confirm the established stereo,
+tracking, eye height, shadows, reflections, context icon, and locomotion first.
+Any poor direction or strength should be reported with the object/mechanism and
+hand used; all new mappings have independent INI rollback keys.
 
 SOMAVR has reached the point where the feature registry contains no unimplemented
 VR system with enough static evidence for another responsible native mutation.

@@ -346,6 +346,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "InteractionRay=0\n"
         << "InteractionRayOriginTolerance=0.75\n"
         << "GrabTranslation=0\n"
+        << "GrabAttachToHand=0\n"
         << "GrabTranslationScale=1.0\n"
         << "GrabMaxOffsetMeters=0.75\n"
         << "GrabRotation=0\n"
@@ -376,7 +377,11 @@ void ConfigManager::WriteDefaultConfig() const
         << "SlideMaxVelocityMetersPerSecond=2.5\n"
         << "RotateDirectVelocity=1\n"
         << "RotateVelocityScale=1\n"
+        << "RotateAngularVelocityScale=1\n"
         << "RotateMaxAngularSpeed=4\n"
+        << "ReadPresentation=0\n"
+        << "ReadObjectDistanceScale=2\n"
+        << "ReadObjectScale=2\n"
         << "HandTrackingProbe=0\n"
         << "HandControllerRoot=0\n"
         << "HandRootOffsetX=0.0\n"
@@ -735,6 +740,31 @@ void ConfigManager::LoadFromFile()
             else if (key == "terminalpointerhorizontaldegrees") config_.hplControllerTerminalPointerHorizontalDegrees = ParseFloat(value, config_.hplControllerTerminalPointerHorizontalDegrees, 10.0f, 170.0f);
             else if (key == "terminalpointerverticaldegrees") config_.hplControllerTerminalPointerVerticalDegrees = ParseFloat(value, config_.hplControllerTerminalPointerVerticalDegrees, 10.0f, 170.0f);
             else if (key == "terminalpointersmoothing") config_.hplControllerTerminalPointerSmoothing = ParseFloat(value, config_.hplControllerTerminalPointerSmoothing, 0.01f, 1.0f);
+            continue;
+        }
+
+        if (section == "controller"
+            && (key == "grabattachtohand"
+                || key == "rotateangularvelocityscale"
+                || key == "readpresentation"
+                || key == "readobjectdistancescale"
+                || key == "readobjectscale")) {
+            if (key == "grabattachtohand") {
+                config_.hplControllerGrabAttachToHand = ParseBool(
+                    value, config_.hplControllerGrabAttachToHand);
+            } else if (key == "rotateangularvelocityscale") {
+                config_.hplControllerRotateAngularVelocityScale = ParseFloat(
+                    value, config_.hplControllerRotateAngularVelocityScale, -5.0f, 5.0f);
+            } else if (key == "readpresentation") {
+                config_.hplControllerReadPresentation = ParseBool(
+                    value, config_.hplControllerReadPresentation);
+            } else if (key == "readobjectdistancescale") {
+                config_.hplControllerReadObjectDistanceScale = ParseFloat(
+                    value, config_.hplControllerReadObjectDistanceScale, 0.5f, 4.0f);
+            } else if (key == "readobjectscale") {
+                config_.hplControllerReadObjectScale = ParseFloat(
+                    value, config_.hplControllerReadObjectScale, 0.25f, 4.0f);
+            }
             continue;
         }
 

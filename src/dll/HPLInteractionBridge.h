@@ -28,6 +28,7 @@ bool GetHPLInteractionOwnerHand(
     uint64_t gameFrame,
     uint64_t maximumAgeFrames,
     uint32_t& handIndex);
+void SetHPLInteractionOwnerLock(bool active, uint32_t handIndex, uint64_t gameFrame);
 void PublishHPLInteractionCrosshairState(int crosshairState);
 
 } // namespace somavr

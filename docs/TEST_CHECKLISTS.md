@@ -1,5 +1,37 @@
 # Test Checklists
 
+## 0.65.0 Physical Interaction Polish
+
+1. Run the stable package doctor and require
+   `version=0.65.0-physical-interaction-polish`, OpenXR flavor, and `fail=0`.
+   Press F10 once and confirm rigid stereo, eye height, tracking, shadows,
+   reflections, locomotion, both beams, and semantic context icons are unchanged.
+2. Enter the starting laptop/wall terminal without a camera or body takeover.
+   Aim across the physical screen and require the cursor to follow the selected
+   beam smoothly, including near the edges. Trigger must activate native controls.
+   The log should contain `hpl_terminal_pointer ... direct_dispatch` rows.
+3. Test a tap, toilet flush, lever, or hinged door. Rotate the owning wrist in
+   both directions, then translate the hand around the hinge. Motion should be
+   camera independent, smooth, and constrained by the native mechanism.
+4. Inspect a storyline Read object. It should appear about twice as far from the
+   eyes and twice the previous apparent size. Hold right grip and rotate through
+   a useful range without camera drift. Press and briefly hold right A; the
+   object and description must close through SOMA's normal cancel transition.
+5. Pick up several loose physics props at different masses and distances. Each
+   should pull toward the initiating grip, remain responsive while held, collide
+   normally, place without a jump, and inherit a plausible release/throw impulse.
+6. While holding a prop, cross both beams over it and press the other trigger.
+   The held object must remain owned by the initiating hand until release. Then
+   acquire it with the other hand. Require one lock and one unlock per session,
+   without focus flicker or duplicate callbacks.
+7. Exit normally and attach the complete log. Preserve terminal `applied` and
+   `directDispatches`, hinge translation/wrist components, Grab attach correction,
+   Read presentation/cancel rows, and interaction owner lock/unlock summaries.
+
+Rollback one route at a time with `TerminalRayPointer=0`,
+`RotateAngularVelocityScale=0`, `GrabAttachToHand=0`,
+`ReadPresentation=0`, or `InteractionBothHands=0`.
+
 ## 0.64.1 Dual-Hand Interaction Startup Fix
 
 1. Run doctor and require `SOMA interaction hook signatures match the supported

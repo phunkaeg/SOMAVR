@@ -100,4 +100,29 @@ float ResolveHingeAngularVelocity(
     return std::clamp(angularVelocity, -maxAngularSpeed, maxAngularSpeed);
 }
 
+float CombineHingeAngularVelocity(
+    float pointAngularVelocity,
+    const camera_math::Vector3& controllerAngularVelocity,
+    const camera_math::Vector3& pin,
+    float controllerScale,
+    float maxAngularSpeed)
+{
+    const float pinLengthSquared = pin.x * pin.x + pin.y * pin.y + pin.z * pin.z;
+    if (!std::isfinite(pointAngularVelocity)
+        || !std::isfinite(controllerScale)
+        || !std::isfinite(maxAngularSpeed) || maxAngularSpeed <= 0.0f
+        || !std::isfinite(pinLengthSquared) || pinLengthSquared < 0.25f) {
+        return 0.0f;
+    }
+    const float inversePinLength = 1.0f / std::sqrt(pinLengthSquared);
+    const float wrist = (
+        controllerAngularVelocity.x * pin.x
+        + controllerAngularVelocity.y * pin.y
+        + controllerAngularVelocity.z * pin.z) * inversePinLength * controllerScale;
+    if (!std::isfinite(wrist)) return std::clamp(
+        pointAngularVelocity, -maxAngularSpeed, maxAngularSpeed);
+    return std::clamp(
+        pointAngularVelocity + wrist, -maxAngularSpeed, maxAngularSpeed);
+}
+
 } // namespace somavr::grab_math

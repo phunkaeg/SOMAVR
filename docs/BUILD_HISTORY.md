@@ -2,6 +2,35 @@
 
 ## 2026-07-17
 
+### 0.65.0-physical-interaction-polish
+
+- Fixed diegetic terminal cursor delivery. The previous build projected the
+  controller ray correctly but waited for native mouse movement before SOMA's
+  `cImGui` received the new virtual position. The bridge now dispatches each
+  mesh-ray hit directly through the original `SendMouseVirtualPosition` path,
+  preserving native widgets, clicks, sounds, and callbacks.
+- Added interaction-owner locking for native Grab, Push, Wheel, Slide, Door,
+  Lever, Tear, and Read states. Either beam can acquire an object, but the
+  initiating hand remains the sole physical owner until SOMA leaves that state.
+- Extended Door/Lever hinge control with controller angular velocity projected
+  onto the native joint pin. Wrist twist and the existing hand-translation arc
+  are combined before the native torque PID and speed limit.
+- Added a bounded gravity-glove-style Grab start. The selected hit point is
+  pulled toward the initiating grip through SOMA's existing PID, collision, and
+  throw route; normal controller deltas continue from that hand after capture.
+- Fixed Read cancel by holding native right mouse while right A or B is held,
+  added grip hysteresis to Read rotation, and introduced a guarded Read-prop
+  transform that doubles initial camera distance and apparent scale without
+  moving the player camera.
+- Added deterministic unit coverage for hinge wrist projection and Read
+  presentation scale/distance. All four CTest suites pass. Stable package doctor
+  reports `pass=8 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `DE19C43FF3A3117A2F03DF28049269EE9892D43CA6917FFB7EA1761D68340FBC`.
+  Stable package SHA-256:
+  `DCD90185D179B094A41D8FC7C13961E3382B85D6FB7E18D3EA818FAB5493CAB1`.
+  Headset acceptance remains required for terminal pointer delivery, object
+  presentation, hinge direction, pull strength, and ownership continuity.
+
 ### 0.64.1-dual-hand-interaction-fix
 
 - Fixed the 0.64 startup regression that left both visual guides active while

@@ -1,5 +1,13 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-17 Installed-Binary Signature Correction
+
+Direct PE-section mapping of the installed `Soma_NoSteam.exe` corrected the
+inner raycast entry bytes to `40 57 48 83 ec 60` and its RIP displacement/next-
+instruction offsets to `+9/+13`. The 0.64 guard omitted the leading REX prefix,
+so the bridge never installed. The Ghidra database was not open in the active
+MCP instance during this correction; no database mutation is claimed here.
+
 ## 2026-07-16 Dual-Hand Interaction Sync
 
 | Address | Ghidra name | Evidence/use |

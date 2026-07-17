@@ -21,7 +21,7 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.64.0-dual-hand-interaction`, layered on the
+The active build candidate is `0.64.1-dual-hand-interaction-fix`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
@@ -33,6 +33,12 @@ compatibility probes:
   selected hand owns subsequent manipulation, terminal clicks, and Grab contact
   feedback. Static implementation and unit coverage are complete; headset
   acceptance is the current gate.
+
+- The first 0.64 live pass proved both visual beams but exposed that the new
+  inner-raycast signature omitted its leading `0x40` REX prefix. The bridge did
+  not install, so native gaze semantics appeared while controller hit snapshots
+  and world icons remained absent. Version 0.64.1 corrects the exact entry bytes
+  and RIP-relative global offsets; a short headset confirmation is now required.
 
 - Wall terminal state `8` now stays diegetic in VR: exact native hooks suppress
   only its body teleport, scripted camera rotation, and Terminal camera offset.

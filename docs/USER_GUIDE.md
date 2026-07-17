@@ -31,9 +31,10 @@ Run this before launching a new package:
 & "$env:LOCALAPPDATA\SOMAVR\somavr_injector.exe" --doctor "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
-Proceed when the summary has `fail=0`. Warnings name optional hook conflicts or
-developer-layout fallbacks. Fix missing DLL, loader, config, runtime JSON, or x64
-game failures before injection.
+Proceed when the summary has `fail=0` and reports that SOMA's interaction hook
+signatures match the supported build. Warnings name optional hook conflicts or
+developer-layout fallbacks. Fix missing DLL, loader, config, runtime JSON, x64
+game, or hook-signature failures before injection.
 
 ## Launch
 

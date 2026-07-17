@@ -357,6 +357,14 @@ int RunDoctor(
             DoctorResult(summary, "FAIL", L"SOMA executable is missing or not x64: " + absoluteGame.wstring());
         } else {
             DoctorResult(summary, "PASS", L"x64 SOMA executable found: " + absoluteGame.wstring());
+            std::wstring signatureFailure;
+            if (somavr::injector::ValidateSomaInteractionSignatures(
+                    absoluteGame, signatureFailure)) {
+                DoctorResult(summary, "PASS",
+                    L"SOMA interaction hook signatures match the supported build");
+            } else {
+                DoctorResult(summary, "FAIL", signatureFailure);
+            }
             const auto findings = somavr::injector::ScanCompatibilityDirectory(absoluteGame.parent_path());
             if (findings.empty()) {
                 DoctorResult(summary, "PASS", L"no known game-directory graphics or injection proxies found");

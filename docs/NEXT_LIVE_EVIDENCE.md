@@ -1,9 +1,12 @@
 # Next Live Evidence
 
-Date: 2026-07-16
+Date: 2026-07-17
 
-Use `out\SOMAVR-latest` (`0.64.0-dual-hand-interaction`) for the next run. First
-verify both beams are visible simultaneously, then acquire and activate targets
+Use `out\SOMAVR-latest` (`0.64.1-dual-hand-interaction-fix`) for the next run.
+Before entering VR, require
+`hpl_interaction_bridge install_ok ... bothHands=1` with no outer/inner signature
+or game-context-slot failure. Then verify both beams are visible simultaneously
+and acquire and activate targets
 with each hand independently. Confirm SOMA's context icon follows the selected
 beam endpoint, overlapping rays do not flicker, and drawers, curtains, doors,
 props, readables, and terminals remain owned by the hand that initiated them.

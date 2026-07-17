@@ -5,6 +5,7 @@
 #include "HPLInteractionMath.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
+#include "SomaBuildSignatures.h"
 
 #include <Windows.h>
 
@@ -21,19 +22,12 @@
 namespace somavr {
 namespace {
 
-constexpr uintptr_t kGetClosestEntityRva = 0x0cd750;
-constexpr uintptr_t kGetClosestEntityRaycastRva = 0x1438c0;
-constexpr uint8_t kGetClosestEntitySignature[] = {
-    0x48, 0x89, 0x5c, 0x24, 0x08,
-    0x57,
-    0x48, 0x83, 0xec, 0x50,
-    0x48, 0x8b, 0xbc, 0x24, 0x88, 0x00, 0x00, 0x00,
-};
-constexpr uint8_t kGetClosestEntityRaycastSignature[] = {
-    0x57, 0x48, 0x83, 0xec, 0x60,
-    0x48, 0x8b, 0x05, 0x13, 0xed, 0x64, 0x00,
-    0x48, 0x8b, 0xf9, 0x4d, 0x8b, 0xd0,
-};
+constexpr uintptr_t kGetClosestEntityRva = soma_signatures::kGetClosestEntityRva;
+constexpr uintptr_t kGetClosestEntityRaycastRva =
+    soma_signatures::kGetClosestEntityRaycastRva;
+constexpr auto& kGetClosestEntitySignature = soma_signatures::kGetClosestEntity;
+constexpr auto& kGetClosestEntityRaycastSignature =
+    soma_signatures::kGetClosestEntityRaycast;
 
 using GetClosestEntityFn = bool (*)(
     const float* start,
@@ -551,21 +545,44 @@ bool InstallHPLInteractionBridge(const Config& config, OpenXRRuntime* openxr)
     auto* base = reinterpret_cast<std::byte*>(executable);
     auto* target = base + kGetClosestEntityRva;
     auto* raycast = base + kGetClosestEntityRaycastRva;
-    if (std::memcmp(target, kGetClosestEntitySignature, sizeof(kGetClosestEntitySignature)) != 0
-        || std::memcmp(
+    if (std::memcmp(target, kGetClosestEntitySignature, sizeof(kGetClosestEntitySignature)) != 0) {
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_interaction_bridge install_failed reason=outer_signature_mismatch rva=0x%llx actual=%02x,%02x,%02x,%02x expected=%02x,%02x,%02x,%02x",
+            static_cast<unsigned long long>(kGetClosestEntityRva),
+            static_cast<unsigned int>(target[0]),
+            static_cast<unsigned int>(target[1]),
+            static_cast<unsigned int>(target[2]),
+            static_cast<unsigned int>(target[3]),
+            kGetClosestEntitySignature[0], kGetClosestEntitySignature[1],
+            kGetClosestEntitySignature[2], kGetClosestEntitySignature[3]);
+        return false;
+    }
+    if (std::memcmp(
             raycast,
             kGetClosestEntityRaycastSignature,
             sizeof(kGetClosestEntityRaycastSignature)) != 0) {
         Logger::Instance().Write(
             LogLevel::Error,
-            "hpl_interaction_bridge install_failed reason=signature_mismatch rva=0x%llx",
-            static_cast<unsigned long long>(kGetClosestEntityRva));
+            "hpl_interaction_bridge install_failed reason=inner_signature_mismatch rva=0x%llx actual=%02x,%02x,%02x,%02x expected=%02x,%02x,%02x,%02x",
+            static_cast<unsigned long long>(kGetClosestEntityRaycastRva),
+            static_cast<unsigned int>(raycast[0]),
+            static_cast<unsigned int>(raycast[1]),
+            static_cast<unsigned int>(raycast[2]),
+            static_cast<unsigned int>(raycast[3]),
+            kGetClosestEntityRaycastSignature[0], kGetClosestEntityRaycastSignature[1],
+            kGetClosestEntityRaycastSignature[2], kGetClosestEntityRaycastSignature[3]);
         return false;
     }
 
     int32_t gameContextDisplacement = 0;
-    std::memcpy(&gameContextDisplacement, raycast + 8, sizeof(gameContextDisplacement));
-    g_gameContextSlot = reinterpret_cast<void**>(raycast + 12 + gameContextDisplacement);
+    std::memcpy(
+        &gameContextDisplacement,
+        raycast + soma_signatures::kRaycastGameContextDisplacementOffset,
+        sizeof(gameContextDisplacement));
+    g_gameContextSlot = reinterpret_cast<void**>(
+        raycast + soma_signatures::kRaycastGameContextNextInstructionOffset
+            + gameContextDisplacement);
     void* gameContextProbe = nullptr;
     if (!ReadMemory(g_gameContextSlot, &gameContextProbe, sizeof(gameContextProbe))) {
         g_gameContextSlot = nullptr;

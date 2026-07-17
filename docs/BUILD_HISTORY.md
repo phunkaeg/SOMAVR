@@ -1,5 +1,31 @@
 # Build History
 
+## 2026-07-17
+
+### 0.64.1-dual-hand-interaction-fix
+
+- Fixed the 0.64 startup regression that left both visual guides active while
+  disabling controller interaction, native hit snapshots, and semantic icons.
+  The latest log showed `hpl_interaction_bridge install_failed` followed by zero
+  reticle updates and repeated semantic `no_hit_snapshot` rejects.
+- Direct PE-byte verification against the installed `Soma_NoSteam.exe` found the
+  inner raycast entry begins `40 57 48 83 ec 60`, not `57 48 83 ec 60`. The
+  missing REX prefix also shifted the RIP displacement from `+8/+12` to the
+  correct displacement/next-instruction offsets `+9/+13`.
+- Split outer and inner signature diagnostics so future failures report the
+  correct RVA plus actual and expected byte prefixes. Added compile-time checks
+  tying the RIP offsets to the guarded `48 8b 05` instruction and startup config
+  telemetry for `InteractionBothHands`.
+- Moved both byte contracts into `SomaBuildSignatures.h`, shared by the DLL and
+  injector. Doctor now maps the installed PE sections and blocks launch when
+  either interaction RVA differs; its regression test explicitly rejects the
+  missing-prefix 0.64 signature.
+- All four CTest suites pass. Stable package doctor reports
+  `pass=8 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `0CDA05F1FB17EFDE574AC8BF6BAFE68A4C5A158C1C2BC42A13435B245E5ECAEA`.
+  Stable package SHA-256:
+  `BDA977BD2C0639845F3CC00D9BE685E341F4BCD3D96FF9C34E8C0095FD1F407C`.
+
 ## 2026-07-16
 
 ### 0.64.0-dual-hand-interaction

@@ -1,5 +1,23 @@
 # Test Checklists
 
+## 0.64.1 Dual-Hand Interaction Startup Fix
+
+1. Run doctor and require `SOMA interaction hook signatures match the supported
+   build`, then require `version=0.64.1-dual-hand-interaction-fix`,
+   `controller_config ... interactionBothHands=1`, and
+   `hpl_interaction_bridge install_ok ... bothHands=1`. Stop immediately on any
+   outer/inner signature or game-context-slot failure.
+2. Press F10 and point either beam at the previously tested drawer or pickup.
+   Require `hpl_interaction_ray ... applied=1`, a positive hit distance, a valid
+   hit snapshot, and the semantic context icon at that beam endpoint.
+3. Activate the drawer and pick up the object with each hand. Confirm native
+   state transitions and initiating-hand motion are restored, then continue the
+   full 0.64 dual-hand checklist below.
+
+The 0.64.0 failure signature was two visible guides with zero interaction-
+reticle updates, semantic `no_hit_snapshot` rejects, and bridge startup
+`signature_mismatch`. This build must show none of those together.
+
 ## 0.64.0 Dual-Hand Interaction
 
 1. Run the stable package doctor and require

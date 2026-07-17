@@ -62,7 +62,8 @@ injection.
 ## Run
 
 Check the selected build, config, OpenXR runtime, game executable, architecture,
-and game-directory hook conflicts without launching SOMA:
+shared interaction-hook signatures, and game-directory hook conflicts without
+launching SOMA:
 
 ```powershell
 & ".\somavr_injector.exe" --doctor "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"

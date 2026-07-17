@@ -10,7 +10,7 @@ without a second ray query or OpenGL depth reconstruction.
 
 Evidence:
 
-- `SOMA_GetClosestEntity` finalizes entity `+0x18`, body `+0x20`, and distance
+- `SOMA_GetClosestEntity` finalizes distance `+0x18`, body `+0x20`, and entity
   `+0x28` after applying native length, LOS, range, and `CanInteract` policy.
 - `HPLInteractionBridge` already publishes that result with the exact app-space
   controller aim pose used to build the HPL query.

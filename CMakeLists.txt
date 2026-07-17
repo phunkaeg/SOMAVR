@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.64.0-dual-hand-interaction")
+set(SOMAVR_BUILD_VERSION "0.64.1-dual-hand-interaction-fix")
 
 include(FetchContent)
 
@@ -160,7 +160,7 @@ add_custom_command(TARGET somavr POST_BUILD
 add_library(somavr_injector_support STATIC
     src/injector/CompatibilityScan.cpp
 )
-target_include_directories(somavr_injector_support PUBLIC src/injector)
+target_include_directories(somavr_injector_support PUBLIC src/injector src/common)
 target_compile_definitions(somavr_injector_support PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
 add_executable(somavr_injector src/injector/main.cpp)

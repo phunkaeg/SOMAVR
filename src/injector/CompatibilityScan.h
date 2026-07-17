@@ -25,6 +25,10 @@ bool ClassifyCompatibilityName(
     std::wstring_view name,
     bool loadedModule,
     CompatibilityFinding& finding);
+bool MatchSomaInteractionSignature(uintptr_t rva, const uint8_t* bytes, size_t size);
+bool ValidateSomaInteractionSignatures(
+    const std::filesystem::path& executable,
+    std::wstring& failureReason);
 
 std::vector<CompatibilityFinding> ScanCompatibility(DWORD processId);
 std::vector<CompatibilityFinding> ScanCompatibilityDirectory(

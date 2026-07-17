@@ -1,10 +1,17 @@
 #include "CompatibilityScan.h"
 
+#include "SomaBuildSignatures.h"
+
 #include <TlHelp32.h>
 
 #include <algorithm>
+#include <cstring>
 #include <cwctype>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <iterator>
+#include <sstream>
 #include <system_error>
 #include <utility>
 
@@ -77,6 +84,58 @@ void AddModuleFindings(DWORD processId, std::vector<CompatibilityFinding>& findi
     CloseHandle(snapshot);
 }
 
+template <typename T>
+bool ReadFileValue(const std::vector<uint8_t>& file, size_t offset, T& value)
+{
+    if (offset > file.size() || sizeof(T) > file.size() - offset) return false;
+    std::memcpy(&value, file.data() + offset, sizeof(T));
+    return true;
+}
+
+const uint8_t* ResolvePeRva(
+    const std::vector<uint8_t>& file,
+    const IMAGE_FILE_HEADER& fileHeader,
+    size_t sectionTableOffset,
+    uintptr_t rva,
+    size_t requiredBytes)
+{
+    for (uint16_t sectionIndex = 0;
+         sectionIndex < fileHeader.NumberOfSections;
+         ++sectionIndex) {
+        IMAGE_SECTION_HEADER section{};
+        const size_t sectionOffset = sectionTableOffset
+            + static_cast<size_t>(sectionIndex) * sizeof(section);
+        if (!ReadFileValue(file, sectionOffset, section)) return nullptr;
+        const uint64_t sectionSize = std::max<uint32_t>(
+            section.Misc.VirtualSize,
+            section.SizeOfRawData);
+        const uint64_t sectionStart = section.VirtualAddress;
+        const uint64_t sectionEnd = sectionStart + sectionSize;
+        if (rva < sectionStart || rva >= sectionEnd) continue;
+        const uint64_t rawOffset = static_cast<uint64_t>(section.PointerToRawData)
+            + (rva - sectionStart);
+        if (rawOffset > file.size() || requiredBytes > file.size() - rawOffset) {
+            return nullptr;
+        }
+        return file.data() + rawOffset;
+    }
+    return nullptr;
+}
+
+std::wstring SignatureMismatchReason(uintptr_t rva, const uint8_t* bytes, size_t size)
+{
+    std::wostringstream stream;
+    stream << L"SOMA interaction hook signature mismatch at RVA 0x"
+           << std::hex << rva << L" actual=";
+    const size_t prefixBytes = std::min<size_t>(size, 6);
+    for (size_t index = 0; index < prefixBytes; ++index) {
+        if (index != 0) stream << L',';
+        stream << std::setw(2) << std::setfill(L'0')
+               << static_cast<unsigned int>(bytes[index]);
+    }
+    return stream.str();
+}
+
 } // namespace
 
 bool ClassifyCompatibilityName(
@@ -124,6 +183,97 @@ bool ClassifyCompatibilityName(
         return true;
     }
     return false;
+}
+
+bool MatchSomaInteractionSignature(uintptr_t rva, const uint8_t* bytes, size_t size)
+{
+    if (bytes == nullptr) return false;
+    if (rva == soma_signatures::kGetClosestEntityRva) {
+        return size >= sizeof(soma_signatures::kGetClosestEntity)
+            && std::memcmp(
+                bytes,
+                soma_signatures::kGetClosestEntity,
+                sizeof(soma_signatures::kGetClosestEntity)) == 0;
+    }
+    if (rva == soma_signatures::kGetClosestEntityRaycastRva) {
+        return size >= sizeof(soma_signatures::kGetClosestEntityRaycast)
+            && std::memcmp(
+                bytes,
+                soma_signatures::kGetClosestEntityRaycast,
+                sizeof(soma_signatures::kGetClosestEntityRaycast)) == 0;
+    }
+    return false;
+}
+
+bool ValidateSomaInteractionSignatures(
+    const std::filesystem::path& executable,
+    std::wstring& failureReason)
+{
+    failureReason.clear();
+    std::ifstream input(executable, std::ios::binary | std::ios::ate);
+    if (!input) {
+        failureReason = L"could not open SOMA executable for hook signature validation";
+        return false;
+    }
+    const std::streamoff length = input.tellg();
+    if (length <= 0) {
+        failureReason = L"SOMA executable is empty or unreadable";
+        return false;
+    }
+    std::vector<uint8_t> file(static_cast<size_t>(length));
+    input.seekg(0, std::ios::beg);
+    if (!input.read(reinterpret_cast<char*>(file.data()), length)) {
+        failureReason = L"could not read SOMA executable for hook signature validation";
+        return false;
+    }
+
+    IMAGE_DOS_HEADER dos{};
+    if (!ReadFileValue(file, 0, dos) || dos.e_magic != IMAGE_DOS_SIGNATURE
+        || dos.e_lfanew < 0) {
+        failureReason = L"SOMA executable has an invalid DOS header";
+        return false;
+    }
+    const size_t ntOffset = static_cast<size_t>(dos.e_lfanew);
+    DWORD ntSignature = 0;
+    IMAGE_FILE_HEADER fileHeader{};
+    WORD optionalMagic = 0;
+    const size_t fileHeaderOffset = ntOffset + sizeof(DWORD);
+    const size_t optionalHeaderOffset = fileHeaderOffset + sizeof(fileHeader);
+    if (!ReadFileValue(file, ntOffset, ntSignature)
+        || ntSignature != IMAGE_NT_SIGNATURE
+        || !ReadFileValue(file, fileHeaderOffset, fileHeader)
+        || !ReadFileValue(file, optionalHeaderOffset, optionalMagic)
+        || fileHeader.Machine != IMAGE_FILE_MACHINE_AMD64
+        || optionalMagic != IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+        failureReason = L"SOMA executable has an unsupported PE header";
+        return false;
+    }
+    const size_t sectionTableOffset = optionalHeaderOffset
+        + fileHeader.SizeOfOptionalHeader;
+    const uintptr_t rvas[] = {
+        soma_signatures::kGetClosestEntityRva,
+        soma_signatures::kGetClosestEntityRaycastRva,
+    };
+    const size_t sizes[] = {
+        sizeof(soma_signatures::kGetClosestEntity),
+        sizeof(soma_signatures::kGetClosestEntityRaycast),
+    };
+    for (size_t index = 0; index < std::size(rvas); ++index) {
+        const uint8_t* bytes = ResolvePeRva(
+            file, fileHeader, sectionTableOffset, rvas[index], sizes[index]);
+        if (bytes == nullptr) {
+            failureReason = L"could not map SOMA interaction hook RVA 0x";
+            std::wostringstream rvaStream;
+            rvaStream << std::hex << rvas[index];
+            failureReason += rvaStream.str();
+            return false;
+        }
+        if (!MatchSomaInteractionSignature(rvas[index], bytes, sizes[index])) {
+            failureReason = SignatureMismatchReason(rvas[index], bytes, sizes[index]);
+            return false;
+        }
+    }
+    return true;
 }
 
 std::vector<CompatibilityFinding> ScanCompatibility(DWORD processId)

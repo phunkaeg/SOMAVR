@@ -2,6 +2,34 @@
 
 ## 2026-07-17
 
+### 0.65.1-object-rotation-fix
+
+- Reverted the Read-object distance mutation after live evidence showed that
+  caching the first transition frame forced SOMA's later entrance matrices onto
+  an incorrect distant arc. Read objects now retain native pickup translation
+  and timing while the configured apparent scale remains independent.
+- Replaced Read's two-axis synthetic mouse rotation with direct tracked
+  controller orientation at the guarded state-10 `SetMatrix` boundary. Grip
+  rotation now supports unrestricted pitch, yaw, and roll, persists on release,
+  and no longer feeds the script's `+/-pi/8` pitch clamp or shifts the camera.
+- Replaced Grab's additive angular correction after the log proved SOMA and the
+  mod saturated at opposite `+/-6 rad/s` targets. The new route anchors the
+  selected body's `+0x50` world matrix to the initiating grip, reads actual
+  angular velocity through virtual slot `+0x90`, and supplies absolute
+  controller-relative target velocity minus body velocity to the existing
+  `40/0/0.4|0.1` torque PID. One- and two-hand mode changes re-anchor before
+  control, while invalid body, matrix, input, or ABI dependencies preserve the
+  native error.
+- Added quaternion basis extraction, relative object-orientation math, and
+  deterministic coverage for matrix round trips, native Read travel, full-axis
+  Read rotation, and absolute Grab targets. All four CTest suites pass; stable
+  package doctor reports `pass=8 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `72CFF4F747732B9446B1192EB3E9485B3D2F5337A7C59489EBC1C985B6DA15F2`.
+  Stable package SHA-256:
+  `9B997A48150B48A813A7CA2B4676287488665820132BC5CB4E0C635F28BDFAE6`.
+  Headset acceptance remains required for Read entrance/size/orientation and
+  loose-prop one/two-hand stability.
+
 ### 0.65.0-physical-interaction-polish
 
 - Fixed diegetic terminal cursor delivery. The previous build projected the

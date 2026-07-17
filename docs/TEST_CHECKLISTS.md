@@ -1,5 +1,33 @@
 # Test Checklists
 
+## 0.65.1 Object Rotation Fix
+
+1. Run stable-package doctor and require
+   `version=0.65.1-object-rotation-fix`, OpenXR flavor, and `fail=0`. Press F10
+   and confirm the accepted stereo, eye height, tracking, shaders, locomotion,
+   both beams, and context icon remain unchanged.
+2. Inspect the same storyline object used in the regression report. Its approach
+   speed, path, and final distance should match native SOMA rather than slowly
+   sliding up a distant arc. It should retain the configured doubled apparent
+   scale and must not move or tilt the VR camera.
+3. Hold the owning grip and rotate the story object around pitch, yaw, and roll.
+   Require useful motion beyond the old pitch limit, no axis lock, and no snap
+   back when grip is released and pressed again. Right A/B must still exit.
+4. Pick up two or more loose physics objects. Rotate each continuously through
+   all three axes, including beyond a half turn. Require no fixed angular stop,
+   no SOMA-versus-controller vibration, plausible inertia, and normal collision,
+   placement, release, and throw behavior.
+5. Repeat one prop with two-hand support squeeze. Engagement and release should
+   re-anchor without a pose jump. Cross beams while holding and confirm the
+   initiating-hand ownership lock remains intact.
+6. Attach the complete log. Useful markers are
+   `hpl_read_presentation ... policy=native_pickup_travel_full_axis_controller_orientation`,
+   `hpl_grab_anchor ... orientationTarget=1`, and
+   `hpl_grab_rotation ... policy=absolute_controller_orientation_replaces_native_camera_goal`.
+
+Rollback independently with `ReadPresentation=0`, `GrabRotation=0`, or
+`TwoHandGrabRotation=0`.
+
 ## 0.65.0 Physical Interaction Polish
 
 1. Run the stable package doctor and require

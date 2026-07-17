@@ -954,6 +954,23 @@ int main()
             && Near(equivalentGrabRotation.y, 0.0f)
             && Near(equivalentGrabRotation.z, 0.0f),
         "grab rotation treats negated quaternion as equivalent");
+    const camera_math::Quaternion grabTarget =
+        grab_math::ResolveRelativeOrientationTarget(
+            {},
+            {0.0f, kHalfSqrtTwo, 0.0f, kHalfSqrtTwo},
+            {});
+    const camera_math::Vector3 grabTargetVelocity =
+        ResolveAngularTargetVelocity(
+            {},
+            grabTarget,
+            100.0f,
+            1.0f,
+            6.0f);
+    failures += Check(
+        Near(grabTargetVelocity.x, 0.0f)
+            && Near(grabTargetVelocity.y, 6.0f)
+            && Near(grabTargetVelocity.z, 0.0f),
+        "grab absolute orientation target follows unrestricted controller delta");
 
     using grab_math::ResolveHingeAngularVelocity;
     failures += Check(
@@ -1008,12 +1025,43 @@ int main()
     std::array<float, 16> readPresented{};
     failures += Check(
         read_math::BuildReadPresentationMatrix(
-            readNative, {}, 1.0f, 2.0f, readPresented)
+            readNative, 2.0f, nullptr, readPresented)
             && Near(readPresented[0], 2.0f)
             && Near(readPresented[5], 2.0f)
             && Near(readPresented[10], 2.0f)
-            && Near(readPresented[11], -1.0f),
-        "read presentation independently scales apparent size and camera distance");
+            && Near(readPresented[11], -0.5f),
+        "read presentation scales apparent size while preserving native pickup travel");
+    const camera_math::Quaternion readYaw =
+        read_math::ResolveRelativeOrientation(
+            {},
+            {0.0f, kHalfSqrtTwo, 0.0f, kHalfSqrtTwo},
+            {});
+    failures += Check(
+        read_math::BuildReadPresentationMatrix(
+            readNative, 2.0f, &readYaw, readPresented)
+            && Near(readPresented[0], 0.0f)
+            && Near(readPresented[2], 2.0f)
+            && Near(readPresented[8], -2.0f)
+            && Near(readPresented[11], -0.5f),
+        "read presentation applies unrestricted controller-relative orientation");
+    camera_math::Quaternion extractedYaw{};
+    failures += Check(
+        camera_math::QuaternionFromRotationMatrix(
+            camera_math::RotationMatrix(readYaw), extractedYaw)
+            && Near(std::fabs(extractedYaw.y), kHalfSqrtTwo)
+            && Near(std::fabs(extractedYaw.w), kHalfSqrtTwo),
+        "rotation matrix round-trips through quaternion extraction");
+    camera_math::Quaternion basisOrientation{};
+    failures += Check(
+        camera_math::QuaternionFromForwardUp(
+            {0.0f, 0.0f, -1.0f},
+            {0.0f, 1.0f, 0.0f},
+            basisOrientation)
+            && Near(basisOrientation.x, 0.0f)
+            && Near(basisOrientation.y, 0.0f)
+            && Near(basisOrientation.z, 0.0f)
+            && Near(std::fabs(basisOrientation.w), 1.0f),
+        "tracked forward/up basis resolves to world orientation");
 
     menu_math::MenuPointerPosition menuPointer;
     failures += Check(

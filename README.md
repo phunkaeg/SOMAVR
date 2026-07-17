@@ -495,7 +495,7 @@ RotateVelocityScale=1
 RotateAngularVelocityScale=1
 RotateMaxAngularSpeed=4
 ReadPresentation=1
-ReadObjectDistanceScale=2
+ReadObjectDistanceScale=1
 ReadObjectScale=2
 HandTrackingProbe=1
 HandControllerRoot=1
@@ -516,6 +516,11 @@ FlashlightRollDegrees=0.0
 ComfortBlackoutFrames=2
 StateTransitionBlackoutFrames=2
 ```
+
+`ReadObjectDistanceScale` is retained for configuration compatibility, but
+`0.65.1` preserves SOMA's native Read pickup travel and timing. `ReadObjectScale`
+still controls apparent size. Hold the owning grip to rotate an inspected object
+through unrestricted pitch, yaw, and roll.
 
 `DepthCompositionSubmit` is opt-in in generated configurations until live
 runtime and hardware-matrix acceptance is complete. The development

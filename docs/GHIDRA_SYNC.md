@@ -1,5 +1,16 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-17 Object Rotation Correction Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1401b0710` | `HPL3_PhysicsBody_GetAngularVelocity` | Created and documented the nine-byte virtual thunk, vtable slot `+0x90`, and hidden `cVector3f` return buffer consumed by absolute Grab rotation. |
+| `0x1404a9a40` | `HPL3_PhysicsBody_GetLocalMatrix` | Renamed and documented the body `+0x50` transform accessor used to anchor/current-sample physics orientation. |
+| `0x140238750` | `HPL3_PidControllerVec3_Output` | Updated Grab torque ownership from additive competing target to controller-relative angular target minus measured body velocity. |
+| `0x1400bcd90` | `SOMA_iLuxEntity_SetMatrix` | Updated Read ownership to preserve native entrance translation and apply persistent full-axis grip orientation only after engagement. |
+
+The selected `Soma_NoSteam.exe` database was saved after synchronization.
+
 ## 2026-07-17 Physical Interaction Polish Sync
 
 | Address | Ghidra name | Evidence/use |

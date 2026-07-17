@@ -44,6 +44,98 @@ Vector3 RotateVector(const Quaternion& input, const Vector3& value)
     return {rotated.x, rotated.y, rotated.z};
 }
 
+bool QuaternionFromRotationMatrix(
+    const std::array<float, 16>& matrix,
+    Quaternion& output)
+{
+    std::array<float, 16> rotation = matrix;
+    for (size_t column = 0; column < 3; ++column) {
+        const float lengthSquared = matrix[column] * matrix[column]
+            + matrix[column + 4] * matrix[column + 4]
+            + matrix[column + 8] * matrix[column + 8];
+        if (!std::isfinite(lengthSquared) || lengthSquared < 1.0e-8f) return false;
+        const float inverseLength = 1.0f / std::sqrt(lengthSquared);
+        rotation[column] *= inverseLength;
+        rotation[column + 4] *= inverseLength;
+        rotation[column + 8] *= inverseLength;
+    }
+
+    Quaternion result;
+    const float trace = rotation[0] + rotation[5] + rotation[10];
+    if (trace > 0.0f) {
+        const float scale = std::sqrt(trace + 1.0f) * 2.0f;
+        if (!std::isfinite(scale) || scale < 1.0e-6f) return false;
+        result.w = 0.25f * scale;
+        result.x = (rotation[9] - rotation[6]) / scale;
+        result.y = (rotation[2] - rotation[8]) / scale;
+        result.z = (rotation[4] - rotation[1]) / scale;
+    } else if (rotation[0] > rotation[5] && rotation[0] > rotation[10]) {
+        const float scale = std::sqrt(1.0f + rotation[0] - rotation[5] - rotation[10]) * 2.0f;
+        if (!std::isfinite(scale) || scale < 1.0e-6f) return false;
+        result.w = (rotation[9] - rotation[6]) / scale;
+        result.x = 0.25f * scale;
+        result.y = (rotation[1] + rotation[4]) / scale;
+        result.z = (rotation[2] + rotation[8]) / scale;
+    } else if (rotation[5] > rotation[10]) {
+        const float scale = std::sqrt(1.0f + rotation[5] - rotation[0] - rotation[10]) * 2.0f;
+        if (!std::isfinite(scale) || scale < 1.0e-6f) return false;
+        result.w = (rotation[2] - rotation[8]) / scale;
+        result.x = (rotation[1] + rotation[4]) / scale;
+        result.y = 0.25f * scale;
+        result.z = (rotation[6] + rotation[9]) / scale;
+    } else {
+        const float scale = std::sqrt(1.0f + rotation[10] - rotation[0] - rotation[5]) * 2.0f;
+        if (!std::isfinite(scale) || scale < 1.0e-6f) return false;
+        result.w = (rotation[4] - rotation[1]) / scale;
+        result.x = (rotation[2] + rotation[8]) / scale;
+        result.y = (rotation[6] + rotation[9]) / scale;
+        result.z = 0.25f * scale;
+    }
+    output = Normalize(result);
+    return std::isfinite(output.x) && std::isfinite(output.y)
+        && std::isfinite(output.z) && std::isfinite(output.w);
+}
+
+bool QuaternionFromForwardUp(
+    const Vector3& forwardInput,
+    const Vector3& upInput,
+    Quaternion& output)
+{
+    auto normalize = [](Vector3& value) {
+        const float lengthSquared = value.x * value.x
+            + value.y * value.y + value.z * value.z;
+        if (!std::isfinite(lengthSquared) || lengthSquared < 1.0e-8f) return false;
+        const float inverseLength = 1.0f / std::sqrt(lengthSquared);
+        value.x *= inverseLength;
+        value.y *= inverseLength;
+        value.z *= inverseLength;
+        return true;
+    };
+    auto cross = [](const Vector3& left, const Vector3& right) {
+        return Vector3{
+            left.y * right.z - left.z * right.y,
+            left.z * right.x - left.x * right.z,
+            left.x * right.y - left.y * right.x,
+        };
+    };
+
+    Vector3 forward = forwardInput;
+    Vector3 upHint = upInput;
+    if (!normalize(forward) || !normalize(upHint)) return false;
+    Vector3 right = cross(forward, upHint);
+    if (!normalize(right)) return false;
+    Vector3 up = cross(right, forward);
+    if (!normalize(up)) return false;
+    const Vector3 backward{-forward.x, -forward.y, -forward.z};
+    const std::array<float, 16> matrix{
+        right.x, up.x, backward.x, 0.0f,
+        right.y, up.y, backward.y, 0.0f,
+        right.z, up.z, backward.z, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f,
+    };
+    return QuaternionFromRotationMatrix(matrix, output);
+}
+
 std::array<float, 16> RotationMatrix(const Quaternion& input)
 {
     const Quaternion q = Normalize(input);

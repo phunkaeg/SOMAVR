@@ -100,7 +100,7 @@ RotateVelocityScale=1
 RotateAngularVelocityScale=1
 RotateMaxAngularSpeed=4
 ReadPresentation=1
-ReadObjectDistanceScale=2
+ReadObjectDistanceScale=1
 ReadObjectScale=2
 ```
 
@@ -109,10 +109,12 @@ native body-relative input. With `InteractionBothHands=1`, both guides are
 visible and either trigger can claim SOMA's native interaction focus; its context
 icon follows the selected guide to native hit depth. Set `InteractionBothHands=0`
 for preferred-hand-only probing, or `AimGuide=0` to hide only the markers.
-In Read views, hold the initiating hand's grip and rotate it to rotate the object;
-right-controller A or B exits. `ReadPresentation=1` doubles the first observed
-distance and apparent scale; tune either scale independently or set it to `0`
-for native presentation. Turn input is ignored while SOMA owns a physical
+In Read views, hold the initiating hand's grip and rotate it to rotate the object
+through full pitch, yaw, and roll; right-controller A or B exits.
+`ReadPresentation=1` preserves SOMA's native pickup travel and timing while
+applying `ReadObjectScale`. `ReadObjectDistanceScale` remains in the file for
+compatibility but is not applied by `0.65.1`; set `ReadPresentation=0` for fully
+native presentation. Turn input is ignored while SOMA owns a physical
 manipulation or Read state. `GrabAttachToHand=1` starts loose-prop Grab with a
 bounded selected-hit-to-grip pull through SOMA's native PID; set it to `0` while
 retaining ordinary tracked Grab translation. Slide projects controller world

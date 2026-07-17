@@ -1,5 +1,30 @@
 # Future Systems Reverse Engineering
 
+## 0.65.1 Object Rotation Correction
+
+The 0.65 live log resolves both reported hard limits. Read's first intercepted
+matrix was only `0.4586` world units from camera; the next native animation frame
+had already moved to `0.8842`. Caching and doubling the first sample therefore
+forced every later native direction onto a fixed `0.9171` radius, producing the
+slow distant slide. Released `PlayerState_Interact_Read.hps` also confirms a
+native `1.3` radian entrance tilt, two-axis Look/Move rotation, and a hard
+`+/-pi/8` `mfRotY` clamp. Version 0.65.1 preserves every native translation and
+replaces only the displayed basis after grip engagement with a persistent
+controller-relative quaternion. This removes the clamp without taking camera
+ownership or altering Read state/cancel callbacks.
+
+Grab's logged native and controller targets repeatedly became near-exact
+opposites at the shared `6 rad/s` cap. HPL2 source confirms the native loop
+computes `wantedAngularVelocity - body.GetAngularVelocity()` before PID
+`40/0/0.4|0.1`; adding another target to that error cannot represent an absolute
+hand pose. Ghidra identifies `iPhysicsBody::GetLocalMatrix` at `0x1404a9a40`
+(`body+0x50`) and the `GetAngularVelocity` virtual thunk at `0x1401b0710`
+(vtable `+0x90`, hidden vector return buffer in `RDX`). Version 0.65.1 anchors
+body orientation to controller world orientation, computes the desired body pose
+from the full controller delta, subtracts measured body angular velocity, and
+feeds that error to SOMA's existing PID. Native mass, inertia, collision,
+gravity, joints, limits, sounds, and interaction lifecycle remain authoritative.
+
 ## 0.65.0 Physical Interaction Polish Result
 
 The 0.64.1 log proves the terminal mesh-ray route reached state `8`, but

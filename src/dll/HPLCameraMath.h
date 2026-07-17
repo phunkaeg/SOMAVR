@@ -43,6 +43,13 @@ Quaternion Normalize(Quaternion value);
 Quaternion Conjugate(const Quaternion& value);
 Quaternion Multiply(const Quaternion& left, const Quaternion& right);
 Vector3 RotateVector(const Quaternion& input, const Vector3& value);
+bool QuaternionFromRotationMatrix(
+    const std::array<float, 16>& matrix,
+    Quaternion& output);
+bool QuaternionFromForwardUp(
+    const Vector3& forward,
+    const Vector3& up,
+    Quaternion& output);
 
 std::array<float, 16> RotationMatrix(const Quaternion& input);
 std::array<float, 16> MatrixMultiply(

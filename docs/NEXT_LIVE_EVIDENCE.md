@@ -2,16 +2,20 @@
 
 Date: 2026-07-17
 
-Use `out\SOMAVR-latest` (`0.65.0-physical-interaction-polish`) for the next run.
-The 0.64.1 live pass accepted independent left/right focus and activation. This
-pass should concentrate on five evidence gates: direct laptop cursor movement,
-wrist-driven tap/flush/lever motion, Read-object scale/distance plus right-A
-cancel, bounded loose-prop pull/hold/throw, and initiating-hand ownership while
-beams cross. Follow the 0.65 checklist and attach the complete shutdown log.
+Use `out\SOMAVR-latest` (`0.65.1-object-rotation-fix`) for the next run. First
+retest the exact storyline and physics objects from the regression report.
+Story objects must use SOMA's native approach speed/path/distance, retain the
+configured apparent scale, and rotate freely in pitch/yaw/roll while grip is
+held. Loose props must rotate beyond the prior hard stop without the native and
+controller targets fighting. Then continue the remaining 0.65 terminal, hinge,
+pull/hold/throw, and crossed-beam ownership gates.
 
 Required markers are `hpl_terminal_pointer ... direct_dispatch`, native hinge
 rows containing controller angular contribution, `hpl_grab_anchor ...
-attachToHand=1`, `hpl_read_presentation`, `inspection_exit`, and paired
+attachToHand=1 orientationTarget=1`,
+`hpl_grab_rotation ... absolute_controller_orientation_replaces_native_camera_goal`,
+`hpl_read_presentation ... native_pickup_travel_full_axis_controller_orientation`,
+`inspection_exit`, and paired
 `hpl_interaction_owner_lock active=1/0`. Confirm the established stereo,
 tracking, eye height, shadows, reflections, context icon, and locomotion first.
 Any poor direction or strength should be reported with the object/mechanism and

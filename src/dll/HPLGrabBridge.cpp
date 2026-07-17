@@ -12,6 +12,7 @@
 #include <MinHook.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstddef>
@@ -43,20 +44,27 @@ constexpr int kLeverPlayerState = 6;
 constexpr size_t kPidP = 0x18;
 constexpr size_t kPidI = 0x1c;
 constexpr size_t kPidD = 0x20;
+constexpr size_t kPhysicsBodyLocalMatrix = 0x50;
+constexpr size_t kPhysicsBodyGetAngularVelocityVtable = 0x90;
 
 using PidVectorOutputFn = float* (*)(void*, float*, const float*, float);
 using PhysicsBodyImpulseFn = void (*)(void*, const float*);
+using PhysicsBodyGetAngularVelocityFn =
+    camera_math::Vector3* (*)(void*, camera_math::Vector3*);
 
 struct GrabAnchor {
     bool valid = false;
     void* pid = nullptr;
     void* player = nullptr;
     void* camera = nullptr;
+    void* body = nullptr;
     float relativeX = 0.0f;
     float relativeY = 0.0f;
     float relativeZ = 0.0f;
     camera_math::Quaternion gripOrientation{};
     bool gripOrientationTracked = false;
+    camera_math::Quaternion bodyOrientation{};
+    bool orientationTargetValid = false;
     camera_math::Vector3 initialHandCorrection{};
     bool attachedToHand = false;
     bool twoHandActive = false;
@@ -216,6 +224,66 @@ bool ReadMemory(const void* source, void* destination, size_t bytes)
     return ReadProcessMemory(
         GetCurrentProcess(), source, destination, bytes, &bytesRead) != FALSE
         && bytesRead == bytes;
+}
+
+bool ReadBodyOrientation(
+    void* body,
+    camera_math::Quaternion& orientation)
+{
+    std::array<float, 16> matrix{};
+    return body != nullptr
+        && ReadMemory(
+            static_cast<const std::byte*>(body) + kPhysicsBodyLocalMatrix,
+            matrix.data(),
+            sizeof(matrix))
+        && camera_math::QuaternionFromRotationMatrix(matrix, orientation);
+}
+
+bool ReadBodyAngularVelocity(
+    void* body,
+    camera_math::Vector3& velocity)
+{
+    void** vtable = nullptr;
+    void* methodPointer = nullptr;
+    if (body == nullptr
+        || !ReadMemory(body, &vtable, sizeof(vtable))
+        || vtable == nullptr
+        || !ReadMemory(
+            reinterpret_cast<const std::byte*>(vtable)
+                + kPhysicsBodyGetAngularVelocityVtable,
+            &methodPointer,
+            sizeof(methodPointer))
+        || methodPointer == nullptr) {
+        return false;
+    }
+    const auto method =
+        reinterpret_cast<PhysicsBodyGetAngularVelocityFn>(methodPointer);
+    camera_math::Vector3 nativeVelocity{};
+    camera_math::Vector3* result = method(body, &nativeVelocity);
+    if (result == &nativeVelocity) {
+        velocity = nativeVelocity;
+    } else if (!ReadMemory(result, &velocity, sizeof(velocity))) {
+        return false;
+    }
+    return std::isfinite(velocity.x)
+        && std::isfinite(velocity.y)
+        && std::isfinite(velocity.z);
+}
+
+bool ResolveTrackedWorldOrientation(
+    const OpenXRControllerPose& pose,
+    uint64_t frame,
+    camera_math::Quaternion& orientation)
+{
+    HPLTrackedPoseWorld world{};
+    return pose.valid
+        && pose.orientationTracked
+        && ResolveHPLTrackedPoseWorld(pose, frame, world)
+        && world.orientationTracked
+        && camera_math::QuaternionFromForwardUp(
+            {world.forwardX, world.forwardY, world.forwardZ},
+            {world.upX, world.upY, world.upZ},
+            orientation);
 }
 
 bool ResolveSlideJointPin(uint64_t inputFrame, SlideAnchor& anchor)
@@ -779,7 +847,8 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
             anchor = g_anchor;
         }
         if (!anchor.valid || anchor.player != player.player || anchor.camera != player.camera
-            || !anchor.gripOrientationTracked || g_openxr == nullptr
+            || !anchor.orientationTargetValid || anchor.body == nullptr
+            || g_openxr == nullptr
             || !g_openxr->GetLatestInput(input) || !input.active
             || (input.gameFrame > anchor.lastInputFrame
                 && input.gameFrame - anchor.lastInputFrame > 4)
@@ -789,12 +858,12 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
             return g_originalPidOutput(pid, output, error, timeStep);
         }
 
-        const camera_math::Quaternion current{
-            hand->gripPose.orientationX,
-            hand->gripPose.orientationY,
-            hand->gripPose.orientationZ,
-            hand->gripPose.orientationW,
-        };
+        camera_math::Quaternion dominantOrientation{};
+        if (!ResolveTrackedWorldOrientation(
+                hand->gripPose, input.gameFrame, dominantOrientation)) {
+            g_fallbackPose.fetch_add(1, std::memory_order_relaxed);
+            return g_originalPidOutput(pid, output, error, timeStep);
+        }
         two_hand_math::TwoHandBasis twoHandBasis{};
         bool twoHandRequested = false;
         float supportSqueeze = 0.0f;
@@ -804,18 +873,38 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
             twoHandBasis,
             twoHandRequested,
             supportSqueeze);
+        camera_math::Quaternion controllerOrientation = dominantOrientation;
+        if (twoHandValid
+            && !camera_math::QuaternionFromForwardUp(
+                twoHandBasis.forward,
+                twoHandBasis.up,
+                controllerOrientation)) {
+            g_twoHandGrabFallbacks.fetch_add(1, std::memory_order_relaxed);
+            return g_originalPidOutput(pid, output, error, timeStep);
+        }
+        camera_math::Quaternion bodyOrientation{};
+        camera_math::Vector3 bodyAngularVelocity{};
+        if (!ReadBodyOrientation(anchor.body, bodyOrientation)
+            || !ReadBodyAngularVelocity(anchor.body, bodyAngularVelocity)) {
+            g_fallbackPose.fetch_add(1, std::memory_order_relaxed);
+            return g_originalPidOutput(pid, output, error, timeStep);
+        }
+
         bool modeTransition = false;
         {
             std::lock_guard lock(g_stateMutex);
             if (twoHandValid && !g_anchor.twoHandActive) {
                 g_anchor.twoHandActive = true;
                 g_anchor.twoHandAnchorDirection = twoHandBasis.forward;
+                g_anchor.gripOrientation = controllerOrientation;
+                g_anchor.bodyOrientation = bodyOrientation;
                 modeTransition = true;
                 g_twoHandGrabEngagements.fetch_add(1, std::memory_order_relaxed);
             } else if (!twoHandValid && g_anchor.twoHandActive) {
                 g_anchor.twoHandActive = false;
                 g_anchor.twoHandAnchorDirection = {};
-                g_anchor.gripOrientation = current;
+                g_anchor.gripOrientation = dominantOrientation;
+                g_anchor.bodyOrientation = bodyOrientation;
                 modeTransition = true;
                 g_twoHandGrabReleases.fetch_add(1, std::memory_order_relaxed);
             }
@@ -837,53 +926,45 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
             return g_originalPidOutput(pid, output, error, timeStep);
         }
 
-        camera_math::Vector3 correction{};
-        if (twoHandValid) {
-            correction = two_hand_math::ResolveDirectionAngularTargetVelocity(
-                anchor.twoHandAnchorDirection,
-                twoHandBasis.forward,
+        const camera_math::Quaternion desiredBodyOrientation =
+            grab_math::ResolveRelativeOrientationTarget(
+                anchor.gripOrientation,
+                controllerOrientation,
+                anchor.bodyOrientation);
+        const camera_math::Vector3 targetAngularVelocity =
+            grab_math::ResolveAngularTargetVelocity(
+                bodyOrientation,
+                desiredBodyOrientation,
                 g_config.hplControllerGrabRotationGain,
                 g_config.hplControllerGrabRotationSign,
                 g_config.hplControllerGrabMaxAngularSpeed);
+        if (twoHandValid) {
             g_twoHandGrabSubstitutions.fetch_add(1, std::memory_order_relaxed);
-        } else {
-            const camera_math::Vector3 referenceCorrection =
-                grab_math::ResolveAngularTargetVelocity(
-                    anchor.gripOrientation,
-                    current,
-                    g_config.hplControllerGrabRotationGain,
-                    g_config.hplControllerGrabRotationSign,
-                    g_config.hplControllerGrabMaxAngularSpeed);
-            if (!ResolveHPLReferenceVectorWorld(
-                    referenceCorrection.x,
-                    referenceCorrection.y,
-                    referenceCorrection.z,
-                    false,
-                    correction.x,
-                    correction.y,
-                    correction.z)) {
-                g_fallbackCamera.fetch_add(1, std::memory_order_relaxed);
-                return g_originalPidOutput(pid, output, error, timeStep);
-            }
         }
         const float modifiedError[3] = {
-            error[0] + correction.x,
-            error[1] + correction.y,
-            error[2] + correction.z,
+            targetAngularVelocity.x - bodyAngularVelocity.x,
+            targetAngularVelocity.y - bodyAngularVelocity.y,
+            targetAngularVelocity.z - bodyAngularVelocity.z,
         };
         const uint64_t substitution = g_rotationSubstitutions.fetch_add(1, std::memory_order_relaxed) + 1;
         if (substitution <= 8
             || substitution % static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1)) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "hpl_grab_rotation call=%llu applied=1 mode=%s nativeError=%.4f,%.4f,%.4f controllerTarget=%.4f,%.4f,%.4f modifiedError=%.4f,%.4f,%.4f gain=%.2f maxSpeed=%.2f supportSqueeze=%.3f separation=%.4f",
+                "hpl_grab_rotation call=%llu applied=1 mode=%s nativeError=%.4f,%.4f,%.4f targetAngularVelocity=%.4f,%.4f,%.4f bodyAngularVelocity=%.4f,%.4f,%.4f modifiedError=%.4f,%.4f,%.4f gain=%.2f maxSpeed=%.2f supportRequested=%d supportSqueeze=%.3f separation=%.4f policy=absolute_controller_orientation_replaces_native_camera_goal",
                 static_cast<unsigned long long>(call),
-                twoHandValid ? "two_hand_direction" : "dominant_grip_orientation",
+                twoHandValid ? "two_hand_orientation" : "dominant_grip_orientation",
                 error[0], error[1], error[2],
-                correction.x, correction.y, correction.z,
+                targetAngularVelocity.x,
+                targetAngularVelocity.y,
+                targetAngularVelocity.z,
+                bodyAngularVelocity.x,
+                bodyAngularVelocity.y,
+                bodyAngularVelocity.z,
                 modifiedError[0], modifiedError[1], modifiedError[2],
                 g_config.hplControllerGrabRotationGain,
                 g_config.hplControllerGrabMaxAngularSpeed,
+                twoHandRequested ? 1 : 0,
                 supportSqueeze,
                 twoHandBasis.separation);
         }
@@ -928,6 +1009,18 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
     bool anchored = false;
     bool attachedToHand = false;
     camera_math::Vector3 initialHandCorrection{};
+    HPLInteractionHitSnapshot hit{};
+    const bool hitValid = GetHPLInteractionHitSnapshot(hit)
+        && hit.valid
+        && hit.body != nullptr
+        && inputFrame >= hit.gameFrame
+        && inputFrame - hit.gameFrame <= 120;
+    camera_math::Quaternion gripWorldOrientation{};
+    camera_math::Quaternion bodyOrientation{};
+    const bool orientationTargetValid = hitValid
+        && ResolveTrackedWorldOrientation(
+            gripPose, inputFrame, gripWorldOrientation)
+        && ReadBodyOrientation(hit.body, bodyOrientation);
     {
         std::lock_guard lock(g_stateMutex);
         if (!g_anchor.valid
@@ -940,24 +1033,19 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
             g_anchor.pid = pid;
             g_anchor.player = player.player;
             g_anchor.camera = player.camera;
+            g_anchor.body = orientationTargetValid ? hit.body : nullptr;
             g_anchor.relativeX = relativeX;
             g_anchor.relativeY = relativeY;
             g_anchor.relativeZ = relativeZ;
-            g_anchor.gripOrientation = {
-                gripPose.orientationX,
-                gripPose.orientationY,
-                gripPose.orientationZ,
-                gripPose.orientationW,
-            };
-            g_anchor.gripOrientationTracked = gripPose.orientationTracked;
+            g_anchor.gripOrientation = gripWorldOrientation;
+            g_anchor.gripOrientationTracked = orientationTargetValid;
+            g_anchor.bodyOrientation = bodyOrientation;
+            g_anchor.orientationTargetValid = orientationTargetValid;
             g_anchor.initialHandCorrection = {};
             g_anchor.attachedToHand = false;
             if (g_config.hplControllerGrabAttachToHand) {
-                HPLInteractionHitSnapshot hit;
                 const HPLCameraBridgeStatus camera = GetHPLCameraBridgeStatus();
-                if (GetHPLInteractionHitSnapshot(hit)
-                    && hit.valid
-                    && inputFrame >= hit.gameFrame
+                if (hitValid
                     && inputFrame - hit.gameFrame <= 8
                     && camera.cameraWorldPositionValid) {
                     g_anchor.initialHandCorrection = {
@@ -986,13 +1074,15 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
         if (anchors <= 8) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "hpl_grab_anchor call=%llu pid=%p player=%p camera=%p relative=%.4f,%.4f,%.4f attachToHand=%d initialCorrection=%.4f,%.4f,%.4f policy=bounded_native_pid_pull_then_controller_delta",
+                "hpl_grab_anchor call=%llu pid=%p player=%p camera=%p body=%p relative=%.4f,%.4f,%.4f attachToHand=%d initialCorrection=%.4f,%.4f,%.4f orientationTarget=%d policy=bounded_native_pid_pull_and_absolute_controller_orientation",
                 static_cast<unsigned long long>(call), pid, player.player, player.camera,
+                orientationTargetValid ? hit.body : nullptr,
                 relativeX, relativeY, relativeZ,
                 attachedToHand ? 1 : 0,
                 initialHandCorrection.x,
                 initialHandCorrection.y,
-                initialHandCorrection.z);
+                initialHandCorrection.z,
+                orientationTargetValid ? 1 : 0);
         }
         return g_originalPidOutput(pid, output, error, timeStep);
     }

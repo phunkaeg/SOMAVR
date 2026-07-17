@@ -8,9 +8,13 @@ namespace somavr::read_math {
 
 bool BuildReadPresentationMatrix(
     const std::array<float, 16>& nativeMatrix,
-    const camera_math::Vector3& cameraPosition,
-    float targetDistance,
     float objectScale,
+    const camera_math::Quaternion* orientationOverride,
     std::array<float, 16>& output);
+
+camera_math::Quaternion ResolveRelativeOrientation(
+    const camera_math::Quaternion& anchorController,
+    const camera_math::Quaternion& currentController,
+    const camera_math::Quaternion& anchorObject);
 
 } // namespace somavr::read_math

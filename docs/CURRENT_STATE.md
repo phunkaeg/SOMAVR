@@ -21,10 +21,18 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.65.0-physical-interaction-polish`, layered on the
+The active build candidate is `0.65.1-object-rotation-fix`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- The 0.65 live pass exposed two object-rotation regressions. Read presentation
+  cached a transition matrix before SOMA completed its native approach, creating
+  a slow distant arc. Grab added tracked angular velocity to SOMA's opposing
+  camera-relative target, and both saturated near `6 rad/s` before cancelling.
+  Version 0.65.1 restores native Read travel, directly applies unrestricted
+  tracked orientation only at the object matrix, and drives Grab from absolute
+  hand/body orientation plus measured body angular velocity.
 
 - The 0.64.1 live pass restored independent left/right interaction, both visual
   guides, and native focus. Version 0.65 locks the initiating hand for every
@@ -42,10 +50,10 @@ compatibility probes:
   grip, then retains the existing tracked translation, rotation, and release
   impulse paths.
 
-- Read state holds right-click while right A/B is held, uses grip hysteresis for
-  rotation, and applies a guarded per-entity presentation transform at twice the
-  initial camera distance and twice the apparent scale. These new physical and
-  presentation routes are built but await headset acceptance.
+- Read state holds right-click while right A/B is held and keeps the guarded
+  apparent scale, but native pickup translation/timing are restored. Grip
+  directly controls persistent full-axis object orientation without synthetic
+  mouse input or camera drift. This path awaits headset acceptance.
 
 - Both tracked controllers now feed SOMA's native closest-entity raycast. A
   deterministic pressed/hit/sticky/preferred policy selects one focus owner,

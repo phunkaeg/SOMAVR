@@ -98,7 +98,11 @@ struct FlashlightPoseCache {
 };
 
 struct ReadPresentationAnchor {
-    float targetDistance = 0.0f;
+    bool manipulated = false;
+    bool rotateActive = false;
+    uint64_t lastFrame = 0;
+    camera_math::Quaternion gripOrientation{};
+    camera_math::Quaternion objectOrientation{};
 };
 
 Config g_config;
@@ -877,24 +881,81 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                 const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
                 if (g_config.hplControllerReadPresentation
                     && std::isfinite(distance) && distance > 0.05f && distance <= 1.5f) {
-                    float targetDistance = 0.0f;
+                    OpenXRInputSnapshot input{};
+                    HPLTrackedPoseWorld worldGrip{};
+                    camera_math::Quaternion gripOrientation{};
+                    uint32_t handIndex = 1;
+                    const OpenXRHandInput* hand = nullptr;
+                    const bool gripValid = g_openxr != nullptr
+                        && g_openxr->GetLatestInput(input)
+                        && input.active
+                        && (hand = SelectDominantHand(input, handIndex)) != nullptr
+                        && hand->gripPose.valid
+                        && hand->gripPose.orientationTracked
+                        && ResolveHPLTrackedPoseWorld(
+                            hand->gripPose, input.gameFrame, worldGrip)
+                        && worldGrip.orientationTracked
+                        && camera_math::QuaternionFromForwardUp(
+                            {
+                                worldGrip.forwardX,
+                                worldGrip.forwardY,
+                                worldGrip.forwardZ,
+                            },
+                            {
+                                worldGrip.upX,
+                                worldGrip.upY,
+                                worldGrip.upZ,
+                            },
+                            gripOrientation);
+                    camera_math::Quaternion nativeOrientation{};
+                    const bool nativeOrientationValid =
+                        camera_math::QuaternionFromRotationMatrix(
+                            matrix, nativeOrientation);
+                    camera_math::Quaternion presentationOrientation{};
+                    bool usePresentationOrientation = false;
+                    bool rotateActive = false;
                     {
                         std::lock_guard lock(g_identityMutex);
-                        auto [anchor, inserted] = g_readPresentationAnchors.try_emplace(
-                            entity,
-                            ReadPresentationAnchor{
-                                distance * g_config.hplControllerReadObjectDistanceScale});
-                        targetDistance = anchor->second.targetDistance;
+                        ReadPresentationAnchor& anchor =
+                            g_readPresentationAnchors[entity];
+                        if (anchor.lastFrame != 0
+                            && player.frame > anchor.lastFrame + 30) {
+                            anchor = {};
+                        }
+                        const float squeeze = hand != nullptr ? hand->squeeze : 0.0f;
+                        const bool rotateRequested = gripValid
+                            && squeeze >= (anchor.rotateActive ? 0.55f : 0.75f);
+                        if (rotateRequested && nativeOrientationValid) {
+                            if (!anchor.rotateActive) {
+                                anchor.gripOrientation = gripOrientation;
+                                if (!anchor.manipulated) {
+                                    anchor.objectOrientation = nativeOrientation;
+                                }
+                            }
+                            anchor.objectOrientation =
+                                read_math::ResolveRelativeOrientation(
+                                    anchor.gripOrientation,
+                                    gripOrientation,
+                                    anchor.objectOrientation);
+                            anchor.gripOrientation = gripOrientation;
+                            anchor.manipulated = true;
+                            anchor.rotateActive = true;
+                        } else {
+                            anchor.rotateActive = false;
+                        }
+                        anchor.lastFrame = player.frame;
+                        rotateActive = anchor.rotateActive;
+                        if (anchor.manipulated) {
+                            presentationOrientation = anchor.objectOrientation;
+                            usePresentationOrientation = true;
+                        }
                     }
                     if (read_math::BuildReadPresentationMatrix(
                             matrix,
-                            {
-                                camera.cameraWorldPositionX,
-                                camera.cameraWorldPositionY,
-                                camera.cameraWorldPositionZ,
-                            },
-                            targetDistance,
                             g_config.hplControllerReadObjectScale,
+                            usePresentationOrientation
+                                ? &presentationOrientation
+                                : nullptr,
                             controllerMatrix)) {
                         submittedMatrix = controllerMatrix.data();
                         const uint64_t overrideCount = g_readPresentationOverrides.fetch_add(
@@ -904,14 +965,18 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                         if (overrideCount <= 8 || overrideCount % interval == 0) {
                             Logger::Instance().Write(
                                 LogLevel::Info,
-                                "hpl_read_presentation override=%llu frame=%llu entity=%p name=%s nativeDistance=%.4f targetDistance=%.4f objectScale=%.3f finalPos=%.4f,%.4f,%.4f",
+                                "hpl_read_presentation override=%llu frame=%llu entity=%p name=%s nativeDistance=%.4f objectScale=%.3f gripValid=%d gripHand=%s squeeze=%.3f rotateActive=%d orientationOverride=%d finalPos=%.4f,%.4f,%.4f policy=native_pickup_travel_full_axis_controller_orientation",
                                 static_cast<unsigned long long>(overrideCount),
                                 static_cast<unsigned long long>(player.frame),
                                 entity,
                                 identity.name.c_str(),
                                 distance,
-                                targetDistance,
                                 g_config.hplControllerReadObjectScale,
+                                gripValid ? 1 : 0,
+                                handIndex == 0 ? "left" : "right",
+                                hand != nullptr ? hand->squeeze : 0.0f,
+                                rotateActive ? 1 : 0,
+                                usePresentationOrientation ? 1 : 0,
                                 controllerMatrix[3], controllerMatrix[7], controllerMatrix[11]);
                         }
                     } else {
@@ -1134,7 +1199,7 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
     }
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_hands_bridge install_ok setMatrixRva=0x%llx getNameRva=0x%llx destroyEntityRva=0x%llx getClosestBodyRva=0x%llx probe=%d controllerRoot=%d controllerHudObject=%d twoHandHudObject=%d readPresentation=%d readScale={distance=%.2f object=%.2f} twoHand={squeeze=%.3f separationMeters=%.3f,%.3f blend=%.3f} flashlightAim=%d flashlightGameplayRay=%d handOffset=%.4f,%.4f,%.4f handRotationDegrees=%.2f,%.2f,%.2f hudObjectOffset=%.4f,%.4f,%.4f hudObjectRotationDegrees=%.2f,%.2f,%.2f flashlightOffset=%.4f,%.4f,%.4f flashlightRotationDegrees=%.2f,%.2f,%.2f policy=exact_identity_guarded_tracked_pose lifecyclePolicy=evict_on_native_destroy gameplayRayPolicy=ray_length_camera_origin_preserve_cone cacheLimit=%llu identityLogLimit=%llu",
+        "hpl_hands_bridge install_ok setMatrixRva=0x%llx getNameRva=0x%llx destroyEntityRva=0x%llx getClosestBodyRva=0x%llx probe=%d controllerRoot=%d controllerHudObject=%d twoHandHudObject=%d readPresentation=%d readScale={legacyDistance=%.2f object=%.2f nativeTravel=1} twoHand={squeeze=%.3f separationMeters=%.3f,%.3f blend=%.3f} flashlightAim=%d flashlightGameplayRay=%d handOffset=%.4f,%.4f,%.4f handRotationDegrees=%.2f,%.2f,%.2f hudObjectOffset=%.4f,%.4f,%.4f hudObjectRotationDegrees=%.2f,%.2f,%.2f flashlightOffset=%.4f,%.4f,%.4f flashlightRotationDegrees=%.2f,%.2f,%.2f policy=exact_identity_guarded_tracked_pose lifecyclePolicy=evict_on_native_destroy gameplayRayPolicy=ray_length_camera_origin_preserve_cone cacheLimit=%llu identityLogLimit=%llu",
         static_cast<unsigned long long>(kLuxEntitySetMatrixRva),
         static_cast<unsigned long long>(kLuxEntityGetNameRva),
         static_cast<unsigned long long>(kLuxMapDestroyEntityRva),

@@ -48,6 +48,18 @@ camera_math::Vector3 ResolveAngularTargetVelocity(
     return result;
 }
 
+camera_math::Quaternion ResolveRelativeOrientationTarget(
+    const camera_math::Quaternion& anchorController,
+    const camera_math::Quaternion& currentController,
+    const camera_math::Quaternion& anchorObject)
+{
+    return camera_math::Normalize(camera_math::Multiply(
+        camera_math::Multiply(
+            camera_math::Normalize(currentController),
+            camera_math::Conjugate(camera_math::Normalize(anchorController))),
+        camera_math::Normalize(anchorObject)));
+}
+
 float ResolveHingeAngularVelocity(
     const camera_math::Vector3& pivot,
     const camera_math::Vector3& point,

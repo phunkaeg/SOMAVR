@@ -11,6 +11,11 @@ camera_math::Vector3 ResolveAngularTargetVelocity(
     float sign,
     float maxAngularSpeed);
 
+camera_math::Quaternion ResolveRelativeOrientationTarget(
+    const camera_math::Quaternion& anchorController,
+    const camera_math::Quaternion& currentController,
+    const camera_math::Quaternion& anchorObject);
+
 float ResolveHingeAngularVelocity(
     const camera_math::Vector3& pivot,
     const camera_math::Vector3& point,

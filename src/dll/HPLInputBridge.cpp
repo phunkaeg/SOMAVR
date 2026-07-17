@@ -922,7 +922,8 @@ void ApplyControllerManipulationMotion(
         g_state.readRotateLatched = dominant.squeeze >= 0.75f;
     }
     const bool inspectionState = player.playerStateId == kReadPlayerState
-        && g_state.readRotateLatched;
+        && g_state.readRotateLatched
+        && !g_config.hplControllerReadPresentation;
     if (!g_config.hplControllerManipulationMotion
         || (!physicalState && !inspectionState)
         || g_openxr == nullptr) {

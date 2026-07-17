@@ -16,6 +16,18 @@ camera_math::Quaternion ResolveRelativeOrientationTarget(
     const camera_math::Quaternion& currentController,
     const camera_math::Quaternion& anchorObject);
 
+camera_math::Vector3 ClampVectorMagnitude(
+    const camera_math::Vector3& value,
+    float maximumMagnitude);
+
+float ResolveSlideTargetSpeed(
+    float controllerVelocityAlongPin,
+    float controllerDisplacementAlongPin,
+    float bodyDisplacementAlongPin,
+    float velocityScale,
+    float positionGain,
+    float maximumSpeed);
+
 float ResolveHingeAngularVelocity(
     const camera_math::Vector3& pivot,
     const camera_math::Vector3& point,

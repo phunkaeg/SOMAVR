@@ -1,5 +1,34 @@
 # Future Systems Reverse Engineering
 
+## 0.66.0 Interaction Stability Correction
+
+The 0.65.1 log proves story-object presentation is materially improved and
+isolates the remaining loose-prop jitter. Immediately after Grab anchoring, one
+body reported angular velocity `109.30,-8.05,-47.04 rad/s`; subtracting that
+unbounded value from a target capped at `6 rad/s` handed the native `40/0/0.4`
+PID another three-digit reversal. Version 0.66 bounds the complete angular error
+vector and packages lower `20/3` gain/speed defaults. The absolute full-axis pose
+target remains, but light bodies cannot receive arbitrarily large corrective
+torque through this hook.
+
+Curtain evidence reaches Slide state `4`, resolves pin
+`0.03589,0,0.99936`, and accelerates the body only to about `0.24` while the
+hand reaches `0.68` world units/second. The former velocity-only route discards
+the remaining hand/body gap as soon as hand velocity falls. Version 0.66 anchors
+initial grip and body positions, projects both displacements onto the native pin,
+and adds configurable proportional catch-up to velocity feed-forward before the
+same native Slide PID and joint limits.
+
+Terminal state `8` remained active for roughly 740 frames, but no
+`hpl_terminal_pointer applied` row appeared and the pointer-active gate repeatedly
+flipped. Decompilation of `SOMA_ImGuiManager_UpdateInput` identifies the mismatch:
+world input uses manager `+0x170`, while the bridge validated a separate current-
+ImGui helper. The native world branch reads focused wrapper `+0x180`, cGuiSet
+`+0x18`, entity `+0x28`, projects the ray, then calls
+`HPL3_ImGui_SendMouseVirtualPosition` on `+0x170`. Version 0.66 mirrors that
+ownership for both direct dispatch and hook substitution, so subsequent native
+mouse updates cannot overwrite controller coordinates.
+
 ## 0.65.1 Object Rotation Correction
 
 The 0.65 live log resolves both reported hard limits. Read's first intercepted

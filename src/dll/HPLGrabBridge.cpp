@@ -86,6 +86,8 @@ struct SlideAnchor {
     uint64_t hitSequence = 0;
     uint64_t lastInputFrame = 0;
     camera_math::Vector3 pin{};
+    camera_math::Vector3 initialGripPosition{};
+    camera_math::Vector3 initialBodyPosition{};
     camera_math::Vector3 lastGripPosition{};
 };
 
@@ -239,6 +241,24 @@ bool ReadBodyOrientation(
         && camera_math::QuaternionFromRotationMatrix(matrix, orientation);
 }
 
+bool ReadBodyPosition(
+    void* body,
+    camera_math::Vector3& position)
+{
+    std::array<float, 16> matrix{};
+    if (body == nullptr
+        || !ReadMemory(
+            static_cast<const std::byte*>(body) + kPhysicsBodyLocalMatrix,
+            matrix.data(),
+            sizeof(matrix))) {
+        return false;
+    }
+    position = {matrix[3], matrix[7], matrix[11]};
+    return std::isfinite(position.x)
+        && std::isfinite(position.y)
+        && std::isfinite(position.z);
+}
+
 bool ReadBodyAngularVelocity(
     void* body,
     camera_math::Vector3& velocity)
@@ -286,7 +306,10 @@ bool ResolveTrackedWorldOrientation(
             orientation);
 }
 
-bool ResolveSlideJointPin(uint64_t inputFrame, SlideAnchor& anchor)
+bool ResolveSlideJointPin(
+    uint64_t inputFrame,
+    const camera_math::Vector3& gripPosition,
+    SlideAnchor& anchor)
 {
     HPLInteractionHitSnapshot hit;
     GetHPLInteractionHitSnapshot(hit);
@@ -322,17 +345,31 @@ bool ResolveSlideJointPin(uint64_t inputFrame, SlideAnchor& anchor)
     anchor.joint = joint;
     anchor.hitSequence = hit.sequence;
     anchor.pin = {pin.x * inverseLength, pin.y * inverseLength, pin.z * inverseLength};
+    if (!ReadBodyPosition(hit.body, anchor.initialBodyPosition)) {
+        g_slideFallbackJoint.fetch_add(1, std::memory_order_relaxed);
+        anchor = {};
+        return false;
+    }
+    anchor.initialGripPosition = gripPosition;
+    anchor.lastGripPosition = gripPosition;
+    anchor.lastInputFrame = inputFrame;
     const uint64_t anchored = g_slideAnchors.fetch_add(1, std::memory_order_relaxed) + 1;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_slide_anchor count=%llu frame=%llu hitFrame=%llu hitSequence=%llu body=%p joint=%p pin=%.5f,%.5f,%.5f policy=interaction_body_joint0",
+        "hpl_slide_anchor count=%llu frame=%llu hitFrame=%llu hitSequence=%llu body=%p joint=%p pin=%.5f,%.5f,%.5f grip=%.4f,%.4f,%.4f bodyPos=%.4f,%.4f,%.4f policy=interaction_body_joint0_position_anchor",
         static_cast<unsigned long long>(anchored),
         static_cast<unsigned long long>(inputFrame),
         static_cast<unsigned long long>(hit.gameFrame),
         static_cast<unsigned long long>(hit.sequence),
         hit.body,
         joint,
-        anchor.pin.x, anchor.pin.y, anchor.pin.z);
+        anchor.pin.x, anchor.pin.y, anchor.pin.z,
+        anchor.initialGripPosition.x,
+        anchor.initialGripPosition.y,
+        anchor.initialGripPosition.z,
+        anchor.initialBodyPosition.x,
+        anchor.initialBodyPosition.y,
+        anchor.initialBodyPosition.z);
     return true;
 }
 
@@ -472,6 +509,7 @@ bool ResolveRotateControllerMotion(
 
 bool ResolveSlideControllerTarget(
     float timeStep,
+    camera_math::Vector3& position,
     camera_math::Vector3& targetVelocity,
     uint64_t& inputFrame)
 {
@@ -502,7 +540,7 @@ bool ResolveSlideControllerTarget(
             velocity.x,
             velocity.y,
             velocity.z);
-    const camera_math::Vector3 position{grip.positionX, grip.positionY, grip.positionZ};
+    position = {grip.positionX, grip.positionY, grip.positionZ};
     if (!velocityValid && g_slideAnchor.valid
         && g_slideAnchor.lastInputFrame != 0
         && input.gameFrame != g_slideAnchor.lastInputFrame
@@ -522,9 +560,7 @@ bool ResolveSlideControllerTarget(
         return false;
     }
 
-    const float scale = g_config.hplControllerSlideVelocityScale
-        * std::max(g_config.hplWorldScale, 0.001f);
-    targetVelocity = {velocity.x * scale, velocity.y * scale, velocity.z * scale};
+    targetVelocity = velocity;
     return std::isfinite(targetVelocity.x)
         && std::isfinite(targetVelocity.y)
         && std::isfinite(targetVelocity.z);
@@ -697,24 +733,48 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
         }
         g_slidePidMatches.fetch_add(1, std::memory_order_relaxed);
         uint64_t inputFrame = 0;
+        camera_math::Vector3 gripPosition{};
         camera_math::Vector3 targetVelocity{};
-        if (!ResolveSlideControllerTarget(timeStep, targetVelocity, inputFrame)) {
+        if (!ResolveSlideControllerTarget(
+                timeStep, gripPosition, targetVelocity, inputFrame)) {
             return g_originalPidOutput(pid, output, error, timeStep);
         }
-        if (!g_slideAnchor.valid && !ResolveSlideJointPin(inputFrame, g_slideAnchor)) {
+        if (!g_slideAnchor.valid
+            && !ResolveSlideJointPin(inputFrame, gripPosition, g_slideAnchor)) {
             return g_originalPidOutput(pid, output, error, timeStep);
         }
-        const float targetAlongPin = targetVelocity.x * g_slideAnchor.pin.x
+        camera_math::Vector3 bodyPosition{};
+        if (!ReadBodyPosition(g_slideAnchor.body, bodyPosition)) {
+            g_slideFallbackJoint.fetch_add(1, std::memory_order_relaxed);
+            return g_originalPidOutput(pid, output, error, timeStep);
+        }
+        const float velocityAlongPin = targetVelocity.x * g_slideAnchor.pin.x
             + targetVelocity.y * g_slideAnchor.pin.y
             + targetVelocity.z * g_slideAnchor.pin.z;
+        const float controllerDisplacement =
+            (gripPosition.x - g_slideAnchor.initialGripPosition.x) * g_slideAnchor.pin.x
+            + (gripPosition.y - g_slideAnchor.initialGripPosition.y) * g_slideAnchor.pin.y
+            + (gripPosition.z - g_slideAnchor.initialGripPosition.z) * g_slideAnchor.pin.z;
+        const float bodyDisplacement =
+            (bodyPosition.x - g_slideAnchor.initialBodyPosition.x) * g_slideAnchor.pin.x
+            + (bodyPosition.y - g_slideAnchor.initialBodyPosition.y) * g_slideAnchor.pin.y
+            + (bodyPosition.z - g_slideAnchor.initialBodyPosition.z) * g_slideAnchor.pin.z;
         const float maxSpeed = g_config.hplControllerSlideMaxVelocityMetersPerSecond
             * std::max(g_config.hplWorldScale, 0.001f);
-        const float targetSpeed = std::clamp(targetAlongPin, -maxSpeed, maxSpeed);
+        const float targetSpeed = grab_math::ResolveSlideTargetSpeed(
+            velocityAlongPin,
+            controllerDisplacement,
+            bodyDisplacement,
+            g_config.hplControllerSlideVelocityScale,
+            g_config.hplControllerSlidePositionGain,
+            maxSpeed);
         const float modifiedError[3] = {
             error[0] + g_slideAnchor.pin.x * targetSpeed,
             error[1] + g_slideAnchor.pin.y * targetSpeed,
             error[2] + g_slideAnchor.pin.z * targetSpeed,
         };
+        g_slideAnchor.lastGripPosition = gripPosition;
+        g_slideAnchor.lastInputFrame = inputFrame;
         const uint64_t substitution = g_slideSubstitutions.fetch_add(
             1, std::memory_order_relaxed) + 1;
         if (substitution <= 12
@@ -722,14 +782,20 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
                 std::max(g_config.hplControllerLogInterval, 1)) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "hpl_slide_target call=%llu applied=1 frame=%llu body=%p joint=%p pin=%.5f,%.5f,%.5f controllerVelocity=%.4f,%.4f,%.4f targetSpeed=%.4f nativeError=%.4f,%.4f,%.4f modifiedError=%.4f,%.4f,%.4f route=controller_world_velocity_projected_to_native_joint_pid",
+                "hpl_slide_target call=%llu applied=1 frame=%llu body=%p joint=%p pin=%.5f,%.5f,%.5f controllerVelocity=%.4f,%.4f,%.4f alongPin={velocity=%.4f controllerDisplacement=%.4f bodyDisplacement=%.4f error=%.4f} targetSpeed=%.4f gains={velocity=%.3f position=%.3f} nativeError=%.4f,%.4f,%.4f modifiedError=%.4f,%.4f,%.4f route=controller_joint_position_follow_through_native_velocity_pid",
                 static_cast<unsigned long long>(call),
                 static_cast<unsigned long long>(inputFrame),
                 g_slideAnchor.body,
                 g_slideAnchor.joint,
                 g_slideAnchor.pin.x, g_slideAnchor.pin.y, g_slideAnchor.pin.z,
                 targetVelocity.x, targetVelocity.y, targetVelocity.z,
+                velocityAlongPin,
+                controllerDisplacement,
+                bodyDisplacement,
+                controllerDisplacement - bodyDisplacement,
                 targetSpeed,
+                g_config.hplControllerSlideVelocityScale,
+                g_config.hplControllerSlidePositionGain,
                 error[0], error[1], error[2],
                 modifiedError[0], modifiedError[1], modifiedError[2]);
         }
@@ -941,17 +1007,26 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
         if (twoHandValid) {
             g_twoHandGrabSubstitutions.fetch_add(1, std::memory_order_relaxed);
         }
-        const float modifiedError[3] = {
+        const camera_math::Vector3 unclampedError{
             targetAngularVelocity.x - bodyAngularVelocity.x,
             targetAngularVelocity.y - bodyAngularVelocity.y,
             targetAngularVelocity.z - bodyAngularVelocity.z,
+        };
+        const camera_math::Vector3 boundedError =
+            grab_math::ClampVectorMagnitude(
+                unclampedError,
+                g_config.hplControllerGrabMaxAngularSpeed);
+        const float modifiedError[3] = {
+            boundedError.x,
+            boundedError.y,
+            boundedError.z,
         };
         const uint64_t substitution = g_rotationSubstitutions.fetch_add(1, std::memory_order_relaxed) + 1;
         if (substitution <= 8
             || substitution % static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1)) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "hpl_grab_rotation call=%llu applied=1 mode=%s nativeError=%.4f,%.4f,%.4f targetAngularVelocity=%.4f,%.4f,%.4f bodyAngularVelocity=%.4f,%.4f,%.4f modifiedError=%.4f,%.4f,%.4f gain=%.2f maxSpeed=%.2f supportRequested=%d supportSqueeze=%.3f separation=%.4f policy=absolute_controller_orientation_replaces_native_camera_goal",
+                "hpl_grab_rotation call=%llu applied=1 mode=%s nativeError=%.4f,%.4f,%.4f targetAngularVelocity=%.4f,%.4f,%.4f bodyAngularVelocity=%.4f,%.4f,%.4f unclampedError=%.4f,%.4f,%.4f modifiedError=%.4f,%.4f,%.4f gain=%.2f maxSpeedAndError=%.2f supportRequested=%d supportSqueeze=%.3f separation=%.4f policy=absolute_controller_orientation_bounded_error_replaces_native_camera_goal",
                 static_cast<unsigned long long>(call),
                 twoHandValid ? "two_hand_orientation" : "dominant_grip_orientation",
                 error[0], error[1], error[2],
@@ -961,6 +1036,9 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
                 bodyAngularVelocity.x,
                 bodyAngularVelocity.y,
                 bodyAngularVelocity.z,
+                unclampedError.x,
+                unclampedError.y,
+                unclampedError.z,
                 modifiedError[0], modifiedError[1], modifiedError[2],
                 g_config.hplControllerGrabRotationGain,
                 g_config.hplControllerGrabMaxAngularSpeed,
@@ -1358,7 +1436,7 @@ bool InstallHPLGrabBridge(const Config& config, OpenXRRuntime* openxr)
     g_pidOutputTarget = target;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_grab_bridge install_ok pidOutputRva=0x%llx target=%p playerState=1 translation=%d attachToHand=%d rotation=%d twoHandRotation=%d slideDirectVelocity=%d slideVelocityScale=%.3f slideMaxVelocityMetersPerSecond=%.3f rotateDirectVelocity=%d rotateVelocityScale=%.3f rotateAngularVelocityScale=%.3f rotateMaxAngularSpeed=%.3f twoHand={squeeze=%.3f separationMeters=%.3f,%.3f blend=%.3f} throwRedirect=%d addImpulseRva=0x%llx pidGains={grabForce=400,0,40 grabTorque=40,0,0.4|0.1 slideForce=6,0,0.1 rotateTorque=10,0,1} translationScale=%.3f maxOffsetMeters=%.3f rotationGain=%.2f rotationSign=%.1f maxAngularSpeed=%.2f policy=bounded_pull_to_hand_then_native_pid_and_impulse",
+        "hpl_grab_bridge install_ok pidOutputRva=0x%llx target=%p playerState=1 translation=%d attachToHand=%d rotation=%d twoHandRotation=%d slideDirectVelocity=%d slideVelocityScale=%.3f slidePositionGain=%.3f slideMaxVelocityMetersPerSecond=%.3f rotateDirectVelocity=%d rotateVelocityScale=%.3f rotateAngularVelocityScale=%.3f rotateMaxAngularSpeed=%.3f twoHand={squeeze=%.3f separationMeters=%.3f,%.3f blend=%.3f} throwRedirect=%d addImpulseRva=0x%llx pidGains={grabForce=400,0,40 grabTorque=40,0,0.4|0.1 slideForce=6,0,0.1 rotateTorque=10,0,1} translationScale=%.3f maxOffsetMeters=%.3f rotationGain=%.2f rotationSign=%.1f maxAngularSpeedAndError=%.2f policy=position_follow_slide_and_bounded_grab_rotation_then_native_pid_and_impulse",
         static_cast<unsigned long long>(kPidVectorOutputRva),
         target,
         config.hplControllerGrabTranslation ? 1 : 0,
@@ -1367,6 +1445,7 @@ bool InstallHPLGrabBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplControllerTwoHandGrabRotation ? 1 : 0,
         config.hplControllerSlideDirectVelocity ? 1 : 0,
         config.hplControllerSlideVelocityScale,
+        config.hplControllerSlidePositionGain,
         config.hplControllerSlideMaxVelocityMetersPerSecond,
         config.hplControllerRotateDirectVelocity ? 1 : 0,
         config.hplControllerRotateVelocityScale,

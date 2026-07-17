@@ -21,10 +21,17 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.65.1-object-rotation-fix`, layered on the
+The active build candidate is `0.66.0-interaction-stability`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- The first 0.65.1 headset pass accepted the restored story-object route. Loose
+  props still oscillated after pull-in, curtains lagged behind short tracked
+  gestures, and terminal state `8` alternated its pointer gate without one
+  applied virtual-position row. Version 0.66 bounds Grab torque error, gives
+  Slide a controller/body positional catch-up term, and uses the exact native
+  world-ImGui owner at manager `+0x170` for terminal dispatch and interception.
 
 - The 0.65 live pass exposed two object-rotation regressions. Read presentation
   cached a transition matrix before SOMA completed its native approach, creating

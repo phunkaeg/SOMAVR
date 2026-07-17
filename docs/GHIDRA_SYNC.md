@@ -1,5 +1,15 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-18 Interaction Stability Sync
+
+| Address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| `0x1400f7f10` | `SOMA_ImGuiManager_UpdateInput` | Documented exact world-input selection: manager `+0x170`, focused wrapper `+0x180`, set `+0x18`, entity `+0x28`, and screen flag `+0x192`. |
+| `0x1402f0c90` | `HPL3_ImGui_SendMouseVirtualPosition` | Updated controller substitution ownership to the native manager world-input pointer rather than the unrelated current-ImGui accessor. |
+| `0x140238750` | `HPL3_PidControllerVec3_Output` | Documented bounded Grab angular error and Slide velocity plus positional catch-up on the native pin. |
+
+The selected `Soma_NoSteam.exe` database was saved after synchronization.
+
 ## 2026-07-17 Object Rotation Correction Sync
 
 | Address | Ghidra name | Evidence/use |

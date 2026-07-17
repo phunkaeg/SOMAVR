@@ -350,9 +350,9 @@ void ConfigManager::WriteDefaultConfig() const
         << "GrabTranslationScale=1.0\n"
         << "GrabMaxOffsetMeters=0.75\n"
         << "GrabRotation=0\n"
-        << "GrabRotationGain=100.0\n"
+        << "GrabRotationGain=20.0\n"
         << "GrabRotationSign=1.0\n"
-        << "GrabMaxAngularSpeed=6.0\n"
+        << "GrabMaxAngularSpeed=3.0\n"
         << "TwoHandHudObject=0\n"
         << "TwoHandGrabRotation=0\n"
         << "TwoHandSqueezeThreshold=0.75\n"
@@ -374,6 +374,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "ManipulationMotionVerticalSign=-1\n"
         << "SlideDirectVelocity=1\n"
         << "SlideVelocityScale=1\n"
+        << "SlidePositionGain=12\n"
         << "SlideMaxVelocityMetersPerSecond=2.5\n"
         << "RotateDirectVelocity=1\n"
         << "RotateVelocityScale=1\n"
@@ -861,6 +862,7 @@ void ConfigManager::LoadFromFile()
             else if (key == "manipulationmotionverticalsign") config_.hplControllerManipulationMotionVerticalSign = ParseFloat(value, config_.hplControllerManipulationMotionVerticalSign, -1.0f, 1.0f);
             else if (key == "slidedirectvelocity") config_.hplControllerSlideDirectVelocity = ParseBool(value, config_.hplControllerSlideDirectVelocity);
             else if (key == "slidevelocityscale") config_.hplControllerSlideVelocityScale = ParseFloat(value, config_.hplControllerSlideVelocityScale, 0.05f, 5.0f);
+            else if (key == "slidepositiongain") config_.hplControllerSlidePositionGain = ParseFloat(value, config_.hplControllerSlidePositionGain, 0.0f, 50.0f);
             else if (key == "slidemaxvelocitymeterspersecond") config_.hplControllerSlideMaxVelocityMetersPerSecond = ParseFloat(value, config_.hplControllerSlideMaxVelocityMetersPerSecond, 0.1f, 10.0f);
             else if (key == "rotatedirectvelocity") config_.hplControllerRotateDirectVelocity = ParseBool(value, config_.hplControllerRotateDirectVelocity);
             else if (key == "rotatevelocityscale") config_.hplControllerRotateVelocityScale = ParseFloat(value, config_.hplControllerRotateVelocityScale, 0.05f, 5.0f);

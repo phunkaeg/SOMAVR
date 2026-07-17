@@ -470,9 +470,9 @@ GrabAttachToHand=1
 GrabTranslationScale=1.0
 GrabMaxOffsetMeters=0.75
 GrabRotation=1
-GrabRotationGain=100.0
+GrabRotationGain=20.0
 GrabRotationSign=1.0
-GrabMaxAngularSpeed=6.0
+GrabMaxAngularSpeed=3.0
 TwoHandHudObject=1
 TwoHandGrabRotation=1
 TwoHandSqueezeThreshold=0.75
@@ -489,6 +489,7 @@ ManipulationSlidePixelsPerMeter=2700
 ManipulationReadPixelsPerRadian=900
 SlideDirectVelocity=1
 SlideVelocityScale=1
+SlidePositionGain=12
 SlideMaxVelocityMetersPerSecond=2.5
 RotateDirectVelocity=1
 RotateVelocityScale=1
@@ -521,6 +522,12 @@ StateTransitionBlackoutFrames=2
 `0.65.1` preserves SOMA's native Read pickup travel and timing. `ReadObjectScale`
 still controls apparent size. Hold the owning grip to rotate an inspected object
 through unrestricted pitch, yaw, and roll.
+
+`SlidePositionGain` closes the distance between tracked hand travel and the
+native joint body, so a short curtain or drawer gesture is not lost to solver
+lag after the hand stops. Grab rotation uses `GrabMaxAngularSpeed` as both its
+target-speed and PID-error cap; the packaged `20/3` gain/speed defaults are
+intended to keep light props stable.
 
 `DepthCompositionSubmit` is opt-in in generated configurations until live
 runtime and hardware-matrix acceptance is complete. The development

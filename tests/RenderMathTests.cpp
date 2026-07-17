@@ -971,6 +971,21 @@ int main()
             && Near(grabTargetVelocity.y, 6.0f)
             && Near(grabTargetVelocity.z, 0.0f),
         "grab absolute orientation target follows unrestricted controller delta");
+    const camera_math::Vector3 clampedGrabError =
+        grab_math::ClampVectorMagnitude({9.0f, 12.0f, 0.0f}, 3.0f);
+    failures += Check(
+        Near(clampedGrabError.x, 1.8f)
+            && Near(clampedGrabError.y, 2.4f)
+            && Near(clampedGrabError.z, 0.0f),
+        "grab angular PID error is magnitude bounded");
+    failures += Check(
+        Near(grab_math::ResolveSlideTargetSpeed(
+                 0.0f, 0.20f, 0.02f, 1.0f, 10.0f, 2.5f),
+            1.8f)
+            && Near(grab_math::ResolveSlideTargetSpeed(
+                        1.0f, 0.40f, 0.0f, 1.0f, 10.0f, 2.5f),
+                2.5f),
+        "slide target catches body up to hand displacement and respects speed cap");
 
     using grab_math::ResolveHingeAngularVelocity;
     failures += Check(

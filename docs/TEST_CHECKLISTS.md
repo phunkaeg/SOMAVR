@@ -1,5 +1,31 @@
 # Test Checklists
 
+## 0.66.0 Interaction Stability
+
+1. Run stable-package doctor and require
+   `version=0.66.0-interaction-stability`, OpenXR flavor, and `fail=0`. Press F10
+   and verify the accepted story-object presentation, stereo, shaders, tracking,
+   locomotion, both beams, and context icon remain unchanged.
+2. Pick up light and medium loose props. They should pull toward the owning hand,
+   settle without visible angular chatter, follow hand orientation smoothly, and
+   retain ordinary collision, placement, release, and throwing. The log should
+   keep `modifiedError` magnitude at or below `maxSpeedAndError=3`.
+3. Grab each starting-area curtain and make short then long left/right hand
+   gestures. The curtain should continue catching up to hand displacement after
+   velocity falls, move in both directions, and remain within its native joint
+   limits. Repeat on a drawer with a pull/push depth gesture.
+4. Enter the starting laptop terminal. Keep the player and camera in place, aim
+   the beam across the physical display, and require the visible cursor to track
+   it continuously. Trigger should activate a native widget. Require
+   `hpl_terminal_pointer ... owner=manager_world_input_0x170` rows and no repeated
+   `dispatch_failed`.
+5. Exit normally and attach the complete log. Preserve
+   `hpl_grab_rotation`, `hpl_slide_target` displacement/error fields,
+   `hpl_terminal_pointer`, and all three bridge summaries.
+
+Rollback independently with `GrabRotation=0`, `SlideDirectVelocity=0`, or
+`TerminalRayPointer=0`.
+
 ## 0.65.1 Object Rotation Fix
 
 1. Run stable-package doctor and require

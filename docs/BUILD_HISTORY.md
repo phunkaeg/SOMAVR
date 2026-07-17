@@ -1,5 +1,37 @@
 # Build History
 
+## 2026-07-18
+
+### 0.66.0-interaction-stability
+
+- Processed the first `0.65.1` headset pass. Story-object presentation was
+  accepted, while loose props jittered after pull-in, terminal state `8` showed
+  a cursor without controller ownership, and curtains entered Slide state `4`
+  without following the full hand gesture.
+- Bounded Grab's absolute angular PID error by the configured maximum angular
+  speed and reduced the packaged rotation gain/speed defaults from `100/6` to
+  `20/3`. The live log showed a light prop reaching approximately `109 rad/s`;
+  the previous unbounded subtraction then commanded an equal opposite error and
+  sustained the oscillation.
+- Added position-following Slide control. The bridge now anchors both grip and
+  body positions, combines velocity feed-forward with hand-versus-body
+  displacement error, and drives the existing joint-pin velocity PID. This
+  lets curtains and drawers catch up after short gestures instead of stopping
+  with the solver lag visible in the `0.65.1` log.
+- Corrected diegetic terminal input ownership from native decompilation.
+  `SOMA_ImGuiManager_UpdateInput` selects world ImGui at manager `+0x170`,
+  focused wrapper set `+0x18`, and entity `+0x28`. Direct dispatch and the
+  hooked native update now use that exact owner, preventing native mouse updates
+  from overwriting controller coordinates. Dispatch failures have explicit
+  owner/set/entity telemetry.
+- Added deterministic tests for angular-error bounding and Slide positional
+  catch-up. All four CTest suites pass; stable package doctor reports
+  `pass=8 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `B1CA52A145FCD3AA4E42F827CEEEAC3752135309D4E404EB54C1D3E5B891EAA9`.
+  Stable package SHA-256:
+  `600D749372DEA305B5DC8328830ABDB2DD64AE6991BBF74C2A206A58666CFA75`.
+  Headset acceptance remains required.
+
 ## 2026-07-17
 
 ### 0.65.1-object-rotation-fix

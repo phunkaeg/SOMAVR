@@ -60,6 +60,51 @@ camera_math::Quaternion ResolveRelativeOrientationTarget(
         camera_math::Normalize(anchorObject)));
 }
 
+camera_math::Vector3 ClampVectorMagnitude(
+    const camera_math::Vector3& value,
+    float maximumMagnitude)
+{
+    if (!std::isfinite(value.x) || !std::isfinite(value.y)
+        || !std::isfinite(value.z) || !std::isfinite(maximumMagnitude)
+        || maximumMagnitude <= 0.0f) {
+        return {};
+    }
+    const float lengthSquared =
+        value.x * value.x + value.y * value.y + value.z * value.z;
+    if (!std::isfinite(lengthSquared)
+        || lengthSquared <= maximumMagnitude * maximumMagnitude) {
+        return value;
+    }
+    const float scale = maximumMagnitude / std::sqrt(lengthSquared);
+    return {value.x * scale, value.y * scale, value.z * scale};
+}
+
+float ResolveSlideTargetSpeed(
+    float controllerVelocityAlongPin,
+    float controllerDisplacementAlongPin,
+    float bodyDisplacementAlongPin,
+    float velocityScale,
+    float positionGain,
+    float maximumSpeed)
+{
+    if (!std::isfinite(controllerVelocityAlongPin)
+        || !std::isfinite(controllerDisplacementAlongPin)
+        || !std::isfinite(bodyDisplacementAlongPin)
+        || !std::isfinite(velocityScale)
+        || !std::isfinite(positionGain)
+        || !std::isfinite(maximumSpeed)
+        || velocityScale < 0.0f || positionGain < 0.0f
+        || maximumSpeed <= 0.0f) {
+        return 0.0f;
+    }
+    const float positionError =
+        controllerDisplacementAlongPin - bodyDisplacementAlongPin;
+    return std::clamp(
+        controllerVelocityAlongPin * velocityScale + positionError * positionGain,
+        -maximumSpeed,
+        maximumSpeed);
+}
+
 float ResolveHingeAngularVelocity(
     const camera_math::Vector3& pivot,
     const camera_math::Vector3& point,

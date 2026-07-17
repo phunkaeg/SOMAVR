@@ -30,7 +30,11 @@ constexpr uintptr_t kProjectRayToVirtualRva = 0x3132d0;
 constexpr uintptr_t kSetFeetPositionRva = 0x237920;
 constexpr uintptr_t kRotateCameraTowardsRva = 0x1562e0;
 constexpr size_t kGameContextImGuiManagerOffset = 0xe8;
+constexpr size_t kImGuiManagerGameHudOffset = 0x160;
+constexpr size_t kImGuiManagerWorldInputOffset = 0x170;
 constexpr size_t kImGuiManagerFocusedWrapperOffset = 0x180;
+constexpr size_t kImGuiManagerScreenInputFlagOffset = 0x192;
+constexpr size_t kImGuiWrapperSetOffset = 0x18;
 constexpr size_t kImGuiWrapperEntityOffset = 0x28;
 constexpr int kTerminalPlayerState = 8;
 
@@ -82,6 +86,12 @@ struct Vector3f {
     float z = 0.0f;
 };
 
+struct TerminalInputOwner {
+    void* imGui = nullptr;
+    void* guiSet = nullptr;
+    void* guiEntity = nullptr;
+};
+
 using GetImGuiFn = void* (*)();
 using ImGuiGetSetFn = void* (*)(void* imGui);
 using SendMouseVirtualPositionFn = void (*)(void* imGui, const Vector2f* position, const Vector2f* relative);
@@ -128,6 +138,7 @@ std::atomic<uint64_t> g_projected = 0;
 std::atomic<uint64_t> g_hookCalls = 0;
 std::atomic<uint64_t> g_applied = 0;
 std::atomic<uint64_t> g_directDispatches = 0;
+std::atomic<uint64_t> g_directDispatchFailures = 0;
 std::atomic<uint64_t> g_inactiveFallbacks = 0;
 std::atomic<uint64_t> g_ownerFallbacks = 0;
 std::atomic<uint64_t> g_layoutFallbacks = 0;
@@ -177,6 +188,48 @@ bool ShouldLog(uint64_t count)
 {
     return count <= 8
         || count % static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1)) == 0;
+}
+
+bool ResolveTerminalInputOwner(TerminalInputOwner& owner)
+{
+    owner = {};
+    void* gameContext = nullptr;
+    void* imGuiManager = nullptr;
+    void* focusedWrapper = nullptr;
+    void* gameHud = nullptr;
+    uint8_t screenInput = 1;
+    return g_gameContextSlot != nullptr
+        && ReadMemory(g_gameContextSlot, &gameContext, sizeof(gameContext))
+        && gameContext != nullptr
+        && ReadField(gameContext, kGameContextImGuiManagerOffset, imGuiManager)
+        && imGuiManager != nullptr
+        && ReadField(
+            imGuiManager,
+            kImGuiManagerScreenInputFlagOffset,
+            screenInput)
+        && screenInput == 0
+        && ReadField(
+            imGuiManager,
+            kImGuiManagerWorldInputOffset,
+            owner.imGui)
+        && owner.imGui != nullptr
+        && ReadField(
+            imGuiManager,
+            kImGuiManagerGameHudOffset,
+            gameHud)
+        && owner.imGui != gameHud
+        && ReadField(
+            imGuiManager,
+            kImGuiManagerFocusedWrapperOffset,
+            focusedWrapper)
+        && focusedWrapper != nullptr
+        && ReadField(focusedWrapper, kImGuiWrapperSetOffset, owner.guiSet)
+        && owner.guiSet != nullptr
+        && ReadField(
+            focusedWrapper,
+            kImGuiWrapperEntityOffset,
+            owner.guiEntity)
+        && owner.guiEntity != nullptr;
 }
 
 void HookSetFeetPosition(void* characterBody, const Vector3f* feetPosition, bool smooth)
@@ -239,7 +292,8 @@ enum class SpatialProjectionResult {
 SpatialProjectionResult ProjectControllerRayToTerminal(
     const OpenXRControllerPose& aimPose,
     uint64_t gameFrame,
-    Vector2f& virtualPosition)
+    Vector2f& virtualPosition,
+    TerminalInputOwner& owner)
 {
     g_spatialAttempts.fetch_add(1, std::memory_order_relaxed);
     if (!g_config.hplControllerTerminalRayPointer
@@ -249,19 +303,8 @@ SpatialProjectionResult ProjectControllerRayToTerminal(
         return SpatialProjectionResult::Unavailable;
     }
 
-    void* gameContext = nullptr;
-    void* imGuiManager = nullptr;
-    void* focusedWrapper = nullptr;
-    void* guiEntity = nullptr;
     HPLTrackedPoseWorld worldAim;
-    if (!ReadMemory(g_gameContextSlot, &gameContext, sizeof(gameContext))
-        || gameContext == nullptr
-        || !ReadField(gameContext, kGameContextImGuiManagerOffset, imGuiManager)
-        || imGuiManager == nullptr
-        || !ReadField(imGuiManager, kImGuiManagerFocusedWrapperOffset, focusedWrapper)
-        || focusedWrapper == nullptr
-        || !ReadField(focusedWrapper, kImGuiWrapperEntityOffset, guiEntity)
-        || guiEntity == nullptr
+    if (!ResolveTerminalInputOwner(owner)
         || !ResolveHPLTrackedPoseWorld(aimPose, gameFrame, worldAim)
         || !worldAim.valid || !worldAim.orientationTracked || !worldAim.positionTracked) {
         g_spatialUnavailable.fetch_add(1, std::memory_order_relaxed);
@@ -281,7 +324,7 @@ SpatialProjectionResult ProjectControllerRayToTerminal(
         rayStart.z + worldAim.forwardZ * rayLength,
     };
     Vector2f projected{};
-    if (!g_projectRayToVirtual(guiEntity, &rayStart, &rayEnd, &projected)
+    if (!g_projectRayToVirtual(owner.guiEntity, &rayStart, &rayEnd, &projected)
         || !std::isfinite(projected.x) || !std::isfinite(projected.y)) {
         g_spatialMisses.fetch_add(1, std::memory_order_relaxed);
         return SpatialProjectionResult::Miss;
@@ -292,30 +335,31 @@ SpatialProjectionResult ProjectControllerRayToTerminal(
     return SpatialProjectionResult::Hit;
 }
 
-bool DispatchControllerVirtualPosition(bool directVirtual)
+bool DispatchControllerVirtualPosition(
+    bool directVirtual,
+    const TerminalInputOwner* spatialOwner = nullptr)
 {
-    if (g_originalSendMouseVirtualPosition == nullptr
-        || g_getCurrentImGui == nullptr
-        || g_getGameHudImGui == nullptr
-        || g_imGuiGetSet == nullptr) {
+    if (g_originalSendMouseVirtualPosition == nullptr) {
         return false;
     }
 
-    void* imGui = g_getCurrentImGui();
-    if (imGui == nullptr || imGui == g_getGameHudImGui()) return false;
-    void* guiSet = g_imGuiGetSet(imGui);
+    TerminalInputOwner resolvedOwner{};
+    if (spatialOwner == nullptr) {
+        if (!ResolveTerminalInputOwner(resolvedOwner)) return false;
+        spatialOwner = &resolvedOwner;
+    }
+    void* imGui = spatialOwner->imGui;
+    void* guiSet = spatialOwner->guiSet;
     float width = 0.0f;
     float height = 0.0f;
     float offsetX = 0.0f;
     float offsetY = 0.0f;
-    uint8_t is3d = 0;
     if (guiSet == nullptr
         || !ReadField(guiSet, 0x100, width)
         || !ReadField(guiSet, 0x104, height)
         || !ReadField(guiSet, 0x108, offsetX)
         || !ReadField(guiSet, 0x10c, offsetY)
-        || !ReadField(guiSet, 0x139, is3d)
-        || is3d == 0 || !std::isfinite(width) || !std::isfinite(height)
+        || !std::isfinite(width) || !std::isfinite(height)
         || width <= 1.0f || height <= 1.0f) {
         g_layoutFallbacks.fetch_add(1, std::memory_order_relaxed);
         return false;
@@ -347,12 +391,13 @@ bool DispatchControllerVirtualPosition(bool directVirtual)
     if (dispatch <= 8 || dispatch % interval == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_terminal_pointer applied=%llu dispatch=%llu route=%s imGui=%p set=%p virtual=%.2f,%.2f relative=%.2f,%.2f size=%.1f,%.1f",
+            "hpl_terminal_pointer applied=%llu dispatch=%llu route=%s imGui=%p set=%p entity=%p virtual=%.2f,%.2f relative=%.2f,%.2f size=%.1f,%.1f owner=manager_world_input_0x170",
             static_cast<unsigned long long>(applied),
             static_cast<unsigned long long>(dispatch),
             directVirtual ? "spatial_mesh_ray_direct_dispatch" : "head_cone_direct_dispatch",
             imGui,
             guiSet,
+            spatialOwner->guiEntity,
             position.x, position.y,
             relative.x, relative.y,
             width, height);
@@ -363,36 +408,31 @@ bool DispatchControllerVirtualPosition(bool directVirtual)
 void HookSendMouseVirtualPosition(void* imGui, const Vector2f* position, const Vector2f* relative)
 {
     const uint64_t call = g_hookCalls.fetch_add(1, std::memory_order_relaxed) + 1;
-    if (!g_active.load(std::memory_order_acquire)
-        || g_getCurrentImGui == nullptr
-        || g_getGameHudImGui == nullptr
-        || g_imGuiGetSet == nullptr) {
+    if (!g_active.load(std::memory_order_acquire)) {
         g_inactiveFallbacks.fetch_add(1, std::memory_order_relaxed);
         g_originalSendMouseVirtualPosition(imGui, position, relative);
         return;
     }
 
-    void* currentImGui = g_getCurrentImGui();
-    void* gameHudImGui = g_getGameHudImGui();
-    if (imGui == nullptr || imGui != currentImGui || imGui == gameHudImGui) {
+    TerminalInputOwner owner{};
+    if (!ResolveTerminalInputOwner(owner)
+        || imGui == nullptr
+        || imGui != owner.imGui) {
         g_ownerFallbacks.fetch_add(1, std::memory_order_relaxed);
         g_originalSendMouseVirtualPosition(imGui, position, relative);
         return;
     }
 
-    void* guiSet = g_imGuiGetSet(imGui);
+    void* guiSet = owner.guiSet;
     float width = 0.0f;
     float height = 0.0f;
     float offsetX = 0.0f;
     float offsetY = 0.0f;
-    uint8_t is3d = 0;
     if (guiSet == nullptr
         || !ReadField(guiSet, 0x100, width)
         || !ReadField(guiSet, 0x104, height)
         || !ReadField(guiSet, 0x108, offsetX)
         || !ReadField(guiSet, 0x10c, offsetY)
-        || !ReadField(guiSet, 0x139, is3d)
-        || is3d == 0
         || !std::isfinite(width) || !std::isfinite(height)
         || !std::isfinite(offsetX) || !std::isfinite(offsetY)
         || width <= 1.0f || height <= 1.0f
@@ -428,12 +468,13 @@ void HookSendMouseVirtualPosition(void* imGui, const Vector2f* position, const V
     if (applied <= 8 || applied % interval == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_terminal_pointer applied=%llu hookCall=%llu route=%s imGui=%p set=%p virtual=%.2f,%.2f relative=%.2f,%.2f size=%.1f,%.1f offset=%.1f,%.1f",
+            "hpl_terminal_pointer applied=%llu hookCall=%llu route=%s imGui=%p set=%p entity=%p virtual=%.2f,%.2f relative=%.2f,%.2f size=%.1f,%.1f offset=%.1f,%.1f owner=manager_world_input_0x170",
             static_cast<unsigned long long>(applied),
             static_cast<unsigned long long>(call),
             directVirtual ? "spatial_mesh_ray" : "head_cone_fallback",
             imGui,
             guiSet,
+            owner.guiEntity,
             virtualPosition.x,
             virtualPosition.y,
             virtualRelative.x,
@@ -593,7 +634,7 @@ bool InstallHPLTerminalBridge(const Config& config)
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_terminal_bridge install_ok pointer=%d diegetic=%d rayPointer=%d rayLengthMeters=%.2f sendMouseVirtualRva=0x%llx projectRayRva=0x%llx setFeetRva=0x%llx rotateCameraRva=0x%llx fallbackFovDegrees=%.2f,%.2f fallbackSmoothing=%.3f policy=state8_world_terminal_only",
+        "hpl_terminal_bridge install_ok pointer=%d diegetic=%d rayPointer=%d rayLengthMeters=%.2f sendMouseVirtualRva=0x%llx projectRayRva=0x%llx setFeetRva=0x%llx rotateCameraRva=0x%llx fallbackFovDegrees=%.2f,%.2f fallbackSmoothing=%.3f policy=state8_manager_world_input_0x170_focused_wrapper_set_0x18",
         pointerRequested ? 1 : 0,
         diegeticRequested ? 1 : 0,
         config.hplControllerTerminalRayPointer ? 1 : 0,
@@ -623,8 +664,9 @@ bool UpdateHPLTerminalPointer(
     }
 
     Vector2f spatialPosition;
+    TerminalInputOwner spatialOwner{};
     const SpatialProjectionResult spatial = ProjectControllerRayToTerminal(
-        aimPose, gameFrame, spatialPosition);
+        aimPose, gameFrame, spatialPosition, spatialOwner);
     if (spatial == SpatialProjectionResult::Hit) {
         const bool newSession = !g_active.load(std::memory_order_relaxed)
             || !g_directVirtualCoordinates.load(std::memory_order_relaxed);
@@ -635,8 +677,24 @@ bool UpdateHPLTerminalPointer(
         g_smoothed = false;
         if (newSession) g_generation.fetch_add(1, std::memory_order_release);
         g_projected.fetch_add(1, std::memory_order_relaxed);
-        DispatchControllerVirtualPosition(true);
-        return true;
+        if (DispatchControllerVirtualPosition(true, &spatialOwner)) {
+            return true;
+        }
+        const uint64_t failure = g_directDispatchFailures.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+        if (ShouldLog(failure)) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_terminal_pointer dispatch_failed=%llu route=spatial_mesh_ray imGui=%p set=%p entity=%p virtual=%.2f,%.2f policy=manager_world_input_owner",
+                static_cast<unsigned long long>(failure),
+                spatialOwner.imGui,
+                spatialOwner.guiSet,
+                spatialOwner.guiEntity,
+                spatialPosition.x,
+                spatialPosition.y);
+        }
+        DeactivateHPLTerminalPointer();
+        return false;
     }
     if (spatial == SpatialProjectionResult::Miss) {
         DeactivateHPLTerminalPointer();
@@ -670,8 +728,17 @@ bool UpdateHPLTerminalPointer(
     g_directVirtualCoordinates.store(false, std::memory_order_release);
     g_active.store(true, std::memory_order_release);
     g_projected.fetch_add(1, std::memory_order_relaxed);
-    DispatchControllerVirtualPosition(false);
-    return true;
+    if (DispatchControllerVirtualPosition(false)) return true;
+    const uint64_t failure = g_directDispatchFailures.fetch_add(
+        1, std::memory_order_relaxed) + 1;
+    if (ShouldLog(failure)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "hpl_terminal_pointer dispatch_failed=%llu route=head_cone policy=manager_world_input_owner",
+            static_cast<unsigned long long>(failure));
+    }
+    DeactivateHPLTerminalPointer();
+    return false;
 }
 
 void DeactivateHPLTerminalPointer()
@@ -686,7 +753,7 @@ void LogHPLTerminalBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_terminal_bridge_summary enabled=%d diegetic=%d rayPointer=%d active=%d updates=%llu projected=%llu hookCalls=%llu directDispatches=%llu applied=%llu spatial={attempts=%llu hits=%llu misses=%llu unavailable=%llu} headConeFallbacks=%llu takeover={feetCalls=%llu feetSuppressed=%llu rotateCalls=%llu rotateSuppressed=%llu} fallbacks={inactive=%llu owner=%llu layout=%llu}",
+        "hpl_terminal_bridge_summary enabled=%d diegetic=%d rayPointer=%d active=%d updates=%llu projected=%llu hookCalls=%llu directDispatches=%llu directDispatchFailures=%llu applied=%llu spatial={attempts=%llu hits=%llu misses=%llu unavailable=%llu} headConeFallbacks=%llu takeover={feetCalls=%llu feetSuppressed=%llu rotateCalls=%llu rotateSuppressed=%llu} fallbacks={inactive=%llu owner=%llu layout=%llu}",
         g_config.hplControllerTerminalPointer ? 1 : 0,
         g_config.hplControllerTerminalDiegetic ? 1 : 0,
         g_config.hplControllerTerminalRayPointer ? 1 : 0,
@@ -695,6 +762,7 @@ void LogHPLTerminalBridgeSummary()
         static_cast<unsigned long long>(g_projected.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_hookCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_directDispatches.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_directDispatchFailures.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_applied.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_spatialAttempts.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_spatialHits.load(std::memory_order_relaxed)),

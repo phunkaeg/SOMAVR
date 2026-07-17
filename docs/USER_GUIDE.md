@@ -94,6 +94,7 @@ GrabTranslation=1
 GrabAttachToHand=1
 SlideDirectVelocity=1
 SlideVelocityScale=1
+SlidePositionGain=12
 SlideMaxVelocityMetersPerSecond=2.5
 RotateDirectVelocity=1
 RotateVelocityScale=1
@@ -123,6 +124,10 @@ restore the old 2D mouse route. Doors and levers combine hand translation around
 their native pivot with wrist angular velocity projected onto the pin. Set
 `RotateAngularVelocityScale=0` to disable only wrist twist, or
 `RotateDirectVelocity=0` to restore the native camera-relative mouse route.
+`SlidePositionGain` makes the joint catch up to controller displacement after a
+short gesture; reduce it if a particular mechanism overshoots. Grab rotation
+uses `GrabMaxAngularSpeed` as its bounded PID-error magnitude as well as its
+target speed.
 
 Wall terminals remain at their authored position instead of moving the player
 and taking over the camera. Lean toward the physical display and point either

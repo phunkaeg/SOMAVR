@@ -21,15 +21,16 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.68.0-interaction-correction`, layered on the
+The active build candidate is `0.68.1-input-phase-safety`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
 
-- Controller manipulation now enters SOMA through the guarded native player
-  analog dispatcher at `0x140154fb0`, including MovingButton state `13` for taps
-  and authored cupboard mechanisms. The previous Windows mouse route remains
-  fallback only.
+- Controller manipulation queues tracked Look deltas and substitutes them only
+  when SOMA invokes guarded dispatcher `0x140154fb0` from its native input phase,
+  including MovingButton state `13`. Direct calls are prohibited after the
+  0.68 curtain dump proved newly entered scripts may not yet have a prepared
+  engine context during SOMAVR's render/update phase.
 
 - The terminal GUI is rendered once and its completed physical FBO is copied to
   the OpenXR layer. This removes the stateful double-render responsible for the

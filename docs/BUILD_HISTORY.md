@@ -1,5 +1,29 @@
 # Build History
 
+## 2026-07-19
+
+### 0.68.1-input-phase-safety
+
+- Analyzed crash dump `Soma_NoSteam.exe.111764.dmp` after the first 0.68
+  curtain interaction. The main thread faulted at `0x140299fca`, reading
+  `contextManager+0x90` through null. Its stack was
+  `cLuxPlayer::OnAnalogInput -> ScriptPlayerState::OnAnalogInput ->
+  PrepareScriptContext`. The function ABI and player pointer were correct; the
+  new direct call occurred from SOMAVR's render/update phase before the newly
+  entered curtain script had a prepared engine context.
+- Removed all direct calls to `0x140154fb0`. SOMAVR now queues controller Look
+  deltas, posts a minimal mouse-motion wake event, and detours the guarded
+  dispatcher only to substitute the queued vector when SOMA invokes it from its
+  own input phase. Live player/state identity is revalidated before consumption;
+  stale work is dropped and native input passes through unchanged.
+- Kept MovingButton state `13` support and the terminal, throw, Read-distance,
+  and accepted loose-prop changes from 0.68.0. All four CTest suites pass.
+  NoSteam package doctor reports `pass=8 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `08BEB61C467F139217CDF6542A476A4F8AC30450C9F505A2514F89BB2F49F743`.
+  Stable package SHA-256:
+  `9B0BACE164B803C7C30D6610048D39EB576A70020F7002799202F6D311578FB7`.
+  Headset acceptance is required.
+
 ## 2026-07-18
 
 ### 0.68.0-interaction-correction

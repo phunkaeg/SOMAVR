@@ -1,5 +1,17 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-19 Input-Phase Safety Sync
+
+| Program/address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| NoSteam `0x140154fb0` | `SOMA_cLuxPlayer_OnAnalogInput` | Updated contract: direct SOMAVR-phase calls are rejected. Queue controller Look and substitute only inside SOMA's native input-phase invocation after player/state revalidation. |
+| NoSteam `0x140164910` | `SOMA_ScriptPlayerState_OnAnalogInput` | Crash stack confirms this wrapper reached script preparation from the rejected direct call. |
+| NoSteam `0x140299fb0` | `HPL3_ScriptContextManager_AcquireAvailableContext` | Renamed from `FUN_140299fb0`; fault `+0x1a` reads context manager `+0x90`. Null manager in dump proves script preparation was entered out of phase. |
+
+Crash dump SHA-256:
+`D9CABF059FBBF0ECDDAC1EE806B992A52734A9CE4EF7E1B68BB43316549E579D`.
+The `Soma_NoSteam.exe` database was saved after synchronization.
+
 ## 2026-07-18 Interaction Correction Sync
 
 | Program/address | Ghidra name | Evidence/use |

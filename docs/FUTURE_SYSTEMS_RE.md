@@ -1,5 +1,26 @@
 # Future Systems Reverse Engineering
 
+## 0.68.1 Input-Phase Safety Correction
+
+Dump `Soma_NoSteam.exe.111764.dmp` records access violation `0xc0000005` at
+runtime `0x7ff73caa9fca`, static `0x140299fca`, reading address `0x90`. The
+faulting main-thread context has `RCX=0`; decompilation identifies
+`0x140299fb0` as script-context selection and reads `param_1+0x90`. The stack
+contains `0x1401dd898`, `0x140164969`, and `0x140155024`: script preparation,
+player-state `OnAnalogInput`, and `cLuxPlayer::OnAnalogInput`, respectively.
+This proves the direct 0.68 call had the right ABI but violated a temporal
+contract: a newly selected player-state script can be visible at player `+0xc8`
+before its internal engine context at script object `+0x10` is prepared.
+
+Version 0.68.1 treats execution phase as part of the native ABI. Controller
+deltas are queued during SOMAVR update, but `0x140154fb0` is never called there.
+A minimal relative-mouse wake asks SOMA to run its normal input pump. A guarded
+MinHook detour substitutes the queued Look vector only inside SOMA's own
+`cLuxPlayer::OnAnalogInput` invocation, after revalidating exact player and
+player-state identity. Unrelated analog types and stale/mismatched work pass
+through unchanged. This preserves native script-context preparation, ordering,
+return policy, state callbacks, and downstream player handling.
+
 ## 0.68.0 Native Analog And Single-Render Terminal Correction
 
 The complete 0.67 log separates controller geometry from delivery. Slide state

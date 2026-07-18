@@ -1,5 +1,27 @@
 # Test Checklists
 
+## 0.68.1 Input-Phase Safety
+
+1. Run stable-package doctor and require
+   `version=0.68.1-input-phase-safety`, OpenXR flavor, and `fail=0`. Press F10
+   and confirm the established world, stereo, tracking, shaders, eye height,
+   locomotion, beams, and loose-prop hold.
+2. First perform a minimal crash-safety test: point at one curtain, press and
+   hold trigger, wait two seconds, release, and repeat once without moving the
+   controller. SOMA must remain running.
+3. Hold trigger again and drag the owning controller left/right. Require a
+   queued `hpl_manipulation_motion` row followed by
+   `hpl_manipulation_native_input` with
+   `route=native_input_phase_substitution_0x154fb0`. The curtain should move
+   without snap turn.
+4. Only after the curtain pass, test the bathroom tap and cupboards in both
+   directions. Their state-13 rows must use the same phase-correct route.
+5. Briefly regress terminal coherence/pointer, story-object distance/rotation,
+   loose-object hold/throw, and clean shutdown. Attach the complete log whether
+   curtain motion succeeds or not.
+
+Rollback manipulation safely with `ManipulationMotion=0`.
+
 ## 0.68.0 Interaction Correction
 
 1. Run stable-package doctor and require

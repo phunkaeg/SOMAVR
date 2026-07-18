@@ -2,7 +2,7 @@
 
 Date: 2026-07-18
 
-Use `out\SOMAVR-latest` (`0.68.0-interaction-correction`) for the next run.
+Use `out\SOMAVR-latest` (`0.68.1-input-phase-safety`) for the next run.
 Concentrate on curtains, bathroom tap, cupboards, throws, the starting laptop,
 and one story object. Curtains/taps/cupboards must follow owning-hand movement
 without snap turn; throws must travel farther without player recoil; the laptop
@@ -14,8 +14,9 @@ Required markers are `hpl_terminal_pointer ... route=head_cone`,
 `hpl_grab_anchor ... attachToHand=1 orientationTarget=1`,
 `hpl_grab_rotation ... absolute_controller_orientation_bounded_error`,
 `hpl_grab_translation ... unbounded_pull_in_plus_bounded_controller_travel`,
-`hpl_manipulation_motion ... route=native_player_analog_dispatch_0x154fb0` for
-Slide `4` and MovingButton `13`,
+`hpl_manipulation_motion ... route=queued_native_input_phase_substitution_0x154fb0`
+followed by `hpl_manipulation_native_input ... route=native_input_phase_substitution_0x154fb0`
+for Slide `4` and MovingButton `13`,
 `hpl_terminal_pointer ... owner=manager_world_input_0x170`,
 `hpl_read_presentation ... current_native_pickup_travel_scaled_from_camera`,
 `hpl_controller_throw ... velocityScale>=1 ... forwardSafetyDot=0.250`,

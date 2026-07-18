@@ -978,6 +978,17 @@ int main()
             && Near(clampedGrabError.y, 2.4f)
             && Near(clampedGrabError.z, 0.0f),
         "grab angular PID error is magnitude bounded");
+    const camera_math::Vector3 grabCorrection =
+        grab_math::ResolveGrabPositionCorrection(
+            {1.2f, 0.0f, 0.0f},
+            {0.6f, 0.0f, 0.0f},
+            1.0f,
+            0.5f);
+    failures += Check(
+        Near(grabCorrection.x, 1.7f)
+            && Near(grabCorrection.y, 0.0f)
+            && Near(grabCorrection.z, 0.0f),
+        "grab pull-in is preserved while controller travel alone is bounded");
     failures += Check(
         Near(grab_math::ResolveSlideTargetSpeed(
                  0.0f, 0.20f, 0.02f, 1.0f, 10.0f, 2.5f),

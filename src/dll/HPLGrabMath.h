@@ -20,6 +20,12 @@ camera_math::Vector3 ClampVectorMagnitude(
     const camera_math::Vector3& value,
     float maximumMagnitude);
 
+camera_math::Vector3 ResolveGrabPositionCorrection(
+    const camera_math::Vector3& initialHandCorrection,
+    const camera_math::Vector3& controllerMovement,
+    float movementScale,
+    float maximumMovement);
+
 float ResolveSlideTargetSpeed(
     float controllerVelocityAlongPin,
     float controllerDisplacementAlongPin,

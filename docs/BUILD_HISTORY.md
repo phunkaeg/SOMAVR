@@ -2,6 +2,40 @@
 
 ## 2026-07-18
 
+### 0.67.0-native-manipulation-overlay
+
+- Processed the complete `0.66.0` headset log. Terminal controller dispatch was
+  working and reached 242 applied updates, but physical laptop mesh misses
+  repeatedly deactivated the pointer. The exact focused terminal set was a flat
+  `1024x577` GUI rendered into FBOs `17/18` with 17--28 draws.
+- Added an exact state-8 terminal overlay. SOMA first renders the physical screen
+  normally, then SOMAVR replays only its focused flat GUI set into the existing
+  OpenXR HUD capture. Pointer coordinates use the stable head-locked panel while
+  native focus, widgets, mouse buttons, sounds, and callbacks remain authoritative.
+  `TerminalOverlay=0` restores physical-screen projection.
+- Restored SOMA's native Slide input path by packaging
+  `SlideDirectVelocity=0`. Released `PlayerState_Interact_Slide.hps` confirms
+  curtains and drawers consume Look input through `mvMoveAdd`; the direct joint
+  velocity PID bypassed that script path, while snap turn accidentally supplied
+  the expected semantic input. The PID route remains an opt-in diagnostic.
+- Corrected loose-prop pull range. Initial selected-hit-to-hand correction is no
+  longer included in the bounded controller-travel vector, so distant props can
+  reach the hand before receiving the full `1.5` metre movement allowance.
+  Rotation retains bounded error and the stable gain while restoring SOMA's
+  native `6 rad/s` response cap.
+- Classified the installed executables. `Soma.exe` imports Steamworks and has a
+  different native layout; the current NoSteam signature doctor rejects it.
+  Added `Launch-SOMAVR-Dev.ps1` for NoSteam `main_init_dev.cfg` and optional
+  direct map launches without changing the stable package command.
+- Added deterministic coverage for separate pull-in/controller travel. All four
+  CTest suites pass; NoSteam package doctor reports `pass=8 warn=0 fail=0`,
+  while the intentional Steam-build check reports the expected signature
+  rejection. Both Ghidra databases were synchronized and saved. OpenXR DLL
+  SHA-256: `19B8124F83E018505CC8BE5A4948D90C2818A078DE63C622E3CED2464DA98CA0`.
+  Stable package SHA-256:
+  `B94B5489C394F65F55E5F16FBF2A5DDD8C78C4907A69379F0DCE9A8540BBC354`.
+  Headset acceptance remains required.
+
 ### 0.66.0-interaction-stability
 
 - Processed the first `0.65.1` headset pass. Story-object presentation was

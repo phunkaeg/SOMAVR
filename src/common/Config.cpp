@@ -312,6 +312,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "MenuPointerSmoothing=0.35\n"
         << "TerminalPointer=1\n"
         << "TerminalDiegetic=1\n"
+        << "TerminalOverlay=1\n"
         << "TerminalRayPointer=1\n"
         << "TerminalRayLengthMeters=8\n"
         << "TerminalPointerHorizontalDegrees=70\n"
@@ -348,11 +349,11 @@ void ConfigManager::WriteDefaultConfig() const
         << "GrabTranslation=0\n"
         << "GrabAttachToHand=0\n"
         << "GrabTranslationScale=1.0\n"
-        << "GrabMaxOffsetMeters=0.75\n"
+        << "GrabMaxOffsetMeters=1.5\n"
         << "GrabRotation=0\n"
         << "GrabRotationGain=20.0\n"
         << "GrabRotationSign=1.0\n"
-        << "GrabMaxAngularSpeed=3.0\n"
+        << "GrabMaxAngularSpeed=6.0\n"
         << "TwoHandHudObject=0\n"
         << "TwoHandGrabRotation=0\n"
         << "TwoHandSqueezeThreshold=0.75\n"
@@ -372,7 +373,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "ManipulationMotionMaxPixelsPerFrame=80\n"
         << "ManipulationMotionHorizontalSign=1\n"
         << "ManipulationMotionVerticalSign=-1\n"
-        << "SlideDirectVelocity=1\n"
+        << "SlideDirectVelocity=0\n"
         << "SlideVelocityScale=1\n"
         << "SlidePositionGain=12\n"
         << "SlideMaxVelocityMetersPerSecond=2.5\n"
@@ -736,6 +737,7 @@ void ConfigManager::LoadFromFile()
         if (section == "controller" && key.rfind("terminal", 0) == 0) {
             if (key == "terminalpointer") config_.hplControllerTerminalPointer = ParseBool(value, config_.hplControllerTerminalPointer);
             else if (key == "terminaldiegetic") config_.hplControllerTerminalDiegetic = ParseBool(value, config_.hplControllerTerminalDiegetic);
+            else if (key == "terminaloverlay") config_.hplControllerTerminalOverlay = ParseBool(value, config_.hplControllerTerminalOverlay);
             else if (key == "terminalraypointer") config_.hplControllerTerminalRayPointer = ParseBool(value, config_.hplControllerTerminalRayPointer);
             else if (key == "terminalraylengthmeters") config_.hplControllerTerminalRayLengthMeters = ParseFloat(value, config_.hplControllerTerminalRayLengthMeters, 0.5f, 20.0f);
             else if (key == "terminalpointerhorizontaldegrees") config_.hplControllerTerminalPointerHorizontalDegrees = ParseFloat(value, config_.hplControllerTerminalPointerHorizontalDegrees, 10.0f, 170.0f);

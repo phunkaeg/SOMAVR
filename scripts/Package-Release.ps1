@@ -72,6 +72,7 @@ foreach ($file in $runtimeFiles) {
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "somavr.ini") -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "README.md") -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "scripts\Install-Or-Update-SOMAVR.ps1") -Destination $stagePath
+Copy-Item -LiteralPath (Join-Path $repositoryRoot "scripts\Launch-SOMAVR-Dev.ps1") -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "scripts\Uninstall-SOMAVR.ps1") -Destination $stagePath
 
 $packageDocs = Join-Path $stagePath "docs"

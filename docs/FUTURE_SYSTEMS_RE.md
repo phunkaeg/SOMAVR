@@ -1,5 +1,45 @@
 # Future Systems Reverse Engineering
 
+## 0.67.0 Native Manipulation And Terminal Overlay Correction
+
+The complete 0.66 log changes the terminal diagnosis. State `8` produced
+successful native cursor dispatch, including `applied=242` and `dispatch=120`,
+through manager world-input owner `+0x170`. Control felt absent because the
+selected-controller ray repeatedly missed the small physical laptop mesh and
+released the pointer. The same log identifies the exact focused terminal set:
+flat `is3d=0`, virtual size `1024x577`, rendered into FBOs `17/18` with 17--28
+draw calls. Version 0.67 preserves that physical render, then replays only this
+focused set through the additive OpenXR HUD capture while state `8` owns it.
+The existing terminal input bridge maps aim over the head-locked panel and still
+dispatches through native `HPL3_ImGui_SendMouseVirtualPosition`.
+
+Released `script/player/PlayerState_Interact_Slide.hps` establishes the curtain
+contract. `OnAnalogInput(eAnalogType_Look)` accumulates `mvMoveAdd`; `Update`
+projects camera up/right through that value onto the joint pin, then applies
+native factors, lock logic, sounds, and callbacks. Direct body velocity bypasses
+this script contract. It also explains the live snap-turn behavior: turn input
+accidentally supplied the Look delta that the curtain expected. Version 0.67
+therefore packages the existing controller-manipulation mouse/Look bridge and
+keeps direct Slide PID control disabled unless explicitly requested.
+
+Released `PlayerState_Interact_Grab.hps` confirms authored per-prop offset/depth,
+minimum/maximum depth, force/torque multipliers, heavy flags, chain length, speed
+limits, and sticky-parent rotation. SOMAVR's correction path was clamping
+`initialHandCorrection + controllerMovement`; mug/DSLR anchors often began beyond
+the old `0.75` metre cap, leaving no travel after pull-in. The corrected contract
+preserves the initial selected-hit-to-hand correction and clamps only subsequent
+controller movement. Absolute orientation error remains bounded, but the response
+cap returns to SOMA's native `6 rad/s`.
+
+The installed `Soma.exe` imports `steam_api64.dll` and Steam API entry points;
+`Soma_NoSteam.exe` does not. A fuzzy Ghidra match maps NoSteam
+`SOMA_GetClosestEntity` `0x1400cd750` to Steam `0x1400cf560`, confirming native
+layout drift. The injector's NoSteam signature doctor rejects the Steam build,
+so current control hooks must not be applied to `Soma.exe`. The shipped developer
+batch files are useful for their `-user Dev -cfg config/main_init_dev.cfg` and
+map arguments, but target the unsupported Steam executable. SOMAVR now packages
+an equivalent NoSteam developer launcher.
+
 ## 0.66.0 Interaction Stability Correction
 
 The 0.65.1 log proves story-object presentation is materially improved and

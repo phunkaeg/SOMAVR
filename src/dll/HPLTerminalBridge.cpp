@@ -296,7 +296,8 @@ SpatialProjectionResult ProjectControllerRayToTerminal(
     TerminalInputOwner& owner)
 {
     g_spatialAttempts.fetch_add(1, std::memory_order_relaxed);
-    if (!g_config.hplControllerTerminalRayPointer
+    if (g_config.hplControllerTerminalOverlay
+        || !g_config.hplControllerTerminalRayPointer
         || g_projectRayToVirtual == nullptr
         || g_gameContextSlot == nullptr) {
         g_spatialUnavailable.fetch_add(1, std::memory_order_relaxed);
@@ -634,10 +635,12 @@ bool InstallHPLTerminalBridge(const Config& config)
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_terminal_bridge install_ok pointer=%d diegetic=%d rayPointer=%d rayLengthMeters=%.2f sendMouseVirtualRva=0x%llx projectRayRva=0x%llx setFeetRva=0x%llx rotateCameraRva=0x%llx fallbackFovDegrees=%.2f,%.2f fallbackSmoothing=%.3f policy=state8_manager_world_input_0x170_focused_wrapper_set_0x18",
+        "hpl_terminal_bridge install_ok pointer=%d diegetic=%d overlay=%d rayPointer=%d effectivePointer=%s rayLengthMeters=%.2f sendMouseVirtualRva=0x%llx projectRayRva=0x%llx setFeetRva=0x%llx rotateCameraRva=0x%llx fallbackFovDegrees=%.2f,%.2f fallbackSmoothing=%.3f policy=state8_manager_world_input_0x170_focused_wrapper_set_0x18",
         pointerRequested ? 1 : 0,
         diegeticRequested ? 1 : 0,
+        config.hplControllerTerminalOverlay ? 1 : 0,
         config.hplControllerTerminalRayPointer ? 1 : 0,
+        config.hplControllerTerminalOverlay ? "head_locked_overlay" : "world_mesh",
         config.hplControllerTerminalRayLengthMeters,
         static_cast<unsigned long long>(kImGuiSendMouseVirtualPositionRva),
         static_cast<unsigned long long>(kProjectRayToVirtualRva),
@@ -753,9 +756,10 @@ void LogHPLTerminalBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_terminal_bridge_summary enabled=%d diegetic=%d rayPointer=%d active=%d updates=%llu projected=%llu hookCalls=%llu directDispatches=%llu directDispatchFailures=%llu applied=%llu spatial={attempts=%llu hits=%llu misses=%llu unavailable=%llu} headConeFallbacks=%llu takeover={feetCalls=%llu feetSuppressed=%llu rotateCalls=%llu rotateSuppressed=%llu} fallbacks={inactive=%llu owner=%llu layout=%llu}",
+        "hpl_terminal_bridge_summary enabled=%d diegetic=%d overlay=%d rayPointer=%d active=%d updates=%llu projected=%llu hookCalls=%llu directDispatches=%llu directDispatchFailures=%llu applied=%llu spatial={attempts=%llu hits=%llu misses=%llu unavailable=%llu} headConeFallbacks=%llu takeover={feetCalls=%llu feetSuppressed=%llu rotateCalls=%llu rotateSuppressed=%llu} fallbacks={inactive=%llu owner=%llu layout=%llu}",
         g_config.hplControllerTerminalPointer ? 1 : 0,
         g_config.hplControllerTerminalDiegetic ? 1 : 0,
+        g_config.hplControllerTerminalOverlay ? 1 : 0,
         g_config.hplControllerTerminalRayPointer ? 1 : 0,
         g_active.load(std::memory_order_relaxed) ? 1 : 0,
         static_cast<unsigned long long>(g_updates.load(std::memory_order_relaxed)),

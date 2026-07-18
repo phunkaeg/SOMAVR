@@ -1,6 +1,6 @@
 # Current State
 
-Date: 2026-07-17
+Date: 2026-07-18
 
 ## Objective
 
@@ -21,10 +21,30 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.66.0-interaction-stability`, layered on the
+The active build candidate is `0.67.0-native-manipulation-overlay`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- The complete 0.66 log proves terminal dispatch reached SOMA, but physical
+  laptop mesh misses repeatedly released the pointer. Version 0.67 duplicates
+  only the exact focused state-8 flat GUI into the head-locked OpenXR HUD and
+  maps controller aim over that stable surface. The physical screen, widget
+  dispatch, clicks, sounds, and callbacks remain native.
+
+- Released Slide script source proves curtains and drawers accumulate semantic
+  Look input through `mvMoveAdd`. The direct joint PID bypassed that route, while
+  snap turn accidentally supplied it. Version 0.67 restores the existing native
+  controller-to-Look bridge by default and keeps direct velocity opt-in.
+
+- Loose-prop pull range was consumed by the initial hit-to-hand correction before
+  any controller motion occurred. Version 0.67 bounds only post-acquisition hand
+  travel, raises that allowance to `1.5` metres, and restores the native
+  `6 rad/s` rotation response while keeping the stable bounded-error gain.
+
+- `Soma.exe` is the Steamworks build and has a different native address layout
+  from `Soma_NoSteam.exe`; the current signature doctor correctly rejects it.
+  The packaged NoSteam developer launcher supports dev config and direct maps.
 
 - The first 0.65.1 headset pass accepted the restored story-object route. Loose
   props still oscillated after pull-in, curtains lagged behind short tracked

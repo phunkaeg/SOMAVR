@@ -1,5 +1,36 @@
 # Test Checklists
 
+## 0.67.0 Native Manipulation And Terminal Overlay
+
+1. Run stable-package doctor and require
+   `version=0.67.0-native-manipulation-overlay`, OpenXR flavor, and `fail=0`.
+   Press F10 and first confirm accepted stereo, rigid world, eye height, shaders,
+   tracking, locomotion, both beams, context icon, and story objects.
+2. Hold trigger on each starting curtain and drag the owning controller left and
+   right. It must move without snap turn. Repeat with short gestures, reversed
+   direction, either hand, and a drawer pull/push. Expect
+   `hpl_manipulation_motion entered state=Slide(4)` and no default
+   `hpl_slide_target` direct-PID rows.
+3. Pull the mug and DSLR to the hand. Each should complete its approach instead
+   of exhausting its movement limit at a distance, then follow at least the prior
+   near/far range without chatter. Rotate around pitch, yaw, and roll; response
+   should be useful but bounded. The translation log must report
+   `unbounded_pull_in_plus_bounded_controller_travel`.
+4. Enter the starting laptop. SOMAVR should leave the physical screen in place
+   and show a readable head-locked duplicate in front of the player. Aim either
+   beam across the duplicate: the cursor must follow continuously and trigger
+   must activate native widgets without camera/body takeover.
+5. Require terminal rows with `route=head_cone`,
+   `owner=manager_world_input_0x170`, and applied dispatch counts. HUD summary
+   must report nonzero terminal overlay matches/captures. Exit the terminal,
+   verify the duplicate and click latch disappear, then re-enter once.
+6. Exit normally and attach the complete log. For optional live Frida follow-up,
+   leave SOMA running at the failing curtain, mug/DSLR, or laptop and report
+   which object is selected.
+
+Rollback independently with `TerminalOverlay=0`, `SlideDirectVelocity=1`,
+`GrabAttachToHand=0`, or `GrabRotation=0`.
+
 ## 0.66.0 Interaction Stability
 
 1. Run stable-package doctor and require

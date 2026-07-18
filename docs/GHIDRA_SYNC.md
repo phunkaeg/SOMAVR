@@ -1,5 +1,17 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-18 Native Manipulation And Terminal Overlay Sync
+
+| Program/address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| NoSteam `0x140238750` | `HPL3_PidControllerVec3_Output` | Replaced the direct-Slide default with the released script's native Look/`mvMoveAdd` contract; documented separate initial pull-in and bounded controller travel plus restored `6 rad/s` Grab response. |
+| NoSteam `0x140213970` | `HPL3_GuiSet_Render` | Documented native-first render followed by exact focused flat state-8 terminal replay into the additive OpenXR HUD capture. |
+| NoSteam `0x1400f7f10` | `SOMA_ImGuiManager_UpdateInput` | Documented exact `+0x170` dispatch retention and overlay aim decoupling from physical-mesh misses. |
+| Steam `0x1400cf560` | `SOMA_Steam_GetClosestEntity` | Renamed/commented the fuzzy-matched equivalent of NoSteam `0x1400cd750`; the shifted RVA and Steamworks imports establish that Steam and NoSteam native layouts are not interchangeable. |
+
+Both `Soma_NoSteam.exe` and `Soma.exe` databases were saved after
+synchronization.
+
 ## 2026-07-18 Interaction Stability Sync
 
 | Address | Ghidra name | Evidence/use |

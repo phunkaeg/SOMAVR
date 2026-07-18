@@ -109,6 +109,7 @@ struct Config {
     float hplControllerMenuPointerSmoothing = 0.35f;
     bool hplControllerTerminalPointer = true;
     bool hplControllerTerminalDiegetic = true;
+    bool hplControllerTerminalOverlay = true;
     bool hplControllerTerminalRayPointer = true;
     float hplControllerTerminalRayLengthMeters = 8.0f;
     float hplControllerTerminalPointerHorizontalDegrees = 70.0f;
@@ -145,11 +146,11 @@ struct Config {
     bool hplControllerGrabTranslation = false;
     bool hplControllerGrabAttachToHand = false;
     float hplControllerGrabTranslationScale = 1.0f;
-    float hplControllerGrabMaxOffsetMeters = 0.75f;
+    float hplControllerGrabMaxOffsetMeters = 1.5f;
     bool hplControllerGrabRotation = false;
     float hplControllerGrabRotationGain = 20.0f;
     float hplControllerGrabRotationSign = 1.0f;
-    float hplControllerGrabMaxAngularSpeed = 3.0f;
+    float hplControllerGrabMaxAngularSpeed = 6.0f;
     bool hplControllerTwoHandHudObject = false;
     bool hplControllerTwoHandGrabRotation = false;
     float hplControllerTwoHandSqueezeThreshold = 0.75f;
@@ -169,7 +170,7 @@ struct Config {
     int hplControllerManipulationMotionMaxPixelsPerFrame = 80;
     float hplControllerManipulationMotionHorizontalSign = 1.0f;
     float hplControllerManipulationMotionVerticalSign = -1.0f;
-    bool hplControllerSlideDirectVelocity = true;
+    bool hplControllerSlideDirectVelocity = false;
     float hplControllerSlideVelocityScale = 1.0f;
     float hplControllerSlidePositionGain = 12.0f;
     float hplControllerSlideMaxVelocityMetersPerSecond = 2.5f;

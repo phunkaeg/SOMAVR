@@ -42,6 +42,18 @@ game, or hook-signature failures before injection.
 & "$env:LOCALAPPDATA\SOMAVR\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
+For repeated development tests, launch the developer configuration or jump
+directly to a known map:
+
+```powershell
+& "$env:LOCALAPPDATA\SOMAVR\Launch-SOMAVR-Dev.ps1"
+& "$env:LOCALAPPDATA\SOMAVR\Launch-SOMAVR-Dev.ps1" -Map "00_01_apartment.hpm" -MapFolder "maps/chapter00/"
+```
+
+Use `Soma_NoSteam.exe`. The install's `Soma.exe` imports Steam and has a
+different native layout; the readiness doctor intentionally rejects its hook
+signatures.
+
 Load a save on the monitor, face forward, and press `F10` once. F10 enters or
 leaves the complete VR camera/stereo path. `F2` recenters. `F1` opens the
 head-locked status/options panel. Same-frame stereo remains an explicit panel
@@ -92,7 +104,7 @@ ManipulationSlidePixelsPerMeter=2700
 ManipulationReadPixelsPerRadian=900
 GrabTranslation=1
 GrabAttachToHand=1
-SlideDirectVelocity=1
+SlideDirectVelocity=0
 SlideVelocityScale=1
 SlidePositionGain=12
 SlideMaxVelocityMetersPerSecond=2.5
@@ -117,10 +129,13 @@ applying `ReadObjectScale`. `ReadObjectDistanceScale` remains in the file for
 compatibility but is not applied by `0.65.1`; set `ReadPresentation=0` for fully
 native presentation. Turn input is ignored while SOMA owns a physical
 manipulation or Read state. `GrabAttachToHand=1` starts loose-prop Grab with a
-bounded selected-hit-to-grip pull through SOMA's native PID; set it to `0` while
-retaining ordinary tracked Grab translation. Slide projects controller world
-velocity onto the actual drawer/curtain joint. Set `SlideDirectVelocity=0` to
-restore the old 2D mouse route. Doors and levers combine hand translation around
+selected-hit-to-grip pull through SOMA's native PID. The initial pull no longer
+consumes the bounded controller-travel allowance. `GrabMaxOffsetMeters` limits
+subsequent movement from the acquisition pose, not the distance from the object
+to the hand. Slide uses SOMA's native controller-to-Look route so its shipped
+script receives `mvMoveAdd`, speed factors, locked state, sounds, and callbacks.
+Set `SlideDirectVelocity=1` only to compare the experimental joint-PID route.
+Doors and levers combine hand translation around
 their native pivot with wrist angular velocity projected onto the pin. Set
 `RotateAngularVelocityScale=0` to disable only wrist twist, or
 `RotateDirectVelocity=0` to restore the native camera-relative mouse route.
@@ -130,22 +145,25 @@ uses `GrabMaxAngularSpeed` as its bounded PID-error magnitude as well as its
 target speed.
 
 Wall terminals remain at their authored position instead of moving the player
-and taking over the camera. Lean toward the physical display and point either
-controller guide at its surface; SOMA's own GUI mesh converts the selected ray
-to cursor coordinates. Trigger/select clicks and the existing cancel action
-exits. The relevant rollback controls are:
+and taking over the camera. The focused terminal display is duplicated into a
+head-locked panel, and either controller can aim across that panel.
+Trigger/select clicks and the existing cancel action exit through SOMA's native
+input route. The relevant rollback controls are:
 
 ```ini
 [Controller]
 TerminalPointer=1
 TerminalDiegetic=1
+TerminalOverlay=1
 TerminalRayPointer=1
 TerminalRayLengthMeters=8
 ```
 
-Set `TerminalRayPointer=0` to compare the older head-relative pointer without
-restoring camera takeover. Set `TerminalDiegetic=0` to restore the original wall
-terminal body/camera placement. Handheld terminals keep their authored movement.
+Set `TerminalOverlay=0` to keep only the physical display and restore native
+mesh-ray pointer mapping. `TerminalRayPointer` then selects mesh-ray versus the
+older head-relative pointer. Set `TerminalDiegetic=0` to restore the original
+wall-terminal body/camera placement. Handheld terminals keep their authored
+movement.
 
 The active profile captures HUD content at the observed `1920x1080` SOMA target.
 Quest currently requests `2688x2880` per eye, but world detail still originates

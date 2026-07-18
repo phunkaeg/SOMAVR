@@ -79,6 +79,38 @@ camera_math::Vector3 ClampVectorMagnitude(
     return {value.x * scale, value.y * scale, value.z * scale};
 }
 
+camera_math::Vector3 ResolveGrabPositionCorrection(
+    const camera_math::Vector3& initialHandCorrection,
+    const camera_math::Vector3& controllerMovement,
+    float movementScale,
+    float maximumMovement)
+{
+    if (!std::isfinite(initialHandCorrection.x)
+        || !std::isfinite(initialHandCorrection.y)
+        || !std::isfinite(initialHandCorrection.z)
+        || !std::isfinite(controllerMovement.x)
+        || !std::isfinite(controllerMovement.y)
+        || !std::isfinite(controllerMovement.z)
+        || !std::isfinite(movementScale)
+        || !std::isfinite(maximumMovement)
+        || movementScale < 0.0f
+        || maximumMovement <= 0.0f) {
+        return {};
+    }
+    const camera_math::Vector3 scaledMovement{
+        controllerMovement.x * movementScale,
+        controllerMovement.y * movementScale,
+        controllerMovement.z * movementScale,
+    };
+    const camera_math::Vector3 boundedMovement =
+        ClampVectorMagnitude(scaledMovement, maximumMovement);
+    return {
+        initialHandCorrection.x + boundedMovement.x,
+        initialHandCorrection.y + boundedMovement.y,
+        initialHandCorrection.z + boundedMovement.z,
+    };
+}
+
 float ResolveSlideTargetSpeed(
     float controllerVelocityAlongPin,
     float controllerDisplacementAlongPin,

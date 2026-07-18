@@ -1081,9 +1081,7 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
         return g_originalPidOutput(pid, output, error, timeStep);
     }
 
-    float deltaX = 0.0f;
-    float deltaY = 0.0f;
-    float deltaZ = 0.0f;
+    camera_math::Vector3 controllerMovement{};
     bool anchored = false;
     bool attachedToHand = false;
     camera_math::Vector3 initialHandCorrection{};
@@ -1141,9 +1139,12 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
             initialHandCorrection = g_anchor.initialHandCorrection;
             anchored = true;
         } else {
-            deltaX = g_anchor.initialHandCorrection.x + relativeX - g_anchor.relativeX;
-            deltaY = g_anchor.initialHandCorrection.y + relativeY - g_anchor.relativeY;
-            deltaZ = g_anchor.initialHandCorrection.z + relativeZ - g_anchor.relativeZ;
+            controllerMovement = {
+                relativeX - g_anchor.relativeX,
+                relativeY - g_anchor.relativeY,
+                relativeZ - g_anchor.relativeZ,
+            };
+            initialHandCorrection = g_anchor.initialHandCorrection;
             g_anchor.lastInputFrame = inputFrame;
         }
     }
@@ -1167,30 +1168,34 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
 
     const float maxOffset = g_config.hplControllerGrabMaxOffsetMeters
         * std::max(g_config.hplWorldScale, 0.001f);
-    deltaX *= g_config.hplControllerGrabTranslationScale;
-    deltaY *= g_config.hplControllerGrabTranslationScale;
-    deltaZ *= g_config.hplControllerGrabTranslationScale;
-    const float length = std::sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
-    if (std::isfinite(length) && length > maxOffset && length > 0.000001f) {
-        const float scale = maxOffset / length;
-        deltaX *= scale;
-        deltaY *= scale;
-        deltaZ *= scale;
-    }
+    const camera_math::Vector3 correction =
+        grab_math::ResolveGrabPositionCorrection(
+            initialHandCorrection,
+            controllerMovement,
+            g_config.hplControllerGrabTranslationScale,
+            maxOffset);
     const float modifiedError[3] = {
-        error[0] + deltaX,
-        error[1] + deltaY,
-        error[2] + deltaZ,
+        error[0] + correction.x,
+        error[1] + correction.y,
+        error[2] + correction.z,
     };
     const uint64_t substitution = g_substitutions.fetch_add(1, std::memory_order_relaxed) + 1;
     if (substitution <= 8
         || substitution % static_cast<uint64_t>(std::max(g_config.hplControllerLogInterval, 1)) == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_grab_target call=%llu applied=1 pid=%p nativeError=%.4f,%.4f,%.4f controllerDelta=%.4f,%.4f,%.4f modifiedError=%.4f,%.4f,%.4f maxOffset=%.3f",
+            "hpl_grab_target call=%llu applied=1 pid=%p nativeError=%.4f,%.4f,%.4f initialHandCorrection=%.4f,%.4f,%.4f controllerMovement=%.4f,%.4f,%.4f correction=%.4f,%.4f,%.4f modifiedError=%.4f,%.4f,%.4f maxControllerMovement=%.3f policy=unbounded_pull_in_plus_bounded_controller_travel",
             static_cast<unsigned long long>(call), pid,
             error[0], error[1], error[2],
-            deltaX, deltaY, deltaZ,
+            initialHandCorrection.x,
+            initialHandCorrection.y,
+            initialHandCorrection.z,
+            controllerMovement.x,
+            controllerMovement.y,
+            controllerMovement.z,
+            correction.x,
+            correction.y,
+            correction.z,
             modifiedError[0], modifiedError[1], modifiedError[2],
             maxOffset);
     }

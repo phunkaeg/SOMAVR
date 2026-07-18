@@ -1,19 +1,20 @@
 # Next Live Evidence
 
-Date: 2026-07-17
+Date: 2026-07-18
 
-Use `out\SOMAVR-latest` (`0.66.0-interaction-stability`) for the next run. The
-story-object route is accepted. Concentrate on the exact loose props, curtains,
-and starting laptop from the 0.65.1 pass: props must settle without angular
-chatter, curtains must catch up to short left/right gestures in both directions,
-and the terminal cursor must continuously follow the beam and activate native
-widgets without moving the player or camera.
+Use `out\SOMAVR-latest` (`0.67.0-native-manipulation-overlay`) for the next run.
+The story-object route remains accepted. Concentrate on the mug/DSLR, curtains,
+and starting laptop: distant props must complete their pull-in and then follow
+the hand through the new bounded travel range; curtains must respond to held-
+trigger hand drag without snap turn; and the laptop must appear as a head-locked
+duplicate whose cursor follows either controller continuously.
 
-Required markers are `hpl_terminal_pointer ... direct_dispatch`, native hinge
-rows containing controller angular contribution, `hpl_grab_anchor ...
-attachToHand=1 orientationTarget=1`,
+Required markers are `hpl_terminal_pointer ... route=head_cone`,
+`hpl_hud_gui ... terminal={match=1 captured=1}`,
+`hpl_grab_anchor ... attachToHand=1 orientationTarget=1`,
 `hpl_grab_rotation ... absolute_controller_orientation_bounded_error`,
-`hpl_slide_target ... controller_joint_position_follow`,
+`hpl_grab_translation ... unbounded_pull_in_plus_bounded_controller_travel`,
+`hpl_manipulation_motion entered state=Slide(4)`,
 `hpl_terminal_pointer ... owner=manager_world_input_0x170`,
 `hpl_read_presentation ... native_pickup_travel_full_axis_controller_orientation`,
 `inspection_exit`, and paired

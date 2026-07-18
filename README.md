@@ -81,6 +81,18 @@ OpenXR launch:
 & "D:\Dev Debug\SOMAVR\out\SOMAVR-latest\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
 
+Launch the supported NoSteam executable with SOMA's developer configuration,
+optionally jumping directly to a map:
+
+```powershell
+& "D:\Dev Debug\SOMAVR\scripts\Launch-SOMAVR-Dev.ps1"
+& "D:\Dev Debug\SOMAVR\scripts\Launch-SOMAVR-Dev.ps1" -Map "00_01_apartment.hpm" -MapFolder "maps/chapter00/"
+```
+
+`Soma.exe` is the Steam-integrated binary and imports `steam_api64.dll`. Its
+native layout differs from the supported `Soma_NoSteam.exe`; the injector doctor
+therefore rejects it instead of applying NoSteam RVAs to the wrong code.
+
 Attach to an already-running process:
 
 ```powershell
@@ -262,13 +274,12 @@ or eye-distinct.
   comfort-vignette controls
   while suppressing all underlying gameplay input.
 
-`0.63.0` keeps wall terminals diegetic by suppressing only state `8` body
-teleport, camera rotation, and terminal camera offset during active VR. Dominant
-aim is projected through SOMA's native spatial GUI mesh/UV routine in states
-`8/9`; select/trigger still uses the native click route. Handheld state `9`
-retains its authored presentation. Configure `TerminalDiegetic`,
-`TerminalRayPointer`, `TerminalRayLengthMeters`, and `TerminalPointer` under
-`[Controller]`; each control has a fail-closed rollback path.
+`0.67.0` can duplicate the exact focused state-8 terminal `cGuiSet` into the
+head-locked OpenXR HUD layer. Controller aim then maps across that overlay while
+select/trigger still uses SOMA's native click route. The original physical
+screen remains rendered in the world. Set `TerminalOverlay=0` to return to
+world-mesh ray input; `TerminalDiegetic=0` separately restores SOMA's authored
+body/camera takeover. Handheld state `9` retains its authored presentation.
 
 - signature-guarded native eye view/projection integration,
 - persistent per-eye OpenGL cache transfer,
@@ -465,14 +476,15 @@ OneHandFallback=1
 SuppressDuringAuthoredCamera=1
 InteractionRay=1
 InteractionRayOriginTolerance=0.75
+TerminalOverlay=1
 GrabTranslation=1
 GrabAttachToHand=1
 GrabTranslationScale=1.0
-GrabMaxOffsetMeters=0.75
+GrabMaxOffsetMeters=1.5
 GrabRotation=1
 GrabRotationGain=20.0
 GrabRotationSign=1.0
-GrabMaxAngularSpeed=3.0
+GrabMaxAngularSpeed=6.0
 TwoHandHudObject=1
 TwoHandGrabRotation=1
 TwoHandSqueezeThreshold=0.75
@@ -487,7 +499,7 @@ ManipulationMappings=1
 ManipulationMotionPixelsPerMeter=900
 ManipulationSlidePixelsPerMeter=2700
 ManipulationReadPixelsPerRadian=900
-SlideDirectVelocity=1
+SlideDirectVelocity=0
 SlideVelocityScale=1
 SlidePositionGain=12
 SlideMaxVelocityMetersPerSecond=2.5
@@ -523,11 +535,12 @@ StateTransitionBlackoutFrames=2
 still controls apparent size. Hold the owning grip to rotate an inspected object
 through unrestricted pitch, yaw, and roll.
 
-`SlidePositionGain` closes the distance between tracked hand travel and the
-native joint body, so a short curtain or drawer gesture is not lost to solver
-lag after the hand stops. Grab rotation uses `GrabMaxAngularSpeed` as both its
-target-speed and PID-error cap; the packaged `20/3` gain/speed defaults are
-intended to keep light props stable.
+Curtains and drawers use SOMA's native semantic Look-to-`mvMoveAdd` script route
+by default. `SlideDirectVelocity=1` enables the experimental joint-PID route for
+comparison. Grab's initial hit-to-hand pull is separate from
+`GrabMaxOffsetMeters`, which bounds only later controller travel. Rotation uses
+`GrabMaxAngularSpeed` as both target-speed and PID-error cap; the packaged
+`20/6` gain/speed defaults retain bounded correction with native responsiveness.
 
 `DepthCompositionSubmit` is opt-in in generated configurations until live
 runtime and hardware-matrix acceptance is complete. The development

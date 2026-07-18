@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <mutex>
 
 namespace somavr {
@@ -103,11 +104,20 @@ constexpr int kLastPhysicalManipulationState = 7;
 constexpr int kTerminalPlayerState = 8;
 constexpr int kHandheldTerminalPlayerState = 9;
 constexpr int kReadPlayerState = 10;
+constexpr int kMovingButtonPlayerState = 13;
 constexpr int kDeadPlayerState = 17;
 constexpr int kZoomAreaPlayerState = 18;
+constexpr uintptr_t kPlayerAnalogInputRva = 0x154fb0;
+constexpr std::array<uint8_t, 15> kPlayerAnalogInputSignature{
+    0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74,
+    0x24, 0x10, 0x57, 0x48, 0x83, 0xec, 0x20,
+};
+
+using PlayerAnalogInputFn = void (*)(void*, int, const float*);
 
 Config g_config;
 OpenXRRuntime* g_openxr = nullptr;
+PlayerAnalogInputFn g_playerAnalogInput = nullptr;
 BridgeState g_state;
 std::mutex g_mutex;
 std::atomic<uint64_t> g_updates = 0;
@@ -149,6 +159,8 @@ std::atomic<uint64_t> g_manipulationMotionTrackingLosses = 0;
 std::atomic<int64_t> g_manipulationMotionPixelsX = 0;
 std::atomic<int64_t> g_manipulationMotionPixelsY = 0;
 std::atomic<uint64_t> g_manipulationMotionSessionSummaries = 0;
+std::atomic<uint64_t> g_manipulationNativeAnalogDispatches = 0;
+std::atomic<uint64_t> g_manipulationMouseFallbacks = 0;
 std::atomic<uint64_t> g_nativeThrowActions = 0;
 std::atomic<uint64_t> g_playerStateTransitions = 0;
 std::atomic<uint64_t> g_playerStateBlackouts = 0;
@@ -226,6 +238,40 @@ void ReleaseMovementInputs()
     SetKey(g_state.right, 'D', false);
 }
 
+bool IsInsideImage(HMODULE module, uintptr_t rva, size_t bytes)
+{
+    if (module == nullptr || bytes == 0) return false;
+    const auto* base = reinterpret_cast<const uint8_t*>(module);
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0) return false;
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    return nt->Signature == IMAGE_NT_SIGNATURE
+        && rva < nt->OptionalHeader.SizeOfImage
+        && bytes <= nt->OptionalHeader.SizeOfImage - rva;
+}
+
+bool ResolvePlayerAnalogInput()
+{
+    HMODULE executable = GetModuleHandleW(nullptr);
+    if (!IsInsideImage(
+            executable,
+            kPlayerAnalogInputRva,
+            kPlayerAnalogInputSignature.size())) {
+        return false;
+    }
+    const auto* address = reinterpret_cast<const uint8_t*>(executable)
+        + kPlayerAnalogInputRva;
+    if (std::memcmp(
+            address,
+            kPlayerAnalogInputSignature.data(),
+            kPlayerAnalogInputSignature.size()) != 0) {
+        return false;
+    }
+    g_playerAnalogInput = reinterpret_cast<PlayerAnalogInputFn>(
+        const_cast<uint8_t*>(address));
+    return true;
+}
+
 const char* PhysicalManipulationStateName(int state)
 {
     switch (state) {
@@ -235,6 +281,7 @@ const char* PhysicalManipulationStateName(int state)
     case 6: return "lever";
     case 7: return "tear";
     case 10: return "read";
+    case 13: return "moving_button";
     default: return "none";
     }
 }
@@ -908,8 +955,9 @@ void ApplyControllerManipulationMotion(
     const HPLPlayerStateSnapshot& player)
 {
     const OpenXRHandInput& dominant = HandInput(input, roles.dominantHand);
-    const bool physicalState = player.playerStateId >= kWheelPlayerState
-        && player.playerStateId <= kLastPhysicalManipulationState
+    const bool physicalState = ((player.playerStateId >= kWheelPlayerState
+        && player.playerStateId <= kLastPhysicalManipulationState)
+        || player.playerStateId == kMovingButtonPlayerState)
         && !(player.playerStateId == kSlidePlayerState
             && g_config.hplControllerSlideDirectVelocity)
         && !((player.playerStateId == 5 || player.playerStateId == 6)
@@ -1043,7 +1091,20 @@ void ApplyControllerManipulationMotion(
     g_manipulationMotionFrames.fetch_add(1, std::memory_order_relaxed);
     if (outputX == 0 && outputY == 0) return;
 
-    SendMouseMove(outputX, outputY);
+    const bool nativeAnalogAvailable = g_playerAnalogInput != nullptr
+        && player.player != nullptr;
+    if (nativeAnalogAvailable) {
+        const float amount[3] = {
+            static_cast<float>(outputX),
+            static_cast<float>(outputY),
+            0.0f,
+        };
+        g_playerAnalogInput(player.player, 0, amount);
+        g_manipulationNativeAnalogDispatches.fetch_add(1, std::memory_order_relaxed);
+    } else {
+        SendMouseMove(outputX, outputY);
+        g_manipulationMouseFallbacks.fetch_add(1, std::memory_order_relaxed);
+    }
     const uint64_t event = g_manipulationMotionEvents.fetch_add(1, std::memory_order_relaxed) + 1;
     g_manipulationMotionPixelsX.fetch_add(outputX, std::memory_order_relaxed);
     g_manipulationMotionPixelsY.fetch_add(outputY, std::memory_order_relaxed);
@@ -1054,7 +1115,7 @@ void ApplyControllerManipulationMotion(
     if (event <= 16 || event % interval == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_manipulation_motion event=%llu state=%s(%d) hand=%s inputFrame=%llu displacementMeters=%.5f,%.5f rotationRadians=%.5f,%.5f mouseDelta=%d,%d scale=%.1f signs=%.1f,%.1f",
+            "hpl_manipulation_motion event=%llu state=%s(%d) hand=%s inputFrame=%llu displacementMeters=%.5f,%.5f rotationRadians=%.5f,%.5f analogAmount=%d,%d route=%s scale=%.1f signs=%.1f,%.1f",
             static_cast<unsigned long long>(event),
             PhysicalManipulationStateName(player.playerStateId),
             player.playerStateId,
@@ -1066,6 +1127,9 @@ void ApplyControllerManipulationMotion(
             rotation.pitchRadians,
             outputX,
             outputY,
+            nativeAnalogAvailable
+                ? "native_player_analog_dispatch_0x154fb0"
+                : "windows_mouse_fallback",
             player.playerStateId == kReadPlayerState
                 ? g_config.hplControllerManipulationReadPixelsPerRadian
                 : g_config.hplControllerManipulationMotionPixelsPerMeter,
@@ -1083,8 +1147,9 @@ void ApplyGameplayActions(
     const OpenXRHandInput& dominant = HandInput(input, roles.dominantHand);
     const OpenXRHandInput& support = HandInput(input, roles.supportHand);
     const bool recenterChord = roles.oneHand && dominant.primary && dominant.secondary;
-    const bool manipulationState = player.playerStateId >= kGrabPlayerState
-        && player.playerStateId <= kLastPhysicalManipulationState;
+    const bool manipulationState = (player.playerStateId >= kGrabPlayerState
+        && player.playerStateId <= kLastPhysicalManipulationState)
+        || player.playerStateId == kMovingButtonPlayerState;
     const bool inspectionState = player.playerStateId == kReadPlayerState
         || player.playerStateId == kZoomAreaPlayerState;
     const bool throwState = player.playerStateId == kGrabPlayerState
@@ -1178,9 +1243,10 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
     std::lock_guard lock(g_mutex);
     g_config = config;
     g_openxr = openxr;
+    const bool nativeManipulationAnalog = ResolvePlayerAnalogInput();
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d aimGuide=%d aimGuideLength=%.2f flashlight=%d inventory=%d menu=%d menuPointer=%d terminalPointer=%d terminalOverlay=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d manipulationMappings=%d manipulationMotion=%d manipulationMotionScale=%.1f slideScale=%.1f readRotationScale=%.1f slideDirectVelocity=%d manipulationMotionDeadzone=%.4f manipulationMotionCap=%d manipulationMotionSigns=%.1f,%.1f suppressAuthoredCamera=%d comfortBlackoutFrames=%d stateTransitionBlackoutFrames=%d maxInputAgeFrames=%d comfortVignette=%d comfortVignetteSmoothTurn=%d",
+        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d aimGuide=%d aimGuideLength=%.2f flashlight=%d inventory=%d menu=%d menuPointer=%d terminalPointer=%d terminalOverlay=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d manipulationMappings=%d manipulationMotion=%d nativeManipulationAnalog=%d nativeManipulationAnalogRva=0x%llx manipulationMotionScale=%.1f slideScale=%.1f readRotationScale=%.1f slideDirectVelocity=%d manipulationMotionDeadzone=%.4f manipulationMotionCap=%d manipulationMotionSigns=%.1f,%.1f suppressAuthoredCamera=%d comfortBlackoutFrames=%d stateTransitionBlackoutFrames=%d maxInputAgeFrames=%d comfortVignette=%d comfortVignetteSmoothTurn=%d",
         config.hplControllerInput ? 1 : 0,
         config.hplControllerMoveDeadzone,
         config.hplControllerNativeLocomotion ? 1 : 0,
@@ -1212,6 +1278,8 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplControllerOneHandFallback ? 1 : 0,
         config.hplControllerManipulationMappings ? 1 : 0,
         config.hplControllerManipulationMotion ? 1 : 0,
+        nativeManipulationAnalog ? 1 : 0,
+        static_cast<unsigned long long>(kPlayerAnalogInputRva),
         config.hplControllerManipulationMotionPixelsPerMeter,
         config.hplControllerManipulationSlidePixelsPerMeter,
         config.hplControllerManipulationReadPixelsPerRadian,
@@ -1495,6 +1563,7 @@ void RemoveHPLInputBridge()
     std::lock_guard lock(g_mutex);
     ReleaseAll();
     g_openxr = nullptr;
+    g_playerAnalogInput = nullptr;
     g_state = {};
     Logger::Instance().Write(LogLevel::Info, "hpl_input_bridge removed");
 }

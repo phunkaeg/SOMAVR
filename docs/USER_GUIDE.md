@@ -113,7 +113,7 @@ RotateVelocityScale=1
 RotateAngularVelocityScale=1
 RotateMaxAngularSpeed=4
 ReadPresentation=1
-ReadObjectDistanceScale=1
+ReadObjectDistanceScale=2
 ReadObjectScale=2
 ```
 
@@ -125,9 +125,10 @@ for preferred-hand-only probing, or `AimGuide=0` to hide only the markers.
 In Read views, hold the initiating hand's grip and rotate it to rotate the object
 through full pitch, yaw, and roll; right-controller A or B exits.
 `ReadPresentation=1` preserves SOMA's native pickup travel and timing while
-applying `ReadObjectScale`. `ReadObjectDistanceScale` remains in the file for
-compatibility but is not applied by `0.65.1`; set `ReadPresentation=0` for fully
-native presentation. Turn input is ignored while SOMA owns a physical
+applying `ReadObjectScale`. `ReadObjectDistanceScale=2` scales every current
+native object position from the camera, doubling the final viewing distance
+without caching or replacing the entrance animation; set `ReadPresentation=0`
+for fully native presentation. Turn input is ignored while SOMA owns a physical
 manipulation or Read state. `GrabAttachToHand=1` starts loose-prop Grab with a
 selected-hit-to-grip pull through SOMA's native PID. The initial pull no longer
 consumes the bounded controller-travel allowance. `GrabMaxOffsetMeters` limits

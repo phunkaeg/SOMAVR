@@ -1139,6 +1139,36 @@ struct OpenXRRuntime::Impl {
         return completed;
     }
 
+    bool CaptureFramebufferToHud(
+        uint64_t frameIndex,
+        uint32_t sourceFramebuffer,
+        int sourceWidth,
+        int sourceHeight)
+    {
+        std::lock_guard lock(mutex_);
+        if (!hudLayerEnabled_
+            || hudSubmissionSuspended_
+            || !frameSubmitEnabled_
+            || !sessionRunning_
+            || !stereoSubmissionEnabled_
+            || (sessionState_ != XR_SESSION_STATE_VISIBLE
+                && sessionState_ != XR_SESSION_STATE_FOCUSED)
+            || !frameResourcesReady_
+            || !glBridge_.HudReady()) {
+            return false;
+        }
+        const bool completed = glBridge_.CaptureFramebufferToHud(
+            frameIndex,
+            sourceFramebuffer,
+            sourceWidth,
+            sourceHeight);
+        if (completed) {
+            ++hudCaptureStarts_;
+            ++hudCaptureCompletions_;
+        }
+        return completed;
+    }
+
 private:
     void LogDeferredBootstrapLocked(uint64_t frameIndex)
     {
@@ -3872,6 +3902,7 @@ struct OpenXRRuntime::Impl {
     void SetPresentationBlackout(bool, const char*) {}
     bool BeginHudCapture(uint64_t) { return false; }
     bool EndHudCapture(uint64_t, bool) { return false; }
+    bool CaptureFramebufferToHud(uint64_t, uint32_t, int, int) { return false; }
 
 private:
     void LogUnavailableLocked()
@@ -4192,6 +4223,19 @@ bool OpenXRRuntime::BeginHudCapture(uint64_t frameIndex)
 bool OpenXRRuntime::EndHudCapture(uint64_t frameIndex, bool suppressCenterCrosshair)
 {
     return impl_->EndHudCapture(frameIndex, suppressCenterCrosshair);
+}
+
+bool OpenXRRuntime::CaptureFramebufferToHud(
+    uint64_t frameIndex,
+    uint32_t sourceFramebuffer,
+    int sourceWidth,
+    int sourceHeight)
+{
+    return impl_->CaptureFramebufferToHud(
+        frameIndex,
+        sourceFramebuffer,
+        sourceWidth,
+        sourceHeight);
 }
 
 } // namespace somavr

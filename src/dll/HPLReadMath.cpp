@@ -54,4 +54,31 @@ camera_math::Quaternion ResolveRelativeOrientation(
         camera_math::Normalize(anchorObject)));
 }
 
+bool ScaleCameraRelativePosition(
+    const camera_math::Vector3& cameraPosition,
+    const camera_math::Vector3& nativePosition,
+    float distanceScale,
+    camera_math::Vector3& output)
+{
+    if (!std::isfinite(cameraPosition.x)
+        || !std::isfinite(cameraPosition.y)
+        || !std::isfinite(cameraPosition.z)
+        || !std::isfinite(nativePosition.x)
+        || !std::isfinite(nativePosition.y)
+        || !std::isfinite(nativePosition.z)
+        || !std::isfinite(distanceScale)
+        || distanceScale < 0.5f
+        || distanceScale > 4.0f) {
+        return false;
+    }
+    output = {
+        cameraPosition.x + (nativePosition.x - cameraPosition.x) * distanceScale,
+        cameraPosition.y + (nativePosition.y - cameraPosition.y) * distanceScale,
+        cameraPosition.z + (nativePosition.z - cameraPosition.z) * distanceScale,
+    };
+    return std::isfinite(output.x)
+        && std::isfinite(output.y)
+        && std::isfinite(output.z);
+}
+
 } // namespace somavr::read_math

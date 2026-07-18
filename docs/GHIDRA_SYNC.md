@@ -1,5 +1,17 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-18 Interaction Correction Sync
+
+| Program/address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| NoSteam `0x140154fb0` | `SOMA_cLuxPlayer_OnAnalogInput` | Signature-guarded native analog dispatcher. Calls current state script at player `+0xc8`, secondary handler `+0xf0`, then player-level handling; controller manipulation now enters as Look type `0`. |
+| NoSteam `0x140164910` | `SOMA_ScriptPlayerState_OnAnalogInput` | Script object boolean `OnAnalogInput` dispatch used by released Slide and MovingButton states. |
+| NoSteam `0x140213970` | `HPL3_GuiSet_Render` | Updated terminal contract to one native render plus completed-FBO blit; the prior second call doubled stateful GUI draws and caused fragmentation. |
+| NoSteam `0x14049c720` | `HPL3_iPhysicsBody_AddImpulse_Thunk` | Documented native-strength floor, `2x` maximum velocity scaling, and forward-clearance policy for controller throws. |
+| NoSteam `0x1400bcd90` | `HPL3_Entity3D_SetMatrix` | Read presentation scales every current native camera-relative position, avoiding the rejected acquisition-frame cache. |
+
+The `Soma_NoSteam.exe` database was saved after synchronization.
+
 ## 2026-07-18 Native Manipulation And Terminal Overlay Sync
 
 | Program/address | Ghidra name | Evidence/use |

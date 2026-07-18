@@ -1296,29 +1296,51 @@ void HookAddImpulse(void* body, const float* impulse)
         return;
     }
 
-    float velocityScale = 1.0f;
-    if (g_config.hplControllerThrowVelocityScale
-        && controllerSpeed >= g_config.hplControllerThrowVelocityThreshold) {
-        velocityScale = std::clamp(
-            controllerSpeed / std::max(g_config.hplControllerThrowVelocityReference, 0.1f),
-            0.5f,
-            1.5f);
+    const HPLCameraBridgeStatus camera = GetHPLCameraBridgeStatus();
+    const camera_math::Vector3 cameraForward = camera.nativeCameraBasisValid
+        ? camera_math::Vector3{
+            camera.nativeCameraForwardX,
+            camera.nativeCameraForwardY,
+            camera.nativeCameraForwardZ,
+        }
+        : camera_math::Vector3{impulse[0], impulse[1], impulse[2]};
+    const camera_math::Vector3 safeDirection = grab_math::ResolveSafeThrowDirection(
+        {directionX, directionY, directionZ},
+        cameraForward,
+        0.25f);
+    const float safeDirectionLength = std::sqrt(
+        safeDirection.x * safeDirection.x
+        + safeDirection.y * safeDirection.y
+        + safeDirection.z * safeDirection.z);
+    if (!std::isfinite(safeDirectionLength) || safeDirectionLength < 1.0e-6f) {
+        g_throwFallbacks.fetch_add(1, std::memory_order_relaxed);
+        CallNativeAddImpulse(body, impulse);
+        return;
     }
-    const float scale = nativeMagnitude * velocityScale / directionLength;
+
+    const float velocityScale = grab_math::ResolveThrowVelocityScale(
+        controllerSpeed,
+        g_config.hplControllerThrowVelocityThreshold,
+        g_config.hplControllerThrowVelocityReference,
+        g_config.hplControllerThrowVelocityScale);
+    const float scale = nativeMagnitude * velocityScale / safeDirectionLength;
     const float redirected[3] = {
-        directionX * scale,
-        directionY * scale,
-        directionZ * scale,
+        safeDirection.x * scale,
+        safeDirection.y * scale,
+        safeDirection.z * scale,
     };
     const uint64_t redirects = g_throwRedirects.fetch_add(1, std::memory_order_relaxed) + 1;
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_controller_throw applied=1 count=%llu body=%p source=%s controllerSpeed=%.3f nativeImpulse=%.4f,%.4f,%.4f redirectedImpulse=%.4f,%.4f,%.4f velocityScale=%.3f",
+        "hpl_controller_throw applied=1 count=%llu body=%p source=%s controllerSpeed=%.3f nativeImpulse=%.4f,%.4f,%.4f requestedDirection=%.4f,%.4f,%.4f redirectedImpulse=%.4f,%.4f,%.4f velocityScale=%.3f forwardSafetyDot=0.250",
         static_cast<unsigned long long>(redirects),
         body,
         source,
         controllerSpeed,
         impulse[0], impulse[1], impulse[2],
+        directionX / directionLength,
+        directionY / directionLength,
+        directionZ / directionLength,
         redirected[0], redirected[1], redirected[2],
         velocityScale);
     CallNativeAddImpulse(body, redirected);

@@ -69,7 +69,8 @@ Evidence:
 - AddImpulse wrapper `0x14049c720` is an exact virtual thunk to vtable `+0x130`.
   The reversible patch is one-shot, expires after 350 ms, and requires Grab state.
 - Throw direction uses release velocity above a threshold and grip forward below;
-  native impulse magnitude is preserved before optional `0.5..1.5` scaling.
+  native impulse magnitude is preserved before optional `1.0..2.0` scaling,
+  with a small camera-forward clearance component to avoid immediate body collision.
 
 Confirms if objects settle to controller orientation without persistent spin and
 each deliberate throw produces exactly one correctly directed impulse across light

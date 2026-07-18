@@ -2,6 +2,38 @@
 
 ## 2026-07-18
 
+### 0.68.0-interaction-correction
+
+- Processed the complete 0.67 headset log. Controller-to-Look geometry was
+  healthy and produced large Slide deltas, but Windows `SendInput` did not
+  reliably reach SOMA's script `OnAnalogInput`. State `13` MovingButton, used by
+  taps and some cupboards, was also absent from the manipulation bridge.
+- Signature-guarded `cLuxPlayer::OnAnalogInput` at `0x140154fb0` and dispatches
+  controller motion directly as native Look analog type `0`. Curtains retain
+  their released Slide script, while MovingButton mechanisms now receive the
+  same owning-hand translation and preserve their internal direction changes,
+  limits, sounds, and callbacks. Windows mouse movement remains fail-closed
+  fallback only.
+- Replaced terminal GUI replay with a single native render followed by an
+  OpenGL framebuffer blit into the HUD capture. The log showed the replay
+  doubling stateful GUI draw counts from 17 to 34/56 per frame, explaining the
+  fragmented flashing. Existing native cursor dispatch was already moving over
+  the overlay and remains authoritative.
+- Corrected controller throws without changing the accepted loose-prop hold.
+  Optional velocity scaling can no longer reduce native impulse, is capped at
+  `2x`, and redirected vectors retain a `0.25` camera-forward component because
+  SOMA spawns the released prop immediately in front of the player.
+- Activated `ReadObjectDistanceScale=2` against every current native story-object
+  matrix. This doubles final camera distance while preserving SOMA's entrance
+  path, timing, scale, full-axis grip rotation, and exit behavior.
+- Added deterministic Read-distance, throw-strength, and throw-clearance tests.
+  All four CTest suites pass; NoSteam package doctor reports
+  `pass=8 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `EF356E9DB1D5F0DE0CF11F5D4FB0B65EF76010C55665333926EE73E01BA07250`.
+  Stable package SHA-256:
+  `D638089FC157F40A6DC0D236C06B4C82769EDC86D5B3604875AF5402B0E3F473`.
+  Headset acceptance remains required.
+
 ### 0.67.0-native-manipulation-overlay
 
 - Processed the complete `0.66.0` headset log. Terminal controller dispatch was

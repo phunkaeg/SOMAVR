@@ -1,5 +1,34 @@
 # Test Checklists
 
+## 0.68.0 Interaction Correction
+
+1. Run stable-package doctor and require
+   `version=0.68.0-interaction-correction`, OpenXR flavor, and `fail=0`. Press
+   F10 and confirm the accepted stereo, rigid world, eye height, shaders,
+   tracking, locomotion, beams, context icon, and loose-prop hold.
+2. Hold trigger on a curtain and drag left/right with the owning hand. Repeat on
+   the bathroom tap and cupboards in both directions. No snap turn should be
+   required. Require `hpl_manipulation_motion` rows for Slide `4` and
+   MovingButton `13` with
+   `route=native_player_analog_dispatch_0x154fb0`.
+3. Throw a cup gently and quickly away from the body. It must travel at least as
+   far as the native-strength version and must not kick the player backward.
+   Require `hpl_controller_throw` with `velocityScale>=1` and
+   `forwardSafetyDot=0.250`.
+4. Enter the laptop. The head-locked duplicate must be coherent and stable, with
+   no fragmented or flashing text. Sweep either controller over it and click a
+   native widget; the visible cursor must follow. HUD summary must show terminal
+   captures while GUI draw counts remain one native render per call.
+5. Inspect a story object. It should retain the accepted native entrance speed
+   and orientation, settle at roughly twice the prior camera distance
+   (approximately `0.30` instead of `0.15` world metres), rotate freely with
+   grip, and exit with right A/B.
+6. Exit normally and attach the complete log. Preserve manipulation, terminal
+   pointer/HUD, throw, and Read-presentation rows.
+
+Rollback independently with `ManipulationMotion=0`, `TerminalOverlay=0`,
+`ThrowRedirect=0`, or `ReadPresentation=0`.
+
 ## 0.67.0 Native Manipulation And Terminal Overlay
 
 1. Run stable-package doctor and require
@@ -1273,8 +1302,9 @@ clamp persisting in open space, or hands/flashlight separating from the HMD.
    `source=velocity` above threshold and `source=grip_forward` below it. Push-state
    cancel/throw and unrelated impulses must remain native.
 5. Compare slow/fast distance with `ThrowVelocityScale=1`; scaling is clamped to
-   `0.5..1.5` around `ThrowVelocityReference`. Set it to `0` if direction is correct
-   but authored object classes need their original fixed throw strength.
+   `1.0..2.0` around `ThrowVelocityReference`, so it never weakens the authored
+   impulse. Set it to `0` if direction is correct but authored object classes
+   need their original fixed throw strength.
 6. Trigger every crosshair icon and central interaction prompt. The gaze crosshair
    should be absent from the OpenXR HUD while descriptions, status effects, and
    noncentral HUD remain intact. If useful content is clipped, reduce

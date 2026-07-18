@@ -53,7 +53,7 @@ Created: 2026-07-09. Status: early reverse-engineering notes. Keep confirmed add
 | --- | --- | --- | --- |
 | `Soma_NoSteam.exe+0x238750` | Static confirmed, guarded control built | Add dominant-controller translation and rotation to native Grab target errors | `0.18.0` gates exact position `400/0/40` and torque `40/0/0.4|0.1` tuples and preserves native solver ownership. |
 | `Soma_NoSteam.exe+0x49c720` | Static confirmed, guarded control patch built | Redirect one native Grab AddImpulse along controller release velocity | Exact virtual thunk uses body vtable `+0x130`; a short controller-armed window prevents unrelated impulses from being changed. |
-| OpenXR `XrSpaceVelocity` on grip spaces | Build ready | Direct and optionally scale release impulse | Predicted-time velocity chooses throw direction above a threshold; scale remains bounded `0.5..1.5` around a configurable reference speed. |
+| OpenXR `XrSpaceVelocity` on grip spaces | Build ready | Direct and optionally scale release impulse | Predicted-time velocity chooses throw direction above a threshold; scale preserves at least native impulse, is bounded `1.0..2.0`, and retains forward clearance from the player. |
 | Native Middle/Right Mouse interaction actions | Build ready | Reuse SOMA rotate and throw/cancel state routes | Support squeeze holds InteractRotate; dominant primary invokes native Grab/Push right-click action under manipulation-state gates. |
 
 ## Likely Next Runtime Hooks

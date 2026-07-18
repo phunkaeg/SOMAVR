@@ -179,7 +179,7 @@ struct Config {
     float hplControllerRotateAngularVelocityScale = 1.0f;
     float hplControllerRotateMaxAngularSpeed = 4.0f;
     bool hplControllerReadPresentation = false;
-    float hplControllerReadObjectDistanceScale = 1.0f;
+    float hplControllerReadObjectDistanceScale = 2.0f;
     float hplControllerReadObjectScale = 2.0f;
     bool hplHandTrackingProbe = false;
     bool hplHandControllerRoot = false;

@@ -49,4 +49,15 @@ float CombineHingeAngularVelocity(
     float controllerScale,
     float maxAngularSpeed);
 
+float ResolveThrowVelocityScale(
+    float controllerSpeed,
+    float velocityThreshold,
+    float velocityReference,
+    bool enabled);
+
+camera_math::Vector3 ResolveSafeThrowDirection(
+    const camera_math::Vector3& requestedDirection,
+    const camera_math::Vector3& cameraForward,
+    float minimumForwardDot);
+
 } // namespace somavr::grab_math

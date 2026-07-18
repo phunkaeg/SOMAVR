@@ -2,21 +2,23 @@
 
 Date: 2026-07-18
 
-Use `out\SOMAVR-latest` (`0.67.0-native-manipulation-overlay`) for the next run.
-The story-object route remains accepted. Concentrate on the mug/DSLR, curtains,
-and starting laptop: distant props must complete their pull-in and then follow
-the hand through the new bounded travel range; curtains must respond to held-
-trigger hand drag without snap turn; and the laptop must appear as a head-locked
-duplicate whose cursor follows either controller continuously.
+Use `out\SOMAVR-latest` (`0.68.0-interaction-correction`) for the next run.
+Concentrate on curtains, bathroom tap, cupboards, throws, the starting laptop,
+and one story object. Curtains/taps/cupboards must follow owning-hand movement
+without snap turn; throws must travel farther without player recoil; the laptop
+duplicate must be coherent and controller-clickable; and story objects must keep
+their accepted entrance while settling at twice the previous distance.
 
 Required markers are `hpl_terminal_pointer ... route=head_cone`,
 `hpl_hud_gui ... terminal={match=1 captured=1}`,
 `hpl_grab_anchor ... attachToHand=1 orientationTarget=1`,
 `hpl_grab_rotation ... absolute_controller_orientation_bounded_error`,
 `hpl_grab_translation ... unbounded_pull_in_plus_bounded_controller_travel`,
-`hpl_manipulation_motion entered state=Slide(4)`,
+`hpl_manipulation_motion ... route=native_player_analog_dispatch_0x154fb0` for
+Slide `4` and MovingButton `13`,
 `hpl_terminal_pointer ... owner=manager_world_input_0x170`,
-`hpl_read_presentation ... native_pickup_travel_full_axis_controller_orientation`,
+`hpl_read_presentation ... current_native_pickup_travel_scaled_from_camera`,
+`hpl_controller_throw ... velocityScale>=1 ... forwardSafetyDot=0.250`,
 `inspection_exit`, and paired
 `hpl_interaction_owner_lock active=1/0`. Confirm the established stereo,
 tracking, eye height, shadows, reflections, context icon, and locomotion first.

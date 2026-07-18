@@ -214,4 +214,72 @@ float CombineHingeAngularVelocity(
         pointAngularVelocity + wrist, -maxAngularSpeed, maxAngularSpeed);
 }
 
+float ResolveThrowVelocityScale(
+    float controllerSpeed,
+    float velocityThreshold,
+    float velocityReference,
+    bool enabled)
+{
+    if (!enabled
+        || !std::isfinite(controllerSpeed)
+        || !std::isfinite(velocityThreshold)
+        || !std::isfinite(velocityReference)
+        || controllerSpeed < velocityThreshold
+        || velocityReference < 0.1f) {
+        return 1.0f;
+    }
+    return std::clamp(controllerSpeed / velocityReference, 1.0f, 2.0f);
+}
+
+camera_math::Vector3 ResolveSafeThrowDirection(
+    const camera_math::Vector3& requestedDirection,
+    const camera_math::Vector3& cameraForward,
+    float minimumForwardDot)
+{
+    const auto normalize = [](const camera_math::Vector3& value) {
+        const float lengthSquared =
+            value.x * value.x + value.y * value.y + value.z * value.z;
+        if (!std::isfinite(lengthSquared) || lengthSquared < 1.0e-8f) {
+            return camera_math::Vector3{};
+        }
+        const float inverseLength = 1.0f / std::sqrt(lengthSquared);
+        return camera_math::Vector3{
+            value.x * inverseLength,
+            value.y * inverseLength,
+            value.z * inverseLength,
+        };
+    };
+    if (!std::isfinite(minimumForwardDot)) return {};
+    const float requiredDot = std::clamp(minimumForwardDot, 0.0f, 0.95f);
+    const camera_math::Vector3 direction = normalize(requestedDirection);
+    const camera_math::Vector3 forward = normalize(cameraForward);
+    const float directionLengthSquared =
+        direction.x * direction.x + direction.y * direction.y + direction.z * direction.z;
+    const float forwardLengthSquared =
+        forward.x * forward.x + forward.y * forward.y + forward.z * forward.z;
+    if (directionLengthSquared < 0.5f || forwardLengthSquared < 0.5f) return {};
+
+    const float forwardDot = direction.x * forward.x
+        + direction.y * forward.y + direction.z * forward.z;
+    if (forwardDot >= requiredDot) return direction;
+
+    camera_math::Vector3 perpendicular{
+        direction.x - forward.x * forwardDot,
+        direction.y - forward.y * forwardDot,
+        direction.z - forward.z * forwardDot,
+    };
+    perpendicular = normalize(perpendicular);
+    const float perpendicularLengthSquared =
+        perpendicular.x * perpendicular.x
+        + perpendicular.y * perpendicular.y
+        + perpendicular.z * perpendicular.z;
+    if (perpendicularLengthSquared < 0.5f) return forward;
+    const float perpendicularScale = std::sqrt(1.0f - requiredDot * requiredDot);
+    return {
+        perpendicular.x * perpendicularScale + forward.x * requiredDot,
+        perpendicular.y * perpendicularScale + forward.y * requiredDot,
+        perpendicular.z * perpendicularScale + forward.z * requiredDot,
+    };
+}
+
 } // namespace somavr::grab_math

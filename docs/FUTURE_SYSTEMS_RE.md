@@ -1,5 +1,39 @@
 # Future Systems Reverse Engineering
 
+## 0.68.0 Native Analog And Single-Render Terminal Correction
+
+The complete 0.67 log separates controller geometry from delivery. Slide state
+`4` accumulated up to hundreds of synthetic mouse pixels and substantial signed
+hand displacement, yet curtains did not move. Ghidra resolves the correct
+boundary at `0x140154fb0`: `cLuxPlayer::OnAnalogInput(int,const cVector3f&)`
+dispatches first to the current player-state script at player `+0xc8`, then the
+secondary handler at `+0xf0`, then player-level analog handling. SOMAVR now calls
+this guarded dispatcher directly with analog type `0` (`eAnalogType_Look`).
+State `13` MovingButton is included because released
+`PlayerState_Interact_MovingButton.hps` consumes Look analog and reverses its
+required direction internally as the authored mechanism changes state. Script
+motion, locks, callbacks, and sounds therefore remain authoritative.
+
+Terminal cursor telemetry already showed changing coordinates and successful
+dispatch through manager world owner `+0x170`. The visual failure was in
+presentation: `HPL3_GuiSet_Render` was called once for the physical FBO and again
+for HUD capture, doubling stateful draw work and producing fragmented/flashing
+content. Version 0.68 renders once, then blits the completed nonzero terminal FBO
+to the HUD capture. Cursor ownership and native widget dispatch are unchanged.
+
+SOMA's Grab throw script teleports the prop immediately in front of the camera,
+zeros velocity, and then applies a camera-forward native impulse. Arbitrary
+controller redirection could point that fresh prop back through the character,
+causing recoil, while the old `0.5..1.5` speed scale weakened ordinary throws.
+The new policy preserves at least native magnitude, permits up to `2x` for fast
+motion, and enforces a small forward-clearance component.
+
+Read presentation now scales each current native matrix translation from the
+current camera position. This is intentionally not an acquisition-frame cache:
+the earlier cached route replaced SOMA's evolving entrance trajectory and caused
+the slow distant slide. A scale of `2` changes the observed `0.15` metre settle
+distance to approximately `0.30` metres without changing native timing.
+
 ## 0.67.0 Native Manipulation And Terminal Overlay Correction
 
 The complete 0.66 log changes the terminal diagnosis. State `8` produced

@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -333,6 +334,7 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     const OpenGLTelemetrySnapshot telemetryBefore = GetOpenGLTelemetrySnapshot();
 
     bool captureStarted = false;
+    bool captureCompleted = false;
     const bool isDirectCapturedHudSet = isGameHud || isGameHudImGuiSet
         || isPausedCurrentImGuiSet || isDeadCurrentImGuiSet
         || isWakeCurrentImGuiSet || isInventoryCurrentImGuiSet;
@@ -350,16 +352,31 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     g_originalGuiSetRender(guiSet, renderTarget);
     if (isTerminalOverlaySet && g_config.openxrHudLayer && g_openxr != nullptr) {
         g_captureAttempts.fetch_add(1, std::memory_order_relaxed);
-        captureStarted = g_openxr->BeginHudCapture(frame);
-        if (captureStarted) {
+        GLint terminalFramebuffer = 0;
+        GLint terminalProgram = 0;
+        ReadGlIds(terminalFramebuffer, terminalProgram);
+        float terminalVirtualWidth = 1024.0f;
+        float terminalVirtualHeight = 577.0f;
+        ReadField(guiSet, 0x100, terminalVirtualWidth);
+        ReadField(guiSet, 0x104, terminalVirtualHeight);
+        captureCompleted = terminalFramebuffer > 0
+            && std::isfinite(terminalVirtualWidth)
+            && std::isfinite(terminalVirtualHeight)
+            && g_openxr->CaptureFramebufferToHud(
+                frame,
+                static_cast<uint32_t>(terminalFramebuffer),
+                static_cast<int>(std::lround(terminalVirtualWidth)),
+                static_cast<int>(std::lround(terminalVirtualHeight)));
+        captureStarted = captureCompleted;
+        if (captureCompleted) {
             g_captureStarts.fetch_add(1, std::memory_order_relaxed);
-            g_originalGuiSetRender(guiSet, renderTarget);
+            g_captureCompletions.fetch_add(1, std::memory_order_relaxed);
+            g_terminalOverlayCaptureCompletions.fetch_add(1, std::memory_order_relaxed);
         } else {
             g_captureFallbacks.fetch_add(1, std::memory_order_relaxed);
         }
     }
-    bool captureCompleted = false;
-    if (captureStarted) {
+    if (captureStarted && !isTerminalOverlaySet) {
         captureCompleted = g_openxr->EndHudCapture(frame, isGameHud);
         if (captureCompleted) {
             g_captureCompletions.fetch_add(1, std::memory_order_relaxed);

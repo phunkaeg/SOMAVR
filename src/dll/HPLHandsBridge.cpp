@@ -957,6 +957,23 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                                 ? &presentationOrientation
                                 : nullptr,
                             controllerMatrix)) {
+                        camera_math::Vector3 presentationPosition{};
+                        if (!read_math::ScaleCameraRelativePosition(
+                                {
+                                    camera.cameraWorldPositionX,
+                                    camera.cameraWorldPositionY,
+                                    camera.cameraWorldPositionZ,
+                                },
+                                {matrix[3], matrix[7], matrix[11]},
+                                g_config.hplControllerReadObjectDistanceScale,
+                                presentationPosition)) {
+                            g_readPresentationFallbacks.fetch_add(
+                                1, std::memory_order_relaxed);
+                            return g_originalSetMatrix(entity, submittedMatrix);
+                        }
+                        controllerMatrix[3] = presentationPosition.x;
+                        controllerMatrix[7] = presentationPosition.y;
+                        controllerMatrix[11] = presentationPosition.z;
                         submittedMatrix = controllerMatrix.data();
                         const uint64_t overrideCount = g_readPresentationOverrides.fetch_add(
                             1, std::memory_order_relaxed) + 1;
@@ -965,12 +982,13 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                         if (overrideCount <= 8 || overrideCount % interval == 0) {
                             Logger::Instance().Write(
                                 LogLevel::Info,
-                                "hpl_read_presentation override=%llu frame=%llu entity=%p name=%s nativeDistance=%.4f objectScale=%.3f gripValid=%d gripHand=%s squeeze=%.3f rotateActive=%d orientationOverride=%d finalPos=%.4f,%.4f,%.4f policy=native_pickup_travel_full_axis_controller_orientation",
+                                "hpl_read_presentation override=%llu frame=%llu entity=%p name=%s nativeDistance=%.4f distanceScale=%.3f objectScale=%.3f gripValid=%d gripHand=%s squeeze=%.3f rotateActive=%d orientationOverride=%d finalPos=%.4f,%.4f,%.4f policy=current_native_pickup_travel_scaled_from_camera_full_axis_controller_orientation",
                                 static_cast<unsigned long long>(overrideCount),
                                 static_cast<unsigned long long>(player.frame),
                                 entity,
                                 identity.name.c_str(),
                                 distance,
+                                g_config.hplControllerReadObjectDistanceScale,
                                 g_config.hplControllerReadObjectScale,
                                 gripValid ? 1 : 0,
                                 handIndex == 0 ? "left" : "right",

@@ -1041,6 +1041,31 @@ int main()
                         4.0f),
                 4.0f),
         "hinge wrist twist projects onto the native pin and shares the speed cap");
+    failures += Check(
+        Near(grab_math::ResolveThrowVelocityScale(0.5f, 0.25f, 2.0f, true), 1.0f)
+            && Near(grab_math::ResolveThrowVelocityScale(3.0f, 0.25f, 2.0f, true), 1.5f)
+            && Near(grab_math::ResolveThrowVelocityScale(8.0f, 0.25f, 2.0f, true), 2.0f),
+        "controller throw scale preserves native strength and rewards faster throws");
+    const camera_math::Vector3 safeRearwardThrow =
+        grab_math::ResolveSafeThrowDirection(
+            {0.0f, 0.0f, 1.0f},
+            {0.0f, 0.0f, -1.0f},
+            0.25f);
+    const float safeRearwardDot = -safeRearwardThrow.z;
+    const camera_math::Vector3 safeSideThrow =
+        grab_math::ResolveSafeThrowDirection(
+            {1.0f, 0.0f, 0.0f},
+            {0.0f, 0.0f, -1.0f},
+            0.25f);
+    const float safeSideDot = -safeSideThrow.z;
+    failures += Check(
+        safeRearwardDot >= 0.249f
+            && safeSideDot >= 0.249f
+            && Near(std::sqrt(
+                safeSideThrow.x * safeSideThrow.x
+                + safeSideThrow.y * safeSideThrow.y
+                + safeSideThrow.z * safeSideThrow.z), 1.0f),
+        "controller throw direction keeps clearance from the player body");
 
     std::array<float, 16> readNative{
         1.0f, 0.0f, 0.0f, 0.0f,
@@ -1070,6 +1095,17 @@ int main()
             && Near(readPresented[8], -2.0f)
             && Near(readPresented[11], -0.5f),
         "read presentation applies unrestricted controller-relative orientation");
+    camera_math::Vector3 readPresentationPosition{};
+    failures += Check(
+        read_math::ScaleCameraRelativePosition(
+            {1.0f, 2.0f, 3.0f},
+            {1.0f, 2.0f, 3.15f},
+            2.0f,
+            readPresentationPosition)
+            && Near(readPresentationPosition.x, 1.0f)
+            && Near(readPresentationPosition.y, 2.0f)
+            && Near(readPresentationPosition.z, 3.3f),
+        "read distance scales each current native position from the camera");
     camera_math::Quaternion extractedYaw{};
     failures += Check(
         camera_math::QuaternionFromRotationMatrix(

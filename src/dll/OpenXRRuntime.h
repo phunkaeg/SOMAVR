@@ -243,6 +243,11 @@ public:
     void SetPresentationBlackout(bool active, const char* reason);
     bool BeginHudCapture(uint64_t frameIndex);
     bool EndHudCapture(uint64_t frameIndex, bool suppressCenterCrosshair);
+    bool CaptureFramebufferToHud(
+        uint64_t frameIndex,
+        uint32_t sourceFramebuffer,
+        int sourceWidth,
+        int sourceHeight);
     void SetInteractionReticle(const OpenXRInteractionReticleState& state);
     void SetInteractionReticleSemantic(int crosshairState);
     void ClearInteractionReticle();

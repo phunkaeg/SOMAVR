@@ -788,6 +788,41 @@ bool OpenXRGLBridge::EndHudCapture(uint64_t frameIndex, bool suppressCenterCross
     return true;
 }
 
+bool OpenXRGLBridge::CaptureFramebufferToHud(
+    uint64_t frameIndex,
+    uint32_t sourceFramebuffer,
+    int sourceWidth,
+    int sourceHeight)
+{
+    if (sourceFramebuffer == 0
+        || sourceWidth <= 0
+        || sourceHeight <= 0
+        || sourceWidth > 16384
+        || sourceHeight > 16384
+        || !BeginHudCapture(frameIndex)) {
+        return false;
+    }
+
+    glBindFramebuffer_(kGlReadFramebuffer, sourceFramebuffer);
+    glReadBuffer(kGlColorAttachment0);
+    glBindFramebuffer_(kGlDrawFramebuffer, hud_.captureFramebuffer);
+    glDrawBuffer(kGlColorAttachment0);
+    glDisable(kGlScissorTest);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glBlitFramebuffer_(
+        0,
+        0,
+        sourceWidth,
+        sourceHeight,
+        0,
+        0,
+        hud_.width,
+        hud_.height,
+        kGlColorBufferBit,
+        kGlLinear);
+    return EndHudCapture(frameIndex, false);
+}
+
 void OpenXRGLBridge::RestoreHudCaptureState()
 {
     if (!hudCaptureState_.active) {

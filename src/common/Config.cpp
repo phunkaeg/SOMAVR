@@ -382,7 +382,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "RotateAngularVelocityScale=1\n"
         << "RotateMaxAngularSpeed=4\n"
         << "ReadPresentation=0\n"
-        << "ReadObjectDistanceScale=2\n"
+        << "ReadObjectDistanceScale=1\n"
         << "ReadObjectScale=2\n"
         << "HandTrackingProbe=0\n"
         << "HandControllerRoot=0\n"

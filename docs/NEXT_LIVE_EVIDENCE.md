@@ -1,13 +1,14 @@
 # Next Live Evidence
 
-Date: 2026-07-18
+Date: 2026-07-19
 
-Use `out\SOMAVR-latest` (`0.68.1-input-phase-safety`) for the next run.
+Use `out\SOMAVR-latest` (`0.68.2-native-phase-recovery`) for the next run.
 Concentrate on curtains, bathroom tap, cupboards, throws, the starting laptop,
 and one story object. Curtains/taps/cupboards must follow owning-hand movement
 without snap turn; throws must travel farther without player recoil; the laptop
 duplicate must be coherent and controller-clickable; and story objects must keep
-their accepted entrance while settling at twice the previous distance.
+their accepted entrance, settle once at native distance, and remain `2x` apparent
+size.
 
 Required markers are `hpl_terminal_pointer ... route=head_cone`,
 `hpl_hud_gui ... terminal={match=1 captured=1}`,
@@ -15,10 +16,11 @@ Required markers are `hpl_terminal_pointer ... route=head_cone`,
 `hpl_grab_rotation ... absolute_controller_orientation_bounded_error`,
 `hpl_grab_translation ... unbounded_pull_in_plus_bounded_controller_travel`,
 `hpl_manipulation_motion ... route=queued_native_input_phase_substitution_0x154fb0`
-followed by `hpl_manipulation_native_input ... route=native_input_phase_substitution_0x154fb0`
+followed by `hpl_manipulation_native_input ... route=player_helper_update_0x15ba20_to_analog_0x154fb0`
 for Slide `4` and MovingButton `13`,
 `hpl_terminal_pointer ... owner=manager_world_input_0x170`,
-`hpl_read_presentation ... current_native_pickup_travel_scaled_from_camera`,
+`hpl_terminal_capture ... policy=single_render_actual_gl_viewport`,
+`hpl_read_presentation ... native_pickup_translation_preserved_non_recursive`,
 `hpl_controller_throw ... velocityScale>=1 ... forwardSafetyDot=0.250`,
 `inspection_exit`, and paired
 `hpl_interaction_owner_lock active=1/0`. Confirm the established stereo,

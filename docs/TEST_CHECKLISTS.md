@@ -1,5 +1,29 @@
 # Test Checklists
 
+## 0.68.2 Native-Phase Recovery
+
+1. Run stable-package doctor and require
+   `version=0.68.2-native-phase-recovery`, OpenXR flavor, and `fail=0`. Press F10
+   and confirm the accepted world, stereo, eye height, shaders, tracking,
+   locomotion, beams, and loose-prop hold.
+2. Hold one curtain and move only the owning controller left/right, then repeat
+   on a drawer and bathroom tap. Require paired `hpl_manipulation_motion` and
+   `hpl_manipulation_native_input` rows using
+   `player_helper_update_0x15ba20_to_analog_0x154fb0`. SOMA must remain stable;
+   report any reversed mechanism by name.
+3. Inspect one story object. Its entrance must play once, settle at SOMA's
+   native distance, appear `2x` size, rotate freely with grip, and exit with
+   right A/B. It must not drift farther on later frames.
+4. Enter the laptop. The head-locked image must be one coherent screen, not a
+   4-by-2 tile. Sweep a controller and click a widget. Preserve
+   `hpl_terminal_capture` and `hpl_terminal_pointer` rows even if cursor or
+   highlighting is still wrong.
+5. Exit normally and attach the complete log. A separate no-movement safety
+   replay is unnecessary unless this build faults.
+
+Rollback independently with `ManipulationMotion=0`, `TerminalOverlay=0`, or
+`ReadPresentation=0`.
+
 ## 0.68.1 Input-Phase Safety
 
 1. Run stable-package doctor and require

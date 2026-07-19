@@ -2,6 +2,37 @@
 
 ## 2026-07-19
 
+### 0.68.2-native-phase-recovery
+
+- Processed the complete 0.68.1 headset log. Controller geometry produced 360+
+  queued MovingButton/Slide events, but `hpl_manipulation_native_input` never
+  appeared: synthetic mouse wakes did not cause SOMA to invoke
+  `cLuxPlayer::OnAnalogInput`.
+- Promoted the previously documented player-helper update at `0x14015ba20` into
+  the guarded delivery phase. At the start of SOMA's own player update, queued
+  Look is dispatched through `0x140154fb0` only after exact player/state
+  revalidation and confirmation that `player+0xc8 -> script+0x10` is non-null.
+  Context-not-ready work is retained for a later native update; stale work is
+  dropped. The ineffective mouse wake and the crashing arbitrary-phase direct
+  call are both gone.
+- Removed recursive Read translation scaling. The log showed the native
+  Notepad distance growing from `0.4272` to `1.4772` while each current matrix
+  was multiplied again, causing repeated entrance animation and extreme
+  distance. SOMA once again owns translation/timing; SOMAVR retains `2x`
+  apparent scale and unrestricted grip orientation.
+- Terminal single-render capture now blits the actual post-render OpenGL
+  viewport, including its origin, instead of treating logical GUI size
+  `1024x577` as framebuffer extent. Bounded `hpl_terminal_capture` rows report
+  FBO, source viewport, virtual size, and completion for the tiled-overlay
+  diagnosis.
+- Added manipulation dispatch/fallback/stale/context counters to the input
+  summary. Both Release flavors build and all four CTest suites pass in each.
+  NoSteam package doctor reports `pass=8 warn=0 fail=0`. OpenXR DLL SHA-256:
+  `149BDD0587496827AB39681DE7DADC2D3A2A707C454CADB7D73B6CACED328651`.
+  Stable package SHA-256:
+  `A6C2993232D793C53ACD317B652BA7F31F5C0AE67B47A24A0B52F8FDD45E4681`.
+  Headset acceptance is required.
+
 ### 0.68.1-input-phase-safety
 
 - Analyzed crash dump `Soma_NoSteam.exe.111764.dmp` after the first 0.68

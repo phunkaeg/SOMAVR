@@ -1,5 +1,14 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-19 Native-Phase Recovery Sync
+
+| Program/address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| NoSteam `0x14015ba20` | `SOMA_cLuxPlayerHelper_Update` | Plate comment promoted the per-frame helper from candidate to guarded manipulation delivery phase. Owner is `helper-0x110`; dispatch requires active state-script context readiness before calling `0x140154fb0`. |
+| NoSteam `0x140154fb0` | `SOMA_cLuxPlayer_OnAnalogInput` | Remains the semantic Look dispatcher. It is no longer detoured or called from arbitrary SOMAVR update/render phase. |
+
+The `Soma_NoSteam.exe` database was saved after synchronization.
+
 ## 2026-07-19 Input-Phase Safety Sync
 
 | Program/address | Ghidra name | Evidence/use |

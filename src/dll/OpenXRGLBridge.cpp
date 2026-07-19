@@ -791,6 +791,8 @@ bool OpenXRGLBridge::EndHudCapture(uint64_t frameIndex, bool suppressCenterCross
 bool OpenXRGLBridge::CaptureFramebufferToHud(
     uint64_t frameIndex,
     uint32_t sourceFramebuffer,
+    int sourceX,
+    int sourceY,
     int sourceWidth,
     int sourceHeight)
 {
@@ -810,10 +812,10 @@ bool OpenXRGLBridge::CaptureFramebufferToHud(
     glDisable(kGlScissorTest);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glBlitFramebuffer_(
-        0,
-        0,
-        sourceWidth,
-        sourceHeight,
+        sourceX,
+        sourceY,
+        sourceX + sourceWidth,
+        sourceY + sourceHeight,
         0,
         0,
         hud_.width,

@@ -110,12 +110,18 @@ constexpr int kMovingButtonPlayerState = 13;
 constexpr int kDeadPlayerState = 17;
 constexpr int kZoomAreaPlayerState = 18;
 constexpr uintptr_t kPlayerAnalogInputRva = 0x154fb0;
+constexpr uintptr_t kPlayerHelperUpdateRva = 0x15ba20;
 constexpr std::array<uint8_t, 15> kPlayerAnalogInputSignature{
     0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74,
     0x24, 0x10, 0x57, 0x48, 0x83, 0xec, 0x20,
 };
+constexpr std::array<uint8_t, 15> kPlayerHelperUpdateSignature{
+    0x4c, 0x8b, 0xdc, 0x49, 0x89, 0x5b, 0x20, 0x55,
+    0x49, 0x8d, 0x6b, 0xa1, 0x48, 0x81, 0xec,
+};
 
 using PlayerAnalogInputFn = void (*)(void*, int, const float*);
+using PlayerHelperUpdateFn = void (*)(void*, float);
 
 struct PendingManipulationAnalog {
     void* player = nullptr;
@@ -123,13 +129,14 @@ struct PendingManipulationAnalog {
     int x = 0;
     int y = 0;
     uint64_t inputFrame = 0;
-    uint64_t lastWakeFrame = 0;
 };
 
 Config g_config;
 OpenXRRuntime* g_openxr = nullptr;
 PlayerAnalogInputFn g_originalPlayerAnalogInput = nullptr;
 void* g_playerAnalogInputTarget = nullptr;
+PlayerHelperUpdateFn g_originalPlayerHelperUpdate = nullptr;
+void* g_playerHelperUpdateTarget = nullptr;
 BridgeState g_state;
 std::mutex g_mutex;
 std::mutex g_pendingAnalogMutex;
@@ -175,8 +182,8 @@ std::atomic<int64_t> g_manipulationMotionPixelsY = 0;
 std::atomic<uint64_t> g_manipulationMotionSessionSummaries = 0;
 std::atomic<uint64_t> g_manipulationNativeAnalogDispatches = 0;
 std::atomic<uint64_t> g_manipulationMouseFallbacks = 0;
-std::atomic<uint64_t> g_manipulationAnalogWakeRequests = 0;
 std::atomic<uint64_t> g_manipulationAnalogStaleDrops = 0;
+std::atomic<uint64_t> g_manipulationAnalogContextDeferrals = 0;
 std::atomic<uint64_t> g_nativeThrowActions = 0;
 std::atomic<uint64_t> g_playerStateTransitions = 0;
 std::atomic<uint64_t> g_playerStateBlackouts = 0;
@@ -284,6 +291,29 @@ bool ResolvePlayerAnalogInputTarget()
         return false;
     }
     g_playerAnalogInputTarget = const_cast<uint8_t*>(address);
+    g_originalPlayerAnalogInput = reinterpret_cast<PlayerAnalogInputFn>(
+        g_playerAnalogInputTarget);
+    return true;
+}
+
+bool ResolvePlayerHelperUpdateTarget()
+{
+    HMODULE executable = GetModuleHandleW(nullptr);
+    if (!IsInsideImage(
+            executable,
+            kPlayerHelperUpdateRva,
+            kPlayerHelperUpdateSignature.size())) {
+        return false;
+    }
+    const auto* address = reinterpret_cast<const uint8_t*>(executable)
+        + kPlayerHelperUpdateRva;
+    if (std::memcmp(
+            address,
+            kPlayerHelperUpdateSignature.data(),
+            kPlayerHelperUpdateSignature.size()) != 0) {
+        return false;
+    }
+    g_playerHelperUpdateTarget = const_cast<uint8_t*>(address);
     return true;
 }
 
@@ -307,34 +337,72 @@ void ClearPendingManipulationAnalog()
     g_pendingAnalog = {};
 }
 
-void HookPlayerAnalogInput(void* player, int analogType, const float* nativeAmount)
+bool ReadPointer(const void* address, void*& value)
 {
-    if (g_originalPlayerAnalogInput == nullptr) return;
-    if (analogType != 0 || player == nullptr) {
-        g_originalPlayerAnalogInput(player, analogType, nativeAmount);
-        return;
-    }
+    SIZE_T bytesRead = 0;
+    value = nullptr;
+    return address != nullptr
+        && ReadProcessMemory(
+            GetCurrentProcess(), address, &value, sizeof(value), &bytesRead) != FALSE
+        && bytesRead == sizeof(value);
+}
 
+bool DispatchPendingManipulationAnalog(void* player)
+{
+    if (g_originalPlayerAnalogInput == nullptr || player == nullptr) return false;
     PendingManipulationAnalog pending;
-    bool hasPending = false;
     {
         std::lock_guard lock(g_pendingAnalogMutex);
-        if (g_pendingAnalog.player == player
-            && (g_pendingAnalog.x != 0 || g_pendingAnalog.y != 0)) {
-            pending = g_pendingAnalog;
-            g_pendingAnalog = {};
-            hasPending = true;
+        if (g_pendingAnalog.player != player
+            || (g_pendingAnalog.x == 0 && g_pendingAnalog.y == 0)) {
+            return false;
         }
-    }
-    if (!hasPending) {
-        g_originalPlayerAnalogInput(player, analogType, nativeAmount);
-        return;
+        pending = g_pendingAnalog;
     }
 
     if (!IsHPLPlayerStateActiveNow(pending.playerState, player, nullptr)) {
         g_manipulationAnalogStaleDrops.fetch_add(1, std::memory_order_relaxed);
-        g_originalPlayerAnalogInput(player, analogType, nativeAmount);
-        return;
+        ClearPendingManipulationAnalog();
+        return false;
+    }
+
+    void* stateScript = nullptr;
+    void* scriptContextManager = nullptr;
+    if (!ReadPointer(
+            reinterpret_cast<const uint8_t*>(player) + 0xc8,
+            stateScript)
+        || stateScript == nullptr
+        || !ReadPointer(
+            reinterpret_cast<const uint8_t*>(stateScript) + 0x10,
+            scriptContextManager)
+        || scriptContextManager == nullptr) {
+        const uint64_t deferral = g_manipulationAnalogContextDeferrals.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+        if (deferral <= 8
+            || deferral % static_cast<uint64_t>(
+                std::max(g_config.hplControllerLogInterval, 1)) == 0) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_manipulation_native_input deferred=%llu state=%s(%d) player=%p stateScript=%p context=%p route=player_helper_update_context_not_ready",
+                static_cast<unsigned long long>(deferral),
+                PhysicalManipulationStateName(pending.playerState),
+                pending.playerState,
+                player,
+                stateScript,
+                scriptContextManager);
+        }
+        return false;
+    }
+
+    {
+        std::lock_guard lock(g_pendingAnalogMutex);
+        if (g_pendingAnalog.player != pending.player
+            || g_pendingAnalog.playerState != pending.playerState
+            || g_pendingAnalog.inputFrame != pending.inputFrame) {
+            return false;
+        }
+        pending = g_pendingAnalog;
+        g_pendingAnalog = {};
     }
 
     const float controllerAmount[3] = {
@@ -349,16 +417,28 @@ void HookPlayerAnalogInput(void* player, int analogType, const float* nativeAmou
             std::max(g_config.hplControllerLogInterval, 1)) == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_manipulation_native_input dispatch=%llu state=%s(%d) player=%p inputFrame=%llu amount=%.1f,%.1f route=native_input_phase_substitution_0x154fb0",
+            "hpl_manipulation_native_input dispatch=%llu state=%s(%d) player=%p stateScript=%p context=%p inputFrame=%llu amount=%.1f,%.1f route=player_helper_update_0x15ba20_to_analog_0x154fb0",
             static_cast<unsigned long long>(dispatch),
             PhysicalManipulationStateName(pending.playerState),
             pending.playerState,
             player,
+            stateScript,
+            scriptContextManager,
             static_cast<unsigned long long>(pending.inputFrame),
             controllerAmount[0],
             controllerAmount[1]);
     }
-    g_originalPlayerAnalogInput(player, analogType, controllerAmount);
+    g_originalPlayerAnalogInput(player, 0, controllerAmount);
+    return true;
+}
+
+void HookPlayerHelperUpdate(void* helper, float deltaTime)
+{
+    if (helper != nullptr) {
+        auto* player = reinterpret_cast<uint8_t*>(helper) - 0x110;
+        DispatchPendingManipulationAnalog(player);
+    }
+    g_originalPlayerHelperUpdate(helper, deltaTime);
 }
 
 bool QueueManipulationAnalog(
@@ -369,12 +449,12 @@ bool QueueManipulationAnalog(
     uint64_t inputFrame)
 {
     if (g_originalPlayerAnalogInput == nullptr
+        || g_originalPlayerHelperUpdate == nullptr
         || player == nullptr
         || (x == 0 && y == 0)) {
         return false;
     }
 
-    bool requestWake = false;
     {
         std::lock_guard lock(g_pendingAnalogMutex);
         if (g_pendingAnalog.player != nullptr
@@ -392,15 +472,6 @@ bool QueueManipulationAnalog(
         g_pendingAnalog.y = std::clamp(
             g_pendingAnalog.y + y, -maximumQueued, maximumQueued);
         g_pendingAnalog.inputFrame = inputFrame;
-        requestWake = g_pendingAnalog.lastWakeFrame == 0
-            || inputFrame > g_pendingAnalog.lastWakeFrame + 1;
-        if (requestWake) {
-            g_pendingAnalog.lastWakeFrame = inputFrame;
-        }
-    }
-    if (requestWake) {
-        SendMouseMove(1, 0);
-        g_manipulationAnalogWakeRequests.fetch_add(1, std::memory_order_relaxed);
     }
     return true;
 }
@@ -1360,15 +1431,15 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
     g_config = config;
     g_openxr = openxr;
     bool nativeManipulationAnalog = false;
-    if (ResolvePlayerAnalogInputTarget()) {
+    if (ResolvePlayerAnalogInputTarget() && ResolvePlayerHelperUpdateTarget()) {
         MH_STATUS status = MH_CreateHook(
-            g_playerAnalogInputTarget,
-            reinterpret_cast<void*>(&HookPlayerAnalogInput),
-            reinterpret_cast<void**>(&g_originalPlayerAnalogInput));
+            g_playerHelperUpdateTarget,
+            reinterpret_cast<void*>(&HookPlayerHelperUpdate),
+            reinterpret_cast<void**>(&g_originalPlayerHelperUpdate));
         if (status == MH_OK
             || (status == MH_ERROR_ALREADY_CREATED
-                && g_originalPlayerAnalogInput != nullptr)) {
-            status = MH_EnableHook(g_playerAnalogInputTarget);
+                && g_originalPlayerHelperUpdate != nullptr)) {
+            status = MH_EnableHook(g_playerHelperUpdateTarget);
             nativeManipulationAnalog = status == MH_OK || status == MH_ERROR_ENABLED;
         }
         if (!nativeManipulationAnalog) {
@@ -1376,14 +1447,15 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
                 LogLevel::Warn,
                 "hpl_input_bridge native_manipulation_hook_unavailable status=%s fallback=windows_mouse",
                 MH_StatusToString(status));
-            MH_RemoveHook(g_playerAnalogInputTarget);
-            g_playerAnalogInputTarget = nullptr;
+            MH_RemoveHook(g_playerHelperUpdateTarget);
+            g_playerHelperUpdateTarget = nullptr;
+            g_originalPlayerHelperUpdate = nullptr;
             g_originalPlayerAnalogInput = nullptr;
         }
     }
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d aimGuide=%d aimGuideLength=%.2f flashlight=%d inventory=%d menu=%d menuPointer=%d terminalPointer=%d terminalOverlay=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d manipulationMappings=%d manipulationMotion=%d nativeManipulationAnalog=%d nativeManipulationAnalogRva=0x%llx manipulationMotionScale=%.1f slideScale=%.1f readRotationScale=%.1f slideDirectVelocity=%d manipulationMotionDeadzone=%.4f manipulationMotionCap=%d manipulationMotionSigns=%.1f,%.1f suppressAuthoredCamera=%d comfortBlackoutFrames=%d stateTransitionBlackoutFrames=%d maxInputAgeFrames=%d comfortVignette=%d comfortVignetteSmoothTurn=%d",
+        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d aimGuide=%d aimGuideLength=%.2f flashlight=%d inventory=%d menu=%d menuPointer=%d terminalPointer=%d terminalOverlay=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d manipulationMappings=%d manipulationMotion=%d nativeManipulationAnalog=%d nativeManipulationAnalogRva=0x%llx nativeInputPhaseRva=0x%llx manipulationMotionScale=%.1f slideScale=%.1f readRotationScale=%.1f slideDirectVelocity=%d manipulationMotionDeadzone=%.4f manipulationMotionCap=%d manipulationMotionSigns=%.1f,%.1f suppressAuthoredCamera=%d comfortBlackoutFrames=%d stateTransitionBlackoutFrames=%d maxInputAgeFrames=%d comfortVignette=%d comfortVignetteSmoothTurn=%d",
         config.hplControllerInput ? 1 : 0,
         config.hplControllerMoveDeadzone,
         config.hplControllerNativeLocomotion ? 1 : 0,
@@ -1417,6 +1489,7 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplControllerManipulationMotion ? 1 : 0,
         nativeManipulationAnalog ? 1 : 0,
         static_cast<unsigned long long>(kPlayerAnalogInputRva),
+        static_cast<unsigned long long>(kPlayerHelperUpdateRva),
         config.hplControllerManipulationMotionPixelsPerMeter,
         config.hplControllerManipulationSlidePixelsPerMeter,
         config.hplControllerManipulationReadPixelsPerRadian,
@@ -1699,11 +1772,13 @@ void RemoveHPLInputBridge()
 {
     std::lock_guard lock(g_mutex);
     ReleaseAll();
-    if (g_playerAnalogInputTarget != nullptr) {
-        MH_DisableHook(g_playerAnalogInputTarget);
-        MH_RemoveHook(g_playerAnalogInputTarget);
+    if (g_playerHelperUpdateTarget != nullptr) {
+        MH_DisableHook(g_playerHelperUpdateTarget);
+        MH_RemoveHook(g_playerHelperUpdateTarget);
     }
     g_openxr = nullptr;
+    g_playerHelperUpdateTarget = nullptr;
+    g_originalPlayerHelperUpdate = nullptr;
     g_playerAnalogInputTarget = nullptr;
     g_originalPlayerAnalogInput = nullptr;
     ClearPendingManipulationAnalog();
@@ -1717,7 +1792,7 @@ void LogHPLInputBridgeSummary()
     GetHPLPlayerStateSnapshot(player);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu loadingSuppressedFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu worldAimPoseSamples=%llu worldGripPoseSamples=%llu nativeMovementFrames=%llu headRelativeMovementFrames=%llu controllerRelativeMovementFrames=%llu controllerReferenceAttempts=%llu controllerReferenceApplied=%llu controllerReferenceFallbacks=%llu controllerDirectionSamples=%llu controllerAimGuideFrames=%llu inspectionExitActions=%llu nativeTurnEvents=%llu semanticMovementFallbackFrames=%llu physicalCrouchEntries=%llu physicalCrouchExits=%llu manipulationRotateFrames=%llu manipulationMotionFrames=%llu manipulationMotionEntries=%llu manipulationMotionEvents=%llu manipulationMotionTrackingLosses=%llu manipulationMotionSessionSummaries=%llu manipulationMotionPixels=%lld,%lld nativeThrowActions=%llu flashlightActions=%llu inventoryActions=%llu pausedFrames=%llu menuPointerFrames=%llu terminalPointerFrames=%llu gameOverContinueActions=%llu playerStateTransitions=%llu authoredCameraTransitions=%llu playerStateBlackouts=%llu gameplaySuppressed=%d paused=%d menuPointerActive=%d terminalPointerActive=%d physicalCrouch=%d rotate=%d manipulationMotionActive=%d manipulationMotionState=%d manipulationMotionLast=%d,%d player=%p camera=%p body=%p playerState=%d moveState=%d",
+        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu loadingSuppressedFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu worldAimPoseSamples=%llu worldGripPoseSamples=%llu nativeMovementFrames=%llu headRelativeMovementFrames=%llu controllerRelativeMovementFrames=%llu controllerReferenceAttempts=%llu controllerReferenceApplied=%llu controllerReferenceFallbacks=%llu controllerDirectionSamples=%llu controllerAimGuideFrames=%llu inspectionExitActions=%llu nativeTurnEvents=%llu semanticMovementFallbackFrames=%llu physicalCrouchEntries=%llu physicalCrouchExits=%llu manipulationRotateFrames=%llu manipulationMotionFrames=%llu manipulationMotionEntries=%llu manipulationMotionEvents=%llu manipulationMotionTrackingLosses=%llu manipulationMotionSessionSummaries=%llu manipulationMotionPixels=%lld,%lld manipulationNativeDispatches=%llu manipulationMouseFallbacks=%llu manipulationStaleDrops=%llu manipulationContextDeferrals=%llu nativeThrowActions=%llu flashlightActions=%llu inventoryActions=%llu pausedFrames=%llu menuPointerFrames=%llu terminalPointerFrames=%llu gameOverContinueActions=%llu playerStateTransitions=%llu authoredCameraTransitions=%llu playerStateBlackouts=%llu gameplaySuppressed=%d paused=%d menuPointerActive=%d terminalPointerActive=%d physicalCrouch=%d rotate=%d manipulationMotionActive=%d manipulationMotionState=%d manipulationMotionLast=%d,%d player=%p camera=%p body=%p playerState=%d moveState=%d",
         g_openxr != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_updates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_activeUpdates.load(std::memory_order_relaxed)),
@@ -1752,6 +1827,10 @@ void LogHPLInputBridgeSummary()
         static_cast<unsigned long long>(g_manipulationMotionSessionSummaries.load(std::memory_order_relaxed)),
         static_cast<long long>(g_manipulationMotionPixelsX.load(std::memory_order_relaxed)),
         static_cast<long long>(g_manipulationMotionPixelsY.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_manipulationNativeAnalogDispatches.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_manipulationMouseFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_manipulationAnalogStaleDrops.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_manipulationAnalogContextDeferrals.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_nativeThrowActions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_flashlightActions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_inventoryActions.load(std::memory_order_relaxed)),

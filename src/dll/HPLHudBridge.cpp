@@ -35,6 +35,7 @@ constexpr size_t kImGuiManagerFocusedWrapperOffset = 0x180;
 constexpr size_t kImGuiWrapperSetOffset = 0x18;
 constexpr GLenum kGlDrawFramebufferBinding = 0x8ca6;
 constexpr GLenum kGlCurrentProgram = 0x8b8d;
+constexpr GLenum kGlViewport = 0x0ba2;
 constexpr int kDeadPlayerState = 17;
 constexpr int kTerminalPlayerState = 8;
 constexpr int kReadPlayerState = 10;
@@ -76,6 +77,7 @@ std::atomic<uint64_t> g_inventoryCurrentImGuiMatches = 0;
 std::atomic<uint64_t> g_inventoryCurrentImGuiCaptureCompletions = 0;
 std::atomic<uint64_t> g_terminalOverlaySetMatches = 0;
 std::atomic<uint64_t> g_terminalOverlayCaptureCompletions = 0;
+std::atomic<uint64_t> g_terminalOverlayCaptureSamples = 0;
 std::atomic<uint64_t> g_readCurrentImGuiMatches = 0;
 std::atomic<uint64_t> g_zoomCurrentImGuiMatches = 0;
 std::atomic<uint64_t> g_currentImGuiPlayerStateTransitions = 0;
@@ -194,6 +196,14 @@ void ReadGlIds(GLint& framebuffer, GLint& program)
     if (g_glGetIntegerv != nullptr && wglGetCurrentContext() != nullptr) {
         g_glGetIntegerv(kGlDrawFramebufferBinding, &framebuffer);
         g_glGetIntegerv(kGlCurrentProgram, &program);
+    }
+}
+
+void ReadGlViewport(GLint (&viewport)[4])
+{
+    std::fill(std::begin(viewport), std::end(viewport), 0);
+    if (g_glGetIntegerv != nullptr && wglGetCurrentContext() != nullptr) {
+        g_glGetIntegerv(kGlViewport, viewport);
     }
 }
 
@@ -354,19 +364,42 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
         g_captureAttempts.fetch_add(1, std::memory_order_relaxed);
         GLint terminalFramebuffer = 0;
         GLint terminalProgram = 0;
+        GLint terminalViewport[4] = {};
         ReadGlIds(terminalFramebuffer, terminalProgram);
+        ReadGlViewport(terminalViewport);
         float terminalVirtualWidth = 1024.0f;
         float terminalVirtualHeight = 577.0f;
         ReadField(guiSet, 0x100, terminalVirtualWidth);
         ReadField(guiSet, 0x104, terminalVirtualHeight);
         captureCompleted = terminalFramebuffer > 0
-            && std::isfinite(terminalVirtualWidth)
-            && std::isfinite(terminalVirtualHeight)
+            && terminalViewport[2] > 0
+            && terminalViewport[3] > 0
             && g_openxr->CaptureFramebufferToHud(
                 frame,
                 static_cast<uint32_t>(terminalFramebuffer),
-                static_cast<int>(std::lround(terminalVirtualWidth)),
-                static_cast<int>(std::lround(terminalVirtualHeight)));
+                terminalViewport[0],
+                terminalViewport[1],
+                terminalViewport[2],
+                terminalViewport[3]);
+        const uint64_t captureSample = g_terminalOverlayCaptureSamples.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+        const uint64_t logInterval = static_cast<uint64_t>(
+            std::max(g_config.hplControllerLogInterval, 1));
+        if (captureSample <= 8 || captureSample % logInterval == 0) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_terminal_capture sample=%llu frame=%llu fbo=%d viewport=%d,%d,%d,%d virtualSize=%.1f,%.1f completed=%d policy=single_render_actual_gl_viewport",
+                static_cast<unsigned long long>(captureSample),
+                static_cast<unsigned long long>(frame),
+                terminalFramebuffer,
+                terminalViewport[0],
+                terminalViewport[1],
+                terminalViewport[2],
+                terminalViewport[3],
+                terminalVirtualWidth,
+                terminalVirtualHeight,
+                captureCompleted ? 1 : 0);
+        }
         captureStarted = captureCompleted;
         if (captureCompleted) {
             g_captureStarts.fetch_add(1, std::memory_order_relaxed);

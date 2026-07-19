@@ -1,5 +1,39 @@
 # Future Systems Reverse Engineering
 
+## 0.68.2 Native-Phase Recovery And Presentation Feedback
+
+The full 0.68.1 log contains 360+ queued MovingButton/Slide motion events but
+zero `hpl_manipulation_native_input` rows. `SendInput` mouse wakes therefore do
+not guarantee a native `cLuxPlayer::OnAnalogInput` call. Ghidra's documented
+`SOMA_cLuxPlayerHelper_Update` at `0x14015ba20` is a stronger phase boundary:
+it runs once per active player frame, derives the owner as `helper-0x110`, and
+was already identified as the future native action-injection phase.
+
+Version 0.68.2 hooks that entry and consumes queued Look before the original
+helper update. It requires exact player/state identity and reads the active
+state script at player `+0xc8` plus its context manager at script `+0x10`.
+Null context retains the queue for a later native frame; state mismatch drops
+it. Dispatch then enters the unchanged `0x140154fb0` route. This keeps the
+temporal crash guard while no longer depending on a mouse callback that may
+never occur.
+
+Read telemetry directly proves positive feedback. Notepad native distance
+progressed `0.4272 -> 0.8216 -> 1.4772` while the current matrix was scaled by
+two on every `SetMatrix`, after which the object repeatedly replayed its
+approach and remained far away. Translation scaling is removed. Native
+translation/timing remain authoritative; object scale and controller-relative
+orientation remain independent. A farther stable target now requires the
+actual Read state/script distance owner, best recovered in a live vanilla
+Frida comparison rather than another shared matrix override.
+
+Terminal pointer ownership was healthy: the log reached 1320+ controller
+dispatches through manager world owner `+0x170`, and coordinates traversed the
+full `1024x577` virtual domain. The tiled 4-by-2 image instead isolates source
+copy geometry. Version 0.68.2 captures the actual OpenGL viewport left by the
+single terminal render, including nonzero origin, and logs that source beside
+logical GUI dimensions. Widget highlighting should be judged only after this
+image-space mismatch is removed.
+
 ## 0.68.1 Input-Phase Safety Correction
 
 Dump `Soma_NoSteam.exe.111764.dmp` records access violation `0xc0000005` at

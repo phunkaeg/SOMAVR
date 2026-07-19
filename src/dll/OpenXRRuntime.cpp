@@ -1142,6 +1142,8 @@ struct OpenXRRuntime::Impl {
     bool CaptureFramebufferToHud(
         uint64_t frameIndex,
         uint32_t sourceFramebuffer,
+        int sourceX,
+        int sourceY,
         int sourceWidth,
         int sourceHeight)
     {
@@ -1160,6 +1162,8 @@ struct OpenXRRuntime::Impl {
         const bool completed = glBridge_.CaptureFramebufferToHud(
             frameIndex,
             sourceFramebuffer,
+            sourceX,
+            sourceY,
             sourceWidth,
             sourceHeight);
         if (completed) {
@@ -3902,7 +3906,7 @@ struct OpenXRRuntime::Impl {
     void SetPresentationBlackout(bool, const char*) {}
     bool BeginHudCapture(uint64_t) { return false; }
     bool EndHudCapture(uint64_t, bool) { return false; }
-    bool CaptureFramebufferToHud(uint64_t, uint32_t, int, int) { return false; }
+    bool CaptureFramebufferToHud(uint64_t, uint32_t, int, int, int, int) { return false; }
 
 private:
     void LogUnavailableLocked()
@@ -4228,12 +4232,16 @@ bool OpenXRRuntime::EndHudCapture(uint64_t frameIndex, bool suppressCenterCrossh
 bool OpenXRRuntime::CaptureFramebufferToHud(
     uint64_t frameIndex,
     uint32_t sourceFramebuffer,
+    int sourceX,
+    int sourceY,
     int sourceWidth,
     int sourceHeight)
 {
     return impl_->CaptureFramebufferToHud(
         frameIndex,
         sourceFramebuffer,
+        sourceX,
+        sourceY,
         sourceWidth,
         sourceHeight);
 }

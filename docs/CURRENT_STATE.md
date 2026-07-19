@@ -1,6 +1,6 @@
 # Current State
 
-Date: 2026-07-18
+Date: 2026-07-19
 
 ## Objective
 
@@ -21,25 +21,27 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.68.1-input-phase-safety`, layered on the
+The active build candidate is `0.68.2-native-phase-recovery`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
 
-- Controller manipulation queues tracked Look deltas and substitutes them only
-  when SOMA invokes guarded dispatcher `0x140154fb0` from its native input phase,
-  including MovingButton state `13`. Direct calls are prohibited after the
-  0.68 curtain dump proved newly entered scripts may not yet have a prepared
-  engine context during SOMAVR's render/update phase.
+- Controller manipulation queues tracked Look deltas and delivers them at the
+  start of SOMA's per-frame player helper `0x14015ba20`, including MovingButton
+  state `13`. It calls guarded dispatcher `0x140154fb0` only after exact
+  player/state identity and `player+0xc8 -> script+0x10` context readiness are
+  proven. The 0.68.1 log confirmed relative-mouse wakes never entered the
+  dispatcher; arbitrary SOMAVR-phase calls remain prohibited.
 
-- The terminal GUI is rendered once and its completed physical FBO is copied to
-  the OpenXR layer. This removes the stateful double-render responsible for the
-  fragmented/flashing overlay while preserving native pointer/widget ownership.
+- The terminal GUI is rendered once and its completed physical FBO's actual GL
+  viewport is copied to the OpenXR layer. This removes both stateful replay and
+  the logical-size/source-size mismatch that produced a 4-by-2 tiled overlay,
+  while preserving native pointer/widget ownership.
 
 - Throw scaling never weakens native impulse and gains forward clearance from
-  the body. Read objects scale each current native camera-relative position by
-  `2`, preserving the accepted entrance animation while doubling viewing
-  distance.
+  the body. Read translation and entrance timing are native again after live
+  evidence proved per-update distance scaling was recursive; SOMAVR retains
+  `2x` apparent object scale and controller orientation.
 
 - The complete 0.66 log proves terminal dispatch reached SOMA, but physical
   laptop mesh misses repeatedly released the pointer. Version 0.67 duplicates

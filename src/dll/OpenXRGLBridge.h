@@ -116,6 +116,8 @@ public:
     bool CaptureFramebufferToHud(
         uint64_t frameIndex,
         uint32_t sourceFramebuffer,
+        int sourceX,
+        int sourceY,
         int sourceWidth,
         int sourceHeight);
     bool CopyHudCaptureToSwapchain();

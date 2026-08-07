@@ -3,7 +3,24 @@
 Date: 2026-08-07
 
 Use `out\SOMAVR-latest`
-(`0.89.0-frame-contract`) for the next run.
+(`0.90.0-gl-transfer-audit`) for the next run.
+
+The first priority is the 0.90 OpenXR GL transfer audit in
+`TEST_CHECKLISTS.md`. Run the fixed 60-second apartment route under the current
+`VirtualDesktopXR` runtime and attach the complete log. If practical, repeat
+with SteamVR active using identical refresh rate, resolution, depth and scene
+content. Preserve these new rows:
+
+```text
+build_identity identity=0.90.0-gl-transfer-audit+...
+openxr_gl_transfer ... backend=OpenGL ... projectionAvgUs=... projectionMaxUs=...
+openxr_gl_transfer ... leftUs=... rightUs=... phaseOrder=total/acquire/wait/copyCpu/flush/release gpuTiming=excluded
+openxr_gl_transfer budget_pressure ... (only when transfer reaches 25% of the frame period)
+proof_summary ... openxrGlProjectionTransferAvgUs=... openxrGlLeftTransferFailures=... openxrGlRightTransferFailures=...
+```
+
+This is an evidence gate, not a D3D11 build. Ordinary visuals and interaction
+must remain identical to 0.89.
 
 The first priority is the 0.89 frame-contract and native-safety pass in
 `TEST_CHECKLISTS.md`; the 0.88 release-integrity and 0.87 focus-pacing checks

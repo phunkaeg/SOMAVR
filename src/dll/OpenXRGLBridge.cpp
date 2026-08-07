@@ -16,6 +16,7 @@
 #include <fstream>
 #include <limits>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 namespace somavr {
@@ -66,6 +67,129 @@ constexpr int64_t kGlSrgb8Alpha8 = 0x8C43;
 constexpr int64_t kGlRgba8 = 0x8058;
 constexpr int64_t kGlRgba16f = 0x881A;
 constexpr XrDuration kSwapchainWaitTimeout = 50'000'000;
+
+int64_t TransferQpcNow()
+{
+    LARGE_INTEGER value{};
+    QueryPerformanceCounter(&value);
+    return value.QuadPart;
+}
+
+uint64_t TransferQpcDeltaMicroseconds(int64_t start, int64_t end)
+{
+    static const int64_t frequency = [] {
+        LARGE_INTEGER value{};
+        QueryPerformanceFrequency(&value);
+        return value.QuadPart;
+    }();
+    if (frequency <= 0 || end <= start) {
+        return 0;
+    }
+    return static_cast<uint64_t>(((end - start) * 1'000'000) / frequency);
+}
+
+void AccumulateTransferPhase(
+    OpenXRGLBridge::TransferPhaseTiming& destination,
+    uint64_t valueUs)
+{
+    destination.latestUs = valueUs;
+    destination.totalUs += valueUs;
+    destination.maxUs = std::max(destination.maxUs, valueUs);
+}
+
+class ScopedSwapchainTransferTiming {
+public:
+    ScopedSwapchainTransferTiming(
+        OpenXRGLBridge::SwapchainTransferTiming& destination,
+        OpenXRGLBridge::ColorTransferSource source)
+        : destination_(destination), source_(source), startQpc_(TransferQpcNow())
+    {
+    }
+
+    ~ScopedSwapchainTransferTiming()
+    {
+        destination_.latestSource = source_;
+        ++destination_.attempts;
+        if (succeeded_) {
+            ++destination_.successes;
+        } else {
+            ++destination_.failures;
+        }
+        AccumulateTransferPhase(destination_.acquire, acquireUs_);
+        AccumulateTransferPhase(destination_.wait, waitUs_);
+        AccumulateTransferPhase(destination_.copy, copyUs_);
+        AccumulateTransferPhase(destination_.flush, flushUs_);
+        AccumulateTransferPhase(destination_.release, releaseUs_);
+        AccumulateTransferPhase(
+            destination_.total,
+            TransferQpcDeltaMicroseconds(startQpc_, TransferQpcNow()));
+    }
+
+    template <typename Callback>
+    auto MeasureAcquire(Callback&& callback)
+    {
+        return Measure(acquireUs_, std::forward<Callback>(callback));
+    }
+
+    template <typename Callback>
+    auto MeasureWait(Callback&& callback)
+    {
+        return Measure(waitUs_, std::forward<Callback>(callback));
+    }
+
+    template <typename Callback>
+    auto MeasureCopy(Callback&& callback)
+    {
+        return Measure(copyUs_, std::forward<Callback>(callback));
+    }
+
+    template <typename Callback>
+    void MeasureFlush(Callback&& callback)
+    {
+        Measure(flushUs_, std::forward<Callback>(callback));
+    }
+
+    template <typename Callback>
+    auto MeasureRelease(Callback&& callback)
+    {
+        return Measure(releaseUs_, std::forward<Callback>(callback));
+    }
+
+    void SetSucceeded(bool succeeded)
+    {
+        succeeded_ = succeeded;
+    }
+
+    void AddCopyElapsed(uint64_t valueUs)
+    {
+        copyUs_ += valueUs;
+    }
+
+private:
+    template <typename Callback>
+    static auto Measure(uint64_t& destinationUs, Callback&& callback)
+    {
+        const int64_t startQpc = TransferQpcNow();
+        if constexpr (std::is_void_v<std::invoke_result_t<Callback>>) {
+            std::forward<Callback>(callback)();
+            destinationUs += TransferQpcDeltaMicroseconds(startQpc, TransferQpcNow());
+        } else {
+            auto result = std::forward<Callback>(callback)();
+            destinationUs += TransferQpcDeltaMicroseconds(startQpc, TransferQpcNow());
+            return result;
+        }
+    }
+
+    OpenXRGLBridge::SwapchainTransferTiming& destination_;
+    OpenXRGLBridge::ColorTransferSource source_;
+    int64_t startQpc_ = 0;
+    uint64_t acquireUs_ = 0;
+    uint64_t waitUs_ = 0;
+    uint64_t copyUs_ = 0;
+    uint64_t flushUs_ = 0;
+    uint64_t releaseUs_ = 0;
+    bool succeeded_ = false;
+};
 
 bool IsInvalidWglProc(PROC proc)
 {
@@ -472,11 +596,16 @@ bool OpenXRGLBridge::CopyBackbufferToEye(uint32_t eyeIndex)
     }
 
     EyeSwapchain& eye = eyes_[eyeIndex];
+    ScopedSwapchainTransferTiming transferTiming(
+        eye.colorTransferTiming,
+        ColorTransferSource::Backbuffer);
     uint32_t imageIndex = eye.acquiredColorImageIndex;
     XrResult result = XR_SUCCESS;
     if (!eye.colorImageAcquired) {
         XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-        result = xrAcquireSwapchainImage(eye.handle, &acquireInfo, &imageIndex);
+        result = transferTiming.MeasureAcquire([&] {
+            return xrAcquireSwapchainImage(eye.handle, &acquireInfo, &imageIndex);
+        });
         if (XR_FAILED(result)) {
             Logger::Instance().Write(
                 LogLevel::Warn,
@@ -491,7 +620,9 @@ bool OpenXRGLBridge::CopyBackbufferToEye(uint32_t eyeIndex)
 
     XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
     waitInfo.timeout = kSwapchainWaitTimeout;
-    result = xrWaitSwapchainImage(eye.handle, &waitInfo);
+    result = transferTiming.MeasureWait([&] {
+        return xrWaitSwapchainImage(eye.handle, &waitInfo);
+    });
     if (XR_FAILED(result)) {
         Logger::Instance().Write(
             LogLevel::Warn,
@@ -502,11 +633,15 @@ bool OpenXRGLBridge::CopyBackbufferToEye(uint32_t eyeIndex)
         return false;
     }
 
-    const bool copied = CopyBackbufferToImage(eye, imageIndex);
-    glFlush();
+    const bool copied = transferTiming.MeasureCopy([&] {
+        return CopyBackbufferToImage(eye, imageIndex);
+    });
+    transferTiming.MeasureFlush([] { glFlush(); });
 
     XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-    result = xrReleaseSwapchainImage(eye.handle, &releaseInfo);
+    result = transferTiming.MeasureRelease([&] {
+        return xrReleaseSwapchainImage(eye.handle, &releaseInfo);
+    });
     if (XR_FAILED(result)) {
         Logger::Instance().Write(
             LogLevel::Warn,
@@ -517,6 +652,7 @@ bool OpenXRGLBridge::CopyBackbufferToEye(uint32_t eyeIndex)
         return false;
     }
     eye.colorImageAcquired = false;
+    transferTiming.SetSucceeded(copied);
     return copied;
 }
 
@@ -651,11 +787,16 @@ bool OpenXRGLBridge::CopyCacheToEye(uint32_t eyeIndex)
     }
 
     EyeSwapchain& eye = eyes_[eyeIndex];
+    ScopedSwapchainTransferTiming transferTiming(
+        eye.colorTransferTiming,
+        ColorTransferSource::StereoCache);
     uint32_t imageIndex = eye.acquiredColorImageIndex;
     XrResult result = XR_SUCCESS;
     if (!eye.colorImageAcquired) {
         XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-        result = xrAcquireSwapchainImage(eye.handle, &acquireInfo, &imageIndex);
+        result = transferTiming.MeasureAcquire([&] {
+            return xrAcquireSwapchainImage(eye.handle, &acquireInfo, &imageIndex);
+        });
         if (XR_FAILED(result)) {
             Logger::Instance().Write(
                 LogLevel::Warn,
@@ -670,7 +811,9 @@ bool OpenXRGLBridge::CopyCacheToEye(uint32_t eyeIndex)
 
     XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
     waitInfo.timeout = kSwapchainWaitTimeout;
-    result = xrWaitSwapchainImage(eye.handle, &waitInfo);
+    result = transferTiming.MeasureWait([&] {
+        return xrWaitSwapchainImage(eye.handle, &waitInfo);
+    });
     if (XR_FAILED(result)) {
         Logger::Instance().Write(
             LogLevel::Warn,
@@ -681,11 +824,15 @@ bool OpenXRGLBridge::CopyCacheToEye(uint32_t eyeIndex)
         return false;
     }
 
-    const bool copied = CopyCacheToImage(eye, imageIndex);
-    glFlush();
+    const bool copied = transferTiming.MeasureCopy([&] {
+        return CopyCacheToImage(eye, imageIndex);
+    });
+    transferTiming.MeasureFlush([] { glFlush(); });
 
     XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-    result = xrReleaseSwapchainImage(eye.handle, &releaseInfo);
+    result = transferTiming.MeasureRelease([&] {
+        return xrReleaseSwapchainImage(eye.handle, &releaseInfo);
+    });
     if (XR_FAILED(result)) {
         Logger::Instance().Write(
             LogLevel::Warn,
@@ -696,6 +843,7 @@ bool OpenXRGLBridge::CopyCacheToEye(uint32_t eyeIndex)
         return false;
     }
     eye.colorImageAcquired = false;
+    transferTiming.SetSucceeded(copied);
     return copied;
 }
 
@@ -705,11 +853,16 @@ bool OpenXRGLBridge::ClearEyeToBlack(uint32_t eyeIndex)
     if (!Ready() || eyeIndex >= eyes_.size()) return false;
 
     EyeSwapchain& eye = eyes_[eyeIndex];
+    ScopedSwapchainTransferTiming transferTiming(
+        eye.colorTransferTiming,
+        ColorTransferSource::Black);
     uint32_t imageIndex = eye.acquiredColorImageIndex;
     XrResult result = XR_SUCCESS;
     if (!eye.colorImageAcquired) {
         XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-        result = xrAcquireSwapchainImage(eye.handle, &acquireInfo, &imageIndex);
+        result = transferTiming.MeasureAcquire([&] {
+            return xrAcquireSwapchainImage(eye.handle, &acquireInfo, &imageIndex);
+        });
         if (XR_FAILED(result)) {
             Logger::Instance().Write(
                 LogLevel::Warn,
@@ -724,7 +877,9 @@ bool OpenXRGLBridge::ClearEyeToBlack(uint32_t eyeIndex)
 
     XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
     waitInfo.timeout = kSwapchainWaitTimeout;
-    result = xrWaitSwapchainImage(eye.handle, &waitInfo);
+    result = transferTiming.MeasureWait([&] {
+        return xrWaitSwapchainImage(eye.handle, &waitInfo);
+    });
     if (XR_FAILED(result)) {
         Logger::Instance().Write(
             LogLevel::Warn,
@@ -736,6 +891,7 @@ bool OpenXRGLBridge::ClearEyeToBlack(uint32_t eyeIndex)
         return false;
     }
 
+    const int64_t copyStartQpc = TransferQpcNow();
     int32_t savedDrawFramebuffer = 0;
     int32_t savedViewport[4] = {};
     float savedClearColor[4] = {};
@@ -754,7 +910,6 @@ bool OpenXRGLBridge::ClearEyeToBlack(uint32_t eyeIndex)
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(kGlColorBufferBit);
-    glFlush();
 
     glClearColor(
         savedClearColor[0], savedClearColor[1], savedClearColor[2], savedClearColor[3]);
@@ -764,9 +919,14 @@ bool OpenXRGLBridge::ClearEyeToBlack(uint32_t eyeIndex)
     glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
     glScissor(savedScissorBox[0], savedScissorBox[1], savedScissorBox[2], savedScissorBox[3]);
     if (scissorEnabled == GL_TRUE) glEnable(kGlScissorTest);
+    transferTiming.AddCopyElapsed(
+        TransferQpcDeltaMicroseconds(copyStartQpc, TransferQpcNow()));
+    transferTiming.MeasureFlush([] { glFlush(); });
 
     XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-    result = xrReleaseSwapchainImage(eye.handle, &releaseInfo);
+    result = transferTiming.MeasureRelease([&] {
+        return xrReleaseSwapchainImage(eye.handle, &releaseInfo);
+    });
     if (XR_FAILED(result)) {
         Logger::Instance().Write(
             LogLevel::Warn,
@@ -777,6 +937,7 @@ bool OpenXRGLBridge::ClearEyeToBlack(uint32_t eyeIndex)
         return false;
     }
     eye.colorImageAcquired = false;
+    transferTiming.SetSucceeded(true);
     return true;
 }
 
@@ -1728,6 +1889,23 @@ uint32_t OpenXRGLBridge::EyeCount() const
 const OpenXRGLBridge::EyeSwapchain& OpenXRGLBridge::Eye(uint32_t eyeIndex) const
 {
     return eyes_.at(eyeIndex);
+}
+
+const OpenXRGLBridge::SwapchainTransferTiming&
+OpenXRGLBridge::ColorTransferTiming(uint32_t eyeIndex) const
+{
+    static const SwapchainTransferTiming empty;
+    return eyeIndex < eyes_.size() ? eyes_[eyeIndex].colorTransferTiming : empty;
+}
+
+const char* OpenXRGLBridge::ColorTransferSourceName(ColorTransferSource source)
+{
+    switch (source) {
+    case ColorTransferSource::Backbuffer: return "backbuffer";
+    case ColorTransferSource::StereoCache: return "stereo_cache";
+    case ColorTransferSource::Black: return "black";
+    default: return "none";
+    }
 }
 
 int64_t OpenXRGLBridge::ColorFormat() const

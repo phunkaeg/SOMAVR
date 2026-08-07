@@ -543,6 +543,10 @@ struct OpenXRRuntime::Impl {
     std::string SummaryString() const
     {
         std::lock_guard lock(mutex_);
+        const OpenXRGLBridge::SwapchainTransferTiming& leftTransfer =
+            glBridge_.ColorTransferTiming(0);
+        const OpenXRGLBridge::SwapchainTransferTiming& rightTransfer =
+            glBridge_.ColorTransferTiming(1);
         std::ostringstream oss;
         oss << "openxrEnabled=" << (enabled_ ? 1 : 0)
             << " openxrBuild=1"
@@ -645,6 +649,35 @@ struct OpenXRRuntime::Impl {
             << " openxrWaitLastUs=" << static_cast<unsigned long long>(xrWaitLastUs_)
             << " openxrWaitMaxUs=" << static_cast<unsigned long long>(xrWaitMaxUs_)
             << " openxrWaitLongCount=" << static_cast<unsigned long long>(xrWaitLongCount_)
+            << " openxrGlProjectionTransferLastUs="
+                << static_cast<unsigned long long>(projectionTransferUsLatest_)
+            << " openxrGlProjectionTransferAvgUs="
+                << static_cast<unsigned long long>(projectionTransferSamples_ > 0
+                    ? projectionTransferUsTotal_ / projectionTransferSamples_ : 0)
+            << " openxrGlProjectionTransferMaxUs="
+                << static_cast<unsigned long long>(projectionTransferUsMax_)
+            << " openxrGlProjectionTransferSamples="
+                << static_cast<unsigned long long>(projectionTransferSamples_)
+            << " openxrGlProjectionBudgetPressureFrames="
+                << static_cast<unsigned long long>(projectionTransferBudgetPressureFrames_)
+            << " openxrGlLeftTransferAttempts="
+                << static_cast<unsigned long long>(leftTransfer.attempts)
+            << " openxrGlLeftTransferFailures="
+                << static_cast<unsigned long long>(leftTransfer.failures)
+            << " openxrGlLeftTransferAvgUs="
+                << static_cast<unsigned long long>(leftTransfer.attempts > 0
+                    ? leftTransfer.total.totalUs / leftTransfer.attempts : 0)
+            << " openxrGlLeftTransferMaxUs="
+                << static_cast<unsigned long long>(leftTransfer.total.maxUs)
+            << " openxrGlRightTransferAttempts="
+                << static_cast<unsigned long long>(rightTransfer.attempts)
+            << " openxrGlRightTransferFailures="
+                << static_cast<unsigned long long>(rightTransfer.failures)
+            << " openxrGlRightTransferAvgUs="
+                << static_cast<unsigned long long>(rightTransfer.attempts > 0
+                    ? rightTransfer.total.totalUs / rightTransfer.attempts : 0)
+            << " openxrGlRightTransferMaxUs="
+                << static_cast<unsigned long long>(rightTransfer.total.maxUs)
             << " openxrFrameOpen=" << (frameOpen_ ? 1 : 0)
             << " openxrFrameOpenRecoveries=" << static_cast<unsigned long long>(frameOpenRecoveries_)
             << " openxrStereoSubmission=" << (stereoSubmissionEnabled_ ? 1 : 0)
@@ -2941,6 +2974,7 @@ private:
                 }
 
                 if (copied) {
+                    const int64_t projectionTransferStartQpc = QpcNow();
                     depth_math::CompositionDepthRange depthRange;
                     bool depthFrameReady = stereoReady
                         && depthCompositionSubmitEnabled_
@@ -2995,6 +3029,39 @@ private:
                         projectionView.subImage.imageRect.offset = {0, 0};
                         projectionView.subImage.imageRect.extent = {eye.width, eye.height};
                         projectionView.subImage.imageArrayIndex = 0;
+                    }
+                    projectionTransferUsLatest_ = QpcDeltaMicroseconds(
+                        projectionTransferStartQpc,
+                        QpcNow());
+                    const bool newProjectionTransferMaximum =
+                        projectionTransferUsLatest_ > projectionTransferUsMax_;
+                    projectionTransferUsMax_ = std::max(
+                        projectionTransferUsMax_,
+                        projectionTransferUsLatest_);
+                    projectionTransferUsTotal_ += projectionTransferUsLatest_;
+                    ++projectionTransferSamples_;
+                    const uint64_t displayPeriodUs = frameState.predictedDisplayPeriod > 0
+                        ? static_cast<uint64_t>(frameState.predictedDisplayPeriod / 1'000)
+                        : 0;
+                    if (displayPeriodUs > 0
+                        && projectionTransferUsLatest_ * 4 >= displayPeriodUs) {
+                        ++projectionTransferBudgetPressureFrames_;
+                        if (projectionTransferBudgetPressureFrames_ <= 4
+                            || newProjectionTransferMaximum
+                            || projectionTransferBudgetPressureFrames_ % 120 == 0) {
+                            Logger::Instance().Write(
+                                LogLevel::Warn,
+                                "openxr_gl_transfer budget_pressure frame=%llu projectionUs=%llu displayPeriodUs=%llu budgetPercent=%.1f samples=%llu pressureFrames=%llu",
+                                static_cast<unsigned long long>(frameIndex),
+                                static_cast<unsigned long long>(projectionTransferUsLatest_),
+                                static_cast<unsigned long long>(displayPeriodUs),
+                                displayPeriodUs > 0
+                                    ? 100.0 * static_cast<double>(projectionTransferUsLatest_)
+                                        / static_cast<double>(displayPeriodUs)
+                                    : 0.0,
+                                static_cast<unsigned long long>(projectionTransferSamples_),
+                                static_cast<unsigned long long>(projectionTransferBudgetPressureFrames_));
+                        }
                     }
                     if (copied && depthFrameReady) {
                         for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
@@ -3856,6 +3923,43 @@ private:
                 locatedViewCount > 1 ? locatedViews_[1].pose.position.x : 0.0f,
                 locatedViewCount > 1 ? locatedViews_[1].pose.position.y : 0.0f,
                 locatedViewCount > 1 ? locatedViews_[1].pose.position.z : 0.0f);
+
+            const OpenXRGLBridge::SwapchainTransferTiming& leftTransfer =
+                glBridge_.ColorTransferTiming(0);
+            const OpenXRGLBridge::SwapchainTransferTiming& rightTransfer =
+                glBridge_.ColorTransferTiming(1);
+            const uint64_t projectionAverageUs = projectionTransferSamples_ > 0
+                ? projectionTransferUsTotal_ / projectionTransferSamples_
+                : 0;
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "openxr_gl_transfer frame=%llu backend=OpenGL projectionUs=%llu projectionAvgUs=%llu projectionMaxUs=%llu projectionSamples=%llu budgetPressureFrames=%llu leftSource=%s leftAttempts=%llu leftSuccess=%llu leftFailures=%llu leftUs=%llu/%llu/%llu/%llu/%llu/%llu rightSource=%s rightAttempts=%llu rightSuccess=%llu rightFailures=%llu rightUs=%llu/%llu/%llu/%llu/%llu/%llu phaseOrder=total/acquire/wait/copyCpu/flush/release gpuTiming=excluded",
+                static_cast<unsigned long long>(frameIndex),
+                static_cast<unsigned long long>(projectionTransferUsLatest_),
+                static_cast<unsigned long long>(projectionAverageUs),
+                static_cast<unsigned long long>(projectionTransferUsMax_),
+                static_cast<unsigned long long>(projectionTransferSamples_),
+                static_cast<unsigned long long>(projectionTransferBudgetPressureFrames_),
+                OpenXRGLBridge::ColorTransferSourceName(leftTransfer.latestSource),
+                static_cast<unsigned long long>(leftTransfer.attempts),
+                static_cast<unsigned long long>(leftTransfer.successes),
+                static_cast<unsigned long long>(leftTransfer.failures),
+                static_cast<unsigned long long>(leftTransfer.total.latestUs),
+                static_cast<unsigned long long>(leftTransfer.acquire.latestUs),
+                static_cast<unsigned long long>(leftTransfer.wait.latestUs),
+                static_cast<unsigned long long>(leftTransfer.copy.latestUs),
+                static_cast<unsigned long long>(leftTransfer.flush.latestUs),
+                static_cast<unsigned long long>(leftTransfer.release.latestUs),
+                OpenXRGLBridge::ColorTransferSourceName(rightTransfer.latestSource),
+                static_cast<unsigned long long>(rightTransfer.attempts),
+                static_cast<unsigned long long>(rightTransfer.successes),
+                static_cast<unsigned long long>(rightTransfer.failures),
+                static_cast<unsigned long long>(rightTransfer.total.latestUs),
+                static_cast<unsigned long long>(rightTransfer.acquire.latestUs),
+                static_cast<unsigned long long>(rightTransfer.wait.latestUs),
+                static_cast<unsigned long long>(rightTransfer.copy.latestUs),
+                static_cast<unsigned long long>(rightTransfer.flush.latestUs),
+                static_cast<unsigned long long>(rightTransfer.release.latestUs));
         }
     }
 
@@ -4226,6 +4330,11 @@ private:
     uint64_t xrWaitLastUs_ = 0;
     uint64_t xrWaitMaxUs_ = 0;
     uint64_t xrWaitLongCount_ = 0;
+    uint64_t projectionTransferUsLatest_ = 0;
+    uint64_t projectionTransferUsTotal_ = 0;
+    uint64_t projectionTransferUsMax_ = 0;
+    uint64_t projectionTransferSamples_ = 0;
+    uint64_t projectionTransferBudgetPressureFrames_ = 0;
     uint64_t frameOpenRecoveries_ = 0;
     uint64_t zeroLayerPreventions_ = 0;
     uint64_t predictionLeadNsLatest_ = 0;

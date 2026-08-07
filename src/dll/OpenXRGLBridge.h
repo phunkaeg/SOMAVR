@@ -18,6 +18,32 @@ namespace somavr {
 
 class OpenXRGLBridge {
 public:
+    enum class ColorTransferSource : uint8_t {
+        None = 0,
+        Backbuffer,
+        StereoCache,
+        Black,
+    };
+
+    struct TransferPhaseTiming {
+        uint64_t latestUs = 0;
+        uint64_t totalUs = 0;
+        uint64_t maxUs = 0;
+    };
+
+    struct SwapchainTransferTiming {
+        ColorTransferSource latestSource = ColorTransferSource::None;
+        uint64_t attempts = 0;
+        uint64_t successes = 0;
+        uint64_t failures = 0;
+        TransferPhaseTiming acquire;
+        TransferPhaseTiming wait;
+        TransferPhaseTiming copy;
+        TransferPhaseTiming flush;
+        TransferPhaseTiming release;
+        TransferPhaseTiming total;
+    };
+
     struct EyeSwapchain {
         XrSwapchain handle = XR_NULL_HANDLE;
         int32_t width = 0;
@@ -39,6 +65,7 @@ public:
         bool depthImageAcquired = false;
         uint32_t acquiredDepthImageIndex = 0;
         uint64_t depthProbeSamples = 0;
+        SwapchainTransferTiming colorTransferTiming;
     };
 
     struct HudSwapchain {
@@ -128,6 +155,8 @@ public:
     bool Ready() const;
     uint32_t EyeCount() const;
     const EyeSwapchain& Eye(uint32_t eyeIndex) const;
+    const SwapchainTransferTiming& ColorTransferTiming(uint32_t eyeIndex) const;
+    static const char* ColorTransferSourceName(ColorTransferSource source);
     int64_t ColorFormat() const;
     bool BeginHudCapture(uint64_t frameIndex, bool preservePreviousFrame = false);
     bool EndHudCapture(uint64_t frameIndex, bool suppressCenterCrosshair);

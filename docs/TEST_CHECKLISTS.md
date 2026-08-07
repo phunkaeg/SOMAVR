@@ -1,5 +1,30 @@
 # Test Checklists
 
+## 0.90.0 OpenXR GL Transfer Audit
+
+1. Launch the canonical package, load the apartment save and press F10. Confirm
+   the 0.89 world, stereo, hands/IK, locomotion, interactions, terminal, HUD and
+   desktop mirror have no visible regression.
+2. Keep the headset refresh rate, resolution scale, depth setting and save
+   fixed. Follow one repeatable 60-second route containing 20 seconds standing,
+   20 seconds turning/walking, and 20 seconds using the laptop or pause HUD.
+3. Exit normally and preserve the complete log. Require periodic
+   `openxr_gl_transfer ... backend=OpenGL` rows, both eye attempt counts rising,
+   success counts matching ordinary frames, and no repeating swapchain failure.
+4. Read each `leftUs`/`rightUs` tuple using
+   `total/acquire/wait/copyCpu/flush/release`. Note projection average/maximum
+   and `budgetPressureFrames`; `gpuTiming=excluded` is intentional.
+5. If SteamVR can be selected as the active OpenXR runtime, repeat the exact
+   route and settings. Compare it with the current VirtualDesktopXR baseline.
+   Do not infer a D3D11 win from different scene content or refresh rates.
+6. Reload the save once so fallback-black traffic occurs. Its source should be
+   tagged `black`, normal gameplay should return to `stereo_cache`, and there
+   must be no compositor freeze or second F10.
+
+The D3D11 interop prototype is warranted only if SteamVR repeatedly shows a
+material transfer increase or budget pressure absent from VirtualDesktopXR.
+See `OPENXR_GL_TRANSFER_RE.md` for phase interpretation and the fallback design.
+
 ## 0.89.0 Frame Contract And Native Safety
 
 1. Launch the canonical package, load the apartment save, and press F10 once.

@@ -2,6 +2,21 @@
 
 ## 2026-08-07
 
+### 0.90.0-gl-transfer-audit
+
+- Audited TheDarkModVR's optional D3D11 OpenXR swapchain path. Its renderer
+  remains OpenGL and crosses APIs only through `WGL_NV_DX_interop2` before a
+  small flipped D3D11 draw into the XR image. SOMAVR records this as a
+  conditional SteamVR optimization, with no GPL implementation copied.
+- Added non-synchronizing CPU telemetry around color swapchain acquire, wait,
+  GL copy/state dispatch, flush, and release for each eye. Cached stereo,
+  direct backbuffer and fallback-black traffic have distinct source tags.
+- Added whole-projection transfer timing, including optional depth, average and
+  maximum totals, failed-attempt counts, and bounded warnings when transfer
+  consumes at least 25 percent of the predicted display period.
+- Documented a controlled VirtualDesktopXR/SteamVR A/B test and the evidence
+  threshold required before adding a D3D11 device and interop backend.
+
 ### 0.89.0-frame-contract
 
 - Made a projection layer a hard invariant for every begun OpenXR frame.

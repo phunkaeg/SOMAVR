@@ -1,5 +1,19 @@
 # VR Compatibility Reverse-Engineering Map
 
+## 0.90.0 Native GL Transfer Evidence Gate
+
+TheDarkModVR proves that an OpenGL engine can keep its renderer untouched while
+using a D3D11 OpenXR session and `WGL_NV_DX_interop2` only at the swapchain
+boundary. Its stated cause is SteamVR OpenXR context-switch cost with bindless
+textures, so that workaround is not automatically evidence against SOMAVR's
+native GL path.
+
+SOMAVR now measures each color acquire/wait/copy/flush/release phase and the
+complete two-eye projection-transfer interval without forcing GPU completion.
+`OPENXR_GL_TRANSFER_RE.md` defines the same-scene VirtualDesktopXR/SteamVR A/B
+gate. Native GL remains authoritative until that test shows repeatable material
+cost attributable to the runtime handoff.
+
 ## 0.89.0 Frame Prediction And Projection Contract
 
 `SwapBuffers` is the handoff between a completed HPL image and the render that

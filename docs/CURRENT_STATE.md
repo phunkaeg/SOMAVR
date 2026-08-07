@@ -22,10 +22,17 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 ## Active Baseline
 
 The active engineering and gameplay test build is
-`0.89.0-frame-contract`, layered on the
+`0.90.0-gl-transfer-audit`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Version 0.90 prices the native OpenGL OpenXR handoff before SOMAVR adopts the
+  D3D11 interop architecture proven by TheDarkModVR. Per-eye acquire, wait,
+  copy dispatch, flush, release and total CPU timings are source-tagged, while
+  a combined projection timer reports average, maximum and display-budget
+  pressure. The comparison procedure and conditional backend shape live in
+  `OPENXR_GL_TRANSFER_RE.md`.
 
 - Version 0.89 makes the compositor and AFR contracts explicit. Every begun XR
   frame carries a projection layer; loading, tracking loss and recovery retain

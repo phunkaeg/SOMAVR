@@ -1,6 +1,6 @@
 # Current State
 
-Date: 2026-07-19
+Date: 2026-08-07
 
 ## Objective
 
@@ -21,33 +21,313 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active build candidate is `0.68.2-native-phase-recovery`, layered on the
+The active engineering and gameplay test build is
+`0.88.0-release-integrity`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
 
-- Controller manipulation queues tracked Look deltas and delivers them at the
-  start of SOMA's per-frame player helper `0x14015ba20`, including MovingButton
-  state `13`. It calls guarded dispatcher `0x140154fb0` only after exact
-  player/state identity and `player+0xc8 -> script+0x10` context readiness are
-  proven. The 0.68.1 log confirmed relative-mouse wakes never entered the
-  dispatcher; arbitrary SOMAVR-phase calls remain prohibited.
+- Version 0.88 is the first relocatable, package-owned baseline. Runtime files
+  resolve beside the loaded DLL, the shipped INI comes from a tracked sanitized
+  release profile, and the log proves config identity and parser acceptance.
+  OpenXR submission keeps projection present through blackout/tracking/copy
+  fallback, globally caps prioritized composition layers at 16, and bounds all
+  swapchain waits. The injector and worker shutdown paths now fail closed.
 
-- The terminal GUI is rendered once and its completed physical FBO's actual GL
-  viewport is copied to the OpenXR layer. This removes both stateful replay and
-  the logical-size/source-size mismatch that produced a 4-by-2 tiled overlay,
-  while preserving native pointer/widget ownership.
+- Version 0.87 closes the OpenXR unfocused-pacing hang class corroborated by
+  BioShock VR. Before first focus, normal frame submission remains responsible
+  for runtime bring-up. After the session has reached FOCUSED once, a later
+  VISIBLE/unfocused period keeps polling events and capturing pending eye state
+  but skips untimed `xrWaitFrame` until focus returns. Recovery invalidates
+  stale stereo caches and resumes without another F10.
+
+- Every build now carries generated version, flavor, configuration, exact Git
+  describe/commit/dirty state, and UTC build time. Startup logs the DLL PE
+  timestamp/image size plus the Windows, processor, and memory fingerprint.
+  Logger initialization preserves the immediately preceding run as
+  `logs/somavr.previous.log` before opening a new `somavr.log`.
+
+- A bounded in-process x64 crash handler now complements the external hang
+  dumper. It observes only always-fatal exceptions in the vectored lane, dumps
+  ordinary access violations only after they are unhandled, chains and
+  periodically re-arms around displaced top-level filters, records module/RVA,
+  access type, registers and stack candidates, suppresses duplicate fault
+  addresses, and caps capture at three attempts. Full memory requires the
+  explicit `SOMAVR_FULLDUMP=1` environment variable.
+
+- Exact HPL hand, flashlight, HUD/story, socketed, and Read identities now
+  resolve once into cached behavior-neutral calibration snapshots. Clean
+  shutdown persists discovered keys and baseline values to
+  `somavr_entity_profiles.ini`; no profile value changes gameplay in 0.87.
+  Promotion to active calibration remains family-by-family after live identity
+  evidence.
+
+- Version 0.86 keeps hands/IK active in native state 10 `Read`, waits 45 frames
+  for the native story-object entrance transform to settle, and chooses one
+  non-hand presentation owner per Read session. The requested per-wrist
+  calibration is 4 cm down, 3 cm outward, 4 cm toward the view, plus 45 degrees
+  of local pitch.
+
+- If SOMA has already instantiated a hidden `PlayerHands_*` entity, the
+  retained-hands lane now requests native active/visible state as soon as VR
+  tracking is eligible. This addresses controller pickup timing and pre-fluid
+  apartment saves without inventing a campaign hand model. True pre-creation
+  remains gated on the future native `CreateHandModelIfNeeded` call.
+
+- Locomotion can now continue while physical states Wheel through Tear or
+  MovingButton own an interaction. The route calls the signature-guarded native
+  character-body Move function and remains disabled for Read, terminal,
+  authored-camera, paused, or non-normal move-state ownership.
+
+- Delayed physical HMD turn now updates a virtual torso yaw used by the arm rig
+  and never mutates SOMA's game camera. Stick/snap turns still update the torso
+  reference. The terminal pointer intersects the actual configured HUD quad or
+  cylinder, is 1.75x larger in the rolling profile, and the controller guides
+  are soft 5%-idle/25%-targeted depth-terminated glows.
+
+- Version 0.85 keeps the retained hands, arm IK, and wrist tracking active in
+  native state 8 `Terminal`. The latest log proved terminal camera ownership
+  and tracking remain normal; SOMAVR's state allowlist alone had suspended the
+  rig. Terminal pointer/input and locomotion gates remain separate.
+
+- Story-object placement now uses a native matrix and camera-relative offset
+  latched once per Read session. This removes the observed recursive distance
+  expansion where SOMAVR repeatedly treated its previous adjusted output as a
+  fresh native pickup position.
+
+- Terminal dirty-rect retention remains enabled when the offscreen-scissor
+  repair lane is active. The previous eight-frame missing-clear fallback was
+  firing despite a valid repaired sparse-render path and could expose partial
+  email frames as occasional flashes.
+
+- Version 0.84.1 fixes a live-proven transform precedence bug: body anchoring
+  could replace a newly normalized full-scale hands root with its retained
+  pre-F10 quarter-scale matrix. Body anchoring now preserves pose continuity
+  while adopting the current accepted scale. Scale normalization also starts
+  with active VR camera ownership and no longer waits for controller discovery.
+
+- Version 0.84 introduced slow torso follow after physical HMD yaw stays beyond
+  45 degrees for 250 ms. Version 0.86 confines that correction to the virtual
+  arm-rig torso yaw, preventing the earlier unwanted camera rotation.
+
+- Both wrists receive a configurable -90 degree controller-forward roll after
+  deterministic palm calibration. The medicine bottle preserves its native
+  `R_Hand` socket lifecycle but locks its first right-grip-relative transform to
+  suppress authored rotation and jiggle.
+
+- Story-object presentation now doubles camera-relative distance once and
+  preserves each object's authored scale. HUD center clearing is disabled;
+  semantic controller reticles remain independent OpenXR layers. Controller
+  guides terminate against SOMA physics geometry, and terminal clicks no longer
+  clear retained email pixels.
+
+- `HandAlwaysVisible` remains native-seeded: after the campaign's
+  `PlayerHandsHandler` creates the appropriate model, SOMAVR retains it through
+  compatible states. Creating hands before the first authored animation still
+  requires a guarded `CreateHandModelIfNeeded` handler call.
+
+- Version 0.83 closes two live-proven transform gaps. The medicine animation
+  writes `+0.6643875` local Y into the shared clavicle parent `j_Root`; SOMAVR
+  now caches and restores that one common parent before the two 34-node arm
+  chains. Wrist orientation now uses model palm geometry rather than whichever
+  controller/native pose happened to be present at takeover.
+
+- The terminal overlay now receives a VIEW-space pointer at the same normalized
+  coordinates dispatched to HPL. It follows either HUD quad or cylinder shape
+  and reuses the interaction-reticle composition layer, so layer count does not
+  increase. Door/drawer sensitivity is intentionally unchanged pending one
+  measured live tuning pass.
+
+- Version 0.82 implements the deterministic torso-ergonomics rung from the
+  cross-engine playbook. Controller wrists remain exact. Ordinary gestures do
+  not move shoulders; only extension beyond 85% arm length adds a smoothed,
+  side-specific clavicle contribution capped at 5 cm. Elbow preference is now
+  body-local down/out/back rather than a raw shifted native point.
+
+- The previous elbow direction is stored in torso coordinates and reprojected
+  onto each new shoulder-to-wrist solution circle. Near vertical singularities
+  history weight rises, while a 10-degree per-frame swivel cap prevents abrupt
+  flips. Native body yaw therefore rotates the continuity state immediately;
+  head-only yaw and roll still cannot own the shoulder bar.
+
+- The 0.80.1 live run proved the HMD-position shoulder anchor, but disproved
+  reconstructed body yaw and three-node pose restoration. Version 0.81 derives
+  torso yaw from SOMA's native horizontal camera forward, shifts the shoulder
+  centre 10 cm rearward, and restores the complete 34-node arm/finger hierarchy
+  before IK. This prevents hidden intermediate nodes from carrying the
+  medicine animation's two-foot lift into the retained rig. A 10 cm downward
+  elbow pole bias produces a less lateral bend.
+
+- Controller wrist ownership now remains active during state 13
+  `MovingButton`, covering curtains and drawers without releasing or reseeding
+  rotation calibration. The packaged full-pose freeze suppresses native finger
+  animation while preserving SOMA's native socket attachment and scripted prop
+  lifecycle.
+
+- The native centred crosshair is now suppressed in the packaged profile so
+  the selected controller hit owns the semantic interaction icon. Fresh
+  current-ImGui draws classify the front-end as a controller-driven menu even
+  when SOMA leaves a valid Normal player behind it.
+
+- Terminal draw-state evidence found email scissors with no intersection with
+  the capture viewport. Version 0.81 temporarily bypasses only those impossible
+  clips during terminal draws, restores scissor state after each call, and logs
+  bounded `terminal_scissor_bypass` evidence.
+
+- The 0.79 live run accepts retained hand reacquisition and terminal exit, but
+  disproves its arm restore assumption: lower-arm length grew from about
+  `0.216 m` to `0.70 m`. HPL3's ApplyPost function returns immediately when
+  `UsePostTransform=0`, so the old restore was a no-op. Version 0.80 resolves
+  and signature-guards `cNode3D::SetMatrix` at `0x14023fee0`, caches authored
+  shoulder/elbow/wrist locals, and explicitly restores them before each solve.
+
+- The retained shared root now follows safety-clamped tracked HMD world
+  position and player-body yaw. Its native/calibrated root-to-head vector is
+  retained as the shoulder/neck offset, so room-scale leaning moves the torso
+  instead of leaving shoulders on the capsule. Capsule camera position is a
+  fail-closed fallback when tracked head position is unavailable.
+  Body yaw is isolated as `headWorld * inverse(rawHmd)` and then yaw-filtered,
+  so turning the player rotates shoulders around the camera while physical HMD
+  pitch/roll/yaw remain independent. Later native hand submissions cannot
+  replace the stable VR root after the first seed. Normal plus physical states
+  `Grab` through `Tear` retain controller wrist/arm ownership.
+
+- The 0.79 log proves both terminal look-away and controller A/B exit native
+  state 8 in one frame. Main-menu routing now uses the focused SOMA window's
+  visible native cursor because SOMA creates a valid Normal player/body behind
+  its main menu. Pause/main-menu frames retain the native desktop backbuffer.
+  Every fresh terminal session automatically records four frames of bounded GL
+  draw-state evidence; `Ctrl+F10` remains available for image dumps.
+
+- Recenter calibration is position plus yaw only. OpenXR pitch/roll remain
+  referenced to the physical horizon even if the user recenters while tilted.
+  `Ctrl+F10` adds a four-frame terminal draw-state trace to the existing image
+  dump, recording FBO/program/scissor/texture/blend evidence for the unresolved
+  email rectangles.
+
+- Saved terminal frames prove SOMA emits sparse email rectangles. The 0.77 log
+  also proves the current GUI route does not issue an intercepted nested
+  `glClear`: every completed capture reported zero clear suppressions. Version
+  0.77.1 therefore probes eight retained frames, then automatically returns to
+  live-frame capture when that required evidence is absent. This prevents a
+  permanently black email panel while the final compositor is developed.
+  `Ctrl+F10` still dumps native and final upscaled surfaces.
+
+- Wall-terminal entry now latches HMD orientation. Looking at least `65`
+  degrees away for `8` frames sends the native cancel action and returns to
+  scene navigation; handheld terminal state 9 is intentionally untouched.
+
+- Grab state `1` now accepts the same native semantic Move dispatch as Normal.
+  SOMA's released Grab script remains responsible for held-object mass and
+  `InteractionMoveSpeedMul`, allowing locomotion while carrying general physics
+  objects without bypassing authored collision or weight behavior.
+
+- The visible `PlayerHands_0` entity is SOMA's shipped bilateral skinned mesh,
+  not two independent roots. The former dominant-hand root override placed both
+  quarter-scale hands at the right controller and is disabled in the stable
+  profile. Both wrist bones and hand sockets are stable; the current build
+  records local/parent/world bases in automatic state-transition bursts, and
+  dry-runs and applies mathematically verified transient post transforms.
+
+- The first 0.75 headset acceptance captured 73 samples per wrist with the
+  correct `j_L_Arm_10` / `j_R_Arm_10` parent in every row. All 37 samples with
+  live controller targets produced valid independent post candidates; worst
+  reconstruction error was `0.0000014`. The remaining tiny close-up hands are
+  fully explained by the untouched native root: uniform `0.25` scale and about
+  `0.075` world units from the camera. This accepts a Normal-only prototype
+  that normalizes shared-root scale but never its pose, then positions each
+  wrist independently with lifecycle-safe restoration.
+
+- Version 0.76 introduced that guarded prototype. While Normal/Normal and both
+  grips are freshly tracked, the shared root keeps its authored pose but its
+  supported quarter scale is normalized to `1.0`; each wrist is then moved to
+  its matching grip with a transient position-only post-animation transform.
+  The native post matrix and flag are restored and verified immediately after
+  every application. `HandScaleNormalization` and `HandWristPosition` provide
+  independent rollback.
+
+- Version 0.77 promotes the confirmed shoulder/elbow chain. `j_*_Arm_1` and
+  `j_*_Arm_6` receive transient two-bone corrections before the exact wrist
+  target, preserving SOMA's animation and restoring post ownership after each
+  application. Left and right eligibility are independent and reach is clamped
+  to avoid locked elbows.
+
+- Persistent hands are now an opt-in Normal-state layer. Version 0.77.2 removes
+  all identity lookup from the activation hook: SOMA must first submit a native
+  `PlayerHands_*` matrix and resolve its mesh before the exact pointer can arm
+  active/visible retention, root updates, wrist positioning, and arm IK. This
+  prevents a provisional construction-time name from poisoning the identity
+  cache. Authored camera and non-Normal states fail closed to the original
+  handler.
+
+- The 0.77.2 headset test live-proved full-size hands, independent wrist
+  positions, and the bilateral arm IK rig. Version 0.78 lowers the shared arm
+  root by 30 cm and adds first-frame-anchored wrist rotation, preserving SOMA's
+  initial palm alignment while following later controller yaw, pitch, and roll.
+  The attached exit crash dump identified a stale cached mesh call through
+  `cMeshEntity::SetVisible`; synthetic visibility calls are removed and a
+  pause/menu transition now invalidates retained hand and orientation state.
+
+- Version 0.78.0 exposed a startup lifetime gap in that new pause gate. Two
+  independent dumps fail identically in `SOMA_GetGamePaused` because the
+  startup game context exists before its `+0xc8` subsystem owner. Version
+  0.78.1 reads the verified owner chain and paused byte directly, validates
+  every pointer, and reports unavailable until initialization is complete.
+  No hand, IK, or OpenXR frame had executed before either crash.
+
+- A reusable authored-interaction event layer is built. The medicine profile
+  measures cap/left-hand proximity and bottle-to-mouth tip pose, emits haptic
+  `cap_remove_requested` and `drink_requested` events, and records tuning data.
+  Gameplay script commit remains disabled for this evidence build.
+
+- Live Frida tracing proved the native analog owner is the player-helper
+  subobject at `playerRoot+0x110`, not the root pointer itself. Physical `W`
+  calls `0x140154fb0` on that owner with analog type `1`, then reaches
+  `iCharacterBody::Move(Forward,1.0)`. Normal-state controller locomotion now
+  queues the controller-relative analog vector into that exact native semantic
+  path. Synthetic keys are retained only for authored-state/failure fallback;
+  the under-speed direct body accumulator remains opt-in diagnostics.
+
+- The same Frida pass identified the curtain as MovingButton state `13`.
+  `0x140154fb0` reads helper `+0xc8`, equivalent to root `+0x1d8`; the former
+  root `+0xc8` readiness check was inspecting the wrong object. Controller Look
+  now dispatches through the helper owner and preserves the shipped
+  MovingButton script's direction averaging and state callbacks. Slide state
+  `4` retains its guarded joint-follow path pending live acceptance.
+
+- Terminal capture no longer enlarges the physical display's adaptive
+  `256x145` to `596x337` atlas allocation. The focused state-8 flat GUI renders
+  once directly into the `1920x1080` OpenXR HUD capture. The log already proved
+  controller virtual coordinates moved across the `1024x577` GUI owner.
+
+- Authored-state telemetry now distinguishes structural camera takeover,
+  character-body camera detachment, and semantic authored states. A visible
+  hands probe resolves the shipped wrists, hand sockets, and camera socket and
+  records their world transforms. These additions are passive; no new camera
+  or bone mutation has been promoted to the gameplay test package.
+
+- Controller manipulation queues tracked Look deltas and delivers them at the
+  start of SOMA's per-frame player helper `0x14015ba20`. Root player/state
+  identity is validated separately; dispatcher `0x140154fb0` is called with
+  the helper owner, and readiness is helper `+0xc8 -> script+0x10`. The 0.68.1
+  log still prohibits arbitrary SOMAVR-phase calls.
+
+- The 0.68.2 terminal route rendered once and copied the completed physical
+  FBO's actual viewport. The 0.70 live-log analysis supersedes that route:
+  adaptive atlas viewports were coherent but too small, so the focused set now
+  renders directly into the full HUD target while preserving native
+  pointer/widget ownership.
 
 - Throw scaling never weakens native impulse and gains forward clearance from
   the body. Read translation and entrance timing are native again after live
   evidence proved per-update distance scaling was recursive; SOMAVR retains
   `2x` apparent object scale and controller orientation.
 
-- The complete 0.66 log proves terminal dispatch reached SOMA, but physical
-  laptop mesh misses repeatedly released the pointer. Version 0.67 duplicates
-  only the exact focused state-8 flat GUI into the head-locked OpenXR HUD and
-  maps controller aim over that stable surface. The physical screen, widget
-  dispatch, clicks, sounds, and callbacks remain native.
+- The complete 0.66 log proved terminal dispatch reached SOMA, but physical
+  laptop mesh misses repeatedly released the pointer. Version 0.67 introduced
+  the exact focused state-8 overlay; 0.70 replaces its later atlas-copy path
+  with one direct high-resolution draw. Widget dispatch, clicks, sounds, and
+  callbacks remain native.
 
 - Released Slide script source proves curtains and drawers accumulate semantic
   Look input through `mvMoveAdd`. The direct joint PID bypassed that route, while

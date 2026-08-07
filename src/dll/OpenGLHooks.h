@@ -16,11 +16,32 @@ struct OpenGLTelemetrySnapshot {
     uint64_t clears = 0;
 };
 
+struct TerminalClearSuppressionSnapshot {
+    bool active = false;
+    uint32_t targetFramebuffer = 0;
+    uint64_t frame = 0;
+    uint64_t armedCaptures = 0;
+    uint64_t suppressedColorClears = 0;
+    uint64_t forwardedDepthStencilClears = 0;
+    uint64_t framebufferMismatches = 0;
+    uint64_t threadMismatches = 0;
+};
+
 bool InstallOpenGLHooks(const Config& config, OpenXRRuntime* openxr);
 void RemoveOpenGLHooks();
 void LogOpenGLProofSummary();
 uint64_t GetOpenGLRenderFrameHint();
 OpenGLTelemetrySnapshot GetOpenGLTelemetrySnapshot();
+void BeginTerminalCaptureGuard(uint64_t frame, uint32_t targetFramebuffer);
+void EndTerminalCaptureGuard();
+void BeginTerminalColorClearSuppression(uint64_t frame, uint32_t targetFramebuffer);
+void EndTerminalColorClearSuppression();
+TerminalClearSuppressionSnapshot GetTerminalClearSuppressionSnapshot();
+uint64_t GetTerminalOffscreenScissorBypassCount();
+void BeginTerminalDrawStateProbe(
+    uint64_t sequence,
+    uint64_t startFrame,
+    uint32_t durationFrames);
 void BeginPostEffectResourceCapture(
     uint64_t frame,
     uint64_t sequence,

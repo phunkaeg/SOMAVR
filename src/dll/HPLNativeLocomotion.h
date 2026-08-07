@@ -9,8 +9,10 @@ namespace somavr
 
 bool InstallHPLNativeLocomotion(const Config& config);
 bool CanApplyHPLNativeMovement(const HPLPlayerStateSnapshot& player);
+bool CanApplyHPLInteractionMovement(const HPLPlayerStateSnapshot& player);
 bool CanApplyHPLNativeTurn(const HPLPlayerStateSnapshot& player);
 bool ApplyHPLNativeMovement(const HPLPlayerStateSnapshot& player, float right, float forward);
+bool ApplyHPLInteractionMovement(const HPLPlayerStateSnapshot& player, float right, float forward);
 bool ApplyHPLNativeTurn(const HPLPlayerStateSnapshot& player, float radians);
 bool ApplyHPLRoomscaleBodyReconciliation(
     const HPLPlayerStateSnapshot& player,

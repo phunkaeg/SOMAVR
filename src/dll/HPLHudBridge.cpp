@@ -4,6 +4,7 @@
 #include "HPLNativeLocomotion.h"
 #include "HPLPlayerState.h"
 #include "HPLPresentationBridge.h"
+#include "HPLTerminalMath.h"
 #include "Logger.h"
 #include "OpenGLHooks.h"
 #include "OpenXRRuntime.h"
@@ -40,6 +41,7 @@ constexpr int kDeadPlayerState = 17;
 constexpr int kTerminalPlayerState = 8;
 constexpr int kReadPlayerState = 10;
 constexpr int kZoomAreaPlayerState = 18;
+constexpr uint32_t kTerminalMissingClearFallbackSamples = 8;
 
 using GuiSetRenderFn = void (*)(void*, void*);
 using GetImGuiFn = void* (*)();
@@ -63,6 +65,7 @@ int g_lastCurrentImGuiPlayerState = -1;
 std::atomic<uint64_t> g_renderCalls = 0;
 std::atomic<uint64_t> g_gameHudMatches = 0;
 std::atomic<uint64_t> g_currentImGuiSetMatches = 0;
+std::atomic<uint64_t> g_currentImGuiSurfaceFrame = 0;
 std::atomic<uint64_t> g_gameHudImGuiSetMatches = 0;
 std::atomic<uint64_t> g_gameHudImGuiCaptureCompletions = 0;
 std::atomic<uint64_t> g_pauseQueries = 0;
@@ -78,6 +81,16 @@ std::atomic<uint64_t> g_inventoryCurrentImGuiCaptureCompletions = 0;
 std::atomic<uint64_t> g_terminalOverlaySetMatches = 0;
 std::atomic<uint64_t> g_terminalOverlayCaptureCompletions = 0;
 std::atomic<uint64_t> g_terminalOverlayCaptureSamples = 0;
+std::atomic<bool> g_terminalRetentionActive = false;
+std::atomic<bool> g_terminalRetentionSessionInitialized = false;
+std::atomic<bool> g_terminalRetentionAutoFallbackActive = false;
+std::atomic<bool> g_terminalRetentionColorClearObserved = false;
+std::atomic<uint32_t> g_terminalRetentionMissingClearSamples = 0;
+std::atomic<uint64_t> g_terminalRetentionTransitions = 0;
+std::atomic<uint64_t> g_terminalRetentionExternalResets = 0;
+std::atomic<uint64_t> g_terminalRetentionAutoFallbacks = 0;
+std::atomic<uint64_t> g_terminalRetentionScissorBypassBaseline = 0;
+std::atomic<bool> g_terminalRetentionScissorRepairObserved = false;
 std::atomic<uint64_t> g_readCurrentImGuiMatches = 0;
 std::atomic<uint64_t> g_zoomCurrentImGuiMatches = 0;
 std::atomic<uint64_t> g_currentImGuiPlayerStateTransitions = 0;
@@ -85,6 +98,12 @@ std::atomic<uint64_t> g_captureAttempts = 0;
 std::atomic<uint64_t> g_captureStarts = 0;
 std::atomic<uint64_t> g_captureCompletions = 0;
 std::atomic<uint64_t> g_captureFallbacks = 0;
+std::atomic<bool> g_terminalDumpF10Down = false;
+std::atomic<uint64_t> g_terminalDumpSequence = 0;
+std::atomic<uint32_t> g_terminalDumpFramesRemaining = 0;
+std::atomic<uint32_t> g_terminalDumpSamples = 0;
+std::atomic<uint32_t> g_terminalDumpFailures = 0;
+std::atomic<uint64_t> g_terminalAutoProbeSessions = 0;
 
 bool IsInsideImage(HMODULE module, uintptr_t rva, size_t bytes)
 {
@@ -273,6 +292,9 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     void* gameHudImGuiSet = gameHudImGui != nullptr && g_imGuiGetSet != nullptr
         ? g_imGuiGetSet(gameHudImGui) : nullptr;
     const bool isCurrentImGuiSet = guiSet != nullptr && guiSet == currentImGuiSet;
+    if (isCurrentImGuiSet) {
+        g_currentImGuiSurfaceFrame.store(frame, std::memory_order_release);
+    }
     const bool isGameHudImGuiSet = guiSet != nullptr && guiSet == gameHudImGuiSet;
     const bool isTerminalGuiSet = guiSet != nullptr
         && terminalGuiSet != nullptr
@@ -291,9 +313,13 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     }
     const bool isPausedCurrentImGuiSet = isCurrentImGuiSet && pauseStateValid && paused;
     HPLPlayerStateSnapshot player;
-    const bool playerStateValid = (isCurrentImGuiSet || isTerminalGuiSet)
+    const bool playerStateValid = (isGameHud || isGameHudImGuiSet
+            || isCurrentImGuiSet || isTerminalGuiSet)
         && GetHPLPlayerStateSnapshot(player)
         && player.playerValid;
+    const bool terminalStateActive = g_config.hplControllerTerminalOverlay
+        && playerStateValid
+        && player.playerStateId == kTerminalPlayerState;
     const bool isDeadCurrentImGuiSet = g_config.hplScriptedPresentationControl
         && isCurrentImGuiSet && isFlatGuiSet && playerStateValid
         && player.playerStateId == kDeadPlayerState;
@@ -342,16 +368,97 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     GLint programBefore = 0;
     ReadGlIds(framebufferBefore, programBefore);
     const OpenGLTelemetrySnapshot telemetryBefore = GetOpenGLTelemetrySnapshot();
+    const TerminalClearSuppressionSnapshot terminalClearBefore =
+        GetTerminalClearSuppressionSnapshot();
 
     bool captureStarted = false;
     bool captureCompleted = false;
+    float terminalVirtualWidth = 1024.0f;
+    float terminalVirtualHeight = 577.0f;
+    if (isTerminalOverlaySet) {
+        ReadField(guiSet, 0x100, terminalVirtualWidth);
+        ReadField(guiSet, 0x104, terminalVirtualHeight);
+    }
     const bool isDirectCapturedHudSet = isGameHud || isGameHudImGuiSet
         || isPausedCurrentImGuiSet || isDeadCurrentImGuiSet
-        || isWakeCurrentImGuiSet || isInventoryCurrentImGuiSet;
-    const bool isCapturedHudSet = isDirectCapturedHudSet || isTerminalOverlaySet;
+        || isWakeCurrentImGuiSet || isInventoryCurrentImGuiSet
+        || isTerminalOverlaySet;
+    const bool isCapturedHudSet = isDirectCapturedHudSet;
+    const bool terminalRetentionWasActive = g_terminalRetentionActive.load(
+        std::memory_order_relaxed);
+    const bool terminalRetentionTransition =
+        (isTerminalOverlaySet && terminalStateActive && !terminalRetentionWasActive)
+        || (isDirectCapturedHudSet && playerStateValid
+            && !terminalStateActive && terminalRetentionWasActive);
+    if (terminalRetentionTransition) {
+        const bool newRetentionState = terminalStateActive;
+        bool freshTerminalSession = false;
+        if (newRetentionState) {
+            const bool existingSession = g_terminalRetentionSessionInitialized.exchange(
+                true, std::memory_order_relaxed);
+            freshTerminalSession = !existingSession;
+            if (!existingSession) {
+                g_terminalRetentionAutoFallbackActive.store(false, std::memory_order_relaxed);
+                g_terminalRetentionColorClearObserved.store(false, std::memory_order_relaxed);
+                g_terminalRetentionMissingClearSamples.store(0, std::memory_order_relaxed);
+                g_terminalRetentionScissorBypassBaseline.store(
+                    GetTerminalOffscreenScissorBypassCount(),
+                    std::memory_order_relaxed);
+                g_terminalRetentionScissorRepairObserved.store(
+                    false, std::memory_order_relaxed);
+            }
+        } else {
+            g_terminalRetentionSessionInitialized.store(false, std::memory_order_relaxed);
+            g_terminalRetentionAutoFallbackActive.store(false, std::memory_order_relaxed);
+            g_terminalRetentionColorClearObserved.store(false, std::memory_order_relaxed);
+            g_terminalRetentionMissingClearSamples.store(0, std::memory_order_relaxed);
+            g_terminalRetentionScissorRepairObserved.store(false, std::memory_order_relaxed);
+        }
+        g_terminalRetentionActive.store(newRetentionState, std::memory_order_relaxed);
+        const uint64_t transition = g_terminalRetentionTransitions.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_terminal_retention transition=%llu frame=%llu active=%d previous=%d playerState=%d policy=retain_dirty_rect_surface",
+            static_cast<unsigned long long>(transition),
+            static_cast<unsigned long long>(frame),
+            newRetentionState ? 1 : 0,
+            terminalRetentionWasActive ? 1 : 0,
+            player.playerStateId);
+        if (newRetentionState && freshTerminalSession) {
+            const uint64_t sequence = g_terminalDumpSequence.fetch_add(
+                1, std::memory_order_relaxed) + 1;
+            const uint64_t session = g_terminalAutoProbeSessions.fetch_add(
+                1, std::memory_order_relaxed) + 1;
+            BeginTerminalDrawStateProbe(
+                sequence,
+                GetOpenGLRenderFrameHint() + 1,
+                4);
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "terminal_draw_state auto_armed session=%llu sequence=%llu frame=%llu samples=4 outputs=log_only reason=fresh_terminal_session",
+                static_cast<unsigned long long>(session),
+                static_cast<unsigned long long>(sequence),
+                static_cast<unsigned long long>(frame));
+        }
+    }
+    const bool terminalRetentionPolicyEffective =
+        g_config.hplControllerTerminalPreserveDirtyRects
+        && !g_terminalRetentionAutoFallbackActive.load(std::memory_order_relaxed);
+    const bool preservePreviousTerminalSurface = isTerminalOverlaySet
+        && terminalStateActive
+        && terminalRetentionWasActive
+        && terminalRetentionPolicyEffective;
     if (isDirectCapturedHudSet && g_config.openxrHudLayer && g_openxr != nullptr) {
         g_captureAttempts.fetch_add(1, std::memory_order_relaxed);
-        captureStarted = g_openxr->BeginHudCapture(frame);
+        captureStarted = isTerminalOverlaySet
+            ? g_openxr->BeginTerminalHudCapture(
+                frame,
+                static_cast<int>(std::lround(terminalVirtualWidth)),
+                static_cast<int>(std::lround(terminalVirtualHeight)),
+                preservePreviousTerminalSurface,
+                terminalRetentionPolicyEffective)
+            : g_openxr->BeginHudCapture(frame);
         if (captureStarted) {
             g_captureStarts.fetch_add(1, std::memory_order_relaxed);
         } else {
@@ -360,57 +467,17 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
     }
 
     g_originalGuiSetRender(guiSet, renderTarget);
-    if (isTerminalOverlaySet && g_config.openxrHudLayer && g_openxr != nullptr) {
-        g_captureAttempts.fetch_add(1, std::memory_order_relaxed);
+    if (captureStarted) {
         GLint terminalFramebuffer = 0;
         GLint terminalProgram = 0;
         GLint terminalViewport[4] = {};
-        ReadGlIds(terminalFramebuffer, terminalProgram);
-        ReadGlViewport(terminalViewport);
-        float terminalVirtualWidth = 1024.0f;
-        float terminalVirtualHeight = 577.0f;
-        ReadField(guiSet, 0x100, terminalVirtualWidth);
-        ReadField(guiSet, 0x104, terminalVirtualHeight);
-        captureCompleted = terminalFramebuffer > 0
-            && terminalViewport[2] > 0
-            && terminalViewport[3] > 0
-            && g_openxr->CaptureFramebufferToHud(
-                frame,
-                static_cast<uint32_t>(terminalFramebuffer),
-                terminalViewport[0],
-                terminalViewport[1],
-                terminalViewport[2],
-                terminalViewport[3]);
-        const uint64_t captureSample = g_terminalOverlayCaptureSamples.fetch_add(
-            1, std::memory_order_relaxed) + 1;
-        const uint64_t logInterval = static_cast<uint64_t>(
-            std::max(g_config.hplControllerLogInterval, 1));
-        if (captureSample <= 8 || captureSample % logInterval == 0) {
-            Logger::Instance().Write(
-                LogLevel::Info,
-                "hpl_terminal_capture sample=%llu frame=%llu fbo=%d viewport=%d,%d,%d,%d virtualSize=%.1f,%.1f completed=%d policy=single_render_actual_gl_viewport",
-                static_cast<unsigned long long>(captureSample),
-                static_cast<unsigned long long>(frame),
-                terminalFramebuffer,
-                terminalViewport[0],
-                terminalViewport[1],
-                terminalViewport[2],
-                terminalViewport[3],
-                terminalVirtualWidth,
-                terminalVirtualHeight,
-                captureCompleted ? 1 : 0);
+        if (isTerminalOverlaySet) {
+            ReadGlIds(terminalFramebuffer, terminalProgram);
+            ReadGlViewport(terminalViewport);
         }
-        captureStarted = captureCompleted;
-        if (captureCompleted) {
-            g_captureStarts.fetch_add(1, std::memory_order_relaxed);
-            g_captureCompletions.fetch_add(1, std::memory_order_relaxed);
-            g_terminalOverlayCaptureCompletions.fetch_add(1, std::memory_order_relaxed);
-        } else {
-            g_captureFallbacks.fetch_add(1, std::memory_order_relaxed);
-        }
-    }
-    if (captureStarted && !isTerminalOverlaySet) {
-        captureCompleted = g_openxr->EndHudCapture(frame, isGameHud);
+        captureCompleted = isTerminalOverlaySet
+            ? g_openxr->EndTerminalHudCapture(frame)
+            : g_openxr->EndHudCapture(frame, isGameHud);
         if (captureCompleted) {
             g_captureCompletions.fetch_add(1, std::memory_order_relaxed);
             if (isGameHudImGuiSet) {
@@ -433,6 +500,146 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
             }
         } else {
             g_captureFallbacks.fetch_add(1, std::memory_order_relaxed);
+        }
+        if (isTerminalOverlaySet) {
+            const TerminalClearSuppressionSnapshot terminalClearAfter =
+                GetTerminalClearSuppressionSnapshot();
+            const uint64_t suppressedColorClears =
+                terminalClearAfter.suppressedColorClears
+                - terminalClearBefore.suppressedColorClears;
+            const uint64_t forwardedDepthStencilClears =
+                terminalClearAfter.forwardedDepthStencilClears
+                - terminalClearBefore.forwardedDepthStencilClears;
+            const uint64_t framebufferMismatches =
+                terminalClearAfter.framebufferMismatches
+                - terminalClearBefore.framebufferMismatches;
+            const uint64_t threadMismatches =
+                terminalClearAfter.threadMismatches
+                - terminalClearBefore.threadMismatches;
+            const uint64_t captureSample = g_terminalOverlayCaptureSamples.fetch_add(
+                1, std::memory_order_relaxed) + 1;
+            const bool scissorRepairObserved =
+                GetTerminalOffscreenScissorBypassCount()
+                    > g_terminalRetentionScissorBypassBaseline.load(std::memory_order_relaxed);
+            if (scissorRepairObserved) {
+                const bool previouslyObserved =
+                    g_terminalRetentionScissorRepairObserved.exchange(
+                        true, std::memory_order_relaxed);
+                if (!previouslyObserved) {
+                    Logger::Instance().Write(
+                        LogLevel::Info,
+                        "hpl_terminal_retention_stabilized frame=%llu action=keep_retained_surface reason=offscreen_scissor_repair_observed policy=preserve_partial_gui_updates",
+                        static_cast<unsigned long long>(frame));
+                }
+            }
+            if (g_config.hplControllerTerminalPreserveDirtyRects
+                && captureCompleted
+                && preservePreviousTerminalSurface
+                && !g_terminalRetentionAutoFallbackActive.load(std::memory_order_relaxed)) {
+                if (suppressedColorClears > 0) {
+                    g_terminalRetentionColorClearObserved.store(
+                        true, std::memory_order_relaxed);
+                } else if (!g_terminalRetentionColorClearObserved.load(
+                        std::memory_order_relaxed)
+                    && !g_terminalRetentionScissorRepairObserved.load(
+                        std::memory_order_relaxed)) {
+                    const uint32_t missingSamples =
+                        g_terminalRetentionMissingClearSamples.fetch_add(
+                            1, std::memory_order_relaxed) + 1;
+                    if (terminal_math::ShouldFallbackToLiveTerminalFrames(
+                            missingSamples,
+                            kTerminalMissingClearFallbackSamples,
+                            false,
+                            false)) {
+                        bool expected = false;
+                        if (g_terminalRetentionAutoFallbackActive.compare_exchange_strong(
+                                expected, true, std::memory_order_relaxed)) {
+                            const uint64_t fallback =
+                                g_terminalRetentionAutoFallbacks.fetch_add(
+                                    1, std::memory_order_relaxed) + 1;
+                            Logger::Instance().Write(
+                                LogLevel::Warn,
+                                "hpl_terminal_retention_fallback fallback=%llu frame=%llu samplesWithoutClear=%u action=live_frame_capture reason=no_nested_color_clear policy=avoid_permanent_black_surface",
+                                static_cast<unsigned long long>(fallback),
+                                static_cast<unsigned long long>(frame),
+                                missingSamples);
+                        }
+                    }
+                }
+            }
+            const uint64_t logInterval = static_cast<uint64_t>(
+                std::max(g_config.hplControllerLogInterval, 1));
+            if (captureSample <= 8 || captureSample % logInterval == 0) {
+                Logger::Instance().Write(
+                    LogLevel::Info,
+                    "hpl_terminal_capture sample=%llu frame=%llu fbo=%d program=%d viewport=%d,%d,%d,%d virtualSize=%.1f,%.1f completed=%d retained=%d retentionActive=%d preserveDirtyRects=%d effectivePreserve=%d autoFallback=%d missingClearSamples=%u scissorRepairObserved=%d clearSuppression={color=%llu depthStencil=%llu fboMismatch=%llu threadMismatch=%llu} policy=native_size_retained_surface_with_scissor_repair_guarded_fallback",
+                    static_cast<unsigned long long>(captureSample),
+                    static_cast<unsigned long long>(frame),
+                    terminalFramebuffer,
+                    terminalProgram,
+                    terminalViewport[0],
+                    terminalViewport[1],
+                    terminalViewport[2],
+                    terminalViewport[3],
+                    terminalVirtualWidth,
+                    terminalVirtualHeight,
+                    captureCompleted ? 1 : 0,
+                    preservePreviousTerminalSurface ? 1 : 0,
+                    g_terminalRetentionActive.load(std::memory_order_relaxed) ? 1 : 0,
+                    g_config.hplControllerTerminalPreserveDirtyRects ? 1 : 0,
+                    terminalRetentionPolicyEffective ? 1 : 0,
+                    g_terminalRetentionAutoFallbackActive.load(std::memory_order_relaxed) ? 1 : 0,
+                    g_terminalRetentionMissingClearSamples.load(std::memory_order_relaxed),
+                    g_terminalRetentionScissorRepairObserved.load(std::memory_order_relaxed) ? 1 : 0,
+                    static_cast<unsigned long long>(suppressedColorClears),
+                    static_cast<unsigned long long>(forwardedDepthStencilClears),
+                    static_cast<unsigned long long>(framebufferMismatches),
+                    static_cast<unsigned long long>(threadMismatches));
+            }
+
+            const bool dumpKeyDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0
+                && (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
+            const bool dumpKeyWasDown = g_terminalDumpF10Down.exchange(
+                dumpKeyDown, std::memory_order_relaxed);
+            if (dumpKeyDown && !dumpKeyWasDown) {
+                const uint64_t sequence = g_terminalDumpSequence.fetch_add(
+                    1, std::memory_order_relaxed) + 1;
+                g_terminalDumpFramesRemaining.store(4, std::memory_order_relaxed);
+                BeginTerminalDrawStateProbe(
+                    sequence,
+                    GetOpenGLRenderFrameHint() + 1,
+                    4);
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "terminal_hud_dump armed key=Ctrl+F10 sequence=%llu frame=%llu samples=4 targets=retained_native_upscaled_hud_and_draw_state outputs=rgb_alpha_bmp_and_log",
+                    static_cast<unsigned long long>(sequence),
+                    static_cast<unsigned long long>(frame));
+            }
+
+            const uint32_t remaining = g_terminalDumpFramesRemaining.load(
+                std::memory_order_relaxed);
+            if (captureCompleted && remaining > 0) {
+                const uint64_t sequence = g_terminalDumpSequence.load(std::memory_order_relaxed);
+                const uint32_t sampleIndex = 5u - remaining;
+                const bool hudDumped = g_openxr->DumpHudCapture(
+                    frame, sequence, sampleIndex, "terminal_ctrl_f10");
+                const bool nativeDumped = g_openxr->DumpTerminalHudCapture(
+                    frame, sequence, sampleIndex, "terminal_ctrl_f10");
+                if (hudDumped && nativeDumped) {
+                    g_terminalDumpSamples.fetch_add(1, std::memory_order_relaxed);
+                } else {
+                    g_terminalDumpFailures.fetch_add(1, std::memory_order_relaxed);
+                    Logger::Instance().Write(
+                        LogLevel::Warn,
+                        "terminal_hud_dump incomplete sequence=%llu frame=%llu sample=%u hud=%d native=%d",
+                        static_cast<unsigned long long>(sequence),
+                        static_cast<unsigned long long>(frame),
+                        sampleIndex,
+                        hudDumped ? 1 : 0,
+                        nativeDumped ? 1 : 0);
+                }
+                g_terminalDumpFramesRemaining.store(remaining - 1, std::memory_order_relaxed);
+            }
         }
     }
 
@@ -555,6 +762,20 @@ void HookGuiSetRender(void* guiSet, void* renderTarget)
 
 } // namespace
 
+void ResetHPLTerminalHudRetention(const char* reason)
+{
+    const bool wasActive = g_terminalRetentionActive.exchange(
+        false, std::memory_order_relaxed);
+    const uint64_t reset = g_terminalRetentionExternalResets.fetch_add(
+        1, std::memory_order_relaxed) + 1;
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_terminal_retention_reset reset=%llu previous=%d reason=%s policy=clear_then_reaccumulate",
+        static_cast<unsigned long long>(reset),
+        wasActive ? 1 : 0,
+        reason != nullptr ? reason : "unspecified");
+}
+
 bool InstallHPLHudBridge(const Config& config, OpenXRRuntime* openxr)
 {
     std::lock_guard lock(g_mutex);
@@ -628,7 +849,7 @@ bool InstallHPLHudBridge(const Config& config, OpenXRRuntime* openxr)
     g_hookTarget = target;
     Logger::Instance().Write(
         LogLevel::Warn,
-        "hpl_hud_bridge installed rva=0x%llx identityRva=0x%llx imGuiProbe=%d imGuiRvas=0x%llx,0x%llx,0x%llx layer=%d pausedMenu=%d scriptedPresentation=%d inventoryPresentation=%d terminalOverlay=%d terminalOwnerOffsets=0x%zx,0x%zx,0x%zx deadState=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d",
+        "hpl_hud_bridge installed rva=0x%llx identityRva=0x%llx imGuiProbe=%d imGuiRvas=0x%llx,0x%llx,0x%llx layer=%d pausedMenu=%d scriptedPresentation=%d inventoryPresentation=%d terminalOverlay=%d terminalPreserveDirtyRects=%d terminalOwnerOffsets=0x%zx,0x%zx,0x%zx deadState=%d size=%dx%d distance=%.3f widthMeters=%.3f verticalOffset=%.3f maxAgeFrames=%d",
         static_cast<unsigned long long>(kGuiSetRenderRva),
         static_cast<unsigned long long>(kGetGameHudSetRva),
         imGuiIdentityResolved ? 1 : 0,
@@ -640,6 +861,7 @@ bool InstallHPLHudBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplScriptedPresentationControl ? 1 : 0,
         config.hplInventoryPresentationControl ? 1 : 0,
         config.hplControllerTerminalOverlay ? 1 : 0,
+        config.hplControllerTerminalPreserveDirtyRects ? 1 : 0,
         kImGuiManagerWorldInputOffset,
         kImGuiManagerFocusedWrapperOffset,
         kImGuiWrapperSetOffset,
@@ -653,11 +875,19 @@ bool InstallHPLHudBridge(const Config& config, OpenXRRuntime* openxr)
     return true;
 }
 
+bool IsHPLCurrentImGuiSurfaceActive(uint64_t frameIndex, uint64_t maximumAgeFrames)
+{
+    const uint64_t surfaceFrame = g_currentImGuiSurfaceFrame.load(std::memory_order_acquire);
+    return surfaceFrame != 0
+        && frameIndex >= surfaceFrame
+        && frameIndex - surfaceFrame <= maximumAgeFrames;
+}
+
 void LogHPLHudBridgeSummary()
 {
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_hud_summary calls=%llu gameHudMatches=%llu currentImGuiSetMatches=%llu gameHudImGuiSetMatches=%llu gameHudImGuiCaptures=%llu pauseQueries=%llu pauseQueryFallbacks=%llu pausedCurrentImGuiMatches=%llu pausedMenuCaptures=%llu deadCurrentImGuiMatches=%llu deadCurrentImGuiCaptures=%llu wakeCurrentImGuiMatches=%llu wakeCurrentImGuiCaptures=%llu inventoryCurrentImGuiMatches=%llu inventoryCurrentImGuiCaptures=%llu terminalOverlayMatches=%llu terminalOverlayCaptures=%llu readCurrentImGuiMatches=%llu zoomCurrentImGuiMatches=%llu currentImGuiPlayerStateTransitions=%llu lastCurrentImGuiPlayerState=%d captureAttempts=%llu captureStarts=%llu captureCompletions=%llu captureFallbacks=%llu installed=%d",
+        "hpl_hud_summary calls=%llu gameHudMatches=%llu currentImGuiSetMatches=%llu gameHudImGuiSetMatches=%llu gameHudImGuiCaptures=%llu pauseQueries=%llu pauseQueryFallbacks=%llu pausedCurrentImGuiMatches=%llu pausedMenuCaptures=%llu deadCurrentImGuiMatches=%llu deadCurrentImGuiCaptures=%llu wakeCurrentImGuiMatches=%llu wakeCurrentImGuiCaptures=%llu inventoryCurrentImGuiMatches=%llu inventoryCurrentImGuiCaptures=%llu terminalOverlayMatches=%llu terminalOverlayCaptures=%llu terminalRetentionActive=%d terminalRetentionTransitions=%llu terminalRetentionExternalResets=%llu terminalRetentionAutoFallbackActive=%d terminalRetentionAutoFallbacks=%llu terminalRetentionMissingClearSamples=%u terminalRetentionColorClearObserved=%d terminalAutoProbeSessions=%llu terminalDumpSequences=%llu terminalDumpSamples=%u terminalDumpFailures=%u readCurrentImGuiMatches=%llu zoomCurrentImGuiMatches=%llu currentImGuiPlayerStateTransitions=%llu lastCurrentImGuiPlayerState=%d captureAttempts=%llu captureStarts=%llu captureCompletions=%llu captureFallbacks=%llu installed=%d",
         static_cast<unsigned long long>(g_renderCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_gameHudMatches.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_currentImGuiSetMatches.load(std::memory_order_relaxed)),
@@ -675,6 +905,17 @@ void LogHPLHudBridgeSummary()
         static_cast<unsigned long long>(g_inventoryCurrentImGuiCaptureCompletions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_terminalOverlaySetMatches.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_terminalOverlayCaptureCompletions.load(std::memory_order_relaxed)),
+        g_terminalRetentionActive.load(std::memory_order_relaxed) ? 1 : 0,
+        static_cast<unsigned long long>(g_terminalRetentionTransitions.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_terminalRetentionExternalResets.load(std::memory_order_relaxed)),
+        g_terminalRetentionAutoFallbackActive.load(std::memory_order_relaxed) ? 1 : 0,
+        static_cast<unsigned long long>(g_terminalRetentionAutoFallbacks.load(std::memory_order_relaxed)),
+        g_terminalRetentionMissingClearSamples.load(std::memory_order_relaxed),
+        g_terminalRetentionColorClearObserved.load(std::memory_order_relaxed) ? 1 : 0,
+        static_cast<unsigned long long>(g_terminalAutoProbeSessions.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_terminalDumpSequence.load(std::memory_order_relaxed)),
+        g_terminalDumpSamples.load(std::memory_order_relaxed),
+        g_terminalDumpFailures.load(std::memory_order_relaxed),
         static_cast<unsigned long long>(g_readCurrentImGuiMatches.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_zoomCurrentImGuiMatches.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_currentImGuiPlayerStateTransitions.load(std::memory_order_relaxed)),
@@ -705,6 +946,14 @@ void RemoveHPLHudBridge()
     g_lastCurrentImGui = nullptr;
     g_lastCurrentImGuiSet = nullptr;
     g_lastCurrentImGuiPlayerState = -1;
+    g_currentImGuiSurfaceFrame.store(0, std::memory_order_relaxed);
+    g_terminalRetentionActive.store(false, std::memory_order_relaxed);
+    g_terminalRetentionSessionInitialized.store(false, std::memory_order_relaxed);
+    g_terminalRetentionAutoFallbackActive.store(false, std::memory_order_relaxed);
+    g_terminalRetentionColorClearObserved.store(false, std::memory_order_relaxed);
+    g_terminalRetentionMissingClearSamples.store(0, std::memory_order_relaxed);
+    g_terminalRetentionScissorBypassBaseline.store(0, std::memory_order_relaxed);
+    g_terminalRetentionScissorRepairObserved.store(false, std::memory_order_relaxed);
     Logger::Instance().Write(LogLevel::Info, "hpl_hud_bridge removed");
 }
 

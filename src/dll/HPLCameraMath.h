@@ -42,6 +42,7 @@ enum class PoseStabilityUpdate {
 Quaternion Normalize(Quaternion value);
 Quaternion Conjugate(const Quaternion& value);
 Quaternion Multiply(const Quaternion& left, const Quaternion& right);
+Quaternion YawOnly(const Quaternion& value);
 Vector3 RotateVector(const Quaternion& input, const Vector3& value);
 bool QuaternionFromRotationMatrix(
     const std::array<float, 16>& matrix,

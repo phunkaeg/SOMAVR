@@ -202,6 +202,21 @@ bool MatchSomaInteractionSignature(uintptr_t rva, const uint8_t* bytes, size_t s
                 soma_signatures::kGetClosestEntityRaycast,
                 sizeof(soma_signatures::kGetClosestEntityRaycast)) == 0;
     }
+    if (rva == soma_signatures::kNodeSetUsePostTransformRva) {
+        return size >= sizeof(soma_signatures::kNodeSetUsePostTransform)
+            && std::memcmp(bytes, soma_signatures::kNodeSetUsePostTransform,
+                sizeof(soma_signatures::kNodeSetUsePostTransform)) == 0;
+    }
+    if (rva == soma_signatures::kNodeSetPostTransformRva) {
+        return size >= sizeof(soma_signatures::kNodeSetPostTransform)
+            && std::memcmp(bytes, soma_signatures::kNodeSetPostTransform,
+                sizeof(soma_signatures::kNodeSetPostTransform)) == 0;
+    }
+    if (rva == soma_signatures::kNodeApplyPostAnimTransformRva) {
+        return size >= sizeof(soma_signatures::kNodeApplyPostAnimTransform)
+            && std::memcmp(bytes, soma_signatures::kNodeApplyPostAnimTransform,
+                sizeof(soma_signatures::kNodeApplyPostAnimTransform)) == 0;
+    }
     return false;
 }
 
@@ -253,10 +268,16 @@ bool ValidateSomaInteractionSignatures(
     const uintptr_t rvas[] = {
         soma_signatures::kGetClosestEntityRva,
         soma_signatures::kGetClosestEntityRaycastRva,
+        soma_signatures::kNodeSetUsePostTransformRva,
+        soma_signatures::kNodeSetPostTransformRva,
+        soma_signatures::kNodeApplyPostAnimTransformRva,
     };
     const size_t sizes[] = {
         sizeof(soma_signatures::kGetClosestEntity),
         sizeof(soma_signatures::kGetClosestEntityRaycast),
+        sizeof(soma_signatures::kNodeSetUsePostTransform),
+        sizeof(soma_signatures::kNodeSetPostTransform),
+        sizeof(soma_signatures::kNodeApplyPostAnimTransform),
     };
     for (size_t index = 0; index < std::size(rvas); ++index) {
         const uint8_t* bytes = ResolvePeRva(

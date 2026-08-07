@@ -915,7 +915,8 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
     const bool f2Down = (GetAsyncKeyState(VK_F2) & 0x8000) != 0;
     const bool f2Pressed = f2Down && !g_state.f2Down;
     g_state.f2Down = f2Down;
-    const bool f10Down = (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
+    const bool f10Down = (GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0
+        && (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
     const bool f10Pressed = f10Down && !g_state.f10Down;
     g_state.f10Down = f10Down;
     const bool f11Down = (GetAsyncKeyState(VK_F11) & 0x8000) != 0;
@@ -1060,7 +1061,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
 
         g_state.activationPending = false;
         g_state.trackingEnabled = true;
-        g_state.neutralOrientation = orientation;
+        g_state.neutralOrientation = YawOnly(orientation);
         g_state.neutralPosition = position;
         ++g_state.calibrationGeneration;
         g_state.baseMatricesValid = false;
@@ -1087,10 +1088,10 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
             position.x,
             position.y,
             position.z,
-            orientation.x,
-            orientation.y,
-            orientation.z,
-            orientation.w);
+            g_state.neutralOrientation.x,
+            g_state.neutralOrientation.y,
+            g_state.neutralOrientation.z,
+            g_state.neutralOrientation.w);
     }
 
     if (!g_state.trackingEnabled || g_state.activeCamera != camera) {
@@ -1253,7 +1254,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
             }
 
             g_state.recenterPending = false;
-            g_state.neutralOrientation = orientation;
+            g_state.neutralOrientation = YawOnly(orientation);
             g_state.neutralPosition = position;
             ++g_state.calibrationGeneration;
             g_state.currentEyeIndex = -1;
@@ -1277,10 +1278,10 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
                 position.x,
                 position.y,
                 position.z,
-                orientation.x,
-                orientation.y,
-                orientation.z,
-                orientation.w);
+                g_state.neutralOrientation.x,
+                g_state.neutralOrientation.y,
+                g_state.neutralOrientation.z,
+                g_state.neutralOrientation.w);
         } while (false);
     }
 

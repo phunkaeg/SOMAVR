@@ -851,12 +851,15 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
             g_rotateAnchor.pin,
             g_config.hplControllerRotateVelocityScale,
             g_config.hplControllerRotateMaxAngularSpeed);
-        const float targetSpeed = grab_math::CombineHingeAngularVelocity(
-            pointTargetSpeed,
-            angularVelocityValid ? gripAngularVelocity : camera_math::Vector3{},
-            g_rotateAnchor.pin,
-            g_config.hplControllerRotateAngularVelocityScale,
-            g_config.hplControllerRotateMaxAngularSpeed);
+        const bool allowWristTwist = player.playerStateId == kLeverPlayerState;
+        const float targetSpeed = allowWristTwist
+            ? grab_math::CombineHingeAngularVelocity(
+                pointTargetSpeed,
+                angularVelocityValid ? gripAngularVelocity : camera_math::Vector3{},
+                g_rotateAnchor.pin,
+                g_config.hplControllerRotateAngularVelocityScale,
+                g_config.hplControllerRotateMaxAngularSpeed)
+            : pointTargetSpeed;
         g_rotateAnchor.lastGripPosition = gripPosition;
         g_rotateAnchor.lastInputFrame = inputFrame;
         const float modifiedError[3] = {
@@ -871,7 +874,7 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
                 std::max(g_config.hplControllerLogInterval, 1)) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "hpl_rotate_target call=%llu applied=1 state=%d frame=%llu body=%p joint=%p pin=%.5f,%.5f,%.5f pivot=%.4f,%.4f,%.4f virtualPoint=%.4f,%.4f,%.4f controllerVelocity=%.4f,%.4f,%.4f controllerAngularVelocity=%.4f,%.4f,%.4f angularValid=%d targetAngularSpeed={point=%.4f combined=%.4f} nativeError=%.4f,%.4f,%.4f modifiedError=%.4f,%.4f,%.4f route=controller_world_arc_plus_wrist_twist_about_native_joint_pivot",
+                "hpl_rotate_target call=%llu applied=1 state=%d frame=%llu body=%p joint=%p pin=%.5f,%.5f,%.5f pivot=%.4f,%.4f,%.4f virtualPoint=%.4f,%.4f,%.4f controllerVelocity=%.4f,%.4f,%.4f controllerAngularVelocity=%.4f,%.4f,%.4f angularValid=%d wristTwist=%d targetAngularSpeed={point=%.4f combined=%.4f} nativeError=%.4f,%.4f,%.4f modifiedError=%.4f,%.4f,%.4f route=controller_world_arc_about_native_joint_pivot",
                 static_cast<unsigned long long>(call),
                 player.playerStateId,
                 static_cast<unsigned long long>(inputFrame),
@@ -883,6 +886,7 @@ float* HookPidVectorOutput(void* pid, float* output, const float* error, float t
                 gripVelocity.x, gripVelocity.y, gripVelocity.z,
                 gripAngularVelocity.x, gripAngularVelocity.y, gripAngularVelocity.z,
                 angularVelocityValid ? 1 : 0,
+                allowWristTwist ? 1 : 0,
                 pointTargetSpeed,
                 targetSpeed,
                 error[0], error[1], error[2],

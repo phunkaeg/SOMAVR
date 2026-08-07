@@ -36,6 +36,20 @@ Quaternion Multiply(const Quaternion& left, const Quaternion& right)
     };
 }
 
+Quaternion YawOnly(const Quaternion& value)
+{
+    const Quaternion normalized = Normalize(value);
+    const Vector3 forward = RotateVector(normalized, {0.0f, 0.0f, -1.0f});
+    const float horizontalLengthSquared = forward.x * forward.x + forward.z * forward.z;
+    if (!std::isfinite(horizontalLengthSquared) || horizontalLengthSquared < 1.0e-8f) {
+        return {};
+    }
+
+    const float yaw = std::atan2(-forward.x, -forward.z);
+    const float halfYaw = yaw * 0.5f;
+    return {0.0f, std::sin(halfYaw), 0.0f, std::cos(halfYaw)};
+}
+
 Vector3 RotateVector(const Quaternion& input, const Vector3& value)
 {
     const Quaternion q = Normalize(input);

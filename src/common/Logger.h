@@ -25,13 +25,14 @@ public:
     static Logger& Instance();
 
     void Initialize(const std::filesystem::path& logPath, LogLevel level);
+    void Shutdown();
     void SetLevel(LogLevel level);
     LogLevel GetLevel() const;
 
     void Write(LogLevel level, const char* fmt, ...);
     void WriteV(LogLevel level, const char* fmt, va_list args);
 
-    const std::filesystem::path& Path() const;
+    std::filesystem::path Path() const;
 
     static LogLevel ParseLevel(const std::string& value, LogLevel fallback);
     static const char* LevelName(LogLevel level);
@@ -47,6 +48,8 @@ private:
 };
 
 std::filesystem::path WorkRoot();
+void InitializeWorkRoot(HMODULE module);
+std::string WorkRootSource();
 std::filesystem::path LogPath();
 std::filesystem::path ConfigPath();
 

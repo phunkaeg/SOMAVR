@@ -3,6 +3,7 @@
 #if defined(SOMAVR_ENABLE_OPENXR)
 
 #include "Logger.h"
+#include "OpenGLHooks.h"
 
 #include <Windows.h>
 #include <gl/GL.h>
@@ -52,11 +53,18 @@ constexpr uint32_t kGlUnsignedInt248 = 0x84FA;
 constexpr uint32_t kGlFloat32UnsignedInt248Rev = 0x8DAD;
 constexpr uint32_t kGlDepthStencilAttachment = 0x821A;
 constexpr uint32_t kGlUnpackAlignment = 0x0CF5;
+constexpr uint32_t kGlPackAlignment = 0x0D05;
+constexpr uint32_t kGlPackRowLength = 0x0D02;
+constexpr uint32_t kGlPackSkipRows = 0x0D03;
+constexpr uint32_t kGlPackSkipPixels = 0x0D04;
+constexpr uint32_t kGlPixelPackBuffer = 0x88EB;
+constexpr uint32_t kGlPixelPackBufferBinding = 0x88ED;
 constexpr uint32_t kGlLinear = 0x2601;
 constexpr uint32_t kGlNearest = 0x2600;
 constexpr int64_t kGlSrgb8Alpha8 = 0x8C43;
 constexpr int64_t kGlRgba8 = 0x8058;
 constexpr int64_t kGlRgba16f = 0x881A;
+constexpr XrDuration kSwapchainWaitTimeout = 50'000'000;
 
 bool IsInvalidWglProc(PROC proc)
 {
@@ -87,6 +95,81 @@ const char* GlFormatName(int64_t format)
     case kGlDepth32fStencil8: return "GL_DEPTH32F_STENCIL8";
     default: return "UNKNOWN";
     }
+}
+
+void AppendU16(std::vector<uint8_t>& bytes, uint16_t value)
+{
+    bytes.push_back(static_cast<uint8_t>(value));
+    bytes.push_back(static_cast<uint8_t>(value >> 8));
+}
+
+void AppendU32(std::vector<uint8_t>& bytes, uint32_t value)
+{
+    bytes.push_back(static_cast<uint8_t>(value));
+    bytes.push_back(static_cast<uint8_t>(value >> 8));
+    bytes.push_back(static_cast<uint8_t>(value >> 16));
+    bytes.push_back(static_cast<uint8_t>(value >> 24));
+}
+
+bool WriteRgbBmp(
+    const std::filesystem::path& path,
+    int32_t width,
+    int32_t height,
+    const std::vector<uint8_t>& rgbaPixels,
+    bool alphaOnly)
+{
+    if (width <= 0 || height <= 0
+        || rgbaPixels.size() != static_cast<size_t>(width) * height * 4) {
+        return false;
+    }
+
+    const uint32_t rowBytes = static_cast<uint32_t>(width) * 3;
+    const uint32_t rowStride = (rowBytes + 3u) & ~3u;
+    const uint32_t pixelBytes = rowStride * static_cast<uint32_t>(height);
+    std::vector<uint8_t> bmp;
+    bmp.reserve(54u + pixelBytes);
+    bmp.push_back('B');
+    bmp.push_back('M');
+    AppendU32(bmp, 54u + pixelBytes);
+    AppendU16(bmp, 0);
+    AppendU16(bmp, 0);
+    AppendU32(bmp, 54);
+    AppendU32(bmp, 40);
+    AppendU32(bmp, static_cast<uint32_t>(width));
+    AppendU32(bmp, static_cast<uint32_t>(height));
+    AppendU16(bmp, 1);
+    AppendU16(bmp, 24);
+    AppendU32(bmp, 0);
+    AppendU32(bmp, pixelBytes);
+    AppendU32(bmp, 2835);
+    AppendU32(bmp, 2835);
+    AppendU32(bmp, 0);
+    AppendU32(bmp, 0);
+
+    for (int32_t y = 0; y < height; ++y) {
+        const size_t sourceRow = static_cast<size_t>(y) * width * 4;
+        for (int32_t x = 0; x < width; ++x) {
+            const size_t source = sourceRow + static_cast<size_t>(x) * 4;
+            if (alphaOnly) {
+                const uint8_t alpha = rgbaPixels[source + 3];
+                bmp.push_back(alpha);
+                bmp.push_back(alpha);
+                bmp.push_back(alpha);
+            } else {
+                bmp.push_back(rgbaPixels[source + 2]);
+                bmp.push_back(rgbaPixels[source + 1]);
+                bmp.push_back(rgbaPixels[source + 0]);
+            }
+        }
+        bmp.resize(bmp.size() + rowStride - rowBytes, 0);
+    }
+
+    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+    if (!stream) {
+        return false;
+    }
+    stream.write(reinterpret_cast<const char*>(bmp.data()), static_cast<std::streamsize>(bmp.size()));
+    return stream.good();
 }
 
 } // namespace
@@ -275,6 +358,11 @@ bool OpenXRGLBridge::Initialize(
 
 void OpenXRGLBridge::Shutdown(bool deleteGlResources)
 {
+    EndTerminalCaptureGuard();
+    if (terminalColorClearSuppressionActive_) {
+        EndTerminalColorClearSuppression();
+        terminalColorClearSuppressionActive_ = false;
+    }
     if (hudCaptureState_.active) {
         if (deleteGlResources && wglGetCurrentContext() != nullptr) {
             RestoreHudCaptureState();
@@ -320,6 +408,12 @@ void OpenXRGLBridge::Shutdown(bool deleteGlResources)
     }
     if (canDeleteGlResources && hud_.captureTexture != 0) {
         glDeleteTextures(1, &hud_.captureTexture);
+    }
+    if (canDeleteFramebuffers && hud_.terminalFramebuffer != 0) {
+        glDeleteFramebuffers_(1, &hud_.terminalFramebuffer);
+    }
+    if (canDeleteGlResources && hud_.terminalTexture != 0) {
+        glDeleteTextures(1, &hud_.terminalTexture);
     }
     if (canDeleteFramebuffers && !hud_.framebuffers.empty()) {
         glDeleteFramebuffers_(static_cast<int32_t>(hud_.framebuffers.size()), hud_.framebuffers.data());
@@ -374,20 +468,25 @@ bool OpenXRGLBridge::CopyBackbufferToEye(uint32_t eyeIndex)
     }
 
     EyeSwapchain& eye = eyes_[eyeIndex];
-    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-    uint32_t imageIndex = 0;
-    XrResult result = xrAcquireSwapchainImage(eye.handle, &acquireInfo, &imageIndex);
-    if (XR_FAILED(result)) {
-        Logger::Instance().Write(
-            LogLevel::Warn,
-            "openxr_swapchain acquire_failed eye=%u result=%d",
-            eyeIndex,
-            static_cast<int>(result));
-        return false;
+    uint32_t imageIndex = eye.acquiredColorImageIndex;
+    XrResult result = XR_SUCCESS;
+    if (!eye.colorImageAcquired) {
+        XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+        result = xrAcquireSwapchainImage(eye.handle, &acquireInfo, &imageIndex);
+        if (XR_FAILED(result)) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_swapchain acquire_failed eye=%u result=%d",
+                eyeIndex,
+                static_cast<int>(result));
+            return false;
+        }
+        eye.colorImageAcquired = true;
+        eye.acquiredColorImageIndex = imageIndex;
     }
 
     XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
-    waitInfo.timeout = XR_INFINITE_DURATION;
+    waitInfo.timeout = kSwapchainWaitTimeout;
     result = xrWaitSwapchainImage(eye.handle, &waitInfo);
     if (XR_FAILED(result)) {
         Logger::Instance().Write(
@@ -413,6 +512,7 @@ bool OpenXRGLBridge::CopyBackbufferToEye(uint32_t eyeIndex)
             static_cast<int>(result));
         return false;
     }
+    eye.colorImageAcquired = false;
     return copied;
 }
 
@@ -545,20 +645,25 @@ bool OpenXRGLBridge::CopyCacheToEye(uint32_t eyeIndex)
     }
 
     EyeSwapchain& eye = eyes_[eyeIndex];
-    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-    uint32_t imageIndex = 0;
-    XrResult result = xrAcquireSwapchainImage(eye.handle, &acquireInfo, &imageIndex);
-    if (XR_FAILED(result)) {
-        Logger::Instance().Write(
-            LogLevel::Warn,
-            "openxr_swapchain cache_acquire_failed eye=%u result=%d",
-            eyeIndex,
-            static_cast<int>(result));
-        return false;
+    uint32_t imageIndex = eye.acquiredColorImageIndex;
+    XrResult result = XR_SUCCESS;
+    if (!eye.colorImageAcquired) {
+        XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+        result = xrAcquireSwapchainImage(eye.handle, &acquireInfo, &imageIndex);
+        if (XR_FAILED(result)) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_swapchain cache_acquire_failed eye=%u result=%d",
+                eyeIndex,
+                static_cast<int>(result));
+            return false;
+        }
+        eye.colorImageAcquired = true;
+        eye.acquiredColorImageIndex = imageIndex;
     }
 
     XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
-    waitInfo.timeout = XR_INFINITE_DURATION;
+    waitInfo.timeout = kSwapchainWaitTimeout;
     result = xrWaitSwapchainImage(eye.handle, &waitInfo);
     if (XR_FAILED(result)) {
         Logger::Instance().Write(
@@ -584,7 +689,88 @@ bool OpenXRGLBridge::CopyCacheToEye(uint32_t eyeIndex)
             static_cast<int>(result));
         return false;
     }
+    eye.colorImageAcquired = false;
     return copied;
+}
+
+bool OpenXRGLBridge::ClearEyeToBlack(uint32_t eyeIndex)
+{
+    if (!Ready() || eyeIndex >= eyes_.size()) return false;
+
+    EyeSwapchain& eye = eyes_[eyeIndex];
+    uint32_t imageIndex = eye.acquiredColorImageIndex;
+    XrResult result = XR_SUCCESS;
+    if (!eye.colorImageAcquired) {
+        XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+        result = xrAcquireSwapchainImage(eye.handle, &acquireInfo, &imageIndex);
+        if (XR_FAILED(result)) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_swapchain black_acquire_failed eye=%u result=%d",
+                eyeIndex,
+                static_cast<int>(result));
+            return false;
+        }
+        eye.colorImageAcquired = true;
+        eye.acquiredColorImageIndex = imageIndex;
+    }
+
+    XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+    waitInfo.timeout = kSwapchainWaitTimeout;
+    result = xrWaitSwapchainImage(eye.handle, &waitInfo);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_swapchain black_wait_failed eye=%u image=%u result=%d retained=%d",
+            eyeIndex,
+            imageIndex,
+            static_cast<int>(result),
+            eye.colorImageAcquired ? 1 : 0);
+        return false;
+    }
+
+    int32_t savedDrawFramebuffer = 0;
+    int32_t savedViewport[4] = {};
+    float savedClearColor[4] = {};
+    unsigned char savedColorMask[4] = {};
+    int32_t savedScissorBox[4] = {};
+    glGetIntegerv(kGlDrawFramebufferBinding, &savedDrawFramebuffer);
+    glGetIntegerv(kGlViewport, savedViewport);
+    glGetFloatv(kGlColorClearValue, savedClearColor);
+    glGetBooleanv(kGlColorWriteMask, savedColorMask);
+    glGetIntegerv(kGlScissorBox, savedScissorBox);
+    const GLboolean scissorEnabled = glIsEnabled(kGlScissorTest);
+
+    glBindFramebuffer_(kGlDrawFramebuffer, eye.framebuffers[imageIndex]);
+    glViewport(0, 0, eye.width, eye.height);
+    if (scissorEnabled == GL_TRUE) glDisable(kGlScissorTest);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(kGlColorBufferBit);
+    glFlush();
+
+    glClearColor(
+        savedClearColor[0], savedClearColor[1], savedClearColor[2], savedClearColor[3]);
+    glColorMask(
+        savedColorMask[0], savedColorMask[1], savedColorMask[2], savedColorMask[3]);
+    glBindFramebuffer_(kGlDrawFramebuffer, static_cast<uint32_t>(savedDrawFramebuffer));
+    glViewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
+    glScissor(savedScissorBox[0], savedScissorBox[1], savedScissorBox[2], savedScissorBox[3]);
+    if (scissorEnabled == GL_TRUE) glEnable(kGlScissorTest);
+
+    XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+    result = xrReleaseSwapchainImage(eye.handle, &releaseInfo);
+    if (XR_FAILED(result)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_swapchain black_release_failed eye=%u image=%u result=%d",
+            eyeIndex,
+            imageIndex,
+            static_cast<int>(result));
+        return false;
+    }
+    eye.colorImageAcquired = false;
+    return true;
 }
 
 bool OpenXRGLBridge::CopyDepthCacheToEye(uint32_t eyeIndex)
@@ -596,20 +782,25 @@ bool OpenXRGLBridge::CopyDepthCacheToEye(uint32_t eyeIndex)
     }
 
     EyeSwapchain& eye = eyes_[eyeIndex];
-    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-    uint32_t imageIndex = 0;
-    XrResult result = xrAcquireSwapchainImage(eye.depthHandle, &acquireInfo, &imageIndex);
-    if (XR_FAILED(result)) {
-        Logger::Instance().Write(
-            LogLevel::Warn,
-            "openxr_depth_swapchain acquire_failed eye=%u result=%d",
-            eyeIndex,
-            static_cast<int>(result));
-        return false;
+    uint32_t imageIndex = eye.acquiredDepthImageIndex;
+    XrResult result = XR_SUCCESS;
+    if (!eye.depthImageAcquired) {
+        XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+        result = xrAcquireSwapchainImage(eye.depthHandle, &acquireInfo, &imageIndex);
+        if (XR_FAILED(result)) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_depth_swapchain acquire_failed eye=%u result=%d",
+                eyeIndex,
+                static_cast<int>(result));
+            return false;
+        }
+        eye.depthImageAcquired = true;
+        eye.acquiredDepthImageIndex = imageIndex;
     }
 
     XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
-    waitInfo.timeout = XR_INFINITE_DURATION;
+    waitInfo.timeout = kSwapchainWaitTimeout;
     result = xrWaitSwapchainImage(eye.depthHandle, &waitInfo);
     if (XR_FAILED(result)) {
         Logger::Instance().Write(
@@ -635,6 +826,7 @@ bool OpenXRGLBridge::CopyDepthCacheToEye(uint32_t eyeIndex)
             static_cast<int>(result));
         return false;
     }
+    eye.depthImageAcquired = false;
     return copied;
 }
 
@@ -720,7 +912,7 @@ bool OpenXRGLBridge::CopyCacheToBackbuffer(
     return true;
 }
 
-bool OpenXRGLBridge::BeginHudCapture(uint64_t frameIndex)
+bool OpenXRGLBridge::BeginHudCapture(uint64_t frameIndex, bool preservePreviousFrame)
 {
     if (!HudReady()
         || hudCaptureState_.active
@@ -746,7 +938,8 @@ bool OpenXRGLBridge::BeginHudCapture(uint64_t frameIndex)
     glDisable(kGlScissorTest);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     const bool appendToCurrentFrame = hud_.captureValid && hud_.captureFrame == frameIndex;
-    if (!appendToCurrentFrame) {
+    const bool retainPreviousFrame = preservePreviousFrame && hud_.captureValid;
+    if (!appendToCurrentFrame && !retainPreviousFrame) {
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         glClear(kGlColorBufferBit);
     }
@@ -782,6 +975,107 @@ bool OpenXRGLBridge::EndHudCapture(uint64_t frameIndex, bool suppressCenterCross
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         glClear(kGlColorBufferBit);
     }
+    RestoreHudCaptureState();
+    hud_.captureFrame = frameIndex;
+    hud_.captureValid = true;
+    return true;
+}
+
+bool OpenXRGLBridge::BeginTerminalHudCapture(
+    uint64_t frameIndex,
+    int width,
+    int height,
+    bool preservePreviousFrame,
+    bool preserveDirtyRects)
+{
+    EndTerminalCaptureGuard();
+    if (terminalColorClearSuppressionActive_) {
+        EndTerminalColorClearSuppression();
+        terminalColorClearSuppressionActive_ = false;
+    }
+    if (!HudReady()
+        || hudCaptureState_.active
+        || wglGetCurrentContext() == nullptr
+        || !CreateTerminalHudCaptureTarget(width, height)) {
+        return false;
+    }
+
+    glGetIntegerv(kGlReadFramebufferBinding, &hudCaptureState_.readFramebuffer);
+    glGetIntegerv(kGlDrawFramebufferBinding, &hudCaptureState_.drawFramebuffer);
+    glGetIntegerv(kGlReadBuffer, &hudCaptureState_.readBuffer);
+    glGetIntegerv(kGlDrawBuffer, &hudCaptureState_.drawBuffer);
+    glGetIntegerv(kGlViewport, hudCaptureState_.viewport);
+    glGetFloatv(kGlColorClearValue, hudCaptureState_.clearColor);
+    glGetBooleanv(kGlColorWriteMask, hudCaptureState_.colorMask);
+    glGetIntegerv(kGlScissorBox, hudCaptureState_.scissorBox);
+    hudCaptureState_.scissorEnabled = glIsEnabled(kGlScissorTest) == GL_TRUE;
+    hudCaptureState_.active = true;
+
+    glBindFramebuffer_(kGlFramebuffer, hud_.terminalFramebuffer);
+    glReadBuffer(kGlColorAttachment0);
+    glDrawBuffer(kGlColorAttachment0);
+    glViewport(0, 0, hud_.terminalWidth, hud_.terminalHeight);
+    glDisable(kGlScissorTest);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    const bool retainedSurfaceValid = preservePreviousFrame && hud_.terminalValid;
+    if (!retainedSurfaceValid) {
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        glClear(kGlColorBufferBit);
+    }
+    glClearColor(
+        hudCaptureState_.clearColor[0],
+        hudCaptureState_.clearColor[1],
+        hudCaptureState_.clearColor[2],
+        hudCaptureState_.clearColor[3]);
+    glColorMask(
+        hudCaptureState_.colorMask[0],
+        hudCaptureState_.colorMask[1],
+        hudCaptureState_.colorMask[2],
+        hudCaptureState_.colorMask[3]);
+    BeginTerminalCaptureGuard(frameIndex, hud_.terminalFramebuffer);
+    terminalColorClearSuppressionActive_ = preserveDirtyRects && retainedSurfaceValid;
+    if (terminalColorClearSuppressionActive_) {
+        BeginTerminalColorClearSuppression(frameIndex, hud_.terminalFramebuffer);
+    }
+    hud_.terminalValid = false;
+    hud_.captureFrame = frameIndex;
+    return true;
+}
+
+bool OpenXRGLBridge::EndTerminalHudCapture(uint64_t frameIndex)
+{
+    EndTerminalCaptureGuard();
+    if (terminalColorClearSuppressionActive_) {
+        EndTerminalColorClearSuppression();
+        terminalColorClearSuppressionActive_ = false;
+    }
+    if (!hudCaptureState_.active
+        || hud_.terminalFramebuffer == 0
+        || hud_.captureFramebuffer == 0) {
+        return false;
+    }
+
+    glBindFramebuffer_(kGlReadFramebuffer, hud_.terminalFramebuffer);
+    glReadBuffer(kGlColorAttachment0);
+    glBindFramebuffer_(kGlDrawFramebuffer, hud_.captureFramebuffer);
+    glDrawBuffer(kGlColorAttachment0);
+    glDisable(kGlScissorTest);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(kGlColorBufferBit);
+    glBlitFramebuffer_(
+        0,
+        0,
+        hud_.terminalWidth,
+        hud_.terminalHeight,
+        0,
+        0,
+        hud_.width,
+        hud_.height,
+        kGlColorBufferBit,
+        kGlLinear);
+
+    hud_.terminalValid = true;
     RestoreHudCaptureState();
     hud_.captureFrame = frameIndex;
     hud_.captureValid = true;
@@ -867,18 +1161,23 @@ bool OpenXRGLBridge::CopyHudCaptureToSwapchain()
     if (!HudReady() || !hud_.captureValid) {
         return false;
     }
-    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-    uint32_t imageIndex = 0;
-    XrResult result = xrAcquireSwapchainImage(hud_.handle, &acquireInfo, &imageIndex);
-    if (XR_FAILED(result)) {
-        Logger::Instance().Write(
-            LogLevel::Warn,
-            "openxr_hud acquire_failed result=%d",
-            static_cast<int>(result));
-        return false;
+    uint32_t imageIndex = hud_.acquiredImageIndex;
+    XrResult result = XR_SUCCESS;
+    if (!hud_.imageAcquired) {
+        XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+        result = xrAcquireSwapchainImage(hud_.handle, &acquireInfo, &imageIndex);
+        if (XR_FAILED(result)) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_hud acquire_failed result=%d",
+                static_cast<int>(result));
+            return false;
+        }
+        hud_.imageAcquired = true;
+        hud_.acquiredImageIndex = imageIndex;
     }
     XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
-    waitInfo.timeout = XR_INFINITE_DURATION;
+    waitInfo.timeout = kSwapchainWaitTimeout;
     result = xrWaitSwapchainImage(hud_.handle, &waitInfo);
     if (XR_FAILED(result)) {
         Logger::Instance().Write(
@@ -900,7 +1199,185 @@ bool OpenXRGLBridge::CopyHudCaptureToSwapchain()
             static_cast<int>(result));
         return false;
     }
+    hud_.imageAcquired = false;
     return copied;
+}
+
+bool OpenXRGLBridge::DumpHudCapture(
+    uint64_t frameIndex,
+    uint64_t sequence,
+    uint32_t sampleIndex,
+    const char* reason)
+{
+    if (!hud_.captureValid) {
+        return false;
+    }
+    return DumpCaptureFramebuffer(
+        frameIndex,
+        sequence,
+        sampleIndex,
+        reason,
+        "terminal_hud",
+        hud_.captureFramebuffer,
+        hud_.width,
+        hud_.height,
+        hud_.captureFrame);
+}
+
+bool OpenXRGLBridge::DumpTerminalHudCapture(
+    uint64_t frameIndex,
+    uint64_t sequence,
+    uint32_t sampleIndex,
+    const char* reason)
+{
+    if (!hud_.terminalValid) {
+        return false;
+    }
+    return DumpCaptureFramebuffer(
+        frameIndex,
+        sequence,
+        sampleIndex,
+        reason,
+        "terminal_native",
+        hud_.terminalFramebuffer,
+        hud_.terminalWidth,
+        hud_.terminalHeight,
+        hud_.captureFrame);
+}
+
+bool OpenXRGLBridge::DumpCaptureFramebuffer(
+    uint64_t frameIndex,
+    uint64_t sequence,
+    uint32_t sampleIndex,
+    const char* reason,
+    const char* targetName,
+    uint32_t framebuffer,
+    int width,
+    int height,
+    uint64_t captureFrame)
+{
+    if (framebuffer == 0
+        || width <= 0
+        || height <= 0
+        || wglGetCurrentContext() == nullptr) {
+        return false;
+    }
+
+    int32_t savedReadFramebuffer = 0;
+    int32_t savedReadBuffer = 0;
+    int32_t savedPackAlignment = 4;
+    int32_t savedPackRowLength = 0;
+    int32_t savedPackSkipRows = 0;
+    int32_t savedPackSkipPixels = 0;
+    int32_t savedPixelPackBuffer = 0;
+    glGetIntegerv(kGlReadFramebufferBinding, &savedReadFramebuffer);
+    glGetIntegerv(kGlReadBuffer, &savedReadBuffer);
+    glGetIntegerv(kGlPackAlignment, &savedPackAlignment);
+    glGetIntegerv(kGlPackRowLength, &savedPackRowLength);
+    glGetIntegerv(kGlPackSkipRows, &savedPackSkipRows);
+    glGetIntegerv(kGlPackSkipPixels, &savedPackSkipPixels);
+    glGetIntegerv(kGlPixelPackBufferBinding, &savedPixelPackBuffer);
+
+    using GlBindBufferFn = void(APIENTRY*)(uint32_t, uint32_t);
+    const GlBindBufferFn glBindBuffer = ResolveGlProc<GlBindBufferFn>("glBindBuffer");
+    if (savedPixelPackBuffer != 0 && glBindBuffer == nullptr) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "terminal_hud_dump failed sequence=%llu frame=%llu sample=%u reason=pixel_pack_buffer_restore_unavailable pbo=%d",
+            static_cast<unsigned long long>(sequence),
+            static_cast<unsigned long long>(frameIndex),
+            sampleIndex,
+            savedPixelPackBuffer);
+        return false;
+    }
+
+    const size_t pixelCount = static_cast<size_t>(width) * height;
+    std::vector<uint8_t> pixels(pixelCount * 4);
+    glBindFramebuffer_(kGlReadFramebuffer, framebuffer);
+    glReadBuffer(kGlColorAttachment0);
+    if (glBindBuffer != nullptr) {
+        glBindBuffer(kGlPixelPackBuffer, 0);
+    }
+    glPixelStorei(kGlPackAlignment, 1);
+    glPixelStorei(kGlPackRowLength, 0);
+    glPixelStorei(kGlPackSkipRows, 0);
+    glPixelStorei(kGlPackSkipPixels, 0);
+    for (int errorDrain = 0; errorDrain < 16 && glGetError() != GL_NO_ERROR; ++errorDrain) {
+    }
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    const uint32_t readError = glGetError();
+
+    glPixelStorei(kGlPackAlignment, savedPackAlignment);
+    glPixelStorei(kGlPackRowLength, savedPackRowLength);
+    glPixelStorei(kGlPackSkipRows, savedPackSkipRows);
+    glPixelStorei(kGlPackSkipPixels, savedPackSkipPixels);
+    if (glBindBuffer != nullptr) {
+        glBindBuffer(kGlPixelPackBuffer, static_cast<uint32_t>(savedPixelPackBuffer));
+    }
+    glBindFramebuffer_(kGlReadFramebuffer, static_cast<uint32_t>(savedReadFramebuffer));
+    glReadBuffer(static_cast<uint32_t>(savedReadBuffer));
+    if (readError != GL_NO_ERROR) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "terminal_hud_dump failed sequence=%llu frame=%llu sample=%u reason=read_pixels glError=0x%x",
+            static_cast<unsigned long long>(sequence),
+            static_cast<unsigned long long>(frameIndex),
+            sampleIndex,
+            readError);
+        return false;
+    }
+
+    uint64_t hash = 1469598103934665603ull;
+    uint64_t alphaNonzero = 0;
+    uint64_t alphaPartial = 0;
+    uint8_t alphaMin = 255;
+    uint8_t alphaMax = 0;
+    for (size_t index = 0; index < pixels.size(); ++index) {
+        hash ^= pixels[index];
+        hash *= 1099511628211ull;
+        if ((index & 3u) == 3u) {
+            const uint8_t alpha = pixels[index];
+            alphaMin = std::min(alphaMin, alpha);
+            alphaMax = std::max(alphaMax, alpha);
+            alphaNonzero += alpha != 0 ? 1u : 0u;
+            alphaPartial += alpha != 0 && alpha != 255 ? 1u : 0u;
+        }
+    }
+
+    const std::filesystem::path directory = LogPath().parent_path() / "terminal-captures";
+    std::error_code ec;
+    std::filesystem::create_directories(directory, ec);
+    const std::string stem = std::string(targetName != nullptr ? targetName : "terminal_capture")
+        + "_seq" + std::to_string(sequence)
+        + "_frame" + std::to_string(frameIndex)
+        + "_sample" + std::to_string(sampleIndex);
+    const std::filesystem::path rgbPath = directory / (stem + "_rgb.bmp");
+    const std::filesystem::path alphaPath = directory / (stem + "_alpha.bmp");
+    const bool rgbWritten = WriteRgbBmp(rgbPath, width, height, pixels, false);
+    const bool alphaWritten = WriteRgbBmp(alphaPath, width, height, pixels, true);
+    Logger::Instance().Write(
+        rgbWritten && alphaWritten ? LogLevel::Warn : LogLevel::Error,
+        "terminal_hud_dump target=%s sequence=%llu frame=%llu captureFrame=%llu sample=%u reason=%s size=%dx%d fbo=%u hash=0x%016llx alpha={min=%u max=%u nonzero=%llu partial=%llu total=%llu} rgbWritten=%d alphaWritten=%d rgbPath=\"%s\" alphaPath=\"%s\"",
+        targetName != nullptr ? targetName : "terminal_capture",
+        static_cast<unsigned long long>(sequence),
+        static_cast<unsigned long long>(frameIndex),
+        static_cast<unsigned long long>(captureFrame),
+        sampleIndex,
+        reason != nullptr ? reason : "unspecified",
+        width,
+        height,
+        framebuffer,
+        static_cast<unsigned long long>(hash),
+        static_cast<unsigned>(alphaMin),
+        static_cast<unsigned>(alphaMax),
+        static_cast<unsigned long long>(alphaNonzero),
+        static_cast<unsigned long long>(alphaPartial),
+        static_cast<unsigned long long>(pixelCount),
+        rgbWritten ? 1 : 0,
+        alphaWritten ? 1 : 0,
+        rgbPath.string().c_str(),
+        alphaPath.string().c_str());
+    return rgbWritten && alphaWritten;
 }
 
 void OpenXRGLBridge::InvalidateHudCapture()
@@ -942,18 +1419,24 @@ bool OpenXRGLBridge::DrawInteractionReticleToSwapchain(
         return false;
     }
 
-    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-    uint32_t imageIndex = 0;
-    XrResult result = xrAcquireSwapchainImage(interactionReticle_.handle, &acquireInfo, &imageIndex);
-    if (XR_FAILED(result)) {
-        Logger::Instance().Write(
-            LogLevel::Warn,
-            "openxr_interaction_reticle acquire_failed result=%d",
-            static_cast<int>(result));
-        return false;
+    uint32_t imageIndex = interactionReticle_.acquiredImageIndex;
+    XrResult result = XR_SUCCESS;
+    if (!interactionReticle_.imageAcquired) {
+        XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+        result = xrAcquireSwapchainImage(
+            interactionReticle_.handle, &acquireInfo, &imageIndex);
+        if (XR_FAILED(result)) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_interaction_reticle acquire_failed result=%d",
+                static_cast<int>(result));
+            return false;
+        }
+        interactionReticle_.imageAcquired = true;
+        interactionReticle_.acquiredImageIndex = imageIndex;
     }
     XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
-    waitInfo.timeout = XR_INFINITE_DURATION;
+    waitInfo.timeout = kSwapchainWaitTimeout;
     result = xrWaitSwapchainImage(interactionReticle_.handle, &waitInfo);
     if (XR_FAILED(result)) {
         Logger::Instance().Write(
@@ -982,6 +1465,7 @@ bool OpenXRGLBridge::DrawInteractionReticleToSwapchain(
             static_cast<int>(result));
         return false;
     }
+    interactionReticle_.imageAcquired = false;
     return drawn;
 }
 
@@ -1007,7 +1491,7 @@ bool OpenXRGLBridge::DrawControllerAimGuideToSwapchain(
     if (!ControllerAimGuideReady()) return false;
     std::swap(interactionReticle_, controllerAimGuide_);
     const bool drawn = DrawInteractionReticleToSwapchain(
-        1, red, green, blue, alpha);
+        -1, red, green, blue, alpha);
     std::swap(interactionReticle_, controllerAimGuide_);
     return drawn;
 }
@@ -1032,22 +1516,25 @@ bool OpenXRGLBridge::DrawStatusPanelToSwapchain(const std::vector<uint8_t>& rgba
         return false;
     }
 
-    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-    uint32_t imageIndex = 0;
-    XrResult result = xrAcquireSwapchainImage(statusPanel_.handle, &acquireInfo, &imageIndex);
-    if (XR_FAILED(result)) {
-        Logger::Instance().Write(LogLevel::Warn,
-            "openxr_status_panel acquire_failed result=%d", static_cast<int>(result));
-        return false;
+    uint32_t imageIndex = statusPanel_.acquiredImageIndex;
+    XrResult result = XR_SUCCESS;
+    if (!statusPanel_.imageAcquired) {
+        XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+        result = xrAcquireSwapchainImage(statusPanel_.handle, &acquireInfo, &imageIndex);
+        if (XR_FAILED(result)) {
+            Logger::Instance().Write(LogLevel::Warn,
+                "openxr_status_panel acquire_failed result=%d", static_cast<int>(result));
+            return false;
+        }
+        statusPanel_.imageAcquired = true;
+        statusPanel_.acquiredImageIndex = imageIndex;
     }
     XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
-    waitInfo.timeout = XR_INFINITE_DURATION;
+    waitInfo.timeout = kSwapchainWaitTimeout;
     result = xrWaitSwapchainImage(statusPanel_.handle, &waitInfo);
     if (XR_FAILED(result)) {
         Logger::Instance().Write(LogLevel::Warn,
             "openxr_status_panel wait_failed image=%u result=%d", imageIndex, static_cast<int>(result));
-        XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-        xrReleaseSwapchainImage(statusPanel_.handle, &releaseInfo);
         return false;
     }
 
@@ -1078,6 +1565,7 @@ bool OpenXRGLBridge::DrawStatusPanelToSwapchain(const std::vector<uint8_t>& rgba
             "openxr_status_panel release_failed image=%u result=%d", imageIndex, static_cast<int>(result));
         return false;
     }
+    statusPanel_.imageAcquired = false;
     return true;
 }
 
@@ -1101,24 +1589,27 @@ bool OpenXRGLBridge::DrawComfortVignetteToSwapchain(const std::vector<uint8_t>& 
         return false;
     }
 
-    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-    uint32_t imageIndex = 0;
-    XrResult result = xrAcquireSwapchainImage(
-        comfortVignette_.handle, &acquireInfo, &imageIndex);
-    if (XR_FAILED(result)) {
-        Logger::Instance().Write(LogLevel::Warn,
-            "openxr_comfort_vignette acquire_failed result=%d", static_cast<int>(result));
-        return false;
+    uint32_t imageIndex = comfortVignette_.acquiredImageIndex;
+    XrResult result = XR_SUCCESS;
+    if (!comfortVignette_.imageAcquired) {
+        XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+        result = xrAcquireSwapchainImage(
+            comfortVignette_.handle, &acquireInfo, &imageIndex);
+        if (XR_FAILED(result)) {
+            Logger::Instance().Write(LogLevel::Warn,
+                "openxr_comfort_vignette acquire_failed result=%d", static_cast<int>(result));
+            return false;
+        }
+        comfortVignette_.imageAcquired = true;
+        comfortVignette_.acquiredImageIndex = imageIndex;
     }
     XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
-    waitInfo.timeout = XR_INFINITE_DURATION;
+    waitInfo.timeout = kSwapchainWaitTimeout;
     result = xrWaitSwapchainImage(comfortVignette_.handle, &waitInfo);
     if (XR_FAILED(result)) {
         Logger::Instance().Write(LogLevel::Warn,
             "openxr_comfort_vignette wait_failed image=%u result=%d",
             imageIndex, static_cast<int>(result));
-        XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-        xrReleaseSwapchainImage(comfortVignette_.handle, &releaseInfo);
         return false;
     }
 
@@ -1150,6 +1641,7 @@ bool OpenXRGLBridge::DrawComfortVignetteToSwapchain(const std::vector<uint8_t>& 
             imageIndex, static_cast<int>(result));
         return false;
     }
+    comfortVignette_.imageAcquired = false;
     return true;
 }
 
@@ -2002,6 +2494,50 @@ bool OpenXRGLBridge::DrawInteractionReticleToImage(
         return false;
     }
 
+    if (crosshairState == -1) {
+        const int width = interactionReticle_.width;
+        const int height = interactionReticle_.height;
+        interactionReticleUploadPixels_.resize(
+            static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
+        const float colorRed = std::clamp(red, 0.0f, 1.0f);
+        const float colorGreen = std::clamp(green, 0.0f, 1.0f);
+        const float colorBlue = std::clamp(blue, 0.0f, 1.0f);
+        const float colorAlpha = std::clamp(alpha, 0.0f, 1.0f);
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                const float nx = (static_cast<float>(x) + 0.5f)
+                    / static_cast<float>(width) * 2.0f - 1.0f;
+                const float ny = (static_cast<float>(y) + 0.5f)
+                    / static_cast<float>(height) * 2.0f - 1.0f;
+                const float radius = std::sqrt(nx * nx + ny * ny);
+                const float glow = std::pow(
+                    std::clamp(1.0f - radius, 0.0f, 1.0f), 2.2f);
+                const size_t pixel = (static_cast<size_t>(y) * width + x) * 4;
+                interactionReticleUploadPixels_[pixel + 0] = static_cast<uint8_t>(
+                    std::lround(colorRed * 255.0f));
+                interactionReticleUploadPixels_[pixel + 1] = static_cast<uint8_t>(
+                    std::lround(colorGreen * 255.0f));
+                interactionReticleUploadPixels_[pixel + 2] = static_cast<uint8_t>(
+                    std::lround(colorBlue * 255.0f));
+                interactionReticleUploadPixels_[pixel + 3] = static_cast<uint8_t>(
+                    std::lround(colorAlpha * glow * 255.0f));
+            }
+        }
+
+        int32_t savedTexture = 0;
+        int32_t savedUnpackAlignment = 0;
+        glGetIntegerv(kGlTextureBinding2D, &savedTexture);
+        glGetIntegerv(kGlUnpackAlignment, &savedUnpackAlignment);
+        glBindTexture(kGlTexture2D, interactionReticle_.images[imageIndex].image);
+        glPixelStorei(kGlUnpackAlignment, 1);
+        glTexSubImage2D(
+            kGlTexture2D, 0, 0, 0, width, height,
+            GL_RGBA, GL_UNSIGNED_BYTE, interactionReticleUploadPixels_.data());
+        glPixelStorei(kGlUnpackAlignment, savedUnpackAlignment);
+        glBindTexture(kGlTexture2D, static_cast<uint32_t>(savedTexture));
+        return true;
+    }
+
     if (interactionReticleNativeIconsEnabled_
         && crosshairState > 0
         && crosshairState < static_cast<int>(interactionReticleAssets_.size())
@@ -2169,6 +2705,97 @@ bool OpenXRGLBridge::CreateHudCaptureTarget()
         hud_.captureTexture = 0;
         return false;
     }
+    return true;
+}
+
+bool OpenXRGLBridge::CreateTerminalHudCaptureTarget(int width, int height)
+{
+    const int32_t requestedWidth = std::clamp(width, 256, 4096);
+    const int32_t requestedHeight = std::clamp(height, 256, 4096);
+    if (hud_.terminalFramebuffer != 0
+        && hud_.terminalTexture != 0
+        && hud_.terminalWidth == requestedWidth
+        && hud_.terminalHeight == requestedHeight) {
+        return true;
+    }
+
+    int32_t savedTexture = 0;
+    int32_t savedReadFramebuffer = 0;
+    int32_t savedDrawFramebuffer = 0;
+    int32_t savedReadBuffer = 0;
+    int32_t savedDrawBuffer = 0;
+    glGetIntegerv(kGlTextureBinding2D, &savedTexture);
+    glGetIntegerv(kGlReadFramebufferBinding, &savedReadFramebuffer);
+    glGetIntegerv(kGlDrawFramebufferBinding, &savedDrawFramebuffer);
+    glGetIntegerv(kGlReadBuffer, &savedReadBuffer);
+    glGetIntegerv(kGlDrawBuffer, &savedDrawBuffer);
+
+    if (hud_.terminalFramebuffer != 0) {
+        glDeleteFramebuffers_(1, &hud_.terminalFramebuffer);
+        hud_.terminalFramebuffer = 0;
+    }
+    if (hud_.terminalTexture != 0) {
+        glDeleteTextures(1, &hud_.terminalTexture);
+        hud_.terminalTexture = 0;
+    }
+
+    glGenTextures(1, &hud_.terminalTexture);
+    glBindTexture(kGlTexture2D, hud_.terminalTexture);
+    glTexParameteri(kGlTexture2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(kGlTexture2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(kGlTexture2D, GL_TEXTURE_WRAP_S, kGlClampToEdge);
+    glTexParameteri(kGlTexture2D, GL_TEXTURE_WRAP_T, kGlClampToEdge);
+    glTexImage2D(
+        kGlTexture2D,
+        0,
+        static_cast<int32_t>(hud_.format),
+        requestedWidth,
+        requestedHeight,
+        0,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        nullptr);
+    glGenFramebuffers_(1, &hud_.terminalFramebuffer);
+    glBindFramebuffer_(kGlFramebuffer, hud_.terminalFramebuffer);
+    glFramebufferTexture2D_(
+        kGlFramebuffer,
+        kGlColorAttachment0,
+        kGlTexture2D,
+        hud_.terminalTexture,
+        0);
+    glDrawBuffer(kGlColorAttachment0);
+    const uint32_t status = glCheckFramebufferStatus_(kGlFramebuffer);
+
+    glBindFramebuffer_(kGlReadFramebuffer, static_cast<uint32_t>(savedReadFramebuffer));
+    glReadBuffer(static_cast<uint32_t>(savedReadBuffer));
+    glBindFramebuffer_(kGlDrawFramebuffer, static_cast<uint32_t>(savedDrawFramebuffer));
+    glDrawBuffer(static_cast<uint32_t>(savedDrawBuffer));
+    glBindTexture(kGlTexture2D, static_cast<uint32_t>(savedTexture));
+    if (status != kGlFramebufferComplete) {
+        if (hud_.terminalFramebuffer != 0) {
+            glDeleteFramebuffers_(1, &hud_.terminalFramebuffer);
+        }
+        if (hud_.terminalTexture != 0) {
+            glDeleteTextures(1, &hud_.terminalTexture);
+        }
+        hud_.terminalFramebuffer = 0;
+        hud_.terminalTexture = 0;
+        hud_.terminalWidth = 0;
+        hud_.terminalHeight = 0;
+        hud_.terminalValid = false;
+        return false;
+    }
+
+    hud_.terminalWidth = requestedWidth;
+    hud_.terminalHeight = requestedHeight;
+    hud_.terminalValid = false;
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "openxr_terminal_capture_target created size=%dx%d texture=%u fbo=%u policy=logical_gui_native_size_then_upscale",
+        hud_.terminalWidth,
+        hud_.terminalHeight,
+        hud_.terminalTexture,
+        hud_.terminalFramebuffer);
     return true;
 }
 

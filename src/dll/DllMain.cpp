@@ -1,4 +1,6 @@
 #include "Config.h"
+#include "BuildInfo.h"
+#include "CrashHandler.h"
 #include "HPLCameraBridge.h"
 #include "HPLComfortBridge.h"
 #include "HPLCompatibilityProbe.h"
@@ -29,10 +31,6 @@
 
 #include <memory>
 #include <string>
-
-#ifndef SOMAVR_BUILD_VERSION
-#define SOMAVR_BUILD_VERSION "0.0.0-local"
-#endif
 
 namespace {
 
@@ -69,32 +67,36 @@ bool IsOnlyCurrentThreadRemaining()
 
 DWORD WINAPI WorkerThreadProc(LPVOID)
 {
+    somavr::InitializeWorkRoot(g_module);
     somavr::Logger::Instance().Initialize(somavr::LogPath(), somavr::LogLevel::Info);
     somavr::Logger::Instance().Write(
-        somavr::LogLevel::Warn,
-        "somavr.dll loaded version=%s buildOpenXR=%d built=%s %s path=%s",
-        SOMAVR_BUILD_VERSION,
-#if defined(SOMAVR_ENABLE_OPENXR)
-        1,
-#else
-        0,
-#endif
-        __DATE__,
-        __TIME__,
+        somavr::LogLevel::Info,
+        "runtime_paths root=%s source=%s module=%s",
+        somavr::WorkRoot().string().c_str(),
+        somavr::WorkRootSource().c_str(),
         somavr::ModulePath(g_module).c_str());
+    somavr::LogBuildIdentity(g_module);
+    somavr::InitializeCrashHandler(g_module, somavr::WorkRoot() / "logs" / "dumps");
 
     g_config = std::make_unique<somavr::ConfigManager>();
     if (!g_config->Initialize()) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "config_init failed");
+        somavr::LogCrashHandlerSummary();
+        somavr::ShutdownCrashHandler();
+        somavr::Logger::Instance().Shutdown();
         return 1;
     }
 
     somavr::Logger::Instance().SetLevel(g_config->Get().logLevel);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "config_loaded path=%s logLevel=%s",
+        "config_applied path=%s logLevel=%s parsedKeyHash=0x%016llx accepted=%u unknownKeys=%u unknownSections=%u",
         g_config->Path().string().c_str(),
-        somavr::Logger::LevelName(g_config->Get().logLevel));
+        somavr::Logger::LevelName(g_config->Get().logLevel),
+        static_cast<unsigned long long>(g_config->ParsedKeyHash()),
+        g_config->AcceptedKeyCount(),
+        g_config->UnknownKeyCount(),
+        g_config->UnknownSectionCount());
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
         "hook_config comfortPreset=%s frameSummaryInterval=%d matrixSampleLimitPerFrame=%d uniformNameLogLimit=%d uniformMatrixLogLimit=%d uniformMatrixProjectionOnly=%d matrixCapture=%d matrixCaptureFrames=%d matrixCaptureStackDepth=%d matrixCaptureMaxSites=%d matrixCaptureSamplesPerUniform=%d renderDiagnosticCapture=%d renderDiagnosticFrames=%d renderDiagnosticMaxPrograms=%d renderDiagnosticMaxDraws=%d hplCameraBridge=%d hplLifecycleShutdown=%d hplProjectionCenterControl=%d hplProjectionCenteredDefault=%d hplRoomscaleControl=%d hplRoomscaleEnabledDefault=%d hplRoomscaleVertical=%d hplRoomscaleSafety=%d hplRoomscaleSafetyClearanceMeters=%.3f hplRoomscaleSafetyRadiusMeters=%.3f hplRoomscaleSafetyVerticalRadiusMeters=%.3f hplRoomscaleSafetyRadialSamples=%d hplRoomscaleSafetyIterations=%d hplRoomscaleBodyReconciliation=%d hplRoomscaleBodyReconciliationThresholdMeters=%.3f hplRoomscaleBodyReconciliationTargetMeters=%.3f hplRoomscaleBodyReconciliationMaxStepMeters=%.3f hplRoomscaleBodyReconciliationHoldFrames=%d hplEyeHeightOffsetMeters=%.4f hplReflectionFadeControl=%d hplNativeCameraRollSuppression=%d hplCameraLogInterval=%d hplStereoAfr=%d hplWorldScale=%.4f hplRenderStageProbe=%d hplDualRenderReplayProbe=%d hplDualRenderAutoProbe=%d hplDualRenderAutoProbeCount=%d hplDualRenderAutoProbeDelayFrames=%d hplDualRenderAutoProbeIntervalFrames=%d hplDualRenderContinuousControl=%d hplDualRenderContinuousDefault=%d hplPerEyeViewHistoryControl=%d hplPerEyeImageTrailControl=%d hplToneMappingFrameControl=%d hplPerEyeSSAOTemporalControl=%d hplSSAOFrameOwnerControl=%d hplPerEyePerformanceTelemetry=%d hplAudioListenerProbe=%d hplAudioListenerCorrection=%d hplPostEffectControl=%d hplPostEffectResourceProbe=%d hplPostEffectBypassDefault=%d hplPostEffectDisableImageTrail=%d hplPostEffectDisableChromaticAberration=%d hplPostEffectDisableRadialBlur=%d hplShadowJitterControl=%d hplShadowJitterSuppressedDefault=%d hplCompatibilityLogInterval=%d openxrProbe=%d openxrSessionProbe=%d openxrReleaseAfterProbe=%d openxrBootstrapFrame=%d openxrHoldFrames=%d openxrManualStart=%d openxrFrameSubmit=%d openxrMirrorBackbuffer=%d openxrDesktopMirrorEye=%s openxrDesktopMirrorAspect=%s openxrResolutionScalePercent=%d openxrReferenceSpace=%s openxrInputEnabled=%d openxrInputLogInterval=%d openxrRecoveryEnabled=%d openxrRecoveryDelayFrames=%d openxrTrackingHoldFrames=%d openxrTrackingRecoveryBlackoutFrames=%d",
@@ -182,7 +184,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().openxrTrackingRecoveryBlackoutFrames);
     somavr::Logger::Instance().Write(
         somavr::LogLevel::Info,
-        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d interactionBothHands=%d flashlight=%d inventory=%d menu=%d menuPointer=%d menuPointerFov=%.1f,%.1f menuPointerSmoothing=%.3f recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d suppressAuthoredCamera=%d interactionRay=%d interactionRayOriginTolerance=%.3f grabTranslation=%d grabTranslationScale=%.3f grabMaxOffsetMeters=%.3f grabRotation=%d grabRotationGain=%.2f grabRotationSign=%.1f grabMaxAngularSpeed=%.2f twoHandHudObject=%d twoHandGrabRotation=%d twoHandSqueeze=%.3f twoHandSeparationMeters=%.3f,%.3f twoHandBlend=%.3f throwRedirect=%d throwVelocityScale=%d throwVelocityThreshold=%.3f throwVelocityReference=%.3f manipulationMappings=%d handTrackingProbe=%d handControllerRoot=%d handRootOffset=%.4f,%.4f,%.4f handRootRotationDegrees=%.2f,%.2f,%.2f controllerHudObject=%d hudObjectOffset=%.4f,%.4f,%.4f hudObjectRotationDegrees=%.2f,%.2f,%.2f flashlightAim=%d flashlightOffset=%.4f,%.4f,%.4f flashlightRotationDegrees=%.2f,%.2f,%.2f comfortBlackoutFrames=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
+        "controller_config enabled=%d moveDeadzone=%.2f moveRelease=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f turnRelease=%.2f snapPixels=%d smoothPixelsPerSecond=%.1f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d interactionBothHands=%d flashlight=%d inventory=%d menu=%d menuPointer=%d menuPointerFov=%.1f,%.1f menuPointerSmoothing=%.3f recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d suppressAuthoredCamera=%d interactionRay=%d interactionRayOriginTolerance=%.3f grabTranslation=%d grabTranslationScale=%.3f grabMaxOffsetMeters=%.3f grabRotation=%d grabRotationGain=%.2f grabRotationSign=%.1f grabMaxAngularSpeed=%.2f twoHandHudObject=%d twoHandGrabRotation=%d twoHandSqueeze=%.3f twoHandSeparationMeters=%.3f,%.3f twoHandBlend=%.3f throwRedirect=%d throwVelocityScale=%d throwVelocityThreshold=%.3f throwVelocityReference=%.3f manipulationMappings=%d handTrackingProbe=%d handControllerRoot=%d handWristRotation=%d handFreezePose=%d handShoulderVerticalOffsetMeters=%.3f handShoulderBackOffsetMeters=%.3f handElbowDownMeters=%.3f handErgonomics=%d handShoulderReach=%d handShoulderReachStart=%.3f handShoulderReachMaxMeters=%.3f handMaxSwivelDegreesPerFrame=%.2f handRootOffset=%.4f,%.4f,%.4f handRootRotationDegrees=%.2f,%.2f,%.2f controllerHudObject=%d hudObjectOffset=%.4f,%.4f,%.4f hudObjectRotationDegrees=%.2f,%.2f,%.2f flashlightAim=%d flashlightOffset=%.4f,%.4f,%.4f flashlightRotationDegrees=%.2f,%.2f,%.2f comfortBlackoutFrames=%d recenterHoldMs=%d maxInputAgeFrames=%d logInterval=%d",
         g_config->Get().hplControllerInput ? 1 : 0,
         g_config->Get().hplControllerMoveDeadzone,
         g_config->Get().hplControllerMoveReleaseDeadzone,
@@ -239,6 +241,16 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
         g_config->Get().hplControllerManipulationMappings ? 1 : 0,
         g_config->Get().hplHandTrackingProbe ? 1 : 0,
         g_config->Get().hplHandControllerRoot ? 1 : 0,
+        g_config->Get().hplHandWristRotation ? 1 : 0,
+        g_config->Get().hplHandFreezePose ? 1 : 0,
+        g_config->Get().hplHandShoulderVerticalOffsetMeters,
+        g_config->Get().hplHandShoulderBackOffsetMeters,
+        g_config->Get().hplHandArmIKElbowDownMeters,
+        g_config->Get().hplHandArmIKErgonomics ? 1 : 0,
+        g_config->Get().hplHandShoulderReachCompensation ? 1 : 0,
+        g_config->Get().hplHandShoulderReachStart,
+        g_config->Get().hplHandShoulderReachMaxMeters,
+        g_config->Get().hplHandArmIKMaxSwivelDegreesPerFrame,
         g_config->Get().hplHandRootOffsetX,
         g_config->Get().hplHandRootOffsetY,
         g_config->Get().hplHandRootOffsetZ,
@@ -421,7 +433,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     if (!somavr::InstallHPLMenuBridge(g_config->Get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_menu_bridge install_failed");
     }
-    if (!somavr::InstallHPLTerminalBridge(g_config->Get())) {
+    if (!somavr::InstallHPLTerminalBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_terminal_bridge install_failed");
     }
     if (!somavr::InstallHPLStatusPanelBridge(g_config->Get(), g_openxr.get())) {
@@ -462,8 +474,18 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     }
 
     bool orphanedWorker = false;
+    const HANDLE stopEvent = g_stopEvent;
     for (;;) {
-        if (WaitForSingleObject(g_stopEvent, 500) == WAIT_OBJECT_0) {
+        const DWORD waitResult = stopEvent != nullptr
+            ? WaitForSingleObject(stopEvent, 500)
+            : WAIT_FAILED;
+        if (waitResult != WAIT_TIMEOUT) {
+            if (waitResult == WAIT_FAILED) {
+                somavr::Logger::Instance().Write(
+                    somavr::LogLevel::Warn,
+                    "process_lifetime stop_wait_failed error=%lu action=exit_worker",
+                    static_cast<unsigned long>(GetLastError()));
+            }
             break;
         }
         if (IsOnlyCurrentThreadRemaining()) {
@@ -473,6 +495,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
                 "process_lifetime orphaned_worker_detected action=return_without_runtime_teardown");
             break;
         }
+        somavr::MaintainCrashHandler();
     }
 
     if (orphanedWorker) {
@@ -526,7 +549,15 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     if (g_openxr) {
         g_openxr->Shutdown();
     }
+    somavr::LogCrashHandlerSummary();
+    somavr::ShutdownCrashHandler();
     somavr::Logger::Instance().Write(somavr::LogLevel::Info, "somavr.dll worker exiting");
+    somavr::Logger::Instance().Shutdown();
+    HANDLE ownedStopEvent = static_cast<HANDLE>(InterlockedExchangePointer(
+        reinterpret_cast<void* volatile*>(&g_stopEvent), nullptr));
+    if (ownedStopEvent != nullptr) {
+        CloseHandle(ownedStopEvent);
+    }
     return 0;
 }
 
@@ -549,8 +580,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
     } else if (reason == DLL_PROCESS_DETACH) {
         if (g_stopEvent != nullptr) {
             SetEvent(g_stopEvent);
-            CloseHandle(g_stopEvent);
-            g_stopEvent = nullptr;
         }
     }
 

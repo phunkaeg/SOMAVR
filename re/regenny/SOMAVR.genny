@@ -1,0 +1,11 @@
+// SOMAVR live-memory workspace for the supported 64-bit Soma_NoSteam.exe.
+//
+// Open this root file in ReGenny. Imported schemas intentionally contain only
+// offsets confirmed by Ghidra, released HPL source, or guarded runtime probes.
+
+import "types.genny"
+import "render.genny"
+import "player.genny"
+import "hands.genny"
+import "gui.genny"
+import "physics.genny"

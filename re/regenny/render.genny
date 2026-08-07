@@ -1,0 +1,76 @@
+// HPL3 camera, frustum, viewport, listener, renderer, and post-effect layouts.
+
+namespace soma {
+    enum CameraRotateMode {
+        EulerAngles = 0,
+        Matrix = 1,
+    }
+
+    enum FrustumProjectionType {
+        Perspective = 0,
+        Orthographic = 1,
+    }
+
+    struct FrustumPartial 0x198 {
+        f32 farPlane @ 0x18
+        f32 nearPlane @ 0x1c
+        f32 aspect @ 0x20
+        f32 fovRadians @ 0x24
+        bool8 infiniteFar @ 0x30
+        i32 projectionType @ 0x34
+        Vector3f origin @ 0x38
+        Matrix4f projection @ 0xd8
+        Matrix4f viewProjection @ 0x118
+        Matrix4f view @ 0x158
+    }
+
+    struct CameraPartial 0x70e {
+        Vector3f position @ 0x10
+        f32 basePitch @ 0x44
+        f32 baseYaw @ 0x48
+        f32 baseRoll @ 0x4c
+        f32 authoredPitch @ 0x60
+        f32 authoredYaw @ 0x64
+        f32 authoredRoll @ 0x68
+        i32 rotateMode @ 0x6c
+        Matrix4f cachedView @ 0x74
+        bool8 viewDirty @ 0x709
+        bool8 projectionDirty @ 0x70b
+        bool8 baseFrustumDirty @ 0x70c
+        bool8 authoredFrustumDirty @ 0x70d
+    }
+
+    struct ViewportPartial 0xb0 {
+        CameraPartial* camera @ 0x18
+        void* world @ 0x20
+        bool8 active @ 0x28
+        bool8 visible @ 0x29
+        bool8 listenerEnabled @ 0x2a
+        void* renderer @ 0x30
+        void* postComposite @ 0x38
+        void* framebuffer @ 0x48
+        Vector2i position @ 0x50
+        Vector2i size @ 0x58
+        void* renderSettings @ 0xa8
+    }
+
+    struct SoundListenerPartial 0x8c {
+        Vector3f up @ 0x50
+        Vector3f forward @ 0x5c
+        Vector3f position @ 0x74
+        Vector3f velocity @ 0x80
+    }
+
+    struct RendererPartial 0xf50 {
+        void* currentState @ 0x20
+        void* historyOrRenderSettings @ 0x438
+        u32 nativeHistoryTexture @ 0xe78
+        void* temporalProgram @ 0xf48
+    }
+
+    struct PostEffectPartial 0x32 {
+        void* vtable @ 0x00
+        bool8 disabled @ 0x30
+        bool8 active @ 0x31
+    }
+}

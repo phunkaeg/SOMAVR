@@ -1,0 +1,46 @@
+// SOMA game-context, ImGui owner, wrapper, and cGuiSet layouts.
+
+namespace soma {
+    struct GuiSetPartial 0x18c {
+        f32 virtualWidth @ 0x100
+        f32 virtualHeight @ 0x104
+        f32 virtualOffsetX @ 0x108
+        f32 virtualOffsetY @ 0x10c
+        f32 depthMin @ 0x110
+        f32 depthMax @ 0x114
+        u8 depthLayer @ 0x138
+        bool8 is3d @ 0x139
+        i32 priority @ 0x188
+    }
+
+    struct ImGuiWrapperPartial 0x30 {
+        GuiSetPartial* set @ 0x18
+        LuxEntityPartial* entity @ 0x28
+    }
+
+    struct ImGuiManagerPartial 0x193 {
+        ImGuiWrapperPartial* gameHud @ 0x160
+        ImGuiWrapperPartial* currentScreen @ 0x168
+        ImGuiWrapperPartial* worldInput @ 0x170
+        ImGuiWrapperPartial* focused @ 0x180
+        bool8 screenInputActive @ 0x192
+    }
+
+    struct GameContextPartial 0xf0 {
+        GuiSetPartial* gameHudSet @ 0x50
+        f32 hudVirtualCenterWidth @ 0x58
+        f32 hudVirtualCenterHeight @ 0x5c
+        f32 hudVirtualWidth @ 0x60
+        f32 hudVirtualHeight @ 0x64
+        f32 hudVirtualStartX @ 0x70
+        f32 hudVirtualStartY @ 0x74
+        f32 hudVirtualStartZ @ 0x78
+        f32 hudCenterScreenWidth @ 0x7c
+        f32 hudCenterScreenHeight @ 0x80
+        f32 hudCenterScreenStartX @ 0x84
+        f32 hudCenterScreenStartY @ 0x88
+        f32 hudCenterScreenStartZ @ 0x8c
+        void* interactionRayOwner @ 0xc0
+        ImGuiManagerPartial* imGuiManager @ 0xe8
+    }
+}

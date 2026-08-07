@@ -5,6 +5,7 @@
 #include "HPLHudMath.h"
 #include "OpenXRGLBridge.h"
 #include "OpenXRComfortVignetteMath.h"
+#include "OpenXRFramePacingMath.h"
 #include "OpenXRStatusPanelMath.h"
 
 #include <Windows.h>
@@ -65,6 +66,7 @@ using xr_helpers::XrResultString;
 using xr_helpers::XrVersionString;
 
 constexpr uint64_t kViewConfigurationCheckIntervalFrames = 300;
+constexpr uint64_t kLongXrWaitThresholdUs = 100000;
 
 int64_t QpcNow()
 {
@@ -254,6 +256,7 @@ struct OpenXRRuntime::Impl {
         interactionReticleSubmissionSuspended_ = false;
         interactionReticleConsecutiveFailures_ = 0;
         interactionReticleState_ = {};
+        terminalPointerState_ = {};
         statusPanelEnabled_ = statusPanelEnabled;
         statusPanelWidthPixels_ = std::clamp(statusPanelWidthPixels, 512, 4096);
         statusPanelHeightPixels_ = std::clamp(statusPanelHeightPixels, 256, 4096);
@@ -491,6 +494,7 @@ struct OpenXRRuntime::Impl {
     {
         std::lock_guard lock(mutex_);
         if (session_ != XR_NULL_HANDLE) {
+            CloseOpenFrameLocked("shutdown", currentGameFrame_);
             input_.ShutdownSession();
             DestroyFrameResourcesLocked();
             xrDestroySession(session_);
@@ -527,10 +531,12 @@ struct OpenXRRuntime::Impl {
         hudSubmissionSuspended_ = false;
         hudConsecutiveFailures_ = 0;
         interactionReticleState_ = {};
+        terminalPointerState_ = {};
         controllerAimGuideStates_ = {};
         interactionReticleSubmissionSuspended_ = false;
         interactionReticleConsecutiveFailures_ = 0;
         releaseFrame_ = 0;
+        ResetFocusPacingLocked("shutdown", currentGameFrame_);
     }
 
     std::string SummaryString() const
@@ -553,6 +559,14 @@ struct OpenXRRuntime::Impl {
             << " openxrManualStartArmed=" << (manualStartArmed_ ? 1 : 0)
             << " openxrManualStartFrame=" << static_cast<unsigned long long>(manualStartFrame_)
             << " openxrFrameSubmit=" << (frameSubmitEnabled_ ? 1 : 0)
+            << " openxrRuntimeMaxLayers=" << maxLayerCount_
+            << " openxrLayerHardCap=16"
+            << " openxrMaxLayerCandidates="
+                << static_cast<unsigned long long>(maxLayerCandidates_)
+            << " openxrMaxSubmittedLayers="
+                << static_cast<unsigned long long>(maxSubmittedLayers_)
+            << " openxrDroppedLayers="
+                << static_cast<unsigned long long>(droppedLayers_)
             << " openxrMirrorBackbuffer=" << (mirrorBackbufferEnabled_ ? 1 : 0)
             << " openxrDesktopMirrorEye=" << desktopMirrorEye_
             << " openxrDesktopMirrorAspect=" << desktopMirrorAspect_
@@ -614,6 +628,16 @@ struct OpenXRRuntime::Impl {
             << " openxrPresentationBlackoutTransitions=" << static_cast<unsigned long long>(presentationBlackoutTransitions_)
             << " openxrPresentationBlackoutFrames=" << static_cast<unsigned long long>(presentationBlackoutFrames_)
             << " openxrSessionRunning=" << (sessionRunning_ ? 1 : 0)
+            << " openxrEverFocused=" << (everFocused_ ? 1 : 0)
+            << " openxrFocusPacingEpisode=" << (focusPacingEpisodeActive_ ? 1 : 0)
+            << " openxrFocusPacingEpisodes=" << static_cast<unsigned long long>(focusPacingEpisodes_)
+            << " openxrFocusPacingSkippedFrames=" << static_cast<unsigned long long>(focusPacingSkippedFrames_)
+            << " openxrFocusPacingLongestEpisodeMs=" << static_cast<unsigned long long>(focusPacingLongestEpisodeMs_)
+            << " openxrWaitLastUs=" << static_cast<unsigned long long>(xrWaitLastUs_)
+            << " openxrWaitMaxUs=" << static_cast<unsigned long long>(xrWaitMaxUs_)
+            << " openxrWaitLongCount=" << static_cast<unsigned long long>(xrWaitLongCount_)
+            << " openxrFrameOpen=" << (frameOpen_ ? 1 : 0)
+            << " openxrFrameOpenRecoveries=" << static_cast<unsigned long long>(frameOpenRecoveries_)
             << " openxrStereoSubmission=" << (stereoSubmissionEnabled_ ? 1 : 0)
             << " openxrStereoCapturedEyes=" << static_cast<unsigned long long>(stereoCapturedEyeCount_)
             << " openxrStereoSubmittedFrames=" << static_cast<unsigned long long>(stereoSubmittedFrameCount_)
@@ -663,6 +687,10 @@ struct OpenXRRuntime::Impl {
             << " openxrInteractionReticleExpired=" << static_cast<unsigned long long>(interactionReticleExpired_)
             << " openxrInteractionReticleSubmittedFrames=" << static_cast<unsigned long long>(interactionReticleSubmittedFrames_)
             << " openxrInteractionReticleSubmissionFailures=" << static_cast<unsigned long long>(interactionReticleSubmissionFailures_)
+            << " openxrTerminalPointerValid=" << (terminalPointerState_.valid ? 1 : 0)
+            << " openxrTerminalPointerUpdates=" << static_cast<unsigned long long>(terminalPointerUpdates_)
+            << " openxrTerminalPointerSubmittedFrames=" << static_cast<unsigned long long>(terminalPointerSubmittedFrames_)
+            << " openxrTerminalPointerFailures=" << static_cast<unsigned long long>(terminalPointerFailures_)
             << " openxrControllerAimGuideValid="
             << (controllerAimGuideStates_[0].valid ? 1 : 0)
             << (controllerAimGuideStates_[1].valid ? 1 : 0)
@@ -834,6 +862,28 @@ struct OpenXRRuntime::Impl {
         }
     }
 
+    void SetTerminalPointer(const OpenXRTerminalPointerState& state)
+    {
+        std::lock_guard lock(mutex_);
+        if (!state.valid || !std::isfinite(state.normalizedX)
+            || !std::isfinite(state.normalizedY)
+            || !std::isfinite(state.sizeScale)
+            || state.normalizedX < 0.0f || state.normalizedX > 1.0f
+            || state.normalizedY < 0.0f || state.normalizedY > 1.0f
+            || state.sizeScale < 0.5f || state.sizeScale > 4.0f) {
+            terminalPointerState_ = {};
+            return;
+        }
+        terminalPointerState_ = state;
+        ++terminalPointerUpdates_;
+    }
+
+    void ClearTerminalPointer()
+    {
+        std::lock_guard lock(mutex_);
+        terminalPointerState_ = {};
+    }
+
     void SetControllerAimGuide(const OpenXRControllerAimGuideState& state)
     {
         std::lock_guard lock(mutex_);
@@ -844,8 +894,10 @@ struct OpenXRRuntime::Impl {
             || !state.aimPose.orientationTracked
             || !state.aimPose.positionTracked
             || !std::isfinite(state.lengthMeters)
-            || state.lengthMeters < 0.3f
-            || state.lengthMeters > 20.0f) {
+            || !std::isfinite(state.alpha)
+            || state.lengthMeters < 0.05f
+            || state.lengthMeters > 20.0f
+            || state.alpha < 0.0f || state.alpha > 1.0f) {
             if (state.handIndex < controllerAimGuideStates_.size()) {
                 controllerAimGuideStates_[state.handIndex] = {};
             }
@@ -885,6 +937,18 @@ struct OpenXRRuntime::Impl {
         Logger::Instance().Write(LogLevel::Info,
             "openxr_hud runtime_visible=%d configured=%d",
             hudRuntimeVisible_ ? 1 : 0, hudLayerEnabled_ ? 1 : 0);
+    }
+
+    void SetDesktopMirrorNativeBackbuffer(bool enabled)
+    {
+        std::lock_guard lock(mutex_);
+        if (desktopMirrorNativeBackbuffer_ == enabled) return;
+        desktopMirrorNativeBackbuffer_ = enabled;
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "openxr_desktop_mirror native_backbuffer=%d reason=%s",
+            enabled ? 1 : 0,
+            enabled ? "menu_surface" : "gameplay_surface");
     }
 
     bool ToggleHudLayerShape()
@@ -1054,6 +1118,11 @@ struct OpenXRRuntime::Impl {
     void InvalidateStereoCaches(const char* reason)
     {
         std::lock_guard lock(mutex_);
+        InvalidateStereoCachesLocked(reason);
+    }
+
+    void InvalidateStereoCachesLocked(const char* reason)
+    {
         glBridge_.InvalidateStereoCaches();
         glBridge_.InvalidateHudCapture();
         pendingRenderedEyeValid_ = false;
@@ -1108,7 +1177,7 @@ struct OpenXRRuntime::Impl {
             static_cast<unsigned long long>(presentationBlackoutFrames_));
     }
 
-    bool BeginHudCapture(uint64_t frameIndex)
+    bool BeginHudCapture(uint64_t frameIndex, bool preservePreviousFrame)
     {
         std::lock_guard lock(mutex_);
         if (!hudLayerEnabled_
@@ -1122,7 +1191,7 @@ struct OpenXRRuntime::Impl {
             || !glBridge_.HudReady()) {
             return false;
         }
-        const bool started = glBridge_.BeginHudCapture(frameIndex);
+        const bool started = glBridge_.BeginHudCapture(frameIndex, preservePreviousFrame);
         if (started) {
             ++hudCaptureStarts_;
         }
@@ -1133,6 +1202,43 @@ struct OpenXRRuntime::Impl {
     {
         std::lock_guard lock(mutex_);
         const bool completed = glBridge_.EndHudCapture(frameIndex, suppressCenterCrosshair);
+        if (completed) {
+            ++hudCaptureCompletions_;
+        }
+        return completed;
+    }
+
+    bool BeginTerminalHudCapture(
+        uint64_t frameIndex,
+        int width,
+        int height,
+        bool preservePreviousFrame,
+        bool preserveDirtyRects)
+    {
+        std::lock_guard lock(mutex_);
+        if (!hudLayerEnabled_
+            || hudSubmissionSuspended_
+            || !frameSubmitEnabled_
+            || !sessionRunning_
+            || !stereoSubmissionEnabled_
+            || (sessionState_ != XR_SESSION_STATE_VISIBLE
+                && sessionState_ != XR_SESSION_STATE_FOCUSED)
+            || !frameResourcesReady_
+            || !glBridge_.HudReady()) {
+            return false;
+        }
+        const bool started = glBridge_.BeginTerminalHudCapture(
+            frameIndex, width, height, preservePreviousFrame, preserveDirtyRects);
+        if (started) {
+            ++hudCaptureStarts_;
+        }
+        return started;
+    }
+
+    bool EndTerminalHudCapture(uint64_t frameIndex)
+    {
+        std::lock_guard lock(mutex_);
+        const bool completed = glBridge_.EndTerminalHudCapture(frameIndex);
         if (completed) {
             ++hudCaptureCompletions_;
         }
@@ -1171,6 +1277,27 @@ struct OpenXRRuntime::Impl {
             ++hudCaptureCompletions_;
         }
         return completed;
+    }
+
+    bool DumpHudCapture(
+        uint64_t frameIndex,
+        uint64_t sequence,
+        uint32_t sampleIndex,
+        const char* reason)
+    {
+        std::lock_guard lock(mutex_);
+        return glBridge_.DumpHudCapture(frameIndex, sequence, sampleIndex, reason);
+    }
+
+    bool DumpTerminalHudCapture(
+        uint64_t frameIndex,
+        uint64_t sequence,
+        uint32_t sampleIndex,
+        const char* reason)
+    {
+        std::lock_guard lock(mutex_);
+        return glBridge_.DumpTerminalHudCapture(
+            frameIndex, sequence, sampleIndex, reason);
     }
 
 private:
@@ -1441,6 +1568,7 @@ private:
         bool releasedSession = false;
         bool releasedInstance = false;
         if (session_ != XR_NULL_HANDLE) {
+            CloseOpenFrameLocked("release_after_probe", currentGameFrame_);
             input_.ShutdownSession();
             DestroyFrameResourcesLocked();
             xrDestroySession(session_);
@@ -1448,6 +1576,7 @@ private:
             sessionHdc_ = nullptr;
             sessionGlContext_ = nullptr;
             sessionRunning_ = false;
+            ResetFocusPacingLocked("release_after_probe", currentGameFrame_);
             sessionReleasedAfterProbe_ = true;
             releaseFrame_ = 0;
             releasedSession = true;
@@ -1475,6 +1604,7 @@ private:
     {
         const bool resumeStereo = stereoSubmissionEnabled_;
         if (session_ != XR_NULL_HANDLE) {
+            CloseOpenFrameLocked("runtime_recovery", frameIndex);
             input_.ShutdownSession();
             DestroyFrameResourcesLocked();
             xrDestroySession(session_);
@@ -1498,6 +1628,7 @@ private:
         sessionAttempted_ = false;
         sessionCreated_ = false;
         sessionRunning_ = false;
+        ResetFocusPacingLocked("runtime_recovery", frameIndex);
         frameSubmitFailed_ = false;
         pendingRenderedEyeValid_ = false;
         renderedStereoViewValid_[0] = false;
@@ -2293,6 +2424,7 @@ private:
     void DestroyFrameResourcesLocked()
     {
         glBridge_.Shutdown();
+        projectionContentValid_ = false;
         DestroyFoveationProfilesLocked();
         if (viewSpace_ != XR_NULL_HANDLE) {
             xrDestroySpace(viewSpace_);
@@ -2309,6 +2441,7 @@ private:
         renderedStereoViewValid_[1] = false;
         stereoWarmupLogged_ = false;
         interactionReticleState_ = {};
+        terminalPointerState_ = {};
         interactionReticleSubmissionSuspended_ = false;
         interactionReticleConsecutiveFailures_ = 0;
         nextViewConfigurationCheckFrame_ = 0;
@@ -2335,6 +2468,7 @@ private:
         }
 
         sessionRunning_ = true;
+        ResetFocusPacingLocked("session_begin", frameIndex);
         Logger::Instance().Write(
             LogLevel::Info,
             "openxr_session_begin ok frame=%llu viewConfig=PRIMARY_STEREO",
@@ -2528,9 +2662,36 @@ private:
     {
         CapturePendingStereoEyeLocked(frameIndex, "frame_boundary");
 
+        CloseOpenFrameLocked("next_frame", frameIndex);
+        if (openxr_frame_pacing_math::Decide(
+                sessionRunning_,
+                sessionState_ == XR_SESSION_STATE_FOCUSED,
+                everFocused_)
+            == openxr_frame_pacing_math::Decision::SkipUntilFocused) {
+            BeginFocusPacingSkipLocked(frameIndex);
+            return;
+        }
+
         XrFrameWaitInfo waitInfo{XR_TYPE_FRAME_WAIT_INFO};
         XrFrameState frameState{XR_TYPE_FRAME_STATE};
+        const int64_t waitStartQpc = QpcNow();
         XrResult result = xrWaitFrame(session_, &waitInfo, &frameState);
+        xrWaitLastUs_ = QpcDeltaMicroseconds(waitStartQpc, QpcNow());
+        const bool newWaitMaximum = xrWaitLastUs_ > xrWaitMaxUs_;
+        xrWaitMaxUs_ = std::max(xrWaitMaxUs_, xrWaitLastUs_);
+        if (xrWaitLastUs_ >= kLongXrWaitThresholdUs) {
+            ++xrWaitLongCount_;
+            if (xrWaitLongCount_ <= 4 || newWaitMaximum) {
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "openxr_frame wait_long gameFrame=%llu state=%s waitUs=%llu maxUs=%llu count=%llu",
+                    static_cast<unsigned long long>(frameIndex),
+                    SessionStateName(sessionState_),
+                    static_cast<unsigned long long>(xrWaitLastUs_),
+                    static_cast<unsigned long long>(xrWaitMaxUs_),
+                    static_cast<unsigned long long>(xrWaitLongCount_));
+            }
+        }
         if (XR_FAILED(result)) {
             RecordFrameFailureLocked("xrWaitFrame", result, frameIndex);
             return;
@@ -2542,6 +2703,8 @@ private:
             RecordFrameFailureLocked("xrBeginFrame", result, frameIndex);
             return;
         }
+        frameOpen_ = true;
+        frameOpenDisplayTime_ = frameState.predictedDisplayTime;
 
         input_.Sync(session_, appSpace_, frameState.predictedDisplayTime, frameIndex);
         const bool comfortMotionFresh = comfortVignetteMotionFrame_ != 0
@@ -2560,6 +2723,9 @@ private:
             comfortTarget,
             displayPeriodSeconds,
             comfortVignetteFadeMilliseconds_);
+        const bool comfortBlackout = comfortBlackoutUntilFrame_ != 0
+            && frameIndex <= comfortBlackoutUntilFrame_;
+        const bool presentationBlackout = presentationBlackoutActive_;
 
         std::array<XrCompositionLayerProjectionView, 2> projectionViews{};
         std::array<XrCompositionLayerDepthInfoKHR, 2> depthViews{};
@@ -2567,11 +2733,46 @@ private:
         XrCompositionLayerQuad hudLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
         XrCompositionLayerCylinderKHR hudCylinderLayer{XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
         XrCompositionLayerQuad interactionReticleLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
-        std::array<std::array<XrCompositionLayerQuad, 3>, 2> controllerAimGuideLayers{};
+        std::array<std::array<XrCompositionLayerQuad, 4>, 2> controllerAimGuideLayers{};
         XrCompositionLayerQuad statusPanelLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
         XrCompositionLayerQuad comfortVignetteLayer{XR_TYPE_COMPOSITION_LAYER_QUAD};
-        const XrCompositionLayerBaseHeader* layers[12] = {};
+        struct LayerCandidate {
+            const XrCompositionLayerBaseHeader* header = nullptr;
+            uint32_t priority = 0;
+            const char* name = nullptr;
+        };
+        std::array<LayerCandidate, 24> layerCandidates{};
+        std::array<const XrCompositionLayerBaseHeader*, 24> layers{};
         uint32_t layerCount = 0;
+        uint32_t layerCandidateCount = 0;
+        uint32_t layerDropsThisFrame = 0;
+        const uint32_t layerCapacity = std::min<uint32_t>(
+            16, std::min<uint32_t>(
+                static_cast<uint32_t>(layers.size()), std::max<uint32_t>(1, maxLayerCount_)));
+        const auto appendLayer = [&](const XrCompositionLayerBaseHeader* header,
+                                     uint32_t priority,
+                                     const char* name) {
+            if (header == nullptr) return false;
+            ++layerCandidateCount;
+            if (layerCount < layerCapacity) {
+                layerCandidates[layerCount++] = {header, priority, name};
+                return true;
+            }
+
+            uint32_t leastImportant = 0;
+            for (uint32_t index = 1; index < layerCount; ++index) {
+                if (layerCandidates[index].priority
+                    > layerCandidates[leastImportant].priority) {
+                    leastImportant = index;
+                }
+            }
+            ++layerDropsThisFrame;
+            if (priority < layerCandidates[leastImportant].priority) {
+                layerCandidates[leastImportant] = {header, priority, name};
+                return true;
+            }
+            return false;
+        };
         uint32_t locatedViewCount = 0;
         XrViewState viewState{XR_TYPE_VIEW_STATE};
         bool submittedStereo = false;
@@ -2583,11 +2784,13 @@ private:
         bool submittedStatusPanel = false;
         bool submittedComfortVignette = false;
         bool viewsLocatedValid = false;
+        bool copyAttemptFailed = false;
+        bool stereoReady = false;
         for (XrView& view : pendingLocatedViews_) {
             view = {XR_TYPE_VIEW};
         }
 
-        if (frameState.shouldRender == XR_TRUE && mirrorBackbufferEnabled_ && glBridge_.Ready()) {
+        if (frameState.shouldRender == XR_TRUE && glBridge_.Ready()) {
             XrViewLocateInfo locateInfo{XR_TYPE_VIEW_LOCATE_INFO};
             locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
             locateInfo.displayTime = frameState.predictedDisplayTime;
@@ -2632,7 +2835,7 @@ private:
                 latestPoseGameFrame_ = frameIndex;
                 latestPoseValid_ = true;
 
-                const bool stereoReady = stereoSubmissionEnabled_
+                stereoReady = stereoSubmissionEnabled_
                     && glBridge_.StereoCachesReady()
                     && renderedStereoViewValid_[0]
                     && renderedStereoViewValid_[1];
@@ -2667,6 +2870,9 @@ private:
                             renderedStereoViewValid_[1] ? 1 : 0);
                     }
                 }
+                if (!stereoReady && !mirrorBackbufferEnabled_) {
+                    copied = false;
+                }
 
                 if (copied) {
                     depth_math::CompositionDepthRange depthRange;
@@ -2688,6 +2894,7 @@ private:
                             : glBridge_.CopyBackbufferToEye(eyeIndex);
                         if (!eyeCopied) {
                             copied = false;
+                            copyAttemptFailed = true;
                             RecordFrameFailureLocked(
                                 stereoReady ? "copyStereoCache" : "copyBackbuffer",
                                 XR_ERROR_RUNTIME_FAILURE,
@@ -2745,11 +2952,54 @@ private:
             }
 
             if (copied) {
+                projectionContentValid_ = true;
+            }
+
+            const bool requireBlackContent = comfortBlackout || presentationBlackout
+                || copyAttemptFailed || !projectionContentValid_;
+            if (requireBlackContent) {
+                bool cleared = true;
+                for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
+                    cleared = glBridge_.ClearEyeToBlack(eyeIndex) && cleared;
+                }
+                if (cleared) {
+                    projectionContentValid_ = true;
+                    submittedDepth = false;
+                    for (XrCompositionLayerProjectionView& view : projectionViews) {
+                        view.next = nullptr;
+                    }
+                }
+            }
+
+            const bool projectionReady = copied || projectionContentValid_;
+            if (projectionReady && !copied) {
+                for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
+                    const OpenXRGLBridge::EyeSwapchain& eye = glBridge_.Eye(eyeIndex);
+                    XrCompositionLayerProjectionView& projectionView = projectionViews[eyeIndex];
+                    projectionView = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
+                    if (latestPoseValid_ && eyeIndex < locatedViews_.size()) {
+                        projectionView.pose = locatedViews_[eyeIndex].pose;
+                        projectionView.fov = locatedViews_[eyeIndex].fov;
+                    } else {
+                        projectionView.pose.orientation.w = 1.0f;
+                        projectionView.pose.position.x = eyeIndex == 0 ? -0.032f : 0.032f;
+                        projectionView.fov = {-0.80f, 0.80f, 0.80f, -0.80f};
+                    }
+                    projectionView.subImage.swapchain = eye.handle;
+                    projectionView.subImage.imageRect.offset = {0, 0};
+                    projectionView.subImage.imageRect.extent = {eye.width, eye.height};
+                    projectionView.subImage.imageArrayIndex = 0;
+                }
+            }
+
+            if (projectionReady) {
                 projectionLayer.space = appSpace_;
                 projectionLayer.viewCount = glBridge_.EyeCount();
                 projectionLayer.views = projectionViews.data();
-                layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projectionLayer);
-                layerCount = 1;
+                appendLayer(
+                    reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projectionLayer),
+                    0,
+                    "projection");
             }
         }
 
@@ -2833,11 +3083,12 @@ private:
                 }
             }
             if (poseValid && glBridge_.CopyHudCaptureToSwapchain()) {
-                layers[layerCount++] = hudLayerHeader;
-                submittedHud = true;
-                submittedHudCylinder = useCylinder;
-                hudConsecutiveFailures_ = 0;
-                ++hudSubmittedFrames_;
+                submittedHud = appendLayer(hudLayerHeader, 10, "hud");
+                if (submittedHud) {
+                    submittedHudCylinder = useCylinder;
+                    hudConsecutiveFailures_ = 0;
+                    ++hudSubmittedFrames_;
+                }
             } else {
                 ++hudSubmissionFailures_;
                 ++hudConsecutiveFailures_;
@@ -2849,6 +3100,104 @@ private:
                         hudConsecutiveFailures_,
                         static_cast<unsigned long long>(hudSubmissionFailures_));
                 }
+            }
+        }
+
+        const bool terminalPointerFresh = terminalPointerState_.valid
+            && frameIndex >= terminalPointerState_.gameFrame
+            && frameIndex - terminalPointerState_.gameFrame
+                <= static_cast<uint64_t>(interactionReticleMaxAgeFrames_);
+        if (terminalPointerState_.valid
+            && frameIndex >= terminalPointerState_.gameFrame
+            && !terminalPointerFresh) {
+            terminalPointerState_ = {};
+        }
+        if (frameState.shouldRender == XR_TRUE
+            && layerCount > 0
+            && submittedHud
+            && interactionReticleEnabled_
+            && !interactionReticleSubmissionSuspended_
+            && stereoSubmissionEnabled_
+            && viewSpace_ != XR_NULL_HANDLE
+            && terminalPointerFresh
+            && glBridge_.InteractionReticleReady()) {
+            const float hudAspect = static_cast<float>(glBridge_.Hud().width)
+                / static_cast<float>(glBridge_.Hud().height);
+            const bool useCylinder = hudCylinderRequested_
+                && hudCylinderExtensionEnabled_
+                && !hudCylinderSubmissionDisabled_;
+            float pointerSizeMeters = 0.0f;
+            hud_math::HudQuadPose pointerPose;
+            const bool poseValid = hud_math::ComputeAngularQuadSize(
+                    hudDistanceMeters_,
+                    interactionReticleAngularSizeDegrees_,
+                    interactionReticleMinSizeMeters_,
+                    interactionReticleMaxSizeMeters_,
+                    pointerSizeMeters)
+                && hud_math::BuildHudSurfacePointerPose(
+                    terminalPointerState_.normalizedX,
+                    terminalPointerState_.normalizedY,
+                    hudDistanceMeters_,
+                    hudVerticalOffsetMeters_,
+                    hudWidthMeters_,
+                    hudAspect,
+                    useCylinder,
+                    hudCylinderAngleDegrees_,
+                    pointerSizeMeters,
+                    pointerPose);
+            pointerSizeMeters *= terminalPointerState_.sizeScale;
+            if (poseValid) {
+                pointerPose.widthMeters *= terminalPointerState_.sizeScale;
+                pointerPose.heightMeters *= terminalPointerState_.sizeScale;
+            }
+            hud_math::InteractionReticleColor pointerColor;
+            const bool colorValid = hud_math::ComputeInteractionReticleColor(17, pointerColor);
+            if (poseValid && colorValid
+                && glBridge_.DrawInteractionReticleToSwapchain(
+                    17,
+                    pointerColor.red,
+                    pointerColor.green,
+                    pointerColor.blue,
+                    pointerColor.alpha)) {
+                interactionReticleLayer.layerFlags =
+                    XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                interactionReticleLayer.space = viewSpace_;
+                interactionReticleLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                interactionReticleLayer.pose.orientation = {
+                    pointerPose.orientation.x,
+                    pointerPose.orientation.y,
+                    pointerPose.orientation.z,
+                    pointerPose.orientation.w,
+                };
+                interactionReticleLayer.pose.position = {
+                    pointerPose.position.x,
+                    pointerPose.position.y,
+                    pointerPose.position.z,
+                };
+                interactionReticleLayer.size = {
+                    pointerPose.widthMeters,
+                    pointerPose.heightMeters,
+                };
+                interactionReticleLayer.subImage.swapchain =
+                    glBridge_.InteractionReticle().handle;
+                interactionReticleLayer.subImage.imageRect.offset = {0, 0};
+                interactionReticleLayer.subImage.imageRect.extent = {
+                    glBridge_.InteractionReticle().width,
+                    glBridge_.InteractionReticle().height,
+                };
+                interactionReticleLayer.subImage.imageArrayIndex = 0;
+                submittedInteractionReticle = appendLayer(
+                    reinterpret_cast<const XrCompositionLayerBaseHeader*>(
+                        &interactionReticleLayer),
+                    20,
+                    "terminal_pointer");
+                if (submittedInteractionReticle) {
+                    interactionReticleConsecutiveFailures_ = 0;
+                    ++interactionReticleSubmittedFrames_;
+                }
+                ++terminalPointerSubmittedFrames_;
+            } else {
+                ++terminalPointerFailures_;
             }
         }
 
@@ -2869,6 +3218,7 @@ private:
             && !interactionReticleSubmissionSuspended_
             && stereoSubmissionEnabled_
             && appSpace_ != XR_NULL_HANDLE
+            && !terminalPointerFresh
             && interactionReticleFresh
             && interactionReticleState_.semanticValid
             && glBridge_.InteractionReticleReady()) {
@@ -2922,11 +3272,15 @@ private:
                     glBridge_.InteractionReticle().height,
                 };
                 interactionReticleLayer.subImage.imageArrayIndex = 0;
-                layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
-                    &interactionReticleLayer);
-                submittedInteractionReticle = true;
-                interactionReticleConsecutiveFailures_ = 0;
-                ++interactionReticleSubmittedFrames_;
+                submittedInteractionReticle = appendLayer(
+                    reinterpret_cast<const XrCompositionLayerBaseHeader*>(
+                        &interactionReticleLayer),
+                    20,
+                    "interaction_reticle");
+                if (submittedInteractionReticle) {
+                    interactionReticleConsecutiveFailures_ = 0;
+                    ++interactionReticleSubmittedFrames_;
+                }
             } else {
                 ++interactionReticleSubmissionFailures_;
                 ++interactionReticleConsecutiveFailures_;
@@ -2955,16 +3309,8 @@ private:
             }
             if (controllerAimGuideFresh[handIndex]) ++controllerAimGuideHandCount;
         }
-        const uint32_t reservedGuideLayers =
-            (statusPanelEnabled_ && statusPanelState_.visible ? 1u : 0u)
-            + (comfortVignetteEnabled_ && comfortVignetteLevel_ > 0.001f ? 1u : 0u);
-        const size_t layerCapacity = std::min<size_t>(maxLayerCount_, std::size(layers));
-        const size_t availableGuideLayers = layerCapacity > layerCount + reservedGuideLayers
-            ? layerCapacity - layerCount - reservedGuideLayers : 0;
         const size_t controllerAimGuideSegmentCount = controllerAimGuideHandCount > 0
-            ? std::min<size_t>(
-                controllerAimGuideLayers[0].size(),
-                availableGuideLayers / controllerAimGuideHandCount)
+            ? controllerAimGuideLayers[0].size()
             : 0;
         if (frameState.shouldRender == XR_TRUE
             && layerCount > 0
@@ -2976,8 +3322,20 @@ private:
             && controllerAimGuideHandCount > 0
             && controllerAimGuideSegmentCount > 0
             && glBridge_.ControllerAimGuideReady()) {
+            float guideAlpha = 0.0f;
+            bool anyGuideInteractable = false;
+            for (uint32_t handIndex = 0; handIndex < 2; ++handIndex) {
+                if (!controllerAimGuideFresh[handIndex]) continue;
+                guideAlpha = std::max(
+                    guideAlpha, controllerAimGuideStates_[handIndex].alpha);
+                anyGuideInteractable = anyGuideInteractable
+                    || controllerAimGuideStates_[handIndex].interactable;
+            }
             bool guideValid = glBridge_.DrawControllerAimGuideToSwapchain(
-                0.20f, 0.90f, 1.0f, 0.82f);
+                anyGuideInteractable ? 0.34f : 0.20f,
+                anyGuideInteractable ? 1.0f : 0.90f,
+                1.0f,
+                guideAlpha);
             for (uint32_t handIndex = 0; handIndex < 2 && guideValid; ++handIndex) {
                 if (!controllerAimGuideFresh[handIndex]) continue;
                 const OpenXRControllerAimGuideState& guide = controllerAimGuideStates_[handIndex];
@@ -2985,14 +3343,20 @@ private:
                 for (size_t segment = 0;
                     segment < controllerAimGuideSegmentCount && guideValid;
                     ++segment) {
-                    const float distanceMeters = guide.lengthMeters
-                        * static_cast<float>(segment + 1)
-                        / static_cast<float>(controllerAimGuideSegmentCount);
+                    const float nearDistance = std::min(
+                        0.12f, guide.lengthMeters * 0.25f);
+                    const float segmentT = controllerAimGuideSegmentCount > 1
+                        ? static_cast<float>(segment)
+                            / static_cast<float>(controllerAimGuideSegmentCount - 1)
+                        : 1.0f;
+                    const float distanceMeters = nearDistance
+                        + (guide.lengthMeters - nearDistance) * segmentT;
                     float guideSizeMeters = 0.0f;
                     hud_math::HudQuadPose guidePose;
                     guideValid = hud_math::ComputeAngularQuadSize(
                             distanceMeters,
-                            interactionReticleAngularSizeDegrees_ * 0.72f,
+                            interactionReticleAngularSizeDegrees_
+                                * (guide.interactable ? 0.52f : 0.36f),
                             interactionReticleMinSizeMeters_,
                             interactionReticleMaxSizeMeters_,
                             guideSizeMeters)
@@ -3034,18 +3398,21 @@ private:
                 }
             }
             if (guideValid) {
+                bool anyGuideLayerSubmitted = false;
                 for (uint32_t handIndex = 0; handIndex < 2; ++handIndex) {
                     if (!controllerAimGuideFresh[handIndex]) continue;
                     for (size_t segment = 0; segment < controllerAimGuideSegmentCount; ++segment) {
                         XrCompositionLayerQuad& guideLayer =
                             controllerAimGuideLayers[handIndex][segment];
-                        layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
-                            &guideLayer);
+                        anyGuideLayerSubmitted = appendLayer(
+                            reinterpret_cast<const XrCompositionLayerBaseHeader*>(&guideLayer),
+                            50,
+                            "aim_guide") || anyGuideLayerSubmitted;
                     }
                 }
-                submittedControllerAimGuide = true;
+                submittedControllerAimGuide = anyGuideLayerSubmitted;
                 interactionReticleConsecutiveFailures_ = 0;
-                ++controllerAimGuideSubmittedFrames_;
+                if (submittedControllerAimGuide) ++controllerAimGuideSubmittedFrames_;
             } else {
                 ++interactionReticleSubmissionFailures_;
                 ++interactionReticleConsecutiveFailures_;
@@ -3117,10 +3484,11 @@ private:
                 statusPanelLayer.subImage.imageRect.offset = {0, 0};
                 statusPanelLayer.subImage.imageRect.extent = {panel.width, panel.height};
                 statusPanelLayer.subImage.imageArrayIndex = 0;
-                layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
-                    &statusPanelLayer);
-                submittedStatusPanel = true;
-                ++statusPanelSubmittedFrames_;
+                submittedStatusPanel = appendLayer(
+                    reinterpret_cast<const XrCompositionLayerBaseHeader*>(&statusPanelLayer),
+                    30,
+                    "status_panel");
+                if (submittedStatusPanel) ++statusPanelSubmittedFrames_;
             } else {
                 ++statusPanelSubmissionFailures_;
                 if (statusPanelSubmissionFailures_ <= 4
@@ -3185,10 +3553,11 @@ private:
                     vignette.height,
                 };
                 comfortVignetteLayer.subImage.imageArrayIndex = 0;
-                layers[layerCount++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
-                    &comfortVignetteLayer);
-                submittedComfortVignette = true;
-                ++comfortVignetteSubmittedFrames_;
+                submittedComfortVignette = appendLayer(
+                    reinterpret_cast<const XrCompositionLayerBaseHeader*>(&comfortVignetteLayer),
+                    40,
+                    "comfort_vignette");
+                if (submittedComfortVignette) ++comfortVignetteSubmittedFrames_;
             } else {
                 ++comfortVignetteSubmissionFailures_;
                 if (comfortVignetteSubmissionFailures_ <= 4
@@ -3204,11 +3573,7 @@ private:
             }
         }
 
-        const bool comfortBlackout = comfortBlackoutUntilFrame_ != 0
-            && frameIndex <= comfortBlackoutUntilFrame_;
-        const bool presentationBlackout = presentationBlackoutActive_;
         if (comfortBlackout || presentationBlackout) {
-            layerCount = 0;
             if (comfortBlackout) ++comfortBlackoutFrames_;
             if (presentationBlackout) ++presentationBlackoutFrames_;
         }
@@ -3224,9 +3589,35 @@ private:
         XrFrameEndInfo endInfo{XR_TYPE_FRAME_END_INFO};
         endInfo.displayTime = frameState.predictedDisplayTime;
         endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+        std::stable_sort(
+            layerCandidates.begin(),
+            layerCandidates.begin() + layerCount,
+            [](const LayerCandidate& left, const LayerCandidate& right) {
+                return left.priority < right.priority;
+            });
+        for (uint32_t index = 0; index < layerCount; ++index) {
+            layers[index] = layerCandidates[index].header;
+        }
+        maxLayerCandidates_ = std::max<uint64_t>(maxLayerCandidates_, layerCandidateCount);
+        maxSubmittedLayers_ = std::max<uint64_t>(maxSubmittedLayers_, layerCount);
+        droppedLayers_ += layerDropsThisFrame;
+        if (layerDropsThisFrame > 0
+            && (droppedLayers_ <= 8 || droppedLayers_ % 120 == 0)) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_layer_budget candidates=%u submitted=%u capacity=%u runtimeMax=%u droppedFrame=%u droppedTotal=%llu priority=projection,hud,reticle,panel,vignette,guide",
+                layerCandidateCount,
+                layerCount,
+                layerCapacity,
+                maxLayerCount_,
+                layerDropsThisFrame,
+                static_cast<unsigned long long>(droppedLayers_));
+        }
         endInfo.layerCount = layerCount;
-        endInfo.layers = layerCount > 0 ? layers : nullptr;
+        endInfo.layers = layerCount > 0 ? layers.data() : nullptr;
         result = xrEndFrame(session_, &endInfo);
+        frameOpen_ = false;
+        frameOpenDisplayTime_ = 0;
         if (XR_FAILED(result)) {
             if (submittedHudCylinder
                 && (result == XR_ERROR_LAYER_INVALID
@@ -3244,6 +3635,7 @@ private:
 
         if (desktopMirrorEyeIndex_ >= 0
             && !presentationBlackout
+            && !desktopMirrorNativeBackbuffer_
             && stereoSubmissionEnabled_
             && glBridge_.StereoCachesReady()) {
             const bool mirrored = glBridge_.CopyCacheToBackbuffer(
@@ -3373,17 +3765,24 @@ private:
                 if (state->session == session_) {
                     if (state->state == XR_SESSION_STATE_READY) {
                         BeginSessionLocked(frameIndex);
-                    } else if (state->state == XR_SESSION_STATE_STOPPING && sessionRunning_) {
-                        const XrResult endResult = xrEndSession(session_);
-                        Logger::Instance().Write(
-                            XR_SUCCEEDED(endResult) ? LogLevel::Info : LogLevel::Warn,
-                            "openxr_session_end frame=%llu result=%s",
-                            static_cast<unsigned long long>(frameIndex),
-                            XrResultString(endResult).c_str());
+                    } else if (state->state == XR_SESSION_STATE_FOCUSED) {
+                        HandleFocusedSessionLocked(frameIndex);
+                    } else if (state->state == XR_SESSION_STATE_STOPPING) {
+                        CloseOpenFrameLocked("session_stopping", frameIndex);
+                        if (sessionRunning_) {
+                            const XrResult endResult = xrEndSession(session_);
+                            Logger::Instance().Write(
+                                XR_SUCCEEDED(endResult) ? LogLevel::Info : LogLevel::Warn,
+                                "openxr_session_end frame=%llu result=%s",
+                                static_cast<unsigned long long>(frameIndex),
+                                XrResultString(endResult).c_str());
+                        }
                         sessionRunning_ = false;
+                        ResetFocusPacingLocked("session_stopping", frameIndex);
                     } else if (state->state == XR_SESSION_STATE_EXITING
                         || state->state == XR_SESSION_STATE_LOSS_PENDING) {
                         sessionRunning_ = false;
+                        ResetFocusPacingLocked("session_terminal_state", frameIndex);
                         frameSubmitFailed_ = true;
                         if (recoveryEnabled_) {
                             recoveryRequested_ = true;
@@ -3401,6 +3800,7 @@ private:
             } else if (event.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) {
                 frameSubmitFailed_ = true;
                 sessionRunning_ = false;
+                ResetFocusPacingLocked("instance_loss", frameIndex);
                 if (recoveryEnabled_) {
                     recoveryRequested_ = true;
                     Logger::Instance().Write(
@@ -3420,6 +3820,139 @@ private:
                 }
             }
         }
+    }
+
+    void BeginFocusPacingSkipLocked(uint64_t frameIndex)
+    {
+        ++focusPacingSkippedFrames_;
+        ++focusPacingEpisodeSkippedFrames_;
+        if (focusPacingEpisodeActive_) {
+            return;
+        }
+
+        focusPacingEpisodeActive_ = true;
+        focusPacingEpisodeStartMs_ = GetTickCount64();
+        focusPacingEpisodeSkippedFrames_ = 1;
+        ++focusPacingEpisodes_;
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_focus_pacing skip_begin gameFrame=%llu state=%s everFocused=1 policy=poll_events_without_xrWaitFrame episodes=%llu",
+            static_cast<unsigned long long>(frameIndex),
+            SessionStateName(sessionState_),
+            static_cast<unsigned long long>(focusPacingEpisodes_));
+    }
+
+    void HandleFocusedSessionLocked(uint64_t frameIndex)
+    {
+        if (!everFocused_) {
+            everFocused_ = true;
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "openxr_focus_pacing armed gameFrame=%llu state=FOCUSED policy=skip_future_unfocused_waits",
+                static_cast<unsigned long long>(frameIndex));
+        }
+        if (!focusPacingEpisodeActive_) {
+            return;
+        }
+
+        const uint64_t nowMs = GetTickCount64();
+        const uint64_t durationMs = nowMs >= focusPacingEpisodeStartMs_
+            ? nowMs - focusPacingEpisodeStartMs_ : 0;
+        focusPacingLongestEpisodeMs_ = std::max(focusPacingLongestEpisodeMs_, durationMs);
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "openxr_focus_pacing resumed gameFrame=%llu durationMs=%llu skippedFrames=%llu totalSkipped=%llu action=invalidate_stereo_caches",
+            static_cast<unsigned long long>(frameIndex),
+            static_cast<unsigned long long>(durationMs),
+            static_cast<unsigned long long>(focusPacingEpisodeSkippedFrames_),
+            static_cast<unsigned long long>(focusPacingSkippedFrames_));
+        focusPacingEpisodeActive_ = false;
+        focusPacingEpisodeStartMs_ = 0;
+        focusPacingEpisodeSkippedFrames_ = 0;
+        InvalidateStereoCachesLocked("focus_resumed");
+    }
+
+    void ResetFocusPacingLocked(const char* reason, uint64_t frameIndex)
+    {
+        if (focusPacingEpisodeActive_) {
+            const uint64_t nowMs = GetTickCount64();
+            const uint64_t durationMs = nowMs >= focusPacingEpisodeStartMs_
+                ? nowMs - focusPacingEpisodeStartMs_ : 0;
+            focusPacingLongestEpisodeMs_ = std::max(focusPacingLongestEpisodeMs_, durationMs);
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "openxr_focus_pacing episode_end reason=%s gameFrame=%llu durationMs=%llu skippedFrames=%llu",
+                reason != nullptr ? reason : "unspecified",
+                static_cast<unsigned long long>(frameIndex),
+                static_cast<unsigned long long>(durationMs),
+                static_cast<unsigned long long>(focusPacingEpisodeSkippedFrames_));
+        }
+        everFocused_ = false;
+        focusPacingEpisodeActive_ = false;
+        focusPacingEpisodeStartMs_ = 0;
+        focusPacingEpisodeSkippedFrames_ = 0;
+    }
+
+    void CloseOpenFrameLocked(const char* reason, uint64_t frameIndex)
+    {
+        if (!frameOpen_ || session_ == XR_NULL_HANDLE) {
+            return;
+        }
+
+        XrFrameEndInfo endInfo{XR_TYPE_FRAME_END_INFO};
+        endInfo.displayTime = frameOpenDisplayTime_;
+        endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+        std::array<XrCompositionLayerProjectionView, 2> recoveryViews{};
+        XrCompositionLayerProjection recoveryProjection{
+            XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+        const XrCompositionLayerBaseHeader* recoveryLayer = nullptr;
+        if (frameResourcesReady_ && glBridge_.Ready() && appSpace_ != XR_NULL_HANDLE) {
+            bool contentReady = projectionContentValid_;
+            if (!contentReady) {
+                contentReady = true;
+                for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
+                    contentReady = glBridge_.ClearEyeToBlack(eyeIndex) && contentReady;
+                }
+                projectionContentValid_ = contentReady;
+            }
+            if (contentReady) {
+                for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
+                    const OpenXRGLBridge::EyeSwapchain& eye = glBridge_.Eye(eyeIndex);
+                    XrCompositionLayerProjectionView& view = recoveryViews[eyeIndex];
+                    view = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
+                    if (latestPoseValid_ && eyeIndex < locatedViews_.size()) {
+                        view.pose = locatedViews_[eyeIndex].pose;
+                        view.fov = locatedViews_[eyeIndex].fov;
+                    } else {
+                        view.pose.orientation.w = 1.0f;
+                        view.pose.position.x = eyeIndex == 0 ? -0.032f : 0.032f;
+                        view.fov = {-0.80f, 0.80f, 0.80f, -0.80f};
+                    }
+                    view.subImage.swapchain = eye.handle;
+                    view.subImage.imageRect.offset = {0, 0};
+                    view.subImage.imageRect.extent = {eye.width, eye.height};
+                }
+                recoveryProjection.space = appSpace_;
+                recoveryProjection.viewCount = glBridge_.EyeCount();
+                recoveryProjection.views = recoveryViews.data();
+                recoveryLayer = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
+                    &recoveryProjection);
+                endInfo.layerCount = 1;
+                endInfo.layers = &recoveryLayer;
+            }
+        }
+        const XrResult result = xrEndFrame(session_, &endInfo);
+        frameOpen_ = false;
+        frameOpenDisplayTime_ = 0;
+        ++frameOpenRecoveries_;
+        Logger::Instance().Write(
+            XR_SUCCEEDED(result) ? LogLevel::Warn : LogLevel::Error,
+            "openxr_frame recovered_open_frame reason=%s gameFrame=%llu result=%s layers=%u recoveries=%llu",
+            reason != nullptr ? reason : "unspecified",
+            static_cast<unsigned long long>(frameIndex),
+            XrResultString(result).c_str(),
+            endInfo.layerCount,
+            static_cast<unsigned long long>(frameOpenRecoveries_));
     }
 
     mutable std::mutex mutex_;
@@ -3454,11 +3987,15 @@ private:
     spectator_math::AspectMode desktopMirrorAspectMode_ = spectator_math::AspectMode::Fit;
     uint64_t desktopMirrorFrames_ = 0;
     uint64_t desktopMirrorFailures_ = 0;
+    bool desktopMirrorNativeBackbuffer_ = false;
     int resolutionScalePercent_ = 100;
     std::string requestedReferenceSpace_ = "local";
     bool frameResourcesReady_ = false;
     bool frameSubmitFailed_ = false;
     bool sessionRunning_ = false;
+    bool everFocused_ = false;
+    bool focusPacingEpisodeActive_ = false;
+    bool frameOpen_ = false;
     bool stereoSubmissionEnabled_ = false;
     bool pendingRenderedEyeValid_ = false;
     bool renderedStereoViewValid_[2] = {};
@@ -3531,6 +4068,16 @@ private:
     uint64_t sessionCreatedFrame_ = 0;
     uint64_t manualStartFrame_ = 0;
     uint64_t completedXrFrameCount_ = 0;
+    uint64_t focusPacingEpisodeStartMs_ = 0;
+    uint64_t focusPacingEpisodeSkippedFrames_ = 0;
+    uint64_t focusPacingEpisodes_ = 0;
+    uint64_t focusPacingSkippedFrames_ = 0;
+    uint64_t focusPacingLongestEpisodeMs_ = 0;
+    uint64_t xrWaitLastUs_ = 0;
+    uint64_t xrWaitMaxUs_ = 0;
+    uint64_t xrWaitLongCount_ = 0;
+    uint64_t frameOpenRecoveries_ = 0;
+    XrTime frameOpenDisplayTime_ = 0;
     uint64_t submittedFrameCount_ = 0;
     uint64_t lastSubmittedGameFrame_ = 0;
     uint64_t currentGameFrame_ = 0;
@@ -3571,6 +4118,9 @@ private:
     uint64_t interactionReticleExpired_ = 0;
     uint64_t interactionReticleSubmittedFrames_ = 0;
     uint64_t interactionReticleSubmissionFailures_ = 0;
+    uint64_t terminalPointerUpdates_ = 0;
+    uint64_t terminalPointerSubmittedFrames_ = 0;
+    uint64_t terminalPointerFailures_ = 0;
     uint64_t controllerAimGuideUpdates_ = 0;
     uint64_t controllerAimGuideSubmittedFrames_ = 0;
     uint64_t statusPanelSubmittedFrames_ = 0;
@@ -3591,12 +4141,17 @@ private:
     uint64_t comfortBlackoutUntilFrame_ = 0;
     uint64_t comfortBlackoutRequests_ = 0;
     uint64_t comfortBlackoutFrames_ = 0;
+    bool projectionContentValid_ = false;
+    uint64_t maxLayerCandidates_ = 0;
+    uint64_t maxSubmittedLayers_ = 0;
+    uint64_t droppedLayers_ = 0;
     bool presentationBlackoutActive_ = false;
     uint64_t presentationBlackoutTransitions_ = 0;
     uint64_t presentationBlackoutFrames_ = 0;
     OpenXREyeView pendingRenderedView_{};
     OpenXREyeView renderedStereoViews_[2] = {};
     OpenXRInteractionReticleState interactionReticleState_{};
+    OpenXRTerminalPointerState terminalPointerState_{};
     std::array<OpenXRControllerAimGuideState, 2> controllerAimGuideStates_{};
     OpenXRStatusPanelState statusPanelState_{};
     std::vector<uint8_t> statusPanelPixels_;
@@ -3881,11 +4436,14 @@ struct OpenXRRuntime::Impl {
     void SetInteractionReticle(const OpenXRInteractionReticleState&) {}
     void SetInteractionReticleSemantic(int) {}
     void ClearInteractionReticle() {}
+    void SetTerminalPointer(const OpenXRTerminalPointerState&) {}
+    void ClearTerminalPointer() {}
     void SetControllerAimGuide(const OpenXRControllerAimGuideState&) {}
     void ClearControllerAimGuide(uint32_t) {}
     void ClearControllerAimGuide() {}
     void SetStatusPanel(const OpenXRStatusPanelState&) {}
     void SetHudRuntimeVisible(bool) {}
+    void SetDesktopMirrorNativeBackbuffer(bool) {}
     bool ToggleHudLayerShape() { return false; }
     OpenXRHudLayerShapeStatus GetHudLayerShapeStatus() const { return {}; }
     void SetInteractionReticleRuntimeVisible(bool) {}
@@ -3904,9 +4462,13 @@ struct OpenXRRuntime::Impl {
     void InvalidateStereoCaches(const char*) {}
     void RequestComfortBlackout(uint32_t, const char*) {}
     void SetPresentationBlackout(bool, const char*) {}
-    bool BeginHudCapture(uint64_t) { return false; }
+    bool BeginHudCapture(uint64_t, bool) { return false; }
     bool EndHudCapture(uint64_t, bool) { return false; }
+    bool BeginTerminalHudCapture(uint64_t, int, int, bool, bool) { return false; }
+    bool EndTerminalHudCapture(uint64_t) { return false; }
     bool CaptureFramebufferToHud(uint64_t, uint32_t, int, int, int, int) { return false; }
+    bool DumpHudCapture(uint64_t, uint64_t, uint32_t, const char*) { return false; }
+    bool DumpTerminalHudCapture(uint64_t, uint64_t, uint32_t, const char*) { return false; }
 
 private:
     void LogUnavailableLocked()
@@ -4124,6 +4686,16 @@ void OpenXRRuntime::ClearInteractionReticle()
     impl_->ClearInteractionReticle();
 }
 
+void OpenXRRuntime::SetTerminalPointer(const OpenXRTerminalPointerState& state)
+{
+    impl_->SetTerminalPointer(state);
+}
+
+void OpenXRRuntime::ClearTerminalPointer()
+{
+    impl_->ClearTerminalPointer();
+}
+
 void OpenXRRuntime::SetControllerAimGuide(const OpenXRControllerAimGuideState& state)
 {
     impl_->SetControllerAimGuide(state);
@@ -4147,6 +4719,11 @@ void OpenXRRuntime::SetStatusPanel(const OpenXRStatusPanelState& state)
 void OpenXRRuntime::SetHudRuntimeVisible(bool visible)
 {
     impl_->SetHudRuntimeVisible(visible);
+}
+
+void OpenXRRuntime::SetDesktopMirrorNativeBackbuffer(bool enabled)
+{
+    impl_->SetDesktopMirrorNativeBackbuffer(enabled);
 }
 
 bool OpenXRRuntime::ToggleHudLayerShape()
@@ -4219,14 +4796,30 @@ void OpenXRRuntime::SetPresentationBlackout(bool active, const char* reason)
     impl_->SetPresentationBlackout(active, reason);
 }
 
-bool OpenXRRuntime::BeginHudCapture(uint64_t frameIndex)
+bool OpenXRRuntime::BeginHudCapture(uint64_t frameIndex, bool preservePreviousFrame)
 {
-    return impl_->BeginHudCapture(frameIndex);
+    return impl_->BeginHudCapture(frameIndex, preservePreviousFrame);
 }
 
 bool OpenXRRuntime::EndHudCapture(uint64_t frameIndex, bool suppressCenterCrosshair)
 {
     return impl_->EndHudCapture(frameIndex, suppressCenterCrosshair);
+}
+
+bool OpenXRRuntime::BeginTerminalHudCapture(
+    uint64_t frameIndex,
+    int width,
+    int height,
+    bool preservePreviousFrame,
+    bool preserveDirtyRects)
+{
+    return impl_->BeginTerminalHudCapture(
+        frameIndex, width, height, preservePreviousFrame, preserveDirtyRects);
+}
+
+bool OpenXRRuntime::EndTerminalHudCapture(uint64_t frameIndex)
+{
+    return impl_->EndTerminalHudCapture(frameIndex);
 }
 
 bool OpenXRRuntime::CaptureFramebufferToHud(
@@ -4244,6 +4837,24 @@ bool OpenXRRuntime::CaptureFramebufferToHud(
         sourceY,
         sourceWidth,
         sourceHeight);
+}
+
+bool OpenXRRuntime::DumpHudCapture(
+    uint64_t frameIndex,
+    uint64_t sequence,
+    uint32_t sampleIndex,
+    const char* reason)
+{
+    return impl_->DumpHudCapture(frameIndex, sequence, sampleIndex, reason);
+}
+
+bool OpenXRRuntime::DumpTerminalHudCapture(
+    uint64_t frameIndex,
+    uint64_t sequence,
+    uint32_t sampleIndex,
+    const char* reason)
+{
+    return impl_->DumpTerminalHudCapture(frameIndex, sequence, sampleIndex, reason);
 }
 
 } // namespace somavr

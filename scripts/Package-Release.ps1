@@ -9,6 +9,30 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$releaseConfigPath = Join-Path $repositoryRoot "config\somavr.release.ini"
+if (-not (Test-Path -LiteralPath $releaseConfigPath -PathType Leaf)) {
+    throw "Tracked release configuration is missing: $releaseConfigPath"
+}
+$releaseConfigText = Get-Content -LiteralPath $releaseConfigPath -Raw
+$forbiddenReleaseSettings = @(
+    "MatrixCapture",
+    "RenderDiagnosticCapture",
+    "HPLReflectionFadeControl",
+    "HPLVideoLifecycleProbe",
+    "HPLAudioListenerProbe",
+    "HPLPostEffectResourceProbe",
+    "HPLRenderStageProbe",
+    "HPLDualRenderReplayProbe",
+    "HPLDualRenderAutoProbe",
+    "HPLPerEyePerformanceTelemetry",
+    "HPLPerEyeGpuTelemetry",
+    "DepthCompositionProbe"
+)
+foreach ($setting in $forbiddenReleaseSettings) {
+    if ($releaseConfigText -match "(?m)^\s*$([regex]::Escape($setting))\s*=\s*1\s*$") {
+        throw "Release configuration enables diagnostic setting $setting"
+    }
+}
 $buildPath = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $BuildDirectory))
 $outputRoot = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $OutputDirectory))
 
@@ -35,6 +59,41 @@ if ($flavor.openxr -ne "1" -or $flavor.flavor -ne "openxr") {
 }
 if ([string]::IsNullOrWhiteSpace($flavor.version)) {
     throw "Build flavor metadata has no version"
+}
+
+$sourceVersion = $null
+foreach ($line in Get-Content -LiteralPath (Join-Path $repositoryRoot "CMakeLists.txt")) {
+    if ($line -match '^\s*set\(SOMAVR_BUILD_VERSION\s+"([^"]+)"\)') {
+        $sourceVersion = $matches[1]
+        break
+    }
+}
+if ([string]::IsNullOrWhiteSpace($sourceVersion)) {
+    throw "Unable to resolve SOMAVR_BUILD_VERSION from CMakeLists.txt"
+}
+if ($flavor.version -ne $sourceVersion) {
+    throw "Stale build metadata: source version=$sourceVersion flavor version=$($flavor.version) build=$buildPath"
+}
+
+$manifest = @{}
+foreach ($line in Get-Content -LiteralPath $manifestPath) {
+    if ($line -match '^([^=]+)=(.*)$') {
+        $manifest[$matches[1]] = $matches[2]
+    }
+}
+if (($manifest.version -ne $flavor.version) -or
+    ($manifest.flavor -ne $flavor.flavor) -or
+    ($manifest.openxr -ne $flavor.openxr) -or
+    ($manifest.artifact -ne "somavr.dll")) {
+    throw "Build manifest disagrees with flavor metadata: manifestVersion=$($manifest.version) flavorVersion=$($flavor.version) manifestFlavor=$($manifest.flavor) flavor=$($flavor.flavor) manifestOpenXR=$($manifest.openxr) openxr=$($flavor.openxr) artifact=$($manifest.artifact)"
+}
+$buildDllPath = Join-Path $buildPath "somavr.dll"
+if (-not (Test-Path -LiteralPath $buildDllPath -PathType Leaf)) {
+    throw "Missing DLL referenced by build manifest: $buildDllPath"
+}
+$actualBuildHash = (Get-FileHash -LiteralPath $buildDllPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($manifest.sha256 -ne $actualBuildHash) {
+    throw "Build manifest SHA-256 is stale: manifest=$($manifest.sha256) actual=$actualBuildHash"
 }
 
 $runtimeFiles = @(
@@ -69,7 +128,7 @@ New-Item -ItemType Directory -Path $stagePath | Out-Null
 foreach ($file in $runtimeFiles) {
     Copy-Item -LiteralPath (Join-Path $buildPath $file) -Destination $stagePath
 }
-Copy-Item -LiteralPath (Join-Path $repositoryRoot "somavr.ini") -Destination $stagePath
+Copy-Item -LiteralPath $releaseConfigPath -Destination (Join-Path $stagePath "somavr.ini")
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "README.md") -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "scripts\Install-Or-Update-SOMAVR.ps1") -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "scripts\Launch-SOMAVR-Dev.ps1") -Destination $stagePath

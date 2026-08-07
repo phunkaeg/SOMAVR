@@ -9,6 +9,7 @@ bool InstallHPLMenuBridge(const Config& config);
 bool UpdateHPLMenuPointer(
     const OpenXRHeadPose& headPose,
     const OpenXRControllerPose& aimPose);
+bool IsHPLNativeMenuCursorVisible();
 void DeactivateHPLMenuPointer();
 void LogHPLMenuBridgeSummary();
 void RemoveHPLMenuBridge();

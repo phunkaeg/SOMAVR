@@ -1,0 +1,15 @@
+// Exact transform-bearing node fields used by the visible-hands implementation.
+
+namespace soma {
+    struct Node3DPartial 0x188 {
+        // Live-confirmed across both arm chains, hand sockets, shared j_Root,
+        // and its BoneStateRoot parent. Medicine writes j_Root local Y +0.6644.
+        NativeStringPartial name @ 0x10
+        Matrix4f localMatrix @ 0x44
+        Matrix4f worldMatrix @ 0x84
+        bool8 usePreTransform @ 0xc4
+        bool8 usePostTransform @ 0xc5
+        Matrix4f postTransform @ 0x108
+        Node3DPartial* parent @ 0x180
+    }
+}

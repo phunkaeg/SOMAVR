@@ -1,0 +1,31 @@
+// Physics result, body, and joint layouts used by interaction/manipulation.
+
+namespace soma {
+    struct ClosestEntityResultPartial 0x30 {
+        f32 distance @ 0x18
+        void* body @ 0x20
+        LuxEntityPartial* entity @ 0x28
+    }
+
+    struct PhysicsBodyPartial 0x178 {
+        Matrix4f localMatrix @ 0x50
+        void** jointsBegin @ 0x168
+        void** jointsEnd @ 0x170
+    }
+
+    struct PhysicsJointPartial 0x100 {
+        Vector3f pinDirection @ 0xe8
+        Vector3f pivotPoint @ 0xf4
+    }
+
+    struct PhysicsContactPartial 0x60 {
+        f32 normalSpeed @ 0x18
+        f32 tangentSpeed @ 0x1c
+        Vector3f position @ 0x2c
+        PhysicsBodyPartial* bodyA @ 0x38
+        PhysicsBodyPartial* bodyB @ 0x40
+        void* materialA @ 0x48
+        void* materialB @ 0x50
+        u32 contactCount @ 0x58
+    }
+}

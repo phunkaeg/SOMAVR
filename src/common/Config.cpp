@@ -67,6 +67,75 @@ float ParseFloat(const std::string& value, float fallback, float minValue, float
     }
 }
 
+bool ParseLateControllerConfig(
+    Config& config,
+    const std::string& key,
+    const std::string& value)
+{
+    if (key == "handtrackingprobe") config.hplHandTrackingProbe = ParseBool(value, config.hplHandTrackingProbe);
+    else if (key == "handcontrollerroot") config.hplHandControllerRoot = ParseBool(value, config.hplHandControllerRoot);
+    else if (key == "handscalenormalization") config.hplHandScaleNormalization = ParseBool(value, config.hplHandScaleNormalization);
+    else if (key == "handwristposition") config.hplHandWristPosition = ParseBool(value, config.hplHandWristPosition);
+    else if (key == "handwristrotation") config.hplHandWristRotation = ParseBool(value, config.hplHandWristRotation);
+    else if (key == "handwristrolldegrees") config.hplHandWristRollDegrees = ParseFloat(value, config.hplHandWristRollDegrees, -180.0f, 180.0f);
+    else if (key == "handwristpitchdegrees") config.hplHandWristPitchDegrees = ParseFloat(value, config.hplHandWristPitchDegrees, -180.0f, 180.0f);
+    else if (key == "handwristoutwardoffsetmeters") config.hplHandWristOutwardOffsetMeters = ParseFloat(value, config.hplHandWristOutwardOffsetMeters, -0.25f, 0.25f);
+    else if (key == "handwristverticaloffsetmeters") config.hplHandWristVerticalOffsetMeters = ParseFloat(value, config.hplHandWristVerticalOffsetMeters, -0.25f, 0.25f);
+    else if (key == "handwristviewforwardoffsetmeters") config.hplHandWristViewForwardOffsetMeters = ParseFloat(value, config.hplHandWristViewForwardOffsetMeters, -0.25f, 0.25f);
+    else if (key == "handtargetscale") config.hplHandTargetScale = ParseFloat(value, config.hplHandTargetScale, 0.25f, 2.0f);
+    else if (key == "handshoulderverticaloffsetmeters") config.hplHandShoulderVerticalOffsetMeters = ParseFloat(value, config.hplHandShoulderVerticalOffsetMeters, -1.0f, 1.0f);
+    else if (key == "handrootoffsetx") config.hplHandRootOffsetX = ParseFloat(value, config.hplHandRootOffsetX, -5.0f, 5.0f);
+    else if (key == "handrootoffsety") config.hplHandRootOffsetY = ParseFloat(value, config.hplHandRootOffsetY, -5.0f, 5.0f);
+    else if (key == "handrootoffsetz") config.hplHandRootOffsetZ = ParseFloat(value, config.hplHandRootOffsetZ, -5.0f, 5.0f);
+    else if (key == "handrootpitchdegrees") config.hplHandRootPitchDegrees = ParseFloat(value, config.hplHandRootPitchDegrees, -180.0f, 180.0f);
+    else if (key == "handrootyawdegrees") config.hplHandRootYawDegrees = ParseFloat(value, config.hplHandRootYawDegrees, -180.0f, 180.0f);
+    else if (key == "handrootrolldegrees") config.hplHandRootRollDegrees = ParseFloat(value, config.hplHandRootRollDegrees, -180.0f, 180.0f);
+    else if (key == "handarmik") config.hplHandArmIK = ParseBool(value, config.hplHandArmIK);
+    else if (key == "handalwaysvisible") config.hplHandAlwaysVisible = ParseBool(value, config.hplHandAlwaysVisible);
+    else if (key == "handfreezepose") config.hplHandFreezePose = ParseBool(value, config.hplHandFreezePose);
+    else if (key == "handarmikblend") config.hplHandArmIKBlend = ParseFloat(value, config.hplHandArmIKBlend, 0.0f, 1.0f);
+    else if (key == "handarmikmaxreach") config.hplHandArmIKMaxReach = ParseFloat(value, config.hplHandArmIKMaxReach, 0.5f, 1.0f);
+    else if (key == "handshoulderbackoffsetmeters") config.hplHandShoulderBackOffsetMeters = ParseFloat(value, config.hplHandShoulderBackOffsetMeters, -0.5f, 0.5f);
+    else if (key == "handarmikelbowdownmeters") config.hplHandArmIKElbowDownMeters = ParseFloat(value, config.hplHandArmIKElbowDownMeters, 0.0f, 0.5f);
+    else if (key == "handarmikergonomics") config.hplHandArmIKErgonomics = ParseBool(value, config.hplHandArmIKErgonomics);
+    else if (key == "handshoulderreachcompensation") config.hplHandShoulderReachCompensation = ParseBool(value, config.hplHandShoulderReachCompensation);
+    else if (key == "handshoulderreachstart") config.hplHandShoulderReachStart = ParseFloat(value, config.hplHandShoulderReachStart, 0.5f, 0.97f);
+    else if (key == "handshoulderreachmaxmeters") config.hplHandShoulderReachMaxMeters = ParseFloat(value, config.hplHandShoulderReachMaxMeters, 0.0f, 0.15f);
+    else if (key == "handarmikmaxswiveldegreesperframe") config.hplHandArmIKMaxSwivelDegreesPerFrame = ParseFloat(value, config.hplHandArmIKMaxSwivelDegreesPerFrame, 1.0f, 90.0f);
+    else if (key == "authoredinteractions") config.hplAuthoredInteractions = ParseBool(value, config.hplAuthoredInteractions);
+    else if (key == "medicineinteraction") config.hplMedicineInteraction = ParseBool(value, config.hplMedicineInteraction);
+    else if (key == "handsocketedpropstabilization") config.hplHandSocketedPropStabilization = ParseBool(value, config.hplHandSocketedPropStabilization);
+    else if (key == "medicinecapoffsetx") config.hplMedicineCapOffsetX = ParseFloat(value, config.hplMedicineCapOffsetX, -1.0f, 1.0f);
+    else if (key == "medicinecapoffsety") config.hplMedicineCapOffsetY = ParseFloat(value, config.hplMedicineCapOffsetY, -1.0f, 1.0f);
+    else if (key == "medicinecapoffsetz") config.hplMedicineCapOffsetZ = ParseFloat(value, config.hplMedicineCapOffsetZ, -1.0f, 1.0f);
+    else if (key == "medicinecapproximitymeters") config.hplMedicineCapProximityMeters = ParseFloat(value, config.hplMedicineCapProximityMeters, 0.01f, 1.0f);
+    else if (key == "medicinemouthproximitymeters") config.hplMedicineMouthProximityMeters = ParseFloat(value, config.hplMedicineMouthProximityMeters, 0.01f, 1.0f);
+    else if (key == "medicinedrinktipdegrees") config.hplMedicineDrinkTipDegrees = ParseFloat(value, config.hplMedicineDrinkTipDegrees, 0.0f, 180.0f);
+    else if (key == "medicinedrinkholdframes") config.hplMedicineDrinkHoldFrames = ParseInt(value, config.hplMedicineDrinkHoldFrames, 1, 300);
+    else if (key == "controllerhudobject") config.hplControllerHudObject = ParseBool(value, config.hplControllerHudObject);
+    else if (key == "hudobjectoffsetx") config.hplHudObjectOffsetX = ParseFloat(value, config.hplHudObjectOffsetX, -5.0f, 5.0f);
+    else if (key == "hudobjectoffsety") config.hplHudObjectOffsetY = ParseFloat(value, config.hplHudObjectOffsetY, -5.0f, 5.0f);
+    else if (key == "hudobjectoffsetz") config.hplHudObjectOffsetZ = ParseFloat(value, config.hplHudObjectOffsetZ, -5.0f, 5.0f);
+    else if (key == "hudobjectpitchdegrees") config.hplHudObjectPitchDegrees = ParseFloat(value, config.hplHudObjectPitchDegrees, -180.0f, 180.0f);
+    else if (key == "hudobjectyawdegrees") config.hplHudObjectYawDegrees = ParseFloat(value, config.hplHudObjectYawDegrees, -180.0f, 180.0f);
+    else if (key == "hudobjectrolldegrees") config.hplHudObjectRollDegrees = ParseFloat(value, config.hplHudObjectRollDegrees, -180.0f, 180.0f);
+    else if (key == "controllerflashlightaim") config.hplControllerFlashlightAim = ParseBool(value, config.hplControllerFlashlightAim);
+    else if (key == "controllerflashlightgameplayray") config.hplControllerFlashlightGameplayRay = ParseBool(value, config.hplControllerFlashlightGameplayRay);
+    else if (key == "flashlightoffsetx") config.hplFlashlightOffsetX = ParseFloat(value, config.hplFlashlightOffsetX, -5.0f, 5.0f);
+    else if (key == "flashlightoffsety") config.hplFlashlightOffsetY = ParseFloat(value, config.hplFlashlightOffsetY, -5.0f, 5.0f);
+    else if (key == "flashlightoffsetz") config.hplFlashlightOffsetZ = ParseFloat(value, config.hplFlashlightOffsetZ, -5.0f, 5.0f);
+    else if (key == "flashlightpitchdegrees") config.hplFlashlightPitchDegrees = ParseFloat(value, config.hplFlashlightPitchDegrees, -180.0f, 180.0f);
+    else if (key == "flashlightyawdegrees") config.hplFlashlightYawDegrees = ParseFloat(value, config.hplFlashlightYawDegrees, -180.0f, 180.0f);
+    else if (key == "flashlightrolldegrees") config.hplFlashlightRollDegrees = ParseFloat(value, config.hplFlashlightRollDegrees, -180.0f, 180.0f);
+    else if (key == "comfortblackoutframes") config.hplControllerComfortBlackoutFrames = ParseInt(value, config.hplControllerComfortBlackoutFrames, 0, 120);
+    else if (key == "statetransitionblackoutframes") config.hplControllerStateTransitionBlackoutFrames = ParseInt(value, config.hplControllerStateTransitionBlackoutFrames, 0, 120);
+    else if (key == "recenterholdms") config.hplControllerRecenterHoldMs = ParseInt(value, config.hplControllerRecenterHoldMs, 250, 5000);
+    else if (key == "maxinputageframes") config.hplControllerMaxInputAgeFrames = ParseInt(value, config.hplControllerMaxInputAgeFrames, 1, 300);
+    else if (key == "loginterval") config.hplControllerLogInterval = ParseInt(value, config.hplControllerLogInterval, 1, 100000);
+    else return false;
+    return true;
+}
+
 } // namespace
 
 bool ConfigManager::Initialize()
@@ -78,6 +147,10 @@ bool ConfigManager::InitializeAtPath(const std::filesystem::path& path)
 {
     config_ = Config{};
     path_ = path;
+    parsedKeyHash_ = 14695981039346656037ull;
+    acceptedKeyCount_ = 0;
+    unknownKeyCount_ = 0;
+    unknownSectionCount_ = 0;
 
     std::error_code ec;
     std::filesystem::create_directories(path_.parent_path(), ec);
@@ -86,6 +159,20 @@ bool ConfigManager::InitializeAtPath(const std::filesystem::path& path)
     }
 
     LoadFromFile();
+    std::error_code timestampError;
+    const auto timestamp = std::filesystem::last_write_time(path_, timestampError);
+    const long long timestampTicks = timestampError
+        ? 0ll
+        : static_cast<long long>(timestamp.time_since_epoch().count());
+    Logger::Instance().Write(
+        unknownKeyCount_ == 0 && unknownSectionCount_ == 0 ? LogLevel::Info : LogLevel::Warn,
+        "config_loaded path=%s lastWriteTicks=%lld parsedKeyHash=0x%016llx accepted=%u unknownKeys=%u unknownSections=%u",
+        path_.string().c_str(),
+        timestampTicks,
+        static_cast<unsigned long long>(parsedKeyHash_),
+        acceptedKeyCount_,
+        unknownKeyCount_,
+        unknownSectionCount_);
     return true;
 }
 
@@ -98,6 +185,11 @@ const std::filesystem::path& ConfigManager::Path() const
 {
     return path_;
 }
+
+uint64_t ConfigManager::ParsedKeyHash() const { return parsedKeyHash_; }
+uint32_t ConfigManager::AcceptedKeyCount() const { return acceptedKeyCount_; }
+uint32_t ConfigManager::UnknownKeyCount() const { return unknownKeyCount_; }
+uint32_t ConfigManager::UnknownSectionCount() const { return unknownSectionCount_; }
 
 void ConfigManager::WriteDefaultConfig() const
 {
@@ -285,7 +377,8 @@ void ConfigManager::WriteDefaultConfig() const
         << "Enabled=0\n"
         << "MoveDeadzone=0.35\n"
         << "MoveReleaseDeadzone=0.25\n"
-        << "NativeLocomotion=1\n"
+        << "NativeLocomotion=0\n"
+        << "LocomotionDuringInteractions=0\n"
         << "MovementReference=body\n"
         << "PhysicalCrouch=0\n"
         << "PhysicalCrouchEnterMeters=0.35\n"
@@ -303,6 +396,14 @@ void ConfigManager::WriteDefaultConfig() const
         << "InteractionBothHands=1\n"
         << "AimGuide=0\n"
         << "AimGuideLengthMeters=1.2\n"
+        << "AimGuideSceneDepth=0\n"
+        << "AimGuideIdleAlpha=0.05\n"
+        << "AimGuideInteractableAlpha=0.25\n"
+        << "PhysicalBodyFollow=0\n"
+        << "PhysicalBodyFollowThresholdDegrees=45\n"
+        << "PhysicalBodyFollowReleaseDegrees=10\n"
+        << "PhysicalBodyFollowDegreesPerSecond=20\n"
+        << "PhysicalBodyFollowDelayMs=250\n"
         << "Flashlight=1\n"
         << "Inventory=1\n"
         << "Menu=1\n"
@@ -313,11 +414,16 @@ void ConfigManager::WriteDefaultConfig() const
         << "TerminalPointer=1\n"
         << "TerminalDiegetic=1\n"
         << "TerminalOverlay=1\n"
+        << "TerminalPreserveDirtyRects=1\n"
         << "TerminalRayPointer=1\n"
         << "TerminalRayLengthMeters=8\n"
         << "TerminalPointerHorizontalDegrees=70\n"
         << "TerminalPointerVerticalDegrees=50\n"
         << "TerminalPointerSmoothing=0.35\n"
+        << "TerminalPointerScale=1.0\n"
+        << "TerminalLookAwayExit=1\n"
+        << "TerminalLookAwayDegrees=65\n"
+        << "TerminalLookAwayFrames=8\n"
         << "RecenterChord=1\n"
         << "Haptics=1\n"
         << "HapticAmplitude=0.35\n"
@@ -373,7 +479,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "ManipulationMotionMaxPixelsPerFrame=80\n"
         << "ManipulationMotionHorizontalSign=1\n"
         << "ManipulationMotionVerticalSign=-1\n"
-        << "SlideDirectVelocity=0\n"
+        << "SlideDirectVelocity=1\n"
         << "SlideVelocityScale=1\n"
         << "SlidePositionGain=12\n"
         << "SlideMaxVelocityMetersPerSecond=2.5\n"
@@ -383,15 +489,48 @@ void ConfigManager::WriteDefaultConfig() const
         << "RotateMaxAngularSpeed=4\n"
         << "ReadPresentation=0\n"
         << "ReadObjectDistanceScale=1\n"
-        << "ReadObjectScale=2\n"
+        << "ReadObjectScale=1\n"
+        << "ReadObjectSettleFrames=45\n"
         << "HandTrackingProbe=0\n"
         << "HandControllerRoot=0\n"
+        << "HandScaleNormalization=0\n"
+        << "HandWristPosition=0\n"
+        << "HandWristRotation=0\n"
+        << "HandWristRollDegrees=0\n"
+        << "HandWristPitchDegrees=0\n"
+        << "HandWristOutwardOffsetMeters=0\n"
+        << "HandWristVerticalOffsetMeters=0\n"
+        << "HandWristViewForwardOffsetMeters=0\n"
+        << "HandArmIK=0\n"
+        << "HandAlwaysVisible=0\n"
+        << "HandFreezePose=0\n"
+        << "HandTargetScale=1.0\n"
+        << "HandShoulderVerticalOffsetMeters=-0.30\n"
+        << "HandShoulderBackOffsetMeters=0.10\n"
+        << "HandArmIKElbowDownMeters=0.10\n"
+        << "HandArmIKErgonomics=0\n"
+        << "HandShoulderReachCompensation=0\n"
+        << "HandShoulderReachStart=0.85\n"
+        << "HandShoulderReachMaxMeters=0.05\n"
+        << "HandArmIKMaxSwivelDegreesPerFrame=10\n"
+        << "HandArmIKBlend=1.0\n"
+        << "HandArmIKMaxReach=0.985\n"
         << "HandRootOffsetX=0.0\n"
         << "HandRootOffsetY=-0.075\n"
         << "HandRootOffsetZ=0.0\n"
         << "HandRootPitchDegrees=0.0\n"
         << "HandRootYawDegrees=0.0\n"
         << "HandRootRollDegrees=0.0\n"
+        << "AuthoredInteractions=0\n"
+        << "MedicineInteraction=0\n"
+        << "HandSocketedPropStabilization=0\n"
+        << "MedicineCapOffsetX=0.0\n"
+        << "MedicineCapOffsetY=0.08\n"
+        << "MedicineCapOffsetZ=0.0\n"
+        << "MedicineCapProximityMeters=0.10\n"
+        << "MedicineMouthProximityMeters=0.16\n"
+        << "MedicineDrinkTipDegrees=65.0\n"
+        << "MedicineDrinkHoldFrames=12\n"
         << "ControllerHudObject=0\n"
         << "HudObjectOffsetX=0.0\n"
         << "HudObjectOffsetY=0.0\n"
@@ -446,6 +585,35 @@ void ConfigManager::LoadFromFile()
     in.clear();
     in.seekg(0, std::ios::beg);
     section.clear();
+    bool sectionKnown = false;
+    const auto hashText = [this](const std::string& text) {
+        for (const unsigned char ch : text) {
+            parsedKeyHash_ ^= ch;
+            parsedKeyHash_ *= 1099511628211ull;
+        }
+    };
+    const auto recordKey = [this, &hashText](
+        bool accepted,
+        const std::string& currentSection,
+        const std::string& currentKey,
+        const std::string& currentValue) {
+        if (accepted) {
+            ++acceptedKeyCount_;
+            hashText(currentSection);
+            hashText(std::string(1, '\0'));
+            hashText(currentKey);
+            hashText(std::string(1, '\0'));
+            hashText(currentValue);
+            hashText("\n");
+            return;
+        }
+        ++unknownKeyCount_;
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "config_unknown_key section=%s key=%s",
+            currentSection.c_str(),
+            currentKey.c_str());
+    };
     while (std::getline(in, line)) {
         const size_t comment = line.find_first_of("#;");
         if (comment != std::string::npos) {
@@ -458,6 +626,15 @@ void ConfigManager::LoadFromFile()
 
         if (line.front() == '[' && line.back() == ']') {
             section = Lower(Trim(line.substr(1, line.size() - 2)));
+            sectionKnown = section == "comfort" || section == "logging"
+                || section == "hooks" || section == "openxr" || section == "controller";
+            if (!sectionKnown) {
+                ++unknownSectionCount_;
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "config_unknown_section section=%s",
+                    section.c_str());
+            }
             continue;
         }
 
@@ -469,20 +646,33 @@ void ConfigManager::LoadFromFile()
         const std::string key = Lower(Trim(line.substr(0, equals)));
         const std::string value = Trim(line.substr(equals + 1));
 
+        if (!sectionKnown) {
+            recordKey(false, section, key, value);
+            continue;
+        }
+
         if (section == "comfort") {
+            bool recognized = false;
             if (key == "preset") {
                 const ComfortPreset parsed = ParseComfortPreset(value);
                 config_.comfortPreset = ComfortPresetName(
                     parsed == ComfortPreset::Invalid ? ComfortPreset::Custom : parsed);
+                recognized = true;
             }
+            recordKey(recognized, section, key, value);
+            continue;
         } else if (section == "logging") {
+            bool recognized = false;
             if (key == "level") {
                 config_.logLevel = Logger::ParseLevel(value, config_.logLevel);
+                recognized = true;
             }
+            recordKey(recognized, section, key, value);
             continue;
         }
 
         if (section == "hooks") {
+            bool recognized = true;
             if (key == "swapbuffers") config_.hookSwapBuffers = ParseBool(value, config_.hookSwapBuffers);
             else if (key == "wglmakecurrent") config_.hookWglMakeCurrent = ParseBool(value, config_.hookWglMakeCurrent);
             else if (key == "fixedfunctionmatrices") config_.hookFixedFunctionMatrices = ParseBool(value, config_.hookFixedFunctionMatrices);
@@ -587,10 +777,13 @@ void ConfigManager::LoadFromFile()
             else if (key == "hplshadowjittersuppresseddefault") config_.hplShadowJitterSuppressedDefault = ParseBool(value, config_.hplShadowJitterSuppressedDefault);
             else if (key == "hplcompatibilityloginterval") config_.hplCompatibilityLogInterval = ParseInt(value, config_.hplCompatibilityLogInterval, 1, 100000);
             else if (key == "forcedisablevsync") config_.forceDisableVsync = ParseBool(value, config_.forceDisableVsync);
+            else recognized = false;
+            recordKey(recognized, section, key, value);
             continue;
         }
 
         if (section == "openxr") {
+            bool recognized = true;
             if (key == "probe") {
                 config_.openxrProbe = ParseBool(value, config_.openxrProbe);
             } else if (key == "sessionprobe") {
@@ -730,19 +923,30 @@ void ConfigManager::LoadFromFile()
                 config_.openxrStatusPanelWidthMeters = ParseFloat(value, config_.openxrStatusPanelWidthMeters, 0.25f, 5.0f);
             } else if (key == "statuspanelverticaloffsetmeters") {
                 config_.openxrStatusPanelVerticalOffsetMeters = ParseFloat(value, config_.openxrStatusPanelVerticalOffsetMeters, -5.0f, 5.0f);
+            } else {
+                recognized = false;
             }
+            recordKey(recognized, section, key, value);
             continue;
         }
 
         if (section == "controller" && key.rfind("terminal", 0) == 0) {
+            bool recognized = true;
             if (key == "terminalpointer") config_.hplControllerTerminalPointer = ParseBool(value, config_.hplControllerTerminalPointer);
             else if (key == "terminaldiegetic") config_.hplControllerTerminalDiegetic = ParseBool(value, config_.hplControllerTerminalDiegetic);
             else if (key == "terminaloverlay") config_.hplControllerTerminalOverlay = ParseBool(value, config_.hplControllerTerminalOverlay);
+            else if (key == "terminalpreservedirtyrects") config_.hplControllerTerminalPreserveDirtyRects = ParseBool(value, config_.hplControllerTerminalPreserveDirtyRects);
             else if (key == "terminalraypointer") config_.hplControllerTerminalRayPointer = ParseBool(value, config_.hplControllerTerminalRayPointer);
             else if (key == "terminalraylengthmeters") config_.hplControllerTerminalRayLengthMeters = ParseFloat(value, config_.hplControllerTerminalRayLengthMeters, 0.5f, 20.0f);
             else if (key == "terminalpointerhorizontaldegrees") config_.hplControllerTerminalPointerHorizontalDegrees = ParseFloat(value, config_.hplControllerTerminalPointerHorizontalDegrees, 10.0f, 170.0f);
             else if (key == "terminalpointerverticaldegrees") config_.hplControllerTerminalPointerVerticalDegrees = ParseFloat(value, config_.hplControllerTerminalPointerVerticalDegrees, 10.0f, 170.0f);
             else if (key == "terminalpointersmoothing") config_.hplControllerTerminalPointerSmoothing = ParseFloat(value, config_.hplControllerTerminalPointerSmoothing, 0.01f, 1.0f);
+            else if (key == "terminalpointerscale") config_.hplControllerTerminalPointerScale = ParseFloat(value, config_.hplControllerTerminalPointerScale, 0.5f, 4.0f);
+            else if (key == "terminallookawayexit") config_.hplControllerTerminalLookAwayExit = ParseBool(value, config_.hplControllerTerminalLookAwayExit);
+            else if (key == "terminallookawaydegrees") config_.hplControllerTerminalLookAwayDegrees = ParseFloat(value, config_.hplControllerTerminalLookAwayDegrees, 30.0f, 150.0f);
+            else if (key == "terminallookawayframes") config_.hplControllerTerminalLookAwayFrames = ParseInt(value, config_.hplControllerTerminalLookAwayFrames, 1, 120);
+            else recognized = false;
+            recordKey(recognized, section, key, value);
             continue;
         }
 
@@ -751,7 +955,8 @@ void ConfigManager::LoadFromFile()
                 || key == "rotateangularvelocityscale"
                 || key == "readpresentation"
                 || key == "readobjectdistancescale"
-                || key == "readobjectscale")) {
+                || key == "readobjectscale"
+                || key == "readobjectsettleframes")) {
             if (key == "grabattachtohand") {
                 config_.hplControllerGrabAttachToHand = ParseBool(
                     value, config_.hplControllerGrabAttachToHand);
@@ -767,15 +972,21 @@ void ConfigManager::LoadFromFile()
             } else if (key == "readobjectscale") {
                 config_.hplControllerReadObjectScale = ParseFloat(
                     value, config_.hplControllerReadObjectScale, 0.25f, 4.0f);
+            } else if (key == "readobjectsettleframes") {
+                config_.hplControllerReadObjectSettleFrames = ParseInt(
+                    value, config_.hplControllerReadObjectSettleFrames, 0, 240);
             }
+            recordKey(true, section, key, value);
             continue;
         }
 
         if (section == "controller") {
+            bool recognized = true;
             if (key == "enabled") config_.hplControllerInput = ParseBool(value, config_.hplControllerInput);
             else if (key == "movedeadzone") config_.hplControllerMoveDeadzone = ParseFloat(value, config_.hplControllerMoveDeadzone, 0.05f, 0.95f);
             else if (key == "movereleasedeadzone") config_.hplControllerMoveReleaseDeadzone = ParseFloat(value, config_.hplControllerMoveReleaseDeadzone, 0.0f, 0.9f);
             else if (key == "nativelocomotion") config_.hplControllerNativeLocomotion = ParseBool(value, config_.hplControllerNativeLocomotion);
+            else if (key == "locomotionduringinteractions") config_.hplControllerLocomotionDuringInteractions = ParseBool(value, config_.hplControllerLocomotionDuringInteractions);
             else if (key == "movementreference") {
                 const std::string reference = Lower(Trim(value));
                 if (reference == "body" || reference == "head" || reference == "controller") {
@@ -798,6 +1009,14 @@ void ConfigManager::LoadFromFile()
             else if (key == "interactionbothhands") config_.hplControllerInteractionBothHands = ParseBool(value, config_.hplControllerInteractionBothHands);
             else if (key == "aimguide") config_.hplControllerAimGuide = ParseBool(value, config_.hplControllerAimGuide);
             else if (key == "aimguidelengthmeters") config_.hplControllerAimGuideLengthMeters = ParseFloat(value, config_.hplControllerAimGuideLengthMeters, 0.3f, 4.0f);
+            else if (key == "aimguidescenedepth") config_.hplControllerAimGuideSceneDepth = ParseBool(value, config_.hplControllerAimGuideSceneDepth);
+            else if (key == "aimguideidlealpha") config_.hplControllerAimGuideIdleAlpha = ParseFloat(value, config_.hplControllerAimGuideIdleAlpha, 0.0f, 1.0f);
+            else if (key == "aimguideinteractablealpha") config_.hplControllerAimGuideInteractableAlpha = ParseFloat(value, config_.hplControllerAimGuideInteractableAlpha, 0.0f, 1.0f);
+            else if (key == "physicalbodyfollow") config_.hplControllerPhysicalBodyFollow = ParseBool(value, config_.hplControllerPhysicalBodyFollow);
+            else if (key == "physicalbodyfollowthresholddegrees") config_.hplControllerPhysicalBodyFollowThresholdDegrees = ParseFloat(value, config_.hplControllerPhysicalBodyFollowThresholdDegrees, 10.0f, 120.0f);
+            else if (key == "physicalbodyfollowreleasedegrees") config_.hplControllerPhysicalBodyFollowReleaseDegrees = ParseFloat(value, config_.hplControllerPhysicalBodyFollowReleaseDegrees, 0.0f, 60.0f);
+            else if (key == "physicalbodyfollowdegreespersecond") config_.hplControllerPhysicalBodyFollowDegreesPerSecond = ParseFloat(value, config_.hplControllerPhysicalBodyFollowDegreesPerSecond, 1.0f, 120.0f);
+            else if (key == "physicalbodyfollowdelayms") config_.hplControllerPhysicalBodyFollowDelayMs = ParseInt(value, config_.hplControllerPhysicalBodyFollowDelayMs, 0, 2000);
             else if (key == "flashlight") config_.hplControllerFlashlight = ParseBool(value, config_.hplControllerFlashlight);
             else if (key == "inventory") config_.hplControllerInventory = ParseBool(value, config_.hplControllerInventory);
             else if (key == "menu") config_.hplControllerMenu = ParseBool(value, config_.hplControllerMenu);
@@ -869,34 +1088,9 @@ void ConfigManager::LoadFromFile()
             else if (key == "rotatedirectvelocity") config_.hplControllerRotateDirectVelocity = ParseBool(value, config_.hplControllerRotateDirectVelocity);
             else if (key == "rotatevelocityscale") config_.hplControllerRotateVelocityScale = ParseFloat(value, config_.hplControllerRotateVelocityScale, 0.05f, 5.0f);
             else if (key == "rotatemaxangularspeed") config_.hplControllerRotateMaxAngularSpeed = ParseFloat(value, config_.hplControllerRotateMaxAngularSpeed, 0.1f, 20.0f);
-            else if (key == "handtrackingprobe") config_.hplHandTrackingProbe = ParseBool(value, config_.hplHandTrackingProbe);
-            else if (key == "handcontrollerroot") config_.hplHandControllerRoot = ParseBool(value, config_.hplHandControllerRoot);
-            else if (key == "handrootoffsetx") config_.hplHandRootOffsetX = ParseFloat(value, config_.hplHandRootOffsetX, -5.0f, 5.0f);
-            else if (key == "handrootoffsety") config_.hplHandRootOffsetY = ParseFloat(value, config_.hplHandRootOffsetY, -5.0f, 5.0f);
-            else if (key == "handrootoffsetz") config_.hplHandRootOffsetZ = ParseFloat(value, config_.hplHandRootOffsetZ, -5.0f, 5.0f);
-            else if (key == "handrootpitchdegrees") config_.hplHandRootPitchDegrees = ParseFloat(value, config_.hplHandRootPitchDegrees, -180.0f, 180.0f);
-            else if (key == "handrootyawdegrees") config_.hplHandRootYawDegrees = ParseFloat(value, config_.hplHandRootYawDegrees, -180.0f, 180.0f);
-            else if (key == "handrootrolldegrees") config_.hplHandRootRollDegrees = ParseFloat(value, config_.hplHandRootRollDegrees, -180.0f, 180.0f);
-            else if (key == "controllerhudobject") config_.hplControllerHudObject = ParseBool(value, config_.hplControllerHudObject);
-            else if (key == "hudobjectoffsetx") config_.hplHudObjectOffsetX = ParseFloat(value, config_.hplHudObjectOffsetX, -5.0f, 5.0f);
-            else if (key == "hudobjectoffsety") config_.hplHudObjectOffsetY = ParseFloat(value, config_.hplHudObjectOffsetY, -5.0f, 5.0f);
-            else if (key == "hudobjectoffsetz") config_.hplHudObjectOffsetZ = ParseFloat(value, config_.hplHudObjectOffsetZ, -5.0f, 5.0f);
-            else if (key == "hudobjectpitchdegrees") config_.hplHudObjectPitchDegrees = ParseFloat(value, config_.hplHudObjectPitchDegrees, -180.0f, 180.0f);
-            else if (key == "hudobjectyawdegrees") config_.hplHudObjectYawDegrees = ParseFloat(value, config_.hplHudObjectYawDegrees, -180.0f, 180.0f);
-            else if (key == "hudobjectrolldegrees") config_.hplHudObjectRollDegrees = ParseFloat(value, config_.hplHudObjectRollDegrees, -180.0f, 180.0f);
-            else if (key == "controllerflashlightaim") config_.hplControllerFlashlightAim = ParseBool(value, config_.hplControllerFlashlightAim);
-            else if (key == "controllerflashlightgameplayray") config_.hplControllerFlashlightGameplayRay = ParseBool(value, config_.hplControllerFlashlightGameplayRay);
-            else if (key == "flashlightoffsetx") config_.hplFlashlightOffsetX = ParseFloat(value, config_.hplFlashlightOffsetX, -5.0f, 5.0f);
-            else if (key == "flashlightoffsety") config_.hplFlashlightOffsetY = ParseFloat(value, config_.hplFlashlightOffsetY, -5.0f, 5.0f);
-            else if (key == "flashlightoffsetz") config_.hplFlashlightOffsetZ = ParseFloat(value, config_.hplFlashlightOffsetZ, -5.0f, 5.0f);
-            else if (key == "flashlightpitchdegrees") config_.hplFlashlightPitchDegrees = ParseFloat(value, config_.hplFlashlightPitchDegrees, -180.0f, 180.0f);
-            else if (key == "flashlightyawdegrees") config_.hplFlashlightYawDegrees = ParseFloat(value, config_.hplFlashlightYawDegrees, -180.0f, 180.0f);
-            else if (key == "flashlightrolldegrees") config_.hplFlashlightRollDegrees = ParseFloat(value, config_.hplFlashlightRollDegrees, -180.0f, 180.0f);
-            else if (key == "comfortblackoutframes") config_.hplControllerComfortBlackoutFrames = ParseInt(value, config_.hplControllerComfortBlackoutFrames, 0, 120);
-            else if (key == "statetransitionblackoutframes") config_.hplControllerStateTransitionBlackoutFrames = ParseInt(value, config_.hplControllerStateTransitionBlackoutFrames, 0, 120);
-            else if (key == "recenterholdms") config_.hplControllerRecenterHoldMs = ParseInt(value, config_.hplControllerRecenterHoldMs, 250, 5000);
-            else if (key == "maxinputageframes") config_.hplControllerMaxInputAgeFrames = ParseInt(value, config_.hplControllerMaxInputAgeFrames, 1, 300);
-            else if (key == "loginterval") config_.hplControllerLogInterval = ParseInt(value, config_.hplControllerLogInterval, 1, 100000);
+            else if (ParseLateControllerConfig(config_, key, value)) {}
+            else recognized = false;
+            recordKey(recognized, section, key, value);
         }
     }
 }

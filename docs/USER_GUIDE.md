@@ -55,7 +55,8 @@ different native layout; the readiness doctor intentionally rejects its hook
 signatures.
 
 Load a save on the monitor, face forward, and press `F10` once. F10 enters or
-leaves the complete VR camera/stereo path. `F2` recenters. `F1` opens the
+leaves the complete VR camera/stereo path. `F2` recenters position and yaw;
+pitch and roll remain tied to OpenXR's level horizon. `F1` opens the
 head-locked status/options panel. Same-frame stereo remains an explicit panel
 option; AFR remains the fallback. When supported, `HUD SHAPE` switches the
 gameplay HUD between a flat quad and curved cylinder without restarting.
@@ -96,15 +97,25 @@ movement and simultaneous left/right aim guides:
 ```ini
 [Controller]
 MovementReference=controller
+NativeLocomotion=0
+LocomotionDuringInteractions=1
 InteractionBothHands=1
 AimGuide=1
 AimGuideLengthMeters=1.2
+AimGuideSceneDepth=1
+AimGuideIdleAlpha=0.05
+AimGuideInteractableAlpha=0.25
+PhysicalBodyFollow=1
+PhysicalBodyFollowThresholdDegrees=45
+PhysicalBodyFollowReleaseDegrees=10
+PhysicalBodyFollowDegreesPerSecond=20
+PhysicalBodyFollowDelayMs=250
 ManipulationMotionPixelsPerMeter=900
 ManipulationSlidePixelsPerMeter=2700
 ManipulationReadPixelsPerRadian=900
 GrabTranslation=1
 GrabAttachToHand=1
-SlideDirectVelocity=0
+SlideDirectVelocity=1
 SlideVelocityScale=1
 SlidePositionGain=12
 SlideMaxVelocityMetersPerSecond=2.5
@@ -113,32 +124,56 @@ RotateVelocityScale=1
 RotateAngularVelocityScale=1
 RotateMaxAngularSpeed=4
 ReadPresentation=1
-ReadObjectDistanceScale=1
-ReadObjectScale=2
+ReadObjectDistanceScale=2
+ReadObjectScale=1
+ReadObjectSettleFrames=45
+TerminalPointerScale=1.75
+HandWristPitchDegrees=45
+HandWristOutwardOffsetMeters=0.03
+HandWristVerticalOffsetMeters=-0.04
+HandWristViewForwardOffsetMeters=-0.04
 ```
 
 Use `MovementReference=head` for HMD-relative direction or `body` for SOMA's
-native body-relative input. With `InteractionBothHands=1`, both guides are
+native body-relative input. `NativeLocomotion=0` now uses SOMA's native
+player-helper semantic Move dispatcher, matching the route used by physical
+W/A/S/D while retaining analog magnitude and controller-relative direction.
+`NativeLocomotion=1` is the diagnostic direct-body route and is not recommended.
+`PhysicalBodyFollow=1` leaves ordinary head look independent, then gently turns
+the arm rig's virtual torso reference after HMD yaw remains beyond 45 degrees
+for 250 ms. It never rotates the HMD/game camera, is yaw-only, stops at a
+10-degree residual, and follows explicit stick turns. Set it to `0` for a
+strictly capsule-anchored torso.
+With `InteractionBothHands=1`, both guides are
 visible and either trigger can claim SOMA's native interaction focus; its context
-icon follows the selected guide to native hit depth. Set `InteractionBothHands=0`
+icon follows the selected guide to native hit depth. `AimGuideSceneDepth=1`
+terminates each guide against SOMA's nearest physics body. The rolling profile
+uses a soft glow at 5% idle opacity and 25% over an interactable. Set `InteractionBothHands=0`
 for preferred-hand-only probing, or `AimGuide=0` to hide only the markers.
 In Read views, hold the initiating hand's grip and rotate it to rotate the object
 through full pitch, yaw, and roll; right-controller A or B exits.
-`ReadPresentation=1` preserves SOMA's native pickup translation and timing while
-applying `ReadObjectScale`. `ReadObjectDistanceScale` remains accepted for
-configuration compatibility but translation scaling is disabled because live
-evidence proved it fed back into SOMA's entrance animation; set
+`ReadPresentation=1` scales the current native camera-relative position once
+with `ReadObjectDistanceScale` and multiplies, rather than replaces, the
+object's authored scale with `ReadObjectScale`. `ReadObjectSettleFrames` lets
+the native rise animation establish the correct pose before that source matrix
+is latched; hands continue tracking throughout state 10. This avoids the old
+floor-level and recursive entrance-animation captures; set
 `ReadPresentation=0` for fully native presentation. Turn input is ignored while SOMA owns a physical
 manipulation or Read state. `GrabAttachToHand=1` starts loose-prop Grab with a
 selected-hit-to-grip pull through SOMA's native PID. The initial pull no longer
 consumes the bounded controller-travel allowance. `GrabMaxOffsetMeters` limits
 subsequent movement from the acquisition pose, not the distance from the object
-to the hand. Slide uses SOMA's native controller-to-Look route so its shipped
-script receives `mvMoveAdd`, speed factors, locked state, sounds, and callbacks.
-Set `SlideDirectVelocity=1` only to compare the experimental joint-PID route.
-Doors and levers combine hand translation around
-their native pivot with wrist angular velocity projected onto the pin. Set
-`RotateAngularVelocityScale=0` to disable only wrist twist, or
+to the hand. MovingButton mechanisms, including the apartment curtain, receive
+controller motion through SOMA's shipped semantic Look script. True Slide state
+`4` follows the selected body's native joint pin through SOMA's existing
+velocity PID. Set `SlideDirectVelocity=0` only to compare its script Look route.
+`LocomotionDuringInteractions=1` uses the guarded native character-body Move
+route while Wheel, Slide, Door, Lever, Tear, or MovingButton owns the hand; it
+does not enable locomotion during Read, terminal, pause, or authored cameras.
+Doors follow hand translation around their native pivot. Levers additionally
+accept wrist angular velocity
+projected onto the pin. Set
+`RotateAngularVelocityScale=0` to disable lever wrist twist, or
 `RotateDirectVelocity=0` to restore the native camera-relative mouse route.
 `SlidePositionGain` makes the joint catch up to controller displacement after a
 short gesture; reduce it if a particular mechanism overshoots. Grab rotation
@@ -146,18 +181,27 @@ uses `GrabMaxAngularSpeed` as its bounded PID-error magnitude as well as its
 target speed.
 
 Wall terminals remain at their authored position instead of moving the player
-and taking over the camera. The focused terminal display is duplicated into a
-head-locked panel, and either controller can aim across that panel.
+and taking over the camera. The focused terminal display renders once, directly
+into a high-resolution head-locked panel, and either controller can aim across
+that panel. SOMA's sparse email rectangles remain under diagnosis; the capture
+falls back to live frames when no retainable nested color clear is observed.
 Trigger/select clicks and the existing cancel action exit through SOMA's native
-input route. The relevant rollback controls are:
+input route. Right-controller A/B and looking away hold that cancel across
+multiple input frames so SOMA cannot miss a same-frame click. The
+relevant rollback controls are:
 
 ```ini
 [Controller]
 TerminalPointer=1
 TerminalDiegetic=1
 TerminalOverlay=1
+TerminalPreserveDirtyRects=1
 TerminalRayPointer=1
 TerminalRayLengthMeters=8
+TerminalPointerScale=1.75
+TerminalLookAwayExit=1
+TerminalLookAwayDegrees=65
+TerminalLookAwayFrames=8
 ```
 
 Set `TerminalOverlay=0` to keep only the physical display and restore native
@@ -165,6 +209,71 @@ mesh-ray pointer mapping. `TerminalRayPointer` then selects mesh-ray versus the
 older head-relative pointer. Set `TerminalDiegetic=0` to restore the original
 wall-terminal body/camera placement. Handheld terminals keep their authored
 movement.
+
+`TerminalPreserveDirtyRects=1` first attempts to preserve SOMA's incremental
+email updates on the dedicated terminal target. If eight completed retained
+captures contain no matching nested color clear, SOMAVR automatically returns
+to live-frame capture so a black panel cannot be retained indefinitely. Set it
+to `0` to select live-frame capture immediately without disabling the overlay.
+
+Loose physics objects can remain held while walking. SOMA's own Grab-state mass
+and movement-speed rules still apply, so heavier props may slow the player.
+
+SOMA's occasional native hand model is a single two-hand rig. The shared-root
+pose override stays disabled because it placed both miniature hands on the
+right controller. The current prototype instead uses:
+
+```ini
+[Controller]
+HandTrackingProbe=1
+HandControllerRoot=0
+HandScaleNormalization=1
+HandWristPosition=1
+HandWristRotation=1
+HandWristRollDegrees=-90
+HandSocketedPropStabilization=1
+HandFreezePose=1
+HandShoulderVerticalOffsetMeters=-0.30
+HandShoulderBackOffsetMeters=0.10
+HandArmIKElbowDownMeters=0.10
+HandArmIKErgonomics=1
+HandShoulderReachCompensation=1
+HandShoulderReachStart=0.85
+HandShoulderReachMaxMeters=0.05
+HandArmIKMaxSwivelDegreesPerFrame=10
+HandTargetScale=1.0
+```
+
+Scale normalization preserves the shared root's calibrated relationship to the
+tracked head. The shoulder rig follows safety-clamped HMD world position while
+its heading follows player-body yaw, so physical leaning moves the torso without
+head-only look/tilt twisting it. Wrist position is independent per controller.
+Wrist rotation uses the model's geometric palm basis and follows controller yaw,
+pitch, and roll. The packaged -90 degree wrist roll is an explicit final
+calibration. The packaged shoulder offset lowers the shared arm root by 30 cm, shifts
+it 10 cm behind the native body-forward direction, and biases elbow poles 10 cm
+down before IK. `HandFreezePose=1` restores the complete seeded arm and finger
+pose before controller IK, suppressing scripted finger motion while retaining
+native hand-socket prop attachments. Set `HandWristRotation=0` to retain native rotation,
+`HandFreezePose=0` to retain native finger/intermediate-chain animation,
+`HandShoulderVerticalOffsetMeters=0` to restore native shoulder height, or
+disable scale/position independently for isolation. Keep
+`HandControllerRoot=0`.
+
+`HandArmIKErgonomics=1` keeps elbow continuity in body-local space and selects a
+downward-biased bend with modest side/back contribution. `HandArmIKElbowDownMeters`
+scales that downward preference around the packaged 0.10 m baseline.
+`HandShoulderReachCompensation=1` allows only the matching clavicle to contribute
+after `HandShoulderReachStart` arm extension, capped by
+`HandShoulderReachMaxMeters`; tracked wrist poses are never smoothed. Disable
+either lane independently before changing its tuning values.
+
+For terminal rendering diagnosis, leave the problem view visible and press
+`Ctrl+F10` once. Four native-size and four upscaled captures are written, each
+with RGB and alpha variants, to `logs\terminal-captures`; a brief stall is
+expected. The same chord records a bounded framebuffer/program/scissor/texture/
+blend trace in `somavr.log`. These capture both sides of the terminal upscale,
+not the projection eye images.
 
 The active profile captures HUD content at the observed `1920x1080` SOMA target.
 Quest currently requests `2688x2880` per eye, but world detail still originates
@@ -229,8 +338,22 @@ reference, stereo mode, or experimental feature controls.
 
 ## Diagnostics And Rollback
 
-Logs are written to `logs\somavr.log`. Record the version, DLL hash, runtime,
-headset, GPU, and relevant timestamps with every report.
+Logs are written to `logs\somavr.log`; the immediately preceding session is
+preserved as `logs\somavr.previous.log`. Startup records exact Git/dirty build
+identity, DLL PE identity, and the basic machine fingerprint, so attach the full
+log rather than transcribing only the visible version.
+
+Unhandled crashes automatically create a bounded rich dump and
+`somavr-crash.log` under `logs\dumps`. The handler suppresses repeated fault
+addresses and stops after three attempts per process. Set the environment
+variable `SOMAVR_FULLDUMP=1` only when full process memory is specifically
+requested; it can create a very large file. The external `somavr_dumper.exe`
+remains the correct tool for a hung but still-running process.
+
+`somavr_entity_profiles.ini` records exact live hand/tool/story identities and
+their baseline calibration after a clean shutdown. In 0.87 it is telemetry-only:
+editing it does not alter gameplay. Active per-entity calibration will be
+promoted later, one proven family at a time.
 
 - Set `HPLPerEyeViewHistoryControl=0` to restore native shared view history.
 - Set `HPLPerEyeImageTrailControl=0` and
@@ -257,3 +380,16 @@ Uninstall managed files while preserving the config:
 ```
 
 Use `-RemoveConfig` only when the saved profile should also be deleted.
+## Persistent Arms And Authored Interactions
+
+The development profile enables `HandArmIK`, `HandAlwaysVisible`, and the first
+`MedicineInteraction` evidence profile. SOMAVR waits for SOMA's native hand
+model, solves its shipped shoulder/elbow/wrist rig toward each controller, and
+preserves its last stable root while pause/menu or authored ownership suspends
+controller mutation. Each feature has an independent rollback switch. Real
+player/body teardown invalidates the seed before save/load replacement.
+
+The medicine profile currently recognizes left-hand cap removal and tipped
+bottle-at-mouth gestures, logs their measurements, and provides haptic
+confirmation. It deliberately does not advance SOMA's script yet; the first log
+is used to calibrate the bottle-local cap axis before native commit is enabled.

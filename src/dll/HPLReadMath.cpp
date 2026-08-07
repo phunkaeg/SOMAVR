@@ -7,34 +7,38 @@ namespace somavr::read_math {
 
 bool BuildReadPresentationMatrix(
     const std::array<float, 16>& nativeMatrix,
-    float objectScale,
+    float scaleMultiplier,
     const camera_math::Quaternion* orientationOverride,
     std::array<float, 16>& output)
 {
-    if (!std::isfinite(objectScale) || objectScale <= 0.05f) {
+    if (!std::isfinite(scaleMultiplier) || scaleMultiplier <= 0.05f) {
         return false;
     }
 
     output = nativeMatrix;
+    std::array<float, 3> nativeScales{};
+    for (std::size_t column = 0; column < 3; ++column) {
+        const float lengthSquared = nativeMatrix[column] * nativeMatrix[column]
+            + nativeMatrix[column + 4] * nativeMatrix[column + 4]
+            + nativeMatrix[column + 8] * nativeMatrix[column + 8];
+        if (!std::isfinite(lengthSquared) || lengthSquared < 1.0e-6f) return false;
+        nativeScales[column] = std::sqrt(lengthSquared);
+    }
     if (orientationOverride != nullptr) {
         const std::array<float, 16> rotation =
             camera_math::RotationMatrix(*orientationOverride);
         for (std::size_t row = 0; row < 3; ++row) {
             for (std::size_t column = 0; column < 3; ++column) {
                 output[row * 4 + column] =
-                    rotation[row * 4 + column] * objectScale;
+                    rotation[row * 4 + column]
+                    * nativeScales[column] * scaleMultiplier;
             }
         }
     } else {
         for (std::size_t column = 0; column < 3; ++column) {
-            const float lengthSquared = nativeMatrix[column] * nativeMatrix[column]
-                + nativeMatrix[column + 4] * nativeMatrix[column + 4]
-                + nativeMatrix[column + 8] * nativeMatrix[column + 8];
-            if (!std::isfinite(lengthSquared) || lengthSquared < 1.0e-6f) return false;
-            const float scale = objectScale / std::sqrt(lengthSquared);
-            output[column] = nativeMatrix[column] * scale;
-            output[column + 4] = nativeMatrix[column + 4] * scale;
-            output[column + 8] = nativeMatrix[column + 8] * scale;
+            output[column] = nativeMatrix[column] * scaleMultiplier;
+            output[column + 4] = nativeMatrix[column + 4] * scaleMultiplier;
+            output[column + 8] = nativeMatrix[column + 8] * scaleMultiplier;
         }
     }
     return std::isfinite(output[3])
@@ -79,6 +83,25 @@ bool ScaleCameraRelativePosition(
     return std::isfinite(output.x)
         && std::isfinite(output.y)
         && std::isfinite(output.z);
+}
+
+bool ResolveLatchedCameraRelativePosition(
+    const camera_math::Vector3& sourceCameraPosition,
+    const camera_math::Vector3& sourceObjectPosition,
+    const camera_math::Vector3& currentCameraPosition,
+    float distanceScale,
+    camera_math::Vector3& output)
+{
+    const camera_math::Vector3 translatedNativePosition{
+        currentCameraPosition.x + sourceObjectPosition.x - sourceCameraPosition.x,
+        currentCameraPosition.y + sourceObjectPosition.y - sourceCameraPosition.y,
+        currentCameraPosition.z + sourceObjectPosition.z - sourceCameraPosition.z,
+    };
+    return ScaleCameraRelativePosition(
+        currentCameraPosition,
+        translatedNativePosition,
+        distanceScale,
+        output);
 }
 
 } // namespace somavr::read_math

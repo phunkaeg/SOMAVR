@@ -2,6 +2,7 @@
 
 #include "Logger.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 
@@ -82,7 +83,8 @@ struct Config {
     bool hplControllerInput = false;
     float hplControllerMoveDeadzone = 0.35f;
     float hplControllerMoveReleaseDeadzone = 0.25f;
-    bool hplControllerNativeLocomotion = true;
+    bool hplControllerNativeLocomotion = false;
+    bool hplControllerLocomotionDuringInteractions = false;
     std::string hplControllerMovementReference = "body";
     bool hplControllerPhysicalCrouch = false;
     float hplControllerPhysicalCrouchEnterMeters = 0.35f;
@@ -100,6 +102,14 @@ struct Config {
     bool hplControllerInteractionBothHands = true;
     bool hplControllerAimGuide = false;
     float hplControllerAimGuideLengthMeters = 1.2f;
+    bool hplControllerAimGuideSceneDepth = false;
+    float hplControllerAimGuideIdleAlpha = 0.05f;
+    float hplControllerAimGuideInteractableAlpha = 0.25f;
+    bool hplControllerPhysicalBodyFollow = false;
+    float hplControllerPhysicalBodyFollowThresholdDegrees = 45.0f;
+    float hplControllerPhysicalBodyFollowReleaseDegrees = 10.0f;
+    float hplControllerPhysicalBodyFollowDegreesPerSecond = 20.0f;
+    int hplControllerPhysicalBodyFollowDelayMs = 250;
     bool hplControllerFlashlight = true;
     bool hplControllerInventory = true;
     bool hplControllerMenu = true;
@@ -110,11 +120,16 @@ struct Config {
     bool hplControllerTerminalPointer = true;
     bool hplControllerTerminalDiegetic = true;
     bool hplControllerTerminalOverlay = true;
+    bool hplControllerTerminalPreserveDirtyRects = true;
     bool hplControllerTerminalRayPointer = true;
     float hplControllerTerminalRayLengthMeters = 8.0f;
     float hplControllerTerminalPointerHorizontalDegrees = 70.0f;
     float hplControllerTerminalPointerVerticalDegrees = 50.0f;
     float hplControllerTerminalPointerSmoothing = 0.35f;
+    float hplControllerTerminalPointerScale = 1.0f;
+    bool hplControllerTerminalLookAwayExit = true;
+    float hplControllerTerminalLookAwayDegrees = 65.0f;
+    int hplControllerTerminalLookAwayFrames = 8;
     bool hplControllerRecenterChord = true;
     bool hplControllerHaptics = true;
     float hplControllerHapticAmplitude = 0.35f;
@@ -170,7 +185,7 @@ struct Config {
     int hplControllerManipulationMotionMaxPixelsPerFrame = 80;
     float hplControllerManipulationMotionHorizontalSign = 1.0f;
     float hplControllerManipulationMotionVerticalSign = -1.0f;
-    bool hplControllerSlideDirectVelocity = false;
+    bool hplControllerSlideDirectVelocity = true;
     float hplControllerSlideVelocityScale = 1.0f;
     float hplControllerSlidePositionGain = 12.0f;
     float hplControllerSlideMaxVelocityMetersPerSecond = 2.5f;
@@ -180,15 +195,48 @@ struct Config {
     float hplControllerRotateMaxAngularSpeed = 4.0f;
     bool hplControllerReadPresentation = false;
     float hplControllerReadObjectDistanceScale = 1.0f;
-    float hplControllerReadObjectScale = 2.0f;
+    float hplControllerReadObjectScale = 1.0f;
+    int hplControllerReadObjectSettleFrames = 45;
     bool hplHandTrackingProbe = false;
     bool hplHandControllerRoot = false;
+    bool hplHandScaleNormalization = false;
+    bool hplHandWristPosition = false;
+    bool hplHandWristRotation = false;
+    float hplHandWristRollDegrees = 0.0f;
+    float hplHandWristPitchDegrees = 0.0f;
+    float hplHandWristOutwardOffsetMeters = 0.0f;
+    float hplHandWristVerticalOffsetMeters = 0.0f;
+    float hplHandWristViewForwardOffsetMeters = 0.0f;
+    bool hplHandArmIK = false;
+    bool hplHandAlwaysVisible = false;
+    bool hplHandFreezePose = false;
+    float hplHandTargetScale = 1.0f;
+    float hplHandShoulderVerticalOffsetMeters = -0.30f;
+    float hplHandShoulderBackOffsetMeters = 0.10f;
+    float hplHandArmIKElbowDownMeters = 0.10f;
+    bool hplHandArmIKErgonomics = false;
+    bool hplHandShoulderReachCompensation = false;
+    float hplHandShoulderReachStart = 0.85f;
+    float hplHandShoulderReachMaxMeters = 0.05f;
+    float hplHandArmIKMaxSwivelDegreesPerFrame = 10.0f;
+    float hplHandArmIKBlend = 1.0f;
+    float hplHandArmIKMaxReach = 0.985f;
     float hplHandRootOffsetX = 0.0f;
     float hplHandRootOffsetY = -0.075f;
     float hplHandRootOffsetZ = 0.0f;
     float hplHandRootPitchDegrees = 0.0f;
     float hplHandRootYawDegrees = 0.0f;
     float hplHandRootRollDegrees = 0.0f;
+    bool hplAuthoredInteractions = false;
+    bool hplMedicineInteraction = false;
+    bool hplHandSocketedPropStabilization = false;
+    float hplMedicineCapOffsetX = 0.0f;
+    float hplMedicineCapOffsetY = 0.08f;
+    float hplMedicineCapOffsetZ = 0.0f;
+    float hplMedicineCapProximityMeters = 0.10f;
+    float hplMedicineMouthProximityMeters = 0.16f;
+    float hplMedicineDrinkTipDegrees = 65.0f;
+    int hplMedicineDrinkHoldFrames = 12;
     bool hplControllerHudObject = false;
     float hplHudObjectOffsetX = 0.0f;
     float hplHudObjectOffsetY = 0.0f;
@@ -316,6 +364,10 @@ public:
 
     const Config& Get() const;
     const std::filesystem::path& Path() const;
+    uint64_t ParsedKeyHash() const;
+    uint32_t AcceptedKeyCount() const;
+    uint32_t UnknownKeyCount() const;
+    uint32_t UnknownSectionCount() const;
 
 private:
     void WriteDefaultConfig() const;
@@ -323,6 +375,10 @@ private:
 
     Config config_;
     std::filesystem::path path_;
+    uint64_t parsedKeyHash_ = 14695981039346656037ull;
+    uint32_t acceptedKeyCount_ = 0;
+    uint32_t unknownKeyCount_ = 0;
+    uint32_t unknownSectionCount_ = 0;
 };
 
 } // namespace somavr

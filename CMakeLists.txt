@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.68.2-native-phase-recovery")
+set(SOMAVR_BUILD_VERSION "0.88.0-release-integrity")
 
 include(FetchContent)
 
@@ -31,6 +31,22 @@ configure_file(
     cmake/somavr_build_flavor.txt.in
     "${CMAKE_CURRENT_BINARY_DIR}/somavr_build_flavor.txt"
     @ONLY
+)
+
+set(SOMAVR_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(SOMAVR_BUILD_INFO_HEADER "${SOMAVR_GENERATED_DIR}/SomaVRBuildInfo.generated.h")
+add_custom_target(somavr_build_info ALL
+    COMMAND ${CMAKE_COMMAND}
+        -DSOMAVR_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DSOMAVR_OUTPUT=${SOMAVR_BUILD_INFO_HEADER}
+        -DSOMAVR_VERSION=${SOMAVR_BUILD_VERSION}
+        -DSOMAVR_FLAVOR=${SOMAVR_BUILD_FLAVOR}
+        -DSOMAVR_CONFIGURATION=$<CONFIG>
+        -DSOMAVR_OPENXR=${SOMAVR_BUILD_OPENXR}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateBuildInfo.cmake"
+    BYPRODUCTS "${SOMAVR_BUILD_INFO_HEADER}"
+    COMMENT "Generating exact SOMAVR build identity"
+    VERBATIM
 )
 
 if(SOMAVR_ENABLE_OPENXR)
@@ -58,13 +74,20 @@ add_library(somavr_common STATIC
     src/common/Logger.cpp
 )
 target_include_directories(somavr_common PUBLIC src/common)
-target_compile_definitions(somavr_common PUBLIC SOMAVR_WORK_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
+set(SOMAVR_DEV_WORK_ROOT "" CACHE PATH
+    "Optional development-only runtime root override; release builds resolve from somavr.dll")
+if(SOMAVR_DEV_WORK_ROOT)
+    target_compile_definitions(somavr_common PUBLIC
+        SOMAVR_DEV_WORK_ROOT="${SOMAVR_DEV_WORK_ROOT}")
+endif()
 target_link_libraries(somavr_common PUBLIC shlwapi)
 
 add_library(somavr_render_math STATIC
     src/dll/HPLCameraMath.cpp
     src/dll/HPLComfortMath.cpp
     src/dll/HPLHandsMath.cpp
+    src/dll/HPLArmIKMath.cpp
+    src/dll/HPLAuthoredInteractionMath.cpp
     src/dll/HPLFlashlightMath.cpp
     src/dll/HPLGrabMath.cpp
     src/dll/HPLReadMath.cpp
@@ -73,6 +96,7 @@ add_library(somavr_render_math STATIC
     src/dll/HPLPhysicalCrouchMath.cpp
     src/dll/HPLRoomscaleReconciliationMath.cpp
     src/dll/HPLHudMath.cpp
+    src/dll/HPLTerminalMath.cpp
     src/dll/HPLInteractionMath.cpp
     src/dll/HPLInputMath.cpp
     src/dll/HPLMenuMath.cpp
@@ -96,6 +120,8 @@ target_include_directories(somavr_render_math PUBLIC src/dll)
 target_compile_definitions(somavr_render_math PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
 add_library(somavr SHARED
+    src/common/BuildInfo.cpp
+    src/dll/CrashHandler.cpp
     src/dll/DllMain.cpp
     src/dll/HPLCompatibilityProbe.cpp
     src/dll/HPLDualRenderControl.cpp
@@ -121,6 +147,8 @@ add_library(somavr SHARED
     src/dll/HPLCrosshairBridge.cpp
     src/dll/HPLUserModuleBridge.cpp
     src/dll/HPLHandsBridge.cpp
+    src/dll/HPLEntityCalibrationProfiles.cpp
+    src/dll/HPLAuthoredInteractionBridge.cpp
     src/dll/HPLGrabBridge.cpp
     src/dll/HPLGameplayHapticsBridge.cpp
     src/dll/HPLContactHapticsBridge.cpp
@@ -129,7 +157,8 @@ add_library(somavr SHARED
     src/dll/OpenXRGLBridge.cpp
     src/dll/OpenXRRuntime.cpp
 )
-target_include_directories(somavr PRIVATE src/dll)
+add_dependencies(somavr somavr_build_info)
+target_include_directories(somavr PRIVATE src/dll "${SOMAVR_GENERATED_DIR}")
 target_compile_definitions(somavr PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_definitions(somavr PRIVATE SOMAVR_BUILD_VERSION="${SOMAVR_BUILD_VERSION}")
 target_link_libraries(somavr PRIVATE
@@ -140,6 +169,7 @@ target_link_libraries(somavr PRIVATE
     gdi32
     user32
     shlwapi
+    dbghelp
 )
 add_custom_command(TARGET somavr POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -189,7 +219,38 @@ if(BUILD_TESTING)
         tests/ConfigPresetTests.cpp
     )
     target_link_libraries(somavr_config_preset_tests PRIVATE somavr_common)
+    target_compile_definitions(somavr_config_preset_tests PRIVATE
+        SOMAVR_RELEASE_CONFIG_PATH="${CMAKE_CURRENT_SOURCE_DIR}/config/somavr.release.ini")
     add_test(NAME somavr_config_presets COMMAND somavr_config_preset_tests)
+
+    add_executable(somavr_logger_tests tests/LoggerTests.cpp)
+    target_link_libraries(somavr_logger_tests PRIVATE somavr_common)
+    add_test(NAME somavr_logger COMMAND somavr_logger_tests)
+
+    add_executable(somavr_crash_handler_tests
+        tests/CrashHandlerIntegrationTests.cpp
+        src/common/BuildInfo.cpp
+        src/dll/CrashHandler.cpp
+    )
+    add_dependencies(somavr_crash_handler_tests somavr_build_info)
+    target_include_directories(somavr_crash_handler_tests PRIVATE
+        src/dll
+        "${SOMAVR_GENERATED_DIR}"
+    )
+    target_compile_definitions(somavr_crash_handler_tests PRIVATE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+    )
+    target_link_libraries(somavr_crash_handler_tests PRIVATE somavr_common dbghelp)
+    add_test(NAME somavr_crash_handler COMMAND somavr_crash_handler_tests)
+
+    add_executable(somavr_entity_profile_tests
+        tests/EntityCalibrationProfileTests.cpp
+        src/dll/HPLEntityCalibrationProfiles.cpp
+    )
+    target_include_directories(somavr_entity_profile_tests PRIVATE src/dll)
+    target_link_libraries(somavr_entity_profile_tests PRIVATE somavr_common)
+    add_test(NAME somavr_entity_profiles COMMAND somavr_entity_profile_tests)
 
     add_test(
         NAME somavr_installer_lifecycle

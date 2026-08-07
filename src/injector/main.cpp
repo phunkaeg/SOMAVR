@@ -361,7 +361,7 @@ int RunDoctor(
             if (somavr::injector::ValidateSomaInteractionSignatures(
                     absoluteGame, signatureFailure)) {
                 DoctorResult(summary, "PASS",
-                    L"SOMA interaction hook signatures match the supported build");
+                    L"SOMA interaction and wrist hook signatures match the supported build");
             } else {
                 DoctorResult(summary, "FAIL", signatureFailure);
             }
@@ -467,20 +467,47 @@ bool InjectDll(DWORD pid, const std::filesystem::path& dllPath)
         return false;
     }
 
-    WaitForSingleObject(thread, 10000);
+    const DWORD waitResult = WaitForSingleObject(thread, 10000);
+    if (waitResult != WAIT_OBJECT_0) {
+        if (waitResult == WAIT_TIMEOUT) {
+            std::wcerr
+                << L"Remote LoadLibraryW did not complete within 10 seconds; "
+                   L"the remote path page is intentionally retained\n";
+        } else {
+            std::wcerr << L"Waiting for remote LoadLibraryW failed: "
+                       << ErrorMessage(GetLastError())
+                       << L"; the remote path page is intentionally retained\n";
+        }
+        CloseHandle(thread);
+        CloseHandle(process);
+        return false;
+    }
 
     DWORD remoteModule = 0;
-    GetExitCodeThread(thread, &remoteModule);
+    const bool exitCodeRead = GetExitCodeThread(thread, &remoteModule) != FALSE;
     CloseHandle(thread);
     VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
     CloseHandle(process);
 
-    if (remoteModule == 0) {
-        std::wcerr << L"Remote LoadLibraryW returned null\n";
+    if (!exitCodeRead) {
+        std::wcerr << L"GetExitCodeThread failed after remote LoadLibraryW completed\n";
         return false;
     }
 
-    std::wcout << L"Injected " << fullPath << L" into pid " << pid << L"\n";
+    const auto loadedFindings = somavr::injector::ScanCompatibility(pid);
+    const bool modulePresent = std::any_of(
+        loadedFindings.begin(), loadedFindings.end(),
+        [](const somavr::injector::CompatibilityFinding& finding) {
+            return finding.source == L"loaded_module"
+                && _wcsicmp(finding.path.filename().c_str(), L"somavr.dll") == 0;
+        });
+    if (!modulePresent) {
+        std::wcerr << L"Remote LoadLibraryW completed but somavr.dll was not found in the target module list"
+                   << L" (threadExitLow32=0x" << std::hex << remoteModule << std::dec << L")\n";
+        return false;
+    }
+
+    std::wcout << L"Injected and verified " << fullPath << L" in pid " << pid << L"\n";
     return true;
 }
 

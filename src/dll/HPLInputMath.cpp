@@ -44,6 +44,66 @@ float DegreesToRadians(float degrees)
     return degrees * kDegreesToRadians;
 }
 
+float WrapRadians(float radians)
+{
+    if (!std::isfinite(radians)) return 0.0f;
+    constexpr float kPi = 3.14159265358979323846f;
+    constexpr float kTwoPi = 2.0f * kPi;
+    radians = std::fmod(radians + kPi, kTwoPi);
+    if (radians < 0.0f) radians += kTwoPi;
+    return radians - kPi;
+}
+
+bool ResolveHorizontalYaw(
+    const camera_math::Quaternion& orientation,
+    float& yawRadians)
+{
+    const camera_math::Vector3 forward = camera_math::RotateVector(
+        orientation, {0.0f, 0.0f, -1.0f});
+    const float horizontalLengthSquared = forward.x * forward.x + forward.z * forward.z;
+    if (!std::isfinite(horizontalLengthSquared) || horizontalLengthSquared < 1.0e-6f) {
+        yawRadians = 0.0f;
+        return false;
+    }
+    yawRadians = std::atan2(forward.x, -forward.z);
+    return std::isfinite(yawRadians);
+}
+
+float ComputeBodyFollowStepRadians(
+    float yawErrorRadians,
+    float releaseDegrees,
+    float degreesPerSecond,
+    uint64_t elapsedMilliseconds)
+{
+    if (!std::isfinite(yawErrorRadians)
+        || !std::isfinite(releaseDegrees)
+        || !std::isfinite(degreesPerSecond)
+        || degreesPerSecond <= 0.0f
+        || elapsedMilliseconds == 0) {
+        return 0.0f;
+    }
+    const float releaseRadians = DegreesToRadians(std::max(releaseDegrees, 0.0f));
+    const float remaining = std::max(std::fabs(yawErrorRadians) - releaseRadians, 0.0f);
+    const float maximumStep = DegreesToRadians(degreesPerSecond)
+        * (static_cast<float>(elapsedMilliseconds) / 1000.0f);
+    return std::copysign(std::min(remaining, maximumStep), yawErrorRadians);
+}
+
+float QuaternionAngularDistanceDegrees(
+    const camera_math::Quaternion& from,
+    const camera_math::Quaternion& to)
+{
+    const camera_math::Quaternion normalizedFrom = camera_math::Normalize(from);
+    const camera_math::Quaternion normalizedTo = camera_math::Normalize(to);
+    const float dot = std::abs(
+        normalizedFrom.x * normalizedTo.x
+        + normalizedFrom.y * normalizedTo.y
+        + normalizedFrom.z * normalizedTo.z
+        + normalizedFrom.w * normalizedTo.w);
+    constexpr float kRadiansToDegrees = 57.295779513082320876f;
+    return 2.0f * std::acos(std::clamp(dot, 0.0f, 1.0f)) * kRadiansToDegrees;
+}
+
 ManipulationMouseDelta ComputeManipulationMouseDelta(
     const camera_math::Vector3& previousHandRelativePosition,
     const camera_math::Vector3& currentHandRelativePosition,

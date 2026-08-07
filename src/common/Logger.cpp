@@ -7,11 +7,16 @@
 #include <chrono>
 #include <cstdio>
 #include <iomanip>
+#include <mutex>
 #include <share.h>
 #include <sstream>
 
 namespace somavr {
 namespace {
+
+std::mutex g_workRootMutex;
+std::filesystem::path g_workRoot;
+std::string g_workRootSource = "uninitialized";
 
 std::string NowString()
 {
@@ -55,13 +60,51 @@ void Logger::Initialize(const std::filesystem::path& logPath, LogLevel level)
     std::filesystem::create_directories(logPath_.parent_path(), ec);
 
     logStream_.close();
+    bool previousLogPreserved = false;
+    std::filesystem::path previousLogPath;
+    std::error_code rotationError;
+    if (!initialized_
+        && std::filesystem::exists(logPath_, rotationError)
+        && !rotationError
+        && std::filesystem::file_size(logPath_, rotationError) > 0
+        && !rotationError) {
+        previousLogPath = logPath_.parent_path()
+            / (logPath_.stem().wstring() + L".previous" + logPath_.extension().wstring());
+        std::error_code removeError;
+        std::filesystem::remove(previousLogPath, removeError);
+        if (!removeError) {
+            std::filesystem::rename(logPath_, previousLogPath, rotationError);
+            previousLogPreserved = !rotationError;
+        } else {
+            rotationError = removeError;
+        }
+    }
     logStream_.open(logPath_, std::ios::out | std::ios::trunc, _SH_DENYNO);
     pendingBufferedLines_ = 0;
     if (logStream_.is_open()) {
         logStream_ << "SOMAVR log started " << NowString() << "\n";
+        if (previousLogPreserved) {
+            logStream_ << "SOMAVR previous log preserved "
+                       << previousLogPath.string() << "\n";
+        } else if (rotationError) {
+            logStream_ << "SOMAVR previous log preservation failed error="
+                       << rotationError.value() << " message=\""
+                       << rotationError.message() << "\"\n";
+        }
         logStream_.flush();
     }
     initialized_ = true;
+}
+
+void Logger::Shutdown()
+{
+    std::lock_guard lock(mutex_);
+    if (logStream_.is_open()) {
+        logStream_.flush();
+        logStream_.close();
+    }
+    pendingBufferedLines_ = 0;
+    initialized_ = false;
 }
 
 void Logger::SetLevel(LogLevel level)
@@ -123,8 +166,9 @@ void Logger::WriteV(LogLevel level, const char* fmt, va_list args)
     }
 }
 
-const std::filesystem::path& Logger::Path() const
+std::filesystem::path Logger::Path() const
 {
+    std::lock_guard lock(mutex_);
     return logPath_;
 }
 
@@ -153,13 +197,59 @@ const char* Logger::LevelName(LogLevel level)
     return "unknown";
 }
 
+void InitializeWorkRoot(HMODULE module)
+{
+    std::lock_guard lock(g_workRootMutex);
+    if (!g_workRoot.empty()) return;
+
+    std::wstring overridePath(32768, L'\0');
+    const DWORD overrideLength = GetEnvironmentVariableW(
+        L"SOMAVR_ROOT", overridePath.data(), static_cast<DWORD>(overridePath.size()));
+    if (overrideLength > 0 && overrideLength < overridePath.size()) {
+        overridePath.resize(overrideLength);
+        g_workRoot = std::filesystem::path(overridePath).lexically_normal();
+        g_workRootSource = "environment:SOMAVR_ROOT";
+        return;
+    }
+
+    const std::filesystem::path modulePath = ModulePath(module);
+    if (!modulePath.empty() && modulePath.has_parent_path()) {
+        g_workRoot = modulePath.parent_path().lexically_normal();
+        g_workRootSource = module != nullptr ? "module" : "executable";
+        return;
+    }
+
+    std::wstring localAppData(32768, L'\0');
+    const DWORD localAppDataLength = GetEnvironmentVariableW(
+        L"LOCALAPPDATA", localAppData.data(), static_cast<DWORD>(localAppData.size()));
+    if (localAppDataLength > 0 && localAppDataLength < localAppData.size()) {
+        localAppData.resize(localAppDataLength);
+        g_workRoot = (std::filesystem::path(localAppData) / L"SOMAVR").lexically_normal();
+        g_workRootSource = "localappdata";
+        return;
+    }
+
+#ifdef SOMAVR_DEV_WORK_ROOT
+    g_workRoot = std::filesystem::path(SOMAVR_DEV_WORK_ROOT).lexically_normal();
+    g_workRootSource = "compiled-dev-override";
+#else
+    g_workRoot = std::filesystem::current_path().lexically_normal();
+    g_workRootSource = "current-directory-fallback";
+#endif
+}
+
 std::filesystem::path WorkRoot()
 {
-#ifdef SOMAVR_WORK_ROOT
-    return std::filesystem::path(SOMAVR_WORK_ROOT);
-#else
-    return std::filesystem::current_path();
-#endif
+    InitializeWorkRoot(nullptr);
+    std::lock_guard lock(g_workRootMutex);
+    return g_workRoot;
+}
+
+std::string WorkRootSource()
+{
+    InitializeWorkRoot(nullptr);
+    std::lock_guard lock(g_workRootMutex);
+    return g_workRootSource;
 }
 
 std::filesystem::path LogPath()

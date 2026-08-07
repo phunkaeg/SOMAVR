@@ -1,0 +1,72 @@
+// SOMA player, character-body, world, and state-object layouts.
+
+namespace soma {
+    enum PlayerStateKind {
+        Normal = 0,
+        Grab = 1,
+        Push = 2,
+        Wheel = 3,
+        Slide = 4,
+        SwingDoor = 5,
+        Lever = 6,
+        Tear = 7,
+        Terminal = 8,
+        HandheldTerminal = 9,
+        Read = 10,
+        Ladder = 11,
+        ClimbLedge = 12,
+        MovingButton = 13,
+        InteractiveCameraAnimation = 14,
+        Sit = 15,
+        Conversation = 16,
+        Dead = 17,
+        ZoomArea = 18,
+        CustomControls = 19,
+        NullState = 20,
+    }
+
+    struct PlayerStateObjectPartial 0x164 {
+        i32 stateId @ 0x160
+    }
+
+    struct MoveStateObjectPartial 0x15c {
+        i32 stateId @ 0x158
+    }
+
+    struct CharacterBodyPartial 0x1e9 {
+        Vector3f centerPosition @ 0x6c
+        f32 moveAccumulator0 @ 0x94
+        f32 moveAccumulator1 @ 0x98
+        f32 moveAccumulator2 @ 0x9c
+        f32 moveAccumulator3 @ 0xa0
+        i32 lastMoveDirection @ 0xbc
+        f32 yaw @ 0xd4
+        Vector3f bodySize @ 0x134
+        CameraPartial* camera @ 0x1b0
+        bool8 cameraUpdateActive @ 0x1e8
+    }
+
+    struct PlayerPartial 0x39c {
+        CameraPartial* camera @ 0x168
+        CharacterBodyPartial* characterBody @ 0x170
+        f32 defaultFov @ 0x194
+        f32 fovGoal @ 0x19c
+        f32 fovSpeed @ 0x1a0
+        PlayerStateObjectPartial* currentPlayerState @ 0x1d8
+        MoveStateObjectPartial* currentMoveState @ 0x200
+        f32 cameraInputX @ 0x368
+        f32 cameraInputY @ 0x36c
+        f32 fovMultiplierGoal @ 0x38c
+        f32 fovMultiplierSpeed @ 0x390
+        f32 aspectMultiplierGoal @ 0x394
+        f32 aspectMultiplierSpeed @ 0x398
+    }
+
+    struct WorldPartial 0x265 {
+        bool8 depthOfFieldActive @ 0x264
+    }
+
+    struct LuxEntityPartial 0x140 {
+        NativeStringPartial name @ 0x120
+    }
+}

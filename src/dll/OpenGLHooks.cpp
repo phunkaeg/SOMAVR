@@ -3,9 +3,11 @@
 #include "HPLCameraBridge.h"
 #include "HPLCompatibilityProbe.h"
 #include "HPLInputBridge.h"
+#include "HPLHandsBridge.h"
 #include "HPLPostEffectResourceMath.h"
 #include "HPLPresentationBridge.h"
 #include "HPLSSAOTemporalHistory.h"
+#include "HPLTerminalMath.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
 #include "OpenGLMatrixAnalysis.h"
@@ -57,6 +59,10 @@ constexpr GLenum kGLVersion = 0x1F02;
 constexpr GLenum kGLShadingLanguageVersion = 0x8B8C;
 constexpr GLenum kGLCurrentProgram = 0x8B8D;
 constexpr GLenum kGLFramebufferBinding = 0x8CA6;
+constexpr GLenum kGLScissorBox = 0x0C10;
+constexpr GLenum kGLTextureBinding2D = 0x8069;
+constexpr GLenum kGLBlendSrcRgb = 0x80C9;
+constexpr GLenum kGLBlendDstRgb = 0x80C8;
 constexpr GLenum kGLActiveUniforms = 0x8B86;
 constexpr GLenum kGLActiveUniformMaxLength = 0x8B87;
 constexpr GLenum kGLAttachedShaders = 0x8B85;
@@ -240,6 +246,23 @@ std::atomic<uint64_t> g_totalViewportCalls = 0;
 std::atomic<uint64_t> g_totalFramebufferBinds = 0;
 std::atomic<uint64_t> g_totalProgramUses = 0;
 std::atomic<uint64_t> g_totalClears = 0;
+std::atomic<bool> g_terminalClearSuppressionActive = false;
+std::atomic<GLuint> g_terminalClearTargetFramebuffer = 0;
+std::atomic<DWORD> g_terminalClearOwnerThread = 0;
+std::atomic<uint64_t> g_terminalClearFrame = 0;
+std::atomic<uint64_t> g_terminalClearArmedCaptures = 0;
+std::atomic<uint64_t> g_terminalColorClearsSuppressed = 0;
+std::atomic<uint64_t> g_terminalDepthStencilClearsForwarded = 0;
+std::atomic<uint64_t> g_terminalClearFramebufferMismatches = 0;
+std::atomic<uint64_t> g_terminalClearThreadMismatches = 0;
+std::atomic<uint64_t> g_terminalDrawProbeSequence = 0;
+std::atomic<uint64_t> g_terminalDrawProbeStartFrame = 0;
+std::atomic<uint64_t> g_terminalDrawProbeEndFrame = 0;
+std::atomic<uint32_t> g_terminalDrawProbeSamples = 0;
+std::atomic<bool> g_terminalCaptureGuardActive = false;
+std::atomic<GLuint> g_terminalCaptureGuardFramebuffer = 0;
+std::atomic<uint64_t> g_terminalCaptureGuardFrame = 0;
+std::atomic<uint64_t> g_terminalOffscreenScissorBypasses = 0;
 std::atomic<uint32_t> g_matrixSamplesThisFrame = 0;
 std::atomic<uint32_t> g_uniformNameLogs = 0;
 std::atomic<uint32_t> g_uniformMatrixLogs = 0;
@@ -278,6 +301,99 @@ std::atomic<uint64_t> g_reflectionFadePatches = 0;
 uint64_t g_matrixCaptureUploads = 0;
 uint64_t g_matrixCaptureSiteLogs = 0;
 uint64_t g_matrixCaptureSampleLogs = 0;
+
+void RecordTerminalDrawState(const char* kind, GLenum mode, GLsizei count)
+{
+    const uint64_t frame = g_frameIndex.load(std::memory_order_relaxed);
+    const uint64_t startFrame = g_terminalDrawProbeStartFrame.load(std::memory_order_relaxed);
+    const uint64_t endFrame = g_terminalDrawProbeEndFrame.load(std::memory_order_relaxed);
+    if (startFrame == 0 || frame < startFrame || frame > endFrame
+        || !g_terminalClearSuppressionActive.load(std::memory_order_acquire)) {
+        return;
+    }
+    const uint32_t sample = g_terminalDrawProbeSamples.fetch_add(
+        1, std::memory_order_relaxed) + 1;
+    if (sample > 128 || g_glGetIntegerv == nullptr) return;
+
+    GLint framebuffer = 0;
+    GLint program = 0;
+    GLint viewport[4] = {};
+    GLint scissor[4] = {};
+    GLint texture2D = 0;
+    GLint blendSrc = 0;
+    GLint blendDst = 0;
+    g_glGetIntegerv(kGLFramebufferBinding, &framebuffer);
+    g_glGetIntegerv(kGLCurrentProgram, &program);
+    g_glGetIntegerv(kGLViewport, viewport);
+    g_glGetIntegerv(kGLScissorBox, scissor);
+    g_glGetIntegerv(kGLTextureBinding2D, &texture2D);
+    g_glGetIntegerv(kGLBlendSrcRgb, &blendSrc);
+    g_glGetIntegerv(kGLBlendDstRgb, &blendDst);
+    const GLuint target = g_terminalClearTargetFramebuffer.load(std::memory_order_relaxed);
+    Logger::Instance().Write(
+        framebuffer == static_cast<GLint>(target) ? LogLevel::Info : LogLevel::Warn,
+        "terminal_draw_state sequence=%llu sample=%u frame=%llu kind=%s mode=0x%x count=%d fbo=%d targetFbo=%u targetMatch=%d program=%d viewport=%d,%d,%d,%d scissor={enabled=%d box=%d,%d,%d,%d} texture2D=%d blend={enabled=%d src=0x%x dst=0x%x}",
+        static_cast<unsigned long long>(
+            g_terminalDrawProbeSequence.load(std::memory_order_relaxed)),
+        sample,
+        static_cast<unsigned long long>(frame),
+        kind,
+        static_cast<unsigned>(mode),
+        count,
+        framebuffer,
+        target,
+        framebuffer == static_cast<GLint>(target) ? 1 : 0,
+        program,
+        viewport[0], viewport[1], viewport[2], viewport[3],
+        glIsEnabled(GL_SCISSOR_TEST) == GL_TRUE ? 1 : 0,
+        scissor[0], scissor[1], scissor[2], scissor[3],
+        texture2D,
+        glIsEnabled(GL_BLEND) == GL_TRUE ? 1 : 0,
+        blendSrc,
+        blendDst);
+}
+
+bool DisableOffscreenTerminalScissor()
+{
+    if (!g_terminalCaptureGuardActive.load(std::memory_order_acquire)
+        || g_glGetIntegerv == nullptr
+        || glIsEnabled(GL_SCISSOR_TEST) != GL_TRUE) {
+        return false;
+    }
+    GLint framebuffer = 0;
+    GLint viewport[4] = {};
+    GLint scissor[4] = {};
+    g_glGetIntegerv(kGLFramebufferBinding, &framebuffer);
+    g_glGetIntegerv(kGLViewport, viewport);
+    g_glGetIntegerv(kGLScissorBox, scissor);
+    const GLuint target = g_terminalCaptureGuardFramebuffer.load(std::memory_order_relaxed);
+    if (framebuffer != static_cast<GLint>(target)) return false;
+
+    const bool intersects = scissor[2] > 0 && scissor[3] > 0
+        && scissor[0] < viewport[0] + viewport[2]
+        && scissor[1] < viewport[1] + viewport[3]
+        && scissor[0] + scissor[2] > viewport[0]
+        && scissor[1] + scissor[3] > viewport[1];
+    if (intersects) return false;
+
+    glDisable(GL_SCISSOR_TEST);
+    const uint64_t bypass = g_terminalOffscreenScissorBypasses.fetch_add(
+        1, std::memory_order_relaxed) + 1;
+    const uint64_t interval = static_cast<uint64_t>(
+        std::max(g_config.hplControllerLogInterval, 1));
+    if (bypass <= 8 || bypass % interval == 0) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "terminal_scissor_bypass count=%llu frame=%llu fbo=%d viewport=%d,%d,%d,%d scissor=%d,%d,%d,%d policy=disable_only_fully_offscreen_capture_scissor",
+            static_cast<unsigned long long>(bypass),
+            static_cast<unsigned long long>(
+                g_terminalCaptureGuardFrame.load(std::memory_order_relaxed)),
+            framebuffer,
+            viewport[0], viewport[1], viewport[2], viewport[3],
+            scissor[0], scissor[1], scissor[2], scissor[3]);
+    }
+    return true;
+}
 std::unordered_set<std::string> g_matrixCaptureSites;
 std::unordered_map<uint64_t, uint32_t> g_matrixCaptureSampleMasks;
 std::filesystem::path g_renderDiagnosticPath;
@@ -1650,6 +1766,7 @@ void LogFrameSummary(HDC hdc)
 {
     const uint64_t frame = g_frameIndex.fetch_add(1, std::memory_order_relaxed) + 1;
     g_swapCount.fetch_add(1, std::memory_order_relaxed);
+    PollReflectionFadeControl();
 
     const HGLRC glContext = wglGetCurrentContext();
     const HDC currentHdc = wglGetCurrentDC();
@@ -1659,6 +1776,7 @@ void LogFrameSummary(HDC hdc)
     }
     UpdateHPLPlayerState(frame);
     UpdateHPLInputBridge(frame);
+    UpdateHPLHandsBridge(frame);
     UpdateMatrixCaptureHotkey(frame);
     UpdateShadowJitterHotkey(frame);
     UpdateRenderDiagnosticHotkey(frame);
@@ -1812,11 +1930,13 @@ void APIENTRY HookGlDrawElements(GLenum mode, GLsizei count, GLenum type, const 
 {
     g_drawElementsThisFrame.fetch_add(1, std::memory_order_relaxed);
     g_totalDrawElements.fetch_add(1, std::memory_order_relaxed);
-    PollReflectionFadeControl();
     RecordRenderDiagnosticDraw("elements", mode, count);
+    RecordTerminalDrawState("elements", mode, count);
+    const bool terminalScissorDisabled = DisableOffscreenTerminalScissor();
     const ReflectionFadePatch reflectionPatch = ApplyReflectionFadeBypass(
         g_currentProgram.load(std::memory_order_relaxed));
     g_originalGlDrawElements(mode, count, type, indices);
+    if (terminalScissorDisabled) glEnable(GL_SCISSOR_TEST);
     RestoreReflectionFade(reflectionPatch);
 }
 
@@ -1824,18 +1944,77 @@ void APIENTRY HookGlDrawArrays(GLenum mode, GLint first, GLsizei count)
 {
     g_drawArraysThisFrame.fetch_add(1, std::memory_order_relaxed);
     g_totalDrawArrays.fetch_add(1, std::memory_order_relaxed);
-    PollReflectionFadeControl();
     RecordRenderDiagnosticDraw("arrays", mode, count);
+    RecordTerminalDrawState("arrays", mode, count);
+    const bool terminalScissorDisabled = DisableOffscreenTerminalScissor();
     const ReflectionFadePatch reflectionPatch = ApplyReflectionFadeBypass(
         g_currentProgram.load(std::memory_order_relaxed));
     g_originalGlDrawArrays(mode, first, count);
+    if (terminalScissorDisabled) glEnable(GL_SCISSOR_TEST);
     RestoreReflectionFade(reflectionPatch);
 }
 
 void APIENTRY HookGlClear(GLbitfield mask)
 {
     g_totalClears.fetch_add(1, std::memory_order_relaxed);
-    g_originalGlClear(mask);
+    const bool suppressionActive =
+        g_terminalClearSuppressionActive.load(std::memory_order_acquire);
+    GLuint framebuffer = g_currentFramebuffer.load(std::memory_order_relaxed);
+    if (suppressionActive && g_glGetIntegerv != nullptr) {
+        GLint queriedFramebuffer = 0;
+        g_glGetIntegerv(kGLFramebufferBinding, &queriedFramebuffer);
+        framebuffer = static_cast<GLuint>(std::max(queriedFramebuffer, 0));
+    }
+    const DWORD currentThread = GetCurrentThreadId();
+    const DWORD ownerThread = g_terminalClearOwnerThread.load(std::memory_order_relaxed);
+    const GLuint targetFramebuffer =
+        g_terminalClearTargetFramebuffer.load(std::memory_order_relaxed);
+    const bool ownerThreadMatches = currentThread == ownerThread;
+    const bool targetFramebufferMatches = framebuffer == targetFramebuffer;
+    const terminal_math::ClearPolicyResult policy =
+        terminal_math::ResolveRetainedSurfaceClear(
+            static_cast<uint32_t>(mask),
+            static_cast<uint32_t>(GL_COLOR_BUFFER_BIT),
+            suppressionActive,
+            ownerThreadMatches,
+            targetFramebufferMatches);
+
+    if (suppressionActive && !ownerThreadMatches) {
+        g_terminalClearThreadMismatches.fetch_add(1, std::memory_order_relaxed);
+    } else if (suppressionActive && !targetFramebufferMatches) {
+        g_terminalClearFramebufferMismatches.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (!policy.colorSuppressed) {
+        g_originalGlClear(mask);
+        return;
+    }
+
+    const uint64_t suppressed = g_terminalColorClearsSuppressed.fetch_add(
+        1, std::memory_order_relaxed) + 1;
+    if (policy.forwardedMask != 0) {
+        g_terminalDepthStencilClearsForwarded.fetch_add(1, std::memory_order_relaxed);
+        g_originalGlClear(static_cast<GLbitfield>(policy.forwardedMask));
+    }
+    const uint64_t interval = static_cast<uint64_t>(
+        std::max(g_config.hplControllerLogInterval, 1));
+    if (suppressed <= 8 || suppressed % interval == 0) {
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "terminal_color_clear_suppressed count=%llu frame=%llu thread=%lu fbo=%u "
+            "requestedMask=0x%x forwardedMask=0x%x viewport=%d,%d,%d,%d "
+            "policy=preserve_retained_dirty_rect_color",
+            static_cast<unsigned long long>(suppressed),
+            static_cast<unsigned long long>(
+                g_terminalClearFrame.load(std::memory_order_relaxed)),
+            static_cast<unsigned long>(currentThread),
+            framebuffer,
+            static_cast<unsigned>(mask),
+            static_cast<unsigned>(policy.forwardedMask),
+            g_currentViewportX.load(std::memory_order_relaxed),
+            g_currentViewportY.load(std::memory_order_relaxed),
+            g_currentViewportWidth.load(std::memory_order_relaxed),
+            g_currentViewportHeight.load(std::memory_order_relaxed));
+    }
 }
 
 void LoadCoreGLHelpers(HMODULE opengl32)
@@ -2091,6 +2270,8 @@ void EndPostEffectResourceCapture(void* outputTexture)
 void RemoveOpenGLHooks()
 {
     std::lock_guard lock(g_installMutex);
+    EndTerminalCaptureGuard();
+    EndTerminalColorClearSuppression();
     {
         std::lock_guard diagnosticLock(g_renderDiagnosticMutex);
         g_renderDiagnosticEndFrame.store(0, std::memory_order_relaxed);
@@ -2130,11 +2311,19 @@ void LogOpenGLProofSummary()
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "proof_summary frames=%llu swaps=%llu wglMakeCurrent=%llu renderThread=%lu shadowJitterControl=%d shadowJitterSuppressed=%d shadowJitterUploads=%llu shadowJitterOverrides=%llu reflectionFadeControl=%d reflectionFadeBypassed=%d reflectionFadePatches=%llu postEffectResources={enabled=%d captures=%llu logs=%llu textures=%llu framebuffers=%llu sharedClassifications=%llu distinctClassifications=%llu effects=%llu} fixedProjection={%s} uniformProjectionName=\"%s\" uniformProjectionProgram=%u uniformProjectionLocation=%d uniformProjection={%s} %s",
+        "proof_summary frames=%llu swaps=%llu wglMakeCurrent=%llu renderThread=%lu terminalClear={active=%d targetFbo=%u frame=%llu armed=%llu colorSuppressed=%llu depthStencilForwarded=%llu framebufferMismatches=%llu threadMismatches=%llu} shadowJitterControl=%d shadowJitterSuppressed=%d shadowJitterUploads=%llu shadowJitterOverrides=%llu reflectionFadeControl=%d reflectionFadeBypassed=%d reflectionFadePatches=%llu postEffectResources={enabled=%d captures=%llu logs=%llu textures=%llu framebuffers=%llu sharedClassifications=%llu distinctClassifications=%llu effects=%llu} fixedProjection={%s} uniformProjectionName=\"%s\" uniformProjectionProgram=%u uniformProjectionLocation=%d uniformProjection={%s} %s",
         static_cast<unsigned long long>(g_frameIndex.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_swapCount.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_wglMakeCurrentCount.load(std::memory_order_relaxed)),
         static_cast<unsigned long>(g_renderThreadId.load(std::memory_order_relaxed)),
+        g_terminalClearSuppressionActive.load(std::memory_order_relaxed) ? 1 : 0,
+        g_terminalClearTargetFramebuffer.load(std::memory_order_relaxed),
+        static_cast<unsigned long long>(g_terminalClearFrame.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_terminalClearArmedCaptures.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_terminalColorClearsSuppressed.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_terminalDepthStencilClearsForwarded.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_terminalClearFramebufferMismatches.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_terminalClearThreadMismatches.load(std::memory_order_relaxed)),
         g_config.hplShadowJitterControl ? 1 : 0,
         g_shadowJitterSuppressed.load(std::memory_order_relaxed) ? 1 : 0,
         static_cast<unsigned long long>(g_shadowJitterUploads.load(std::memory_order_relaxed)),
@@ -2173,6 +2362,74 @@ OpenGLTelemetrySnapshot GetOpenGLTelemetrySnapshot()
         g_totalProgramUses.load(std::memory_order_relaxed),
         g_totalClears.load(std::memory_order_relaxed),
     };
+}
+
+void BeginTerminalCaptureGuard(uint64_t frame, uint32_t targetFramebuffer)
+{
+    g_terminalCaptureGuardActive.store(false, std::memory_order_release);
+    g_terminalCaptureGuardFrame.store(frame, std::memory_order_relaxed);
+    g_terminalCaptureGuardFramebuffer.store(targetFramebuffer, std::memory_order_relaxed);
+    g_terminalCaptureGuardActive.store(true, std::memory_order_release);
+}
+
+void EndTerminalCaptureGuard()
+{
+    g_terminalCaptureGuardActive.store(false, std::memory_order_release);
+    g_terminalCaptureGuardFramebuffer.store(0, std::memory_order_relaxed);
+}
+
+void BeginTerminalColorClearSuppression(uint64_t frame, uint32_t targetFramebuffer)
+{
+    g_terminalClearSuppressionActive.store(false, std::memory_order_release);
+    g_terminalClearFrame.store(frame, std::memory_order_relaxed);
+    g_terminalClearTargetFramebuffer.store(targetFramebuffer, std::memory_order_relaxed);
+    g_terminalClearOwnerThread.store(GetCurrentThreadId(), std::memory_order_relaxed);
+    g_terminalClearArmedCaptures.fetch_add(1, std::memory_order_relaxed);
+    g_terminalClearSuppressionActive.store(true, std::memory_order_release);
+}
+
+void EndTerminalColorClearSuppression()
+{
+    g_terminalClearSuppressionActive.store(false, std::memory_order_release);
+    g_terminalClearOwnerThread.store(0, std::memory_order_relaxed);
+    g_terminalClearTargetFramebuffer.store(0, std::memory_order_relaxed);
+}
+
+TerminalClearSuppressionSnapshot GetTerminalClearSuppressionSnapshot()
+{
+    return {
+        g_terminalClearSuppressionActive.load(std::memory_order_acquire),
+        g_terminalClearTargetFramebuffer.load(std::memory_order_relaxed),
+        g_terminalClearFrame.load(std::memory_order_relaxed),
+        g_terminalClearArmedCaptures.load(std::memory_order_relaxed),
+        g_terminalColorClearsSuppressed.load(std::memory_order_relaxed),
+        g_terminalDepthStencilClearsForwarded.load(std::memory_order_relaxed),
+        g_terminalClearFramebufferMismatches.load(std::memory_order_relaxed),
+        g_terminalClearThreadMismatches.load(std::memory_order_relaxed),
+    };
+}
+
+uint64_t GetTerminalOffscreenScissorBypassCount()
+{
+    return g_terminalOffscreenScissorBypasses.load(std::memory_order_relaxed);
+}
+
+void BeginTerminalDrawStateProbe(
+    uint64_t sequence,
+    uint64_t startFrame,
+    uint32_t durationFrames)
+{
+    const uint64_t duration = std::max<uint64_t>(durationFrames, 1);
+    g_terminalDrawProbeSequence.store(sequence, std::memory_order_relaxed);
+    g_terminalDrawProbeSamples.store(0, std::memory_order_relaxed);
+    g_terminalDrawProbeStartFrame.store(startFrame, std::memory_order_relaxed);
+    g_terminalDrawProbeEndFrame.store(startFrame + duration - 1, std::memory_order_relaxed);
+    Logger::Instance().Write(
+        LogLevel::Warn,
+        "terminal_draw_state armed sequence=%llu startFrame=%llu durationFrames=%llu maxSamples=128 policy=focused_fbo_program_scissor_texture_blend_trace",
+        static_cast<unsigned long long>(sequence),
+        static_cast<unsigned long long>(startFrame),
+        static_cast<unsigned long long>(duration));
 }
 
 } // namespace somavr

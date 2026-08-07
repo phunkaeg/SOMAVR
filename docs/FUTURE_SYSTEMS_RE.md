@@ -1,5 +1,347 @@
 # Future Systems Reverse Engineering
 
+## 2026-07-30 BioShock VR Transfer Audit
+
+The source-level comparison with the independent MIT-licensed project at
+`D:\Dev Debug\Bioshock-vr` is recorded in
+[BioShock VR Transfer Audit](BIOSHOCK_VR_TRANSFER_AUDIT.md). The first scheduled
+implementation is `FEATURE.XR_FOCUS_PACING`: after an OpenXR session has reached
+FOCUSED once, SOMAVR must not enter untimed `xrWaitFrame` while the runtime is
+only VISIBLE. This directly prevents a field-proven HMD freeze and Present-thread
+stall class while retaining event-driven focus recovery.
+
+The next reusable gameplay substrate is
+`FEATURE.ENTITY_CALIBRATION_PROFILES`. Exact live HPL entity identity will swap
+named hand, tool, story-object, and authored-interaction calibration into the
+existing live values only when ownership changes. A behavior-neutral resolver
+and persistence build comes before any visual tuning. BioShock engine addresses,
+D3D11 hooks, UObject layouts, bone indices, and numerical calibration are not
+portable and remain excluded.
+
+## 2026-07-23 Three-Point Torso Ergonomics
+
+The canonical cross-engine solver contract now lives in
+[Torso Calculations & Ergonomics](../../VR%20Modding/docs/12-torso-calculations-and-ergonomics.md).
+Its central ownership rule is directly applicable here: HMD position may move
+the shoulder centre, but raw HMD roll and immediate head-only yaw must not own
+the shoulder bar. Tracked hands are exact wrist endpoints and evidence for
+near-extension shoulder contribution; they are not permission for shoulders to
+chase ordinary hand motion.
+
+Version 0.81 provides the first deterministic rung: native camera forward owns
+body yaw, tracked head world position owns shoulder translation, the native
+root-to-head relationship plus explicit down/back offsets owns neutral shoulder
+placement, and a reach-clamped analytic solve uses the restored native elbow
+with a downward bias. Full local-pose restoration prevents hidden arm nodes
+from accumulating animation or previous-IK displacement. Version 0.82 promotes
+the next deterministic rung: reach-gated clavicle contribution, torso-space
+down/out/back elbow selection, previous-elbow continuity, vertical singularity
+blending, and bounded swivel rate. Exact wrists remain unsmoothed.
+
+The 0.82 implementation and evidence order is:
+
+1. Live-accept body ownership, reach ratios, shoulder contribution, elbow
+   history, singularity blend, and swivel counters in isolated poses.
+2. Tune only one bounded parameter when visual evidence identifies a specific
+   bias; do not retune exact wrist targets to fix latent joints.
+3. After headset acceptance, add user/avatar proportion calibration from one
+   restored authored pose.
+
+These are latent-joint refinements. They must not smooth or delay the tracked
+wrist endpoints, inherit headset roll, or bypass SOMA's authored-state policy.
+
+## 2026-07-21 Full Arm Chain And IK Boundary
+
+Live ReGenny traversal from both wrist nodes confirmed a symmetric, continuous
+parent chain on the active `PlayerHands_0` mesh:
+
+```text
+j_Root
+  -> j_[L/R]_Clavicle
+  -> j_[L/R]_Shoulder
+  -> j_[L/R]_Arm_1 ... j_[L/R]_Arm_5
+  -> j_[L/R]_Elbow_1 -> j_[L/R]_Elbow_2
+  -> j_[L/R]_Arm_6 ... j_[L/R]_Arm_10
+  -> j_[L/R]_Wrist
+```
+
+Every sampled arm node used native `usePre=0 usePost=0`, so the same transient
+post-animation mechanism proven on the wrists is structurally available farther
+up the chain. The active medicine animation authors matrices for every clavicle,
+shoulder, arm, elbow, and wrist node, however. Permanent replacement or writing
+local animation matrices would therefore destroy native bottle handling and
+cinematic motion. Any VR arm solver must layer after animation, restore native
+post state immediately, and retain the existing authored-state and lifecycle
+gates.
+
+The released `hands_human.dae` also identifies the deformation split. The shirt
+mesh is weighted through clavicle, shoulder, `Arm_1..7`, and both elbow nodes;
+the hands mesh overlaps at `Elbow_2` and `Arm_6..7`, then continues through
+`Arm_8..10`, wrist, and fingers. The numbered arm nodes are deformation/twist
+distribution bones, not eleven independent anatomical hinges. Driving only the
+shoulder and one elbow node would create a hard skinning crease at this overlap.
+
+Recommended controller-arm ownership:
+
+1. Keep `j_Root` and clavicles native initially so the torso anchor and authored
+   camera-relative placement remain stable.
+2. Use the native shoulder world position as the IK root, controller wrist as
+   the endpoint, and a chest-relative outward/downward pole vector for the elbow.
+3. Solve a clamped two-segment arm target, preserving native elbow bend near
+   singularities and when the controller is outside reach.
+4. Distribute upper-arm swing/twist across `Arm_1..5`, elbow bend across
+   `Elbow_1..2`, and forearm swing/twist across `Arm_6..10` before applying the
+   calibrated wrist orientation.
+5. Blend toward native animation during medicine use, ladders, terminals,
+   scripted cameras, tracking loss, and mesh/state transitions rather than
+   abruptly changing ownership.
+
+Version 0.77 promotes the first guarded visual prototype. It derives segment
+lengths from the active mesh every frame, keeps the current elbow as pole,
+rotates `Arm_1` and `Arm_6` transiently, then applies the proven wrist target.
+The next evidence gate is visual deformation and mesh-variant behavior; only
+after acceptance should twist be distributed over the intermediate numbered
+bones or controller orientation replace the native wrist basis.
+
+## 0.76.0 Full-Scale Independent Wrist Position
+
+The accepted 0.75 run proved both wrist hierarchies and all 37 tracked position
+candidates. Version 0.76 now uses SOMA's own authored full-scale value while
+preserving the shared root pose, then applies each wrist target through a
+transient post-animation transform. The original post matrix and enable byte
+are restored and verified in the same call. This closes the static position
+implementation gate; headset work now decides palm offsets, visual forearm
+deformation, controller-basis calibration, and whether elbow/clavicle IK is
+required.
+
+## 0.75.0 Nested Terminal Clear And Wrist Candidate Result
+
+Visual comparison of consecutive `Ctrl+F10` frames settles the terminal owner:
+SOMA draws sparse dirty rectangles, then its nested GUI render clears the target
+before the next sparse update. A retained FBO and correct logical resolution
+cannot accumulate pixels while that inner color clear remains active.
+
+Version 0.75 suppresses only `GL_COLOR_BUFFER_BIT` while all of these gates hold:
+the terminal set is the exact focused state-8 owner, a previous native-size
+surface is valid, the current thread owns the capture, and the bound framebuffer
+is the dedicated terminal FBO. Any depth/stencil bits are forwarded. First-frame,
+resized, unrelated-FBO, unrelated-thread, non-terminal, and rollback paths clear
+normally. This mirrors the persistence contract the dirty-rectangle renderer
+expects without globally changing OpenGL behavior.
+
+Controller click edges reset retention before the next terminal render so a
+page change receives one clean target. Pointer motion does not reset it; static
+and hover-only updates continue accumulating.
+
+The wrist path now has a dry-run composition model. Ghidra confirms local matrix
+`+0x44`, parent `+0x180`, parent/world matrix `+0x84`, and post order
+`post * animatedLocal`. For a position-only desired wrist world matrix:
+
+```text
+postCandidate = inverse(parentWorld) * desiredWorld * inverse(animatedLocal)
+reconstructed = parentWorld * postCandidate * animatedLocal
+```
+
+The probe logs the reconstruction error but writes nothing. Twelve-frame bursts
+on mesh or state changes capture short-lived authored hands and establish
+whether each wrist parent matches `j_L_Arm_10` / `j_R_Arm_10`. Orientation
+calibration and live bone mutation remain gated on this evidence.
+
+## 0.74.0 Native Terminal Surface And Bilateral Wrist Result
+
+The 0.73 log contains more than 2500 successful retained terminal captures.
+`retained=1 retentionActive=1` continues throughout the visible flashing, so
+the main HUD FBO is no longer the pixel-loss owner. The focused GUI reports
+logical dimensions `1024x577` on the apartment laptop and `880x560` on another
+terminal, but the direct capture path supplied a `1920x1080` viewport. The
+stable outer shell and alternating nested email blocks are consistent with a
+stateful subview drawing against an unexpected target size.
+
+Version 0.74 separates render and presentation resolution:
+
+1. Allocate a retained RGBA target at the exact `cGuiSet +0x100/+0x104` size.
+2. Render the focused terminal set once into that target.
+3. Preserve it across state-8 frames for incremental subview updates.
+4. Clear and linearly blit the complete native-size image into the configured
+   OpenXR HUD capture each frame.
+
+This does not replay `HPL3_GuiSet_Render`, return to the adaptive physical
+screen atlas, or alter pointer coordinates. `Ctrl+F10` still captures the final
+pre-compositor HUD image if the native-size surface does not close the email
+defect.
+
+The same headset run produced the first live `PlayerHands_0` evidence. Every
+root matrix was uniformly quarter-scale and `rootOverridden=1`; both wrist
+chains then moved together with `gripHand=right`. That behavior follows the
+shipped architecture exactly: `hands_human.ent` is a single bilateral mesh with
+one entity root. A root can place the rig, but it cannot independently track
+two controllers.
+
+The mesh pointer and five queried nodes remained stable across eleven samples:
+`j_L_Wrist`, `j_R_Wrist`, `Socket_L_Hand`, `Socket_R_Hand`, and
+`Socket_Camera`. All had `usePre=0 usePost=0`. Ghidra reconfirmed:
+
+- `0x1404a9490` enables post animation at node `+0xc5`;
+- `0x1404a94a0` copies the post matrix to node `+0x108`;
+- `0x140240290` applies `post * animatedLocal` and updates descendants.
+
+The stable profile disables root control. The probe now records left-wrist to
+left-grip and right-wrist to right-grip world-space deltas. The next control
+gate is a Normal-only, lifecycle-guarded post transform on each wrist, with
+native fingers and attached tools preserved. Ladder, climb, scripted camera,
+full-scale hand modes, mesh replacement, stale tracking, and any non-Normal
+state must restore the native flags and matrices.
+
+## 0.73.0 Terminal Retention And Grab Locomotion Result
+
+The four RGB captures from frames `7601` through `7604` close the laptop email
+render question. Each image contains a stable, correctly scaled terminal shell,
+but the email region contributes a different small tile: a blue control, a
+black/blue block, then a tiny text fragment. This is the signature of retained
+mode or dirty-rectangle GUI rendering. It is not an incorrect terminal owner,
+input problem, adaptive atlas crop, or compositor-only defect.
+
+`OpenXRGLBridge::BeginHudCapture` previously cleared the HUD FBO whenever its
+capture frame changed. That policy is correct for immediate-mode gameplay HUD
+sets, but it destroys unchanged pixels from the stateful terminal. The new
+contract is session-scoped:
+
+- the first direct capture after entering exact player state `8` clears;
+- subsequent state-8 captures retain the preceding HUD image and append SOMA's
+  new rectangles;
+- multiple captured sets in the same game frame still append as before;
+- the first captured HUD set after leaving state `8` clears and returns to the
+  ordinary immediate-mode policy.
+
+The four alpha images report `min=0 max=0 nonzero=0`. The RGB evidence alone
+explains the missing email pane, so version 0.73 does not broaden blend or alpha
+policy in the same experiment. If the retained email is visually complete but
+panel translucency later proves wrong, inspect the OpenXR HUD layer alpha flags
+and copy shader independently.
+
+The terminal's non-interactable-but-still-visible look-away behavior also has a
+closed cause. Controller projection correctly deactivated when aim left the
+panel, but no native state exit was requested. Since diegetic mode deliberately
+suppresses SOMA's authored camera takeover, its original camera-angle exit cue
+is no longer a reliable owner. Version 0.73 latches the HMD orientation at state
+8 entry and sends native `InteractCancel` after a configurable angular threshold
+and dwell. State 9 keeps authored handheld behavior.
+
+Released `PlayerState_Interact_Grab.hps` shows that SOMA expects movement during
+loose-prop Grab: setup adds grabbed-object mass to the player body and applies
+`InteractionMoveSpeedMul` for heavier objects. The mod's exact-Normal gate was
+therefore stricter than the engine. Grab now uses semantic analog type `1`
+through helper owner `playerRoot+0x110`; state validation travels with the
+queued vector to prevent a transition race. This preserves SOMA's weight and
+collision policy while allowing the player to carry props around the room.
+
+## 0.72.0 Terminal Presentation Capture Boundary
+
+The controller now highlights native laptop widgets, which closes the pointer
+ownership question for this defect. The fragmented email component is a render
+boundary problem. A normal eye dump is insufficient because the terminal panel
+is submitted as an independent OpenXR HUD layer and is not baked into the
+projection-eye swapchains.
+
+`Ctrl+F10` therefore reads the exact HUD capture FBO after the single
+`HPL3_GuiSet_Render` call and before `CopyHudCaptureToSwapchain`. Four consecutive
+RGB and alpha images are saved to expose partial updates and frame-to-frame
+statefulness. Interpret the result as follows:
+
+- broken RGB in the BMP: direct rendering the stateful GUI set at `1920x1080`
+  is changing the email draw/resource contract;
+- coherent RGB but broken alpha: GUI coverage or blend state is suppressing
+  pieces of the email pane;
+- coherent RGB and alpha but broken HMD panel: the fault is in HUD swapchain
+  copy, layer geometry, or compositor blending;
+- only the email frames change while a home-screen control is stable: add a
+  bounded GL draw/resource manifest around the email view, then use Frida only
+  to correlate its native widget/subview state.
+
+The capture saves and restores read framebuffer, read buffer, pixel-pack
+alignment/row/skip state, and pixel-pack buffer binding. It is diagnostic only
+and does not repeat the stateful GUI renderer.
+
+## 0.71.0 Live Native Input Ownership
+
+Live Frida tracing on `Soma_NoSteam.exe` resolves the ownership ambiguity that
+blocked both locomotion and the apartment curtain. SOMAVR's player snapshot is
+the root object (`0x7a9ebb00` in the captured run), while native
+`SOMA_cLuxPlayer_OnAnalogInput` receives the helper subobject at exactly
+root `+0x110` (`0x7a9ebc10`). The active state script is helper `+0xc8`
+(`0x705fffc0`, state ID `13`), equivalent to root `+0x1d8`. The former helper
+hook correctly derived the root for state validation but incorrectly passed
+that root to the analog dispatcher and read root `+0xc8`; all queued controller
+events therefore deferred against the wrong object.
+
+The physical-mouse curtain trace produced identical Look vectors at
+`0x140154fb0` and `0x140164910`, with the helper owner and state `13`.
+No Slide PID calls occurred. The shipped
+`PlayerState_Interact_MovingButton.hps` confirms this mechanism accumulates
+Look magnitude, averages recent normalized directions, enforces reversal after
+a state change, and invokes authored prop callbacks. It is not a Slide joint.
+Version 0.71 keeps root identity/state validation but calls the dispatcher with
+the helper owner from the native `0x14015ba20` phase.
+
+The keyboard baseline independently proved the normal locomotion contract.
+Holding `W` generated analog type `1` with `{0,1,0}` on the same helper owner,
+then called `HPL3_Script_iCharacterBody_Move` direction `0` with an accumulator
+change from `0` to `1` every frame. Controller movement now uses this semantic
+dispatcher with the existing radial deadzone and controller-relative transform.
+This preserves the Normal move script's speed, state policy, and downstream
+body setup instead of relying on Windows key injection or guessing a raw body
+accumulator scale. Direct `0x1402375f0` remains diagnostic only.
+
+## 0.70.0 Input, Manipulation, And Terminal Recovery
+
+The full 0.68.2 log closes the attempted player-helper context hypothesis.
+Controller motion generated continuous Slide and MovingButton events, but every
+dispatch deferred because player `+0xc8` remained null for the complete active
+interaction. `cLuxPlayer::OnAnalogInput` safely skips a null `+0xc8` and can
+continue through secondary/player handling, so `+0xc8 -> +0x10` is neither a
+generic active-state owner nor a valid readiness test. Direct arbitrary-phase
+script dispatch remains prohibited by the 0.68.1 crash. Future MovingButton,
+Wheel, and Tear work requires either the actual script-context owner or a
+mechanism-specific native physics/action boundary.
+
+Slide no longer depends on that unresolved script route. State `4` and the exact
+`6/0/0.1` vector PID follow controller velocity plus hand-versus-body
+displacement projected onto selected body joint 0's pin. SwingDoor state `5`
+uses only point velocity around the native pivot: live rows showed wrist
+angular velocity frequently opposed and overwhelmed the point term, explaining
+one-direction movement. Lever state `6` keeps wrist twist because rotational
+intent is useful there.
+
+The same log proves terminal input and image quality were separate. Native
+controller dispatch crossed the complete `1024x577` virtual domain, while the
+captured physical-screen allocation moved through atlas tiles from `256x145` to
+about `596x337`. Enlarging those tiles necessarily produced a soft panel and
+could hide cursor updates in the wrong visual sample. The 0.70 route binds the
+`1920x1080` OpenXR HUD capture before `HPL3_GuiSet_Render`, calls the stateful
+renderer exactly once, and restores the caller's atlas FBO afterward. This
+avoids both duplicate GUI mutation and low-resolution proxy capture.
+
+Finally, raw stick magnitude and controller-relative transforms were correct,
+but direct `iCharacterBody::Move` accumulation was severely under-speed. The
+package returns to semantic movement for reliable testing. Restoring true
+analog requires RE of the native input/update ordering and accumulator reset,
+not a blind scalar.
+
+## 0.69.0 Authored-State Compatibility And Visible Hands
+
+The focused pass is in `AUTHORED_STATES_AND_VISIBLE_HANDS_RE.md`. Exact states
+`0..20` are classified without conflating structural camera takeover with
+semantic authorship. Telemetry observes character-body camera `+0x1b0`, update
+ownership, rotate mode, symbolic state, and semantic class without changing
+policy.
+
+SOMA ships one bilateral skinned hands mesh with both wrist chains, hand
+sockets, `Socket_Camera`, and campaign-specific model variants. HPL3 has
+per-bone pre/post-animation transforms matching released HPL2 composition. A
+guarded passive probe records the bones' world transforms and flags. The first
+control spike should use Normal-only wrist post-transforms after live lifecycle
+stability is proven.
+
 ## 0.68.2 Native-Phase Recovery And Presentation Feedback
 
 The full 0.68.1 log contains 360+ queued MovingButton/Slide motion events but
@@ -1250,9 +1592,12 @@ set and keeps every nonmatching set on the original path. `0.31.0` promotes the
 signature-guarded `SOMA_GetGameHudImGui()->GetSet()` identity from telemetry to
 the same capture transaction. `0.34.0` additionally captures the exact current
 ImGui set only while `SOMA_GetGamePaused()` confirms pause ownership. `0.43.0`
-adds exact wake/death authorities and `0.44.0` adds exact inventory activity;
-main menu is pause-owned. Load and all 3D/diegetic GUI retain their dedicated
-native/presentation paths.
+adds exact wake/death authorities and `0.44.0` adds exact inventory activity.
+The 0.79 log disproves pause-only main-menu ownership: after returning to the
+front end SOMA recreates a valid player/body in state Normal with camera control
+while the menu remains visible. Version 0.80 therefore classifies the focused
+game window's visible native cursor as the additional main-menu authority. Load
+and all 3D/diegetic GUI retain their dedicated native/presentation paths.
 
 ### Surface Classes
 

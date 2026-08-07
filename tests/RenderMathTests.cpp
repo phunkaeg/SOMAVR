@@ -1,8 +1,11 @@
 #include "HPLCameraMath.h"
+#include "CrashCapturePolicy.h"
 #include "HPLComfortMath.h"
 #include "HPLContactHapticsMath.h"
 #include "HPLFlashlightMath.h"
 #include "HPLHandsMath.h"
+#include "HPLArmIKMath.h"
+#include "HPLAuthoredInteractionMath.h"
 #include "HPLGrabMath.h"
 #include "HPLReadMath.h"
 #include "HPLGameplayHapticsMath.h"
@@ -14,6 +17,7 @@
 #include "HPLRoomscaleReconciliationMath.h"
 #include "HPLScreenEffectMath.h"
 #include "HPLSubtitleMath.h"
+#include "HPLTerminalMath.h"
 #include "HPLDualRenderMath.h"
 #include "HPLPerEyeViewHistoryMath.h"
 #include "HPLPerEyePostEffectMath.h"
@@ -26,6 +30,7 @@
 #include "OpenXRSpectatorMath.h"
 #include "OpenXRDepthMath.h"
 #include "OpenXRComfortVignetteMath.h"
+#include "OpenXRFramePacingMath.h"
 #include "OpenXRStatusPanelMath.h"
 
 #include <algorithm>
@@ -58,6 +63,139 @@ int main()
     using namespace somavr;
 
     int failures = 0;
+    arm_ik_math::TwoBoneSolution armSolution;
+    failures += Check(
+        arm_ik_math::SolveTwoBone(
+            {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f},
+            {0.0f, -1.0f, 0.0f}, 0.75f, 0.75f, 0.985f, armSolution)
+            && Near(armSolution.solvedDistance, 1.0f)
+            && armSolution.elbow.y < 0.0f
+            && !armSolution.reachClamped,
+        "arm IK reaches a controller target on the native elbow side");
+    failures += Check(
+        arm_ik_math::SolveTwoBone(
+            {0.0f, 0.0f, 0.0f}, {4.0f, 0.0f, 0.0f},
+            {0.0f, 0.0f, 1.0f}, 0.5f, 0.5f, 0.98f, armSolution)
+            && Near(armSolution.solvedDistance, 0.98f)
+            && armSolution.reachClamped,
+        "arm IK clamps unreachable targets before elbow lock");
+    arm_ik_math::ShoulderReachSolution shoulderReach;
+    failures += Check(
+        arm_ik_math::ComputeReachShoulderTarget(
+            {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f},
+            {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, true,
+            1.5f, 0.85f, 0.985f, 0.05f, 1.0f, nullptr, shoulderReach)
+            && !shoulderReach.applied
+            && Near(shoulderReach.blend, 0.0f),
+        "shoulder reach compensation leaves ordinary hand motion anchored");
+    failures += Check(
+        arm_ik_math::ComputeReachShoulderTarget(
+            {0.0f, 0.0f, 0.0f}, {0.0f, 0.2f, -1.48f},
+            {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, false,
+            1.5f, 0.85f, 0.985f, 0.05f, 1.0f, nullptr, shoulderReach)
+            && shoulderReach.applied
+            && shoulderReach.offsetWorld.y > 0.0f
+            && shoulderReach.offsetWorld.z < 0.0f
+            && Near(std::sqrt(
+                shoulderReach.offsetWorld.x * shoulderReach.offsetWorld.x
+                + shoulderReach.offsetWorld.y * shoulderReach.offsetWorld.y
+                + shoulderReach.offsetWorld.z * shoulderReach.offsetWorld.z),
+                0.05f, 1.0e-4f),
+        "shoulder reach compensation contributes only a bounded forward-up offset");
+    const camera_math::Vector3 previousShoulderLocal{0.0f, 0.0f, 0.05f};
+    failures += Check(
+        arm_ik_math::ComputeReachShoulderTarget(
+            {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -0.5f},
+            {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, true,
+            1.5f, 0.85f, 0.985f, 0.05f, 0.5f,
+            &previousShoulderLocal, shoulderReach)
+            && shoulderReach.applied
+            && Near(shoulderReach.offsetLocal.z, 0.025f),
+        "latent shoulder contribution releases smoothly without delaying the wrist");
+
+    arm_ik_math::ElbowPoleSolution elbowPole;
+    failures += Check(
+        arm_ik_math::ComputeErgonomicElbowPole(
+            {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f},
+            {-0.4f, 0.0f, -0.5f}, {0.0f, 0.0f, -1.0f},
+            {0.0f, 1.0f, 0.0f}, true, 1.0f, 1.0f, 10.0f, nullptr, elbowPole)
+            && elbowPole.directionWorld.x < 0.0f
+            && elbowPole.directionWorld.y < 0.0f,
+        "left ergonomic elbow favours a down-and-out torso-space pole");
+    failures += Check(
+        arm_ik_math::ComputeErgonomicElbowPole(
+            {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f},
+            {0.4f, 0.0f, -0.5f}, {0.0f, 0.0f, -1.0f},
+            {0.0f, 1.0f, 0.0f}, false, 1.0f, 1.0f, 10.0f, nullptr, elbowPole)
+            && elbowPole.directionWorld.x > 0.0f
+            && elbowPole.directionWorld.y < 0.0f,
+        "right ergonomic elbow remains independently down-and-out");
+    const camera_math::Vector3 previousElbowLocal{1.0f, 0.0f, 0.0f};
+    failures += Check(
+        arm_ik_math::ComputeErgonomicElbowPole(
+            {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.01f},
+            {0.4f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f},
+            {0.0f, 1.0f, 0.0f}, false, 1.0f, 1.0f, 5.0f,
+            &previousElbowLocal, elbowPole)
+            && elbowPole.historyUsed
+            && elbowPole.singularityBlend > 0.9f
+            && elbowPole.directionLocal.x > 0.9f,
+        "elbow pole preserves torso-local history near vertical singularity");
+    const camera_math::Vector3 oppositeElbowLocal{-1.0f, 0.0f, 0.0f};
+    failures += Check(
+        arm_ik_math::ComputeErgonomicElbowPole(
+            {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f},
+            {0.4f, 0.0f, -0.5f}, {0.0f, 0.0f, -1.0f},
+            {0.0f, 1.0f, 0.0f}, false, 1.0f, 1.0f, 5.0f,
+            &oppositeElbowLocal, elbowPole)
+            && elbowPole.historyUsed
+            && elbowPole.swivelLimited,
+        "elbow pole caps a discontinuous per-frame swivel change");
+    const std::array<float, 16> ikIdentityMatrix = {
+        1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+    std::array<float, 16> rotatedArm{};
+    failures += Check(
+        arm_ik_math::RotateWorldMatrixToward(
+            ikIdentityMatrix, {1.0f, 0.0f, 0.0f},
+            {0.0f, 1.0f, 0.0f}, 1.0f, rotatedArm)
+            && Near(rotatedArm[0], 0.0f, 1.0e-4f)
+            && Near(rotatedArm[4], 1.0f, 1.0e-4f),
+        "arm IK rotates a node toward its solved child target");
+
+    authored_interaction_math::MedicineSettings medicineSettings;
+    medicineSettings.capLocalOffset = {0.0f, 0.1f, 0.0f};
+    medicineSettings.capProximity = 0.12f;
+    medicineSettings.mouthProximity = 0.15f;
+    medicineSettings.drinkTipDegrees = 60.0f;
+    medicineSettings.drinkHoldFrames = 2;
+    authored_interaction_math::MedicineState medicineState;
+    authored_interaction_math::MedicineFrame medicineFrame;
+    medicineFrame.bottleValid = true;
+    medicineFrame.bottleWorld = ikIdentityMatrix;
+    medicineFrame.leftHandValid = true;
+    medicineFrame.leftHandPosition = {0.0f, 0.1f, 0.0f};
+    medicineFrame.leftActionPressed = true;
+    medicineFrame.headValid = true;
+    medicineFrame.headPosition = {0.0f, 0.1f, 0.0f};
+    authored_interaction_math::MedicineResult medicineResult;
+    failures += Check(
+        authored_interaction_math::UpdateMedicine(
+            medicineState, medicineSettings, medicineFrame, medicineResult)
+            && medicineResult.capRemoved
+            && medicineState.stage == authored_interaction_math::MedicineStage::AwaitDrink,
+        "medicine profile removes the cap only on proximity plus action edge");
+    medicineFrame.leftActionPressed = false;
+    medicineFrame.bottleWorld = {
+        1,0,0,0, 0,-1,0,0, 0,0,-1,0, 0,0,0,1};
+    medicineFrame.headPosition = {0.0f, -0.1f, 0.0f};
+    authored_interaction_math::UpdateMedicine(
+        medicineState, medicineSettings, medicineFrame, medicineResult);
+    failures += Check(
+        authored_interaction_math::UpdateMedicine(
+            medicineState, medicineSettings, medicineFrame, medicineResult)
+            && medicineResult.drinkCompleted
+            && medicineState.stage == authored_interaction_math::MedicineStage::Complete,
+        "medicine profile requires a sustained tipped bottle at the mouth");
     failures += Check(
         interaction_math::SelectInteractionHand(
             {true, true, false, 2.0f}, {true, false, false, 0.0f}, 1, -1) == 0,
@@ -597,6 +735,12 @@ int main()
     failures += Check(Near(halfStick.x, 0.0f) && Near(halfStick.y, 0.5f), "radial deadzone rescales magnitude");
     failures += Check(Near(input_math::DegreesToRadians(30.0f), 0.5235988f), "snap-turn degree conversion");
     constexpr float kHalfSqrtTwo = 0.7071067811865475f;
+    failures += Check(
+        Near(input_math::QuaternionAngularDistanceDegrees(
+            {}, {0.0f, kHalfSqrtTwo, 0.0f, kHalfSqrtTwo}), 90.0f, 0.0001f)
+            && Near(input_math::QuaternionAngularDistanceDegrees(
+                {}, {0.0f, -kHalfSqrtTwo, 0.0f, -kHalfSqrtTwo}), 90.0f, 0.0001f),
+        "terminal look-away uses shortest quaternion angular distance");
     const input_math::Axis2 headRightMovement = input_math::ApplyHeadRelativeMovement(
         0.0f,
         1.0f,
@@ -732,6 +876,25 @@ int main()
             {}, {}, 1.5f, 0.0f, 1.6f, 1.0f, 360.0f, cylinderPose),
         "curved HUD rejects a full-circle layer");
 
+    hud_math::HudQuadPose surfacePointer{};
+    failures += Check(
+        hud_math::BuildHudSurfacePointerPose(
+            0.5f, 0.5f, 1.5f, 0.1f, 1.6f, 16.0f / 9.0f,
+            false, 70.0f, 0.02f, surfacePointer)
+            && Near(surfacePointer.position.x, 0.0f)
+            && Near(surfacePointer.position.y, 0.1f)
+            && Near(surfacePointer.position.z, -1.498f)
+            && Near(surfacePointer.widthMeters, 0.02f),
+        "HUD surface pointer maps normalized center to the quad center");
+    failures += Check(
+        hud_math::BuildHudSurfacePointerPose(
+            1.0f, 0.0f, 1.5f, 0.0f, 1.6f, 16.0f / 9.0f,
+            true, 70.0f, 0.02f, surfacePointer)
+            && surfacePointer.position.x > 0.0f
+            && surfacePointer.position.y > 0.0f
+            && surfacePointer.orientation.y < 0.0f,
+        "HUD surface pointer follows the cylinder arc and tangent");
+
     camera_math::Vector3 screenEffectPosition;
     failures += Check(
         screen_effect_math::ScaleCameraRelativePosition(
@@ -836,6 +999,298 @@ int main()
             {},
             hudObjectMatrix),
         "controller HudObject rejects collinear tracking basis");
+
+    const std::array<float, 16> wristParentWorld = {
+        0.25f, 0.0f, 0.0f, 10.0f,
+        0.0f, 0.25f, 0.0f, 20.0f,
+        0.0f, 0.0f, 0.25f, 30.0f,
+        0.0f, 0.0f, 0.0f, 1.0f,
+    };
+    const std::array<float, 16> wristAnimatedLocal = {
+        1.0f, 0.0f, 0.0f, 1.0f,
+        0.0f, 1.0f, 0.0f, 2.0f,
+        0.0f, 0.0f, 1.0f, 3.0f,
+        0.0f, 0.0f, 0.0f, 1.0f,
+    };
+    std::array<float, 16> wristDesiredWorld = camera_math::MatrixMultiply(
+        wristParentWorld, wristAnimatedLocal);
+    wristDesiredWorld[3] = 11.5f;
+    wristDesiredWorld[7] = 21.0f;
+    wristDesiredWorld[11] = 29.5f;
+    std::array<float, 16> wristPostTransform{};
+    const bool wristPostValid = hands_math::BuildPostTransformForWorldTarget(
+        wristParentWorld,
+        wristAnimatedLocal,
+        wristDesiredWorld,
+        wristPostTransform);
+    const std::array<float, 16> reconstructedWristWorld = camera_math::MatrixMultiply(
+        camera_math::MatrixMultiply(wristParentWorld, wristPostTransform),
+        wristAnimatedLocal);
+    failures += Check(
+        wristPostValid
+            && Near(reconstructedWristWorld[3], wristDesiredWorld[3])
+            && Near(reconstructedWristWorld[7], wristDesiredWorld[7])
+            && Near(reconstructedWristWorld[11], wristDesiredWorld[11]),
+        "wrist post-transform dry run reconstructs a world-space target");
+    std::array<float, 16> singularWristParent{};
+    failures += Check(
+        !hands_math::BuildPostTransformForWorldTarget(
+            singularWristParent,
+            wristAnimatedLocal,
+            wristDesiredWorld,
+            wristPostTransform),
+        "wrist post-transform dry run rejects a singular hierarchy");
+
+    camera_math::Quaternion anchorControllerOrientation;
+    camera_math::Quaternion anchorWristOrientation;
+    const std::array<float, 16> anchoredWristWorld = {
+        0.0f, 0.0f, 0.5f, 4.0f,
+        0.0f, 0.5f, 0.0f, 5.0f,
+        -0.5f, 0.0f, 0.0f, 6.0f,
+        0.0f, 0.0f, 0.0f, 1.0f,
+    };
+    const bool wristAnchorsValid = camera_math::QuaternionFromForwardUp(
+            {0.0f, 0.0f, -1.0f},
+            {0.0f, 1.0f, 0.0f},
+            anchorControllerOrientation)
+        && camera_math::QuaternionFromRotationMatrix(
+            anchoredWristWorld, anchorWristOrientation);
+    std::array<float, 16> trackedWristWorld{};
+    failures += Check(
+        wristAnchorsValid
+            && hands_math::BuildTrackedWristWorldMatrix(
+                {7.0f, 8.0f, 9.0f},
+                {0.0f, 0.0f, -1.0f},
+                {0.0f, 1.0f, 0.0f},
+                anchorControllerOrientation,
+                anchorWristOrientation,
+                anchoredWristWorld,
+                trackedWristWorld)
+            && Near(trackedWristWorld[0], anchoredWristWorld[0])
+            && Near(trackedWristWorld[2], anchoredWristWorld[2])
+            && Near(trackedWristWorld[5], anchoredWristWorld[5])
+            && Near(trackedWristWorld[8], anchoredWristWorld[8])
+            && Near(trackedWristWorld[3], 7.0f)
+            && Near(trackedWristWorld[7], 8.0f)
+            && Near(trackedWristWorld[11], 9.0f),
+        "tracked wrist orientation preserves its native first-frame controller alignment");
+    failures += Check(
+        hands_math::BuildTrackedWristWorldMatrix(
+            {7.0f, 8.0f, 9.0f},
+            {-1.0f, 0.0f, 0.0f},
+            {0.0f, 1.0f, 0.0f},
+            anchorControllerOrientation,
+            anchorWristOrientation,
+            anchoredWristWorld,
+            trackedWristWorld)
+            && Near(std::sqrt(
+                trackedWristWorld[0] * trackedWristWorld[0]
+                    + trackedWristWorld[4] * trackedWristWorld[4]
+                    + trackedWristWorld[8] * trackedWristWorld[8]), 0.5f)
+            && !Near(trackedWristWorld[2], anchoredWristWorld[2]),
+        "tracked wrist orientation follows controller rotation while preserving bone scale");
+
+    const auto translatedIdentity = [](float x, float y, float z) {
+        return std::array<float, 16>{
+            1.0f, 0.0f, 0.0f, x,
+            0.0f, 1.0f, 0.0f, y,
+            0.0f, 0.0f, 1.0f, z,
+            0.0f, 0.0f, 0.0f, 1.0f,
+        };
+    };
+    const std::array<float, 16> palmIndex = translatedIdentity(4.12f, 5.0f, 5.80f);
+    const std::array<float, 16> palmMiddle = translatedIdentity(4.04f, 5.0f, 5.76f);
+    const std::array<float, 16> palmRing = translatedIdentity(3.96f, 5.0f, 5.76f);
+    const std::array<float, 16> palmPinky = translatedIdentity(3.88f, 5.0f, 5.80f);
+    camera_math::Quaternion palmToWrist{};
+    std::array<float, 16> geometricWristWorld{};
+    failures += Check(
+        hands_math::BuildPalmToWristOrientation(
+            anchoredWristWorld,
+            palmIndex,
+            palmMiddle,
+            palmRing,
+            palmPinky,
+            palmToWrist)
+            && hands_math::BuildTrackedWristWorldMatrixFromOffset(
+                {7.0f, 8.0f, 9.0f},
+                {0.0f, 0.0f, -1.0f},
+                {0.0f, 1.0f, 0.0f},
+                palmToWrist,
+                anchoredWristWorld,
+                geometricWristWorld)
+            && Near(geometricWristWorld[0], anchoredWristWorld[0])
+            && Near(geometricWristWorld[2], anchoredWristWorld[2])
+            && Near(geometricWristWorld[5], anchoredWristWorld[5])
+            && Near(geometricWristWorld[8], anchoredWristWorld[8]),
+        "geometric palm calibration deterministically preserves the model wrist basis");
+    const camera_math::Quaternion rolledPalmToWrist =
+        hands_math::ApplyControllerForwardRoll({}, -90.0f);
+    const camera_math::Vector3 rolledUp = camera_math::RotateVector(
+        rolledPalmToWrist, {0.0f, 1.0f, 0.0f});
+    failures += Check(
+        Near(rolledUp.x, -1.0f) && Near(rolledUp.y, 0.0f) && Near(rolledUp.z, 0.0f),
+        "wrist calibration applies configurable roll around controller forward");
+    const camera_math::Quaternion pitchedWrist =
+        hands_math::ApplyControllerLocalPitch({}, 45.0f);
+    const camera_math::Vector3 pitchedForward = camera_math::RotateVector(
+        pitchedWrist, {0.0f, 0.0f, -1.0f});
+    failures += Check(
+        Near(pitchedForward.y, std::sqrt(0.5f), 0.0001f)
+            && Near(pitchedForward.z, -std::sqrt(0.5f), 0.0001f),
+        "wrist calibration applies configurable pitch around controller right");
+    const std::array<float, 16> degeneratePalm = translatedIdentity(4.0f, 5.0f, 6.0f);
+    failures += Check(
+        !hands_math::BuildPalmToWristOrientation(
+            anchoredWristWorld,
+            degeneratePalm,
+            degeneratePalm,
+            degeneratePalm,
+            degeneratePalm,
+            palmToWrist),
+        "geometric palm calibration rejects a degenerate finger layout");
+
+    const std::array<float, 16> retainedHandsRoot = {
+        0.25f, 0.0f, 0.0f, 10.0f,
+        0.0f, 0.25f, 0.0f, 1.6f,
+        0.0f, 0.0f, 0.25f, -0.4f,
+        0.0f, 0.0f, 0.0f, 1.0f,
+    };
+    const camera_math::Quaternion zeroYaw{};
+    const float halfSqrt = std::sqrt(0.5f);
+    const camera_math::Quaternion quarterTurnYaw{0.0f, halfSqrt, 0.0f, halfSqrt};
+    const camera_math::Vector3 sourceCamera{10.0f, 1.7f, 0.0f};
+    const camera_math::Vector3 targetCamera{12.0f, 1.8f, 3.0f};
+    std::array<float, 16> bodyAnchoredRoot{};
+    const camera_math::Vector3 expectedRelative = camera_math::RotateVector(
+        quarterTurnYaw, {0.0f, -0.1f, -0.4f});
+    failures += Check(
+        hands_math::BuildBodyAnchoredRootMatrix(
+            retainedHandsRoot,
+            sourceCamera,
+            zeroYaw,
+            targetCamera,
+            quarterTurnYaw,
+            bodyAnchoredRoot)
+            && Near(bodyAnchoredRoot[3], targetCamera.x + expectedRelative.x)
+            && Near(bodyAnchoredRoot[7], targetCamera.y + expectedRelative.y)
+            && Near(bodyAnchoredRoot[11], targetCamera.z + expectedRelative.z),
+        "retained hand root follows tracked anchor translation and body yaw around the anchor pivot");
+    failures += Check(
+        Near(std::sqrt(
+            bodyAnchoredRoot[0] * bodyAnchoredRoot[0]
+                + bodyAnchoredRoot[4] * bodyAnchoredRoot[4]
+                + bodyAnchoredRoot[8] * bodyAnchoredRoot[8]), 0.25f)
+            && Near(std::sqrt(
+                bodyAnchoredRoot[1] * bodyAnchoredRoot[1]
+                    + bodyAnchoredRoot[5] * bodyAnchoredRoot[5]
+                    + bodyAnchoredRoot[9] * bodyAnchoredRoot[9]), 0.25f),
+        "retained hand body-yaw anchoring preserves native root scale");
+
+    const std::array<float, 16> quarterScaleHands = {
+        0.0f, 0.0f, 0.25f, 10.0f,
+        0.0f, 0.25f, 0.0f, 20.0f,
+        -0.25f, 0.0f, 0.0f, 30.0f,
+        0.0f, 0.0f, 0.0f, 1.0f,
+    };
+    std::array<float, 16> fullScaleHands{};
+    failures += Check(
+        hands_math::NormalizeUniformScale(
+            quarterScaleHands, 0.25f, 1.0f, 0.04f, fullScaleHands),
+        "player hands quarter-scale root normalizes to authored full scale");
+    failures += Check(
+        Near(fullScaleHands[2], 1.0f)
+            && Near(fullScaleHands[5], 1.0f)
+            && Near(fullScaleHands[8], -1.0f)
+            && Near(fullScaleHands[3], 10.0f)
+            && Near(fullScaleHands[7], 20.0f)
+            && Near(fullScaleHands[11], 30.0f),
+        "player hands scale normalization preserves root pose");
+    const std::array<float, 16> acceptedFullScaleHands = fullScaleHands;
+    std::array<float, 16> nonUniformHands = quarterScaleHands;
+    nonUniformHands[5] = 0.5f;
+    failures += Check(
+        !hands_math::NormalizeUniformScale(
+            nonUniformHands, 0.25f, 1.0f, 0.04f, fullScaleHands),
+        "player hands scale normalization rejects nonuniform authored roots");
+
+    std::array<float, 16> staleBodyAnchoredRoot = bodyAnchoredRoot;
+    std::array<float, 16> reconciledBodyAnchoredRoot{};
+    failures += Check(
+        hands_math::ApplyRootBasisScale(
+            acceptedFullScaleHands, staleBodyAnchoredRoot, reconciledBodyAnchoredRoot)
+            && Near(reconciledBodyAnchoredRoot[3], staleBodyAnchoredRoot[3])
+            && Near(reconciledBodyAnchoredRoot[7], staleBodyAnchoredRoot[7])
+            && Near(reconciledBodyAnchoredRoot[11], staleBodyAnchoredRoot[11])
+            && Near(std::sqrt(
+                reconciledBodyAnchoredRoot[0] * reconciledBodyAnchoredRoot[0]
+                    + reconciledBodyAnchoredRoot[4] * reconciledBodyAnchoredRoot[4]
+                    + reconciledBodyAnchoredRoot[8] * reconciledBodyAnchoredRoot[8]), 1.0f),
+        "retained body anchoring adopts the current normalized hand-root scale");
+
+    constexpr uint32_t kColorBit = 0x00004000;
+    constexpr uint32_t kDepthBit = 0x00000100;
+    constexpr uint32_t kStencilBit = 0x00000400;
+    terminal_math::ClearPolicyResult terminalClear =
+        terminal_math::ResolveRetainedSurfaceClear(
+            kColorBit | kDepthBit | kStencilBit,
+            kColorBit,
+            true,
+            true,
+            true);
+    failures += Check(
+        terminalClear.colorSuppressed
+            && terminalClear.forwardedMask == (kDepthBit | kStencilBit),
+        "terminal retention suppresses only the nested color clear");
+    terminalClear = terminal_math::ResolveRetainedSurfaceClear(
+        kColorBit | kDepthBit,
+        kColorBit,
+        true,
+        true,
+        false);
+    failures += Check(
+        !terminalClear.colorSuppressed
+            && terminalClear.forwardedMask == (kColorBit | kDepthBit),
+        "terminal retention preserves clears for unrelated framebuffers");
+    failures += Check(
+        !terminal_math::ShouldFallbackToLiveTerminalFrames(7, 8, false)
+            && terminal_math::ShouldFallbackToLiveTerminalFrames(8, 8, false)
+            && !terminal_math::ShouldFallbackToLiveTerminalFrames(8, 8, true)
+            && !terminal_math::ShouldFallbackToLiveTerminalFrames(8, 8, false, true),
+        "terminal retention falls back only after bounded missing-clear evidence without a repaired draw path");
+    terminal_math::HudPointerPosition terminalPointer{};
+    const camera_math::Quaternion identityOrientation{0.0f, 0.0f, 0.0f, 1.0f};
+    failures += Check(
+        terminal_math::ProjectAimToHudSurface(
+            identityOrientation,
+            identityOrientation,
+            true,
+            70.0f,
+            1.5f,
+            1.6f,
+            16.0f / 9.0f,
+            terminalPointer)
+            && Near(terminalPointer.x, 0.5f)
+            && Near(terminalPointer.y, 0.5f),
+        "terminal HUD projection aligns straight controller aim to overlay center");
+    camera_math::Quaternion rightAim{};
+    failures += Check(
+        camera_math::QuaternionFromForwardUp(
+            {0.5f, 0.0f, -0.8660254f},
+            {0.0f, 1.0f, 0.0f},
+            rightAim)
+            && terminal_math::ProjectAimToHudSurface(
+                identityOrientation,
+                rightAim,
+                true,
+                70.0f,
+                1.5f,
+                1.6f,
+                16.0f / 9.0f,
+                terminalPointer)
+            && terminalPointer.x > 0.90f
+            && Near(terminalPointer.y, 0.5f),
+        "terminal HUD projection follows the cylinder arc instead of a mismatched flat FOV");
 
     std::array<float, 16> flashlightMatrix{};
     const flashlight_math::FlashlightCalibration flashlightCalibration{
@@ -1067,21 +1522,33 @@ int main()
                 + safeSideThrow.z * safeSideThrow.z), 1.0f),
         "controller throw direction keeps clearance from the player body");
 
+    float bodyFollowYaw = 0.0f;
+    const float bodyFollowStep = input_math::ComputeBodyFollowStepRadians(
+        input_math::DegreesToRadians(60.0f), 10.0f, 20.0f, 500);
+    failures += Check(
+        input_math::ResolveHorizontalYaw(
+            {0.0f, -0.5f, 0.0f, 0.8660254f}, bodyFollowYaw)
+            && Near(bodyFollowYaw, input_math::DegreesToRadians(60.0f), 0.001f)
+            && Near(bodyFollowStep, input_math::DegreesToRadians(10.0f), 0.001f)
+            && Near(input_math::WrapRadians(input_math::DegreesToRadians(370.0f)),
+                input_math::DegreesToRadians(10.0f), 0.001f),
+        "physical body follow resolves horizontal HMD yaw and rate-limits toward release angle");
+
     std::array<float, 16> readNative{
-        1.0f, 0.0f, 0.0f, 0.0f,
+        0.5f, 0.0f, 0.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, -0.5f,
+        0.0f, 0.0f, 1.5f, -0.5f,
         0.0f, 0.0f, 0.0f, 1.0f,
     };
     std::array<float, 16> readPresented{};
     failures += Check(
         read_math::BuildReadPresentationMatrix(
             readNative, 2.0f, nullptr, readPresented)
-            && Near(readPresented[0], 2.0f)
+            && Near(readPresented[0], 1.0f)
             && Near(readPresented[5], 2.0f)
-            && Near(readPresented[10], 2.0f)
+            && Near(readPresented[10], 3.0f)
             && Near(readPresented[11], -0.5f),
-        "read presentation scales apparent size while preserving native pickup travel");
+        "read presentation multiplies authored per-axis scale while preserving pickup travel");
     const camera_math::Quaternion readYaw =
         read_math::ResolveRelativeOrientation(
             {},
@@ -1091,10 +1558,10 @@ int main()
         read_math::BuildReadPresentationMatrix(
             readNative, 2.0f, &readYaw, readPresented)
             && Near(readPresented[0], 0.0f)
-            && Near(readPresented[2], 2.0f)
-            && Near(readPresented[8], -2.0f)
+            && Near(readPresented[2], 3.0f)
+            && Near(readPresented[8], -1.0f)
             && Near(readPresented[11], -0.5f),
-        "read presentation applies unrestricted controller-relative orientation");
+        "read presentation applies orientation while retaining authored scale proportions");
     camera_math::Vector3 readPresentationPosition{};
     failures += Check(
         read_math::ScaleCameraRelativePosition(
@@ -1106,6 +1573,17 @@ int main()
             && Near(readPresentationPosition.y, 2.0f)
             && Near(readPresentationPosition.z, 3.3f),
         "read distance scales each current native position from the camera");
+    failures += Check(
+        read_math::ResolveLatchedCameraRelativePosition(
+            {1.0f, 2.0f, 3.0f},
+            {1.0f, 2.0f, 3.15f},
+            {2.0f, 4.0f, 6.0f},
+            2.0f,
+            readPresentationPosition)
+            && Near(readPresentationPosition.x, 2.0f)
+            && Near(readPresentationPosition.y, 4.0f)
+            && Near(readPresentationPosition.z, 6.3f),
+        "read presentation follows camera translation from one latched native offset without recursive growth");
     camera_math::Quaternion extractedYaw{};
     failures += Check(
         camera_math::QuaternionFromRotationMatrix(
@@ -1190,6 +1668,21 @@ int main()
     failures += Check(
         Near(yawRotated.x, 1.0f) && Near(yawRotated.y, 0.0f) && Near(yawRotated.z, 0.0f),
         "quarter-turn yaw rotation");
+
+    const float pitchHalfAngle = input_math::DegreesToRadians(15.0f);
+    const float rollHalfAngle = input_math::DegreesToRadians(10.0f);
+    const camera_math::Quaternion tiltedYaw = camera_math::Multiply(
+        {0.0f, kHalfSqrtTwo, 0.0f, kHalfSqrtTwo},
+        camera_math::Multiply(
+            {std::sin(pitchHalfAngle), 0.0f, 0.0f, std::cos(pitchHalfAngle)},
+            {0.0f, 0.0f, std::sin(rollHalfAngle), std::cos(rollHalfAngle)}));
+    const camera_math::Quaternion yawOnly = camera_math::YawOnly(tiltedYaw);
+    failures += Check(
+        Near(yawOnly.x, 0.0f)
+            && Near(yawOnly.z, 0.0f)
+            && Near(std::fabs(yawOnly.y), kHalfSqrtTwo, 0.0001f)
+            && Near(std::fabs(yawOnly.w), kHalfSqrtTwo, 0.0001f),
+        "recenter calibration keeps yaw while discarding headset pitch and roll");
 
     const camera_math::Quaternion matrixTestRotation = camera_math::Normalize(
         {0.23f, -0.41f, 0.17f, 0.86f});
@@ -1475,6 +1968,44 @@ int main()
         !status_panel_math::RasterizePanel(panel, 128, 128, panelPixels),
         "VR status panel rejects undersized targets");
     failures += Check(status_panel_math::kActionCount == 9, "VR status panel action contract");
+
+    using openxr_frame_pacing_math::Decision;
+    failures += Check(
+        openxr_frame_pacing_math::Decide(true, false, false) == Decision::Wait,
+        "OpenXR pacing submits during initial focus acquisition");
+    failures += Check(
+        openxr_frame_pacing_math::Decide(true, true, true) == Decision::Wait,
+        "OpenXR pacing submits while focused");
+    failures += Check(
+        openxr_frame_pacing_math::Decide(true, false, true) == Decision::SkipUntilFocused,
+        "OpenXR pacing skips untimed waits after focus loss");
+    failures += Check(
+        openxr_frame_pacing_math::Decide(false, false, true) == Decision::Wait,
+        "OpenXR pacing leaves stopped sessions to lifecycle ownership");
+
+    crash_capture::Policy crashPolicy(3);
+    failures += Check(
+        crashPolicy.Begin(0xC0000005u, 0x1000u) == crash_capture::Decision::Capture,
+        "crash policy accepts the first fault");
+    failures += Check(
+        crashPolicy.Begin(0xC0000005u, 0x2000u) == crash_capture::Decision::Busy,
+        "crash policy rejects reentrant capture");
+    crashPolicy.End();
+    failures += Check(
+        crashPolicy.Begin(0xC0000005u, 0x1000u) == crash_capture::Decision::Duplicate,
+        "crash policy suppresses a repeated fault address");
+    failures += Check(
+        crashPolicy.Begin(0xC0000005u, 0x2000u) == crash_capture::Decision::Capture,
+        "crash policy accepts a distinct second fault");
+    crashPolicy.End();
+    failures += Check(
+        crashPolicy.Begin(0xC000001Du, 0x3000u) == crash_capture::Decision::Capture,
+        "crash policy accepts a distinct third fault");
+    crashPolicy.End();
+    failures += Check(
+        crashPolicy.Begin(0xC0000005u, 0x4000u) == crash_capture::Decision::LimitReached
+            && crashPolicy.Attempts() == 3,
+        "crash policy caps dump attempts per process");
 
     if (failures == 0) {
         std::cout << "Render math tests passed\n";

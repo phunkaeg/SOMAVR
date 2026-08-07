@@ -45,6 +45,18 @@ bool BuildHeadLockedCylinderPose(
     float centralAngleDegrees,
     HudCylinderPose& pose);
 
+bool BuildHudSurfacePointerPose(
+    float normalizedX,
+    float normalizedY,
+    float distanceMeters,
+    float verticalOffsetMeters,
+    float widthMeters,
+    float textureAspect,
+    bool cylinder,
+    float cylinderAngleDegrees,
+    float pointerSizeMeters,
+    HudQuadPose& pose);
+
 bool ComputeAngularQuadSize(
     float distanceMeters,
     float angularSizeDegrees,

@@ -92,10 +92,15 @@ and `docs\VR_COMPATIBILITY_RE.md`. Stable graph nodes and acceptance gates are i
 | `Soma_NoSteam.exe+0x143a10` | Static confirmed | Underlying closest-body physics ray | Forms the endpoint and invokes the active physics-world callback; tool `3` and camera-grounding `100` callers remain native. |
 | `Soma_NoSteam.exe+0x0bcd90` | Guarded control hook built | Shared Lux entity SetMatrix boundary | `0.16.0` handles exact normal quarter-scale `PlayerHands_*` grip roots; `0.23.0` handles only exact `Flashlight` dominant-aim matrices. All authored/stale/special/failure states remain native. |
 | `Soma_NoSteam.exe+0x00fb60` | Static confirmed, identity gate built | Inherited Lux entity GetName accessor | Returns native name at entity `+0x120`; exact `PlayerHands_*` and `Flashlight` gates avoid broad SetMatrix mutation. |
+| `Soma_NoSteam.exe+0x0b3700` | Guarded control hook built | Native Lux entity `SetActive(bool)` | 0.77 suppresses player-hands deactivation only in tracked Normal/Normal ownership after exact identity resolution. |
+| `Soma_NoSteam.exe+0x2cb5a0` | Guarded control hook built | Native entity/mesh `SetVisible(bool)` | 0.77 retains only the cached exact player-hands mesh; authored/non-Normal states pass through. |
 | `Soma_NoSteam.exe+0x1297c0` | Static confirmed | Attribute module `OnGui` dispatch | Module `mlId` is `+0x158` (GameOver `10`, Wake `12`, Credits `19`), but callback presence is not active-state proof because shipped handlers can return immediately. |
 | `Soma_NoSteam.exe+0x1378e0` | Guarded observer hook built | Exact user-module action activity | Preserves native dispatch; module `15`, action `12`, pressed edges authorize the shipped inventory hold/fade current-ImGui capture window. Registration at `+0x1ae870` proves `mlId +0x158`. |
 | `Soma_NoSteam.exe+0x484ea0/+0x485200/+0x485720` | Guarded scripted-presentation observer built | Exact wake sleep/start activity and typed arguments | Sleep arbitrates XR blackout; authored wake duration authorizes flat current-ImGui capture. Native dispatch remains authoritative. |
 | Player hands `PostUpdate` transform | Guarded controller root built | Replace camera-follow hands with controller pose | Tune configurable root calibration and per-tool profiles from live output while preserving mesh, animations, `R_Hand` attachments, tool callbacks, and camera attachments. |
+| `Soma_NoSteam.exe+0x165270/+0x200980` | Passive skeleton probe built | Resolve the `PlayerHands_*` mesh and bilateral wrist/socket bones | `0.69.0` logs world transforms and pre/post flags without mutation. Stable evidence unlocks post-animation wrist tracking. |
+| `Soma_NoSteam.exe+0x31c90/+0x4a9490/+0x4a94a0` | Static confirmed, control deferred | Enable and set per-bone post-animation correction | Begin with Normal state and exact wrists. Ladder/climb and camera-attached sequences stay native until separately accepted. |
+| Character-body camera `+0x1b0` plus states `0..20` | Passive classifier built | Distinguish structural detachment from semantic authored states | State adapters must preserve native body progress/endpoints while composing HMD freedom at render time. |
 | `Player.hps::UpdateFlashLightLOS` camera-ray sample | Guarded control built | Align randomized agent-gobo gameplay rays with the moved controller flashlight | The three low-frequency rays now share the visual light origin and controller-relative randomized cone; all general frustum/sensor behavior remains shipped script logic. |
 | `Soma_NoSteam.exe+0x0ccc90` plus HMD/aim pose | Guarded menu control built | Hard pause suppression and native menu pointer | True pause releases every gameplay route; dominant aim projects to SOMA's client cursor and trigger/select remains native left click. |
 | OpenXR action set | Design ready | Semantic movement, turn, interaction, and menu input | Snap turn first; body yaw and HMD-local pose remain separate. |
@@ -146,3 +151,10 @@ Useful edge labels:
 - `feeds_next_build`
 - `acquires_image`
 - `submits_layer`
+## 0.75 Terminal And Wrist Evidence
+
+- Exact terminal-FBO, render-thread color-clear suppression preserves SOMA's
+  dirty-rectangle GUI contract; depth/stencil and unrelated clears pass through.
+- Wrist post-transform composition is now implemented as a tested dry run using
+  local `+0x44`, world `+0x84`, parent `+0x180`, and post-left-multiply order.
+  Live hierarchy/calibration evidence remains the gate for mutation.

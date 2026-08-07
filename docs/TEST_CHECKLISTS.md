@@ -1,5 +1,623 @@
 # Test Checklists
 
+## 0.88.0 Release Integrity And OpenXR Contract
+
+1. Launch from `out/SOMAVR-latest` with the packaged injector and DLL. Confirm
+   startup logs `runtime_paths ... source=module` and both the DLL and
+   `config_loaded path=` resolve under that same package/install directory.
+2. Confirm `config_loaded` reports `accepted` above 250 with
+   `unknownKeys=0 unknownSections=0`, and records `lastWriteTicks` plus a
+   nonzero `parsedKeyHash`.
+3. Press F10, load the apartment save, and verify the established world,
+   stereo, hands/IK, locomotion, interaction, terminal-email, HUD/menu and
+   desktop-mirror behavior has no regression.
+4. Cross a loading screen or reload the save. The HMD must show stable black
+   rather than freeze. Sampled `openxr_frame` records during presentation
+   blackout must report `layers>=1`; there must be no repeated
+   `XR_ERROR_LAYER_LIMIT_EXCEEDED` or `openxr_swapchain *_wait_failed` stream.
+5. Open the F1 panel while both aim guides, reticle, HUD and vignette can be
+   active. At shutdown, capture the proof summary containing
+   `openxrRuntimeMaxLayers`, `openxrMaxLayerCandidates`,
+   `openxrMaxSubmittedLayers` and `openxrDroppedLayers`. Submitted maximum must
+   be at most 16.
+6. Briefly remove/occlude headset tracking, then restore it. The runtime should
+   retain or black the projection and recover without a compositor freeze or a
+   second F10 press.
+7. Exit through the pause menu. Confirm clean process exit and no crash dump.
+
+## 0.87.0 Reliability And Profile Evidence
+
+1. Close SOMA and launch `out\SOMAVR-latest`. Load the normal apartment save,
+   press F10 once, and confirm the 0.86 hands, arm IK, locomotion, story-object,
+   terminal, pointer, and shader behavior has no visible regression. The first
+   log block must contain `identity=0.87.0-reliability-profiles+...`, a full Git
+   commit, dirty state, PE timestamp, and environment row.
+2. Wait until the log/runtime has reached FOCUSED, then remove the headset or
+   leave its proximity sensor idle long enough for the runtime to become
+   VISIBLE. Leave it unfocused for at least 60 seconds. The desktop game must
+   continue rendering/responding rather than gradually stalling.
+3. Wear the headset again. Stereo, head tracking, hands, and controller input
+   must resume without pressing F10. Repeat one shorter focus-loss cycle from
+   the pause menu or laptop and confirm recovery again.
+4. Exercise `PlayerHands_*`, the flashlight, one story/Read item, the medicine
+   bottle, and the laptop if available. No calibration should change. Exit
+   normally and preserve `hpl_entity_identity ... profile={...}` rows.
+5. Confirm `somavr_entity_profiles.ini` exists after clean shutdown and contains
+   only identities actually encountered. It is evidence data in this build;
+   editing it must not alter gameplay yet.
+6. Launch once more and exit normally. `logs\somavr.previous.log` must contain
+   the prior complete run while `somavr.log` contains the new build identity.
+   Do not deliberately crash the game; the real child-process minidump test is
+   part of CTest.
+
+Decisive focus rows are `openxr_focus_pacing armed`, one
+`openxr_focus_pacing skip_begin`, and `openxr_focus_pacing resumed` with a
+nonzero duration and skipped-frame count. `openxrWaitMaxUs` and
+`openxrFocusPacingSkippedFrames` appear in the final OpenXR summary. A natural
+crash should create one file under `logs\dumps` plus `somavr-crash.log`; full
+memory is not expected unless `SOMAVR_FULLDUMP=1` was explicitly set.
+
+## 0.86.0 Interaction Presence
+
+1. Close SOMA and launch the rolling package. During splash/menu/save loading,
+   leave the controllers untouched. Pick them up only after the apartment is
+   playable, then press F10. Require `version=0.86.0-interaction-presence` and
+   report whether full-size tracked hands wake before drinking the medicine.
+2. Hold both controllers in a matching neutral pose. Check the requested
+   calibration: each hand should be about 4 cm lower, 3 cm farther outward,
+   4 cm nearer the camera, and pitched forward about 45 degrees relative to
+   0.85. Move each controller through pitch/yaw/roll and check for symmetry.
+3. Inspect the same story object twice. Allow its native rise animation to
+   finish without moving the controller. It should settle in front of the view,
+   not below it or facing the ceiling, and hands/IK must keep tracking in Read.
+   Rotate with grip and exit with right A/B both times.
+4. Grab and hold a curtain, drawer, and hinged door in turn. While still
+   holding each mechanism, move with the left stick, then release it. Locomotion
+   must continue without breaking the mechanism or moving during Read/terminal.
+5. Open the laptop and aim at the center, all four edges, and several email
+   controls. The larger visible pointer should coincide with the controller
+   guide and the element that highlights/clicks. Browse emails for 20 seconds
+   and verify both hands continue tracking.
+6. Aim both guides at empty space and several interactable/non-interactable
+   surfaces. They should look like faint translucent glows at rest, brighten
+   over an interactable, and stop at scene depth rather than penetrate walls.
+7. Face forward, physically look 30-40 degrees aside, then hold a 60-90 degree
+   look for two seconds. Shoulders should gently follow only after the threshold
+   while the world/HMD view remains perfectly still. Repeat with a snap turn to
+   confirm the torso reference follows the explicit body turn.
+8. Recheck curtains/drawers, normal movement, story-object exit, pause/main
+   menu, email stability, save reload, and normal shutdown. Attach the complete
+   log even if everything passes.
+
+Decisive rows are `hpl_hand_calibration`, `hpl_hands_visibility wake`,
+`hpl_read_presentation ... settleAge=... settleFrames=45`,
+`hpl_native_locomotion_summary ... interactionMoveFrames=...`,
+`hpl_terminal_surface_config`, and
+`hpl_physical_body_follow ... policy=...no_camera_turn`. A missing wake row is
+not itself failure if the hands were already natively active; use
+`persistentHands.nativeSeeds/wakeRequests` in the summary to classify it.
+
+## 0.85.0 Terminal Hands And Read Latch
+
+1. Close SOMA, launch the rolling package, wait through the full splash/menu and
+   save load, then press F10 once. Require
+   `version=0.85.0-terminal-hands-read-latch` and confirm the hands remain full
+   size with normal position and rotation tracking.
+2. Enter the apartment laptop and keep both controllers moving while browsing
+   several emails for at least 20 seconds. Both hands and arms must continue to
+   track throughout terminal mode. Locomotion should remain disabled and the
+   terminal pointer/click path should still work.
+3. Leave one email open long enough to catch the previous intermittent flash.
+   The panel should remain readable and stable. Look-away and controller exit
+   must still detach normally.
+4. Pick up `Notepad_open` or another story object. It should perform one native
+   rise into view, settle at the configured farther distance, and remain there;
+   it must not rise again every time HPL submits another matrix. Move/lean the
+   HMD slightly and confirm the object follows as a stable camera-relative
+   presentation rather than drifting away.
+5. Rotate the story object with grip, put it down with the existing controller
+   exit, then pick it up a second time. The second interaction must receive a
+   fresh anchor and behave like the first.
+6. Recheck one curtain or drawer, normal locomotion, pause menu, and shutdown,
+   then attach the complete log.
+
+Positive evidence is `hpl_read_session ... active=1`, one
+`hpl_read_presentation ... anchorSeeded=1` per entity/session followed by stable
+`sourceDistance` and `finalPos`, plus
+`hpl_terminal_retention_stabilized ... offscreen_scissor_repair_observed`.
+There should be no `hpl_hands_visibility suspended=1` on the transition to
+`playerState=8`.
+
+## 0.84.1 Hand Scale Retention Fix
+
+1. Close SOMA, run doctor, launch the rolling package, wait through the main
+   menu, load the apartment medicine save, and press F10 once. Require
+   `version=0.84.1-hand-scale-retention-fix`.
+2. Watch the native hands from the instant F10 is pressed. They may exist at
+   SOMA's native miniature scale before VR activation, but must become full size
+   as soon as VR camera tracking activates; controller discovery must not be a
+   prerequisite.
+3. Move and rotate both controllers. Hands, arms, shoulders, wrist roll, and
+   medicine bottle behavior should otherwise match 0.84. Drink the medicine and
+   verify the shoulder-height fix remains intact.
+4. Exit normally and attach the full log. A stale pre-F10 seed should produce
+   `hpl_hands_body_anchor_scale ... acceptedScale=1.0000
+   staleRetainedScale=0.2500 finalScale=1.0000`. Subsequent `hpl_arm_ik` segment
+   lengths must no longer remain at the failed `0.0699,0.0541` pair.
+
+The independent rollback remains `HandScaleNormalization=0`, though this also
+returns SOMA's intentionally miniature close-up rig and is diagnostic only.
+
+## 0.84.0 Body Follow And Presentation
+
+1. Close SOMA, run doctor, launch the rolling package, load the apartment save,
+   and press F10 once. Require `version=0.84.0-body-follow-presentation`.
+2. Hold both palms flat in a matching pose. They should now be rolled about 90
+   degrees from 0.83 in the requested direction, with identical orientation
+   after one save reload. Confirm fingers stay still.
+3. Drink the medicine. Shoulders must remain at the accepted height and the
+   bottle must follow the right hand without its previous autonomous rotation or
+   jiggle. Preserve any `hpl_socketed_prop_anchor` row.
+4. Face forward, then physically look 30-40 degrees left/right: the capsule and
+   shoulders must not turn. Hold a 60-90 degree look for at least one second:
+   they should begin following gently after a short pause. Pitch and roll must
+   not trigger follow. Snap turn once and ensure follow does not immediately
+   fight the turn.
+5. Aim both guides at a wall, drawer, prop, and empty distance. Each guide should
+   stop just in front of scene geometry rather than pass through it. The native
+   semantic context icon should appear at the winning beam hit and be clearly
+   readable. Record duplicate center icons separately; there must be no square
+   cutout in any overlay.
+6. Inspect at least two story objects of visibly different native sizes. Each
+   should sit about twice the previous camera distance while retaining sensible
+   relative scale. Rotate one with grip and exit with right A/B.
+7. Open the laptop and click through several emails for 20 seconds. Require no
+   center hole and no full-panel 2 Hz flash. The terminal pointer must remain
+   aligned and look-away/A exit must still work.
+8. Check curtains, one drawer, locomotion while holding a loose prop, pause/main
+   menu, and normal shutdown for regressions. Attach the full log.
+
+Decisive rows are `hpl_physical_body_follow`,
+`hpl_socketed_prop_stabilized`, `hpl_read_presentation`, and the two subsystem
+summary rows. Roll back independently with `PhysicalBodyFollow=0`,
+`HandWristRollDegrees=0`, `HandSocketedPropStabilization=0`, or
+`AimGuideSceneDepth=0`.
+
+## 0.83.0 Shared Root, Palm Orientation, And Terminal Pointer
+
+1. Run doctor and require `0.83.0-root-palm-terminal` with `fail=0`. Load the
+   apartment save, press F10 once, and wait for both arms to track.
+2. Before medicine, hold both controllers forward in a matching neutral pose.
+   Check palm direction, thumb side, yaw, pitch, and roll. Reload the save once
+   and repeat: the same physical controller orientation must produce the same
+   visual hand orientation on both runs.
+3. Drink the medicine. The shoulder bar must remain at its pre-medicine height
+   while continuing to follow HMD translation and player-body turns. The log
+   should contain `hpl_arm_root_pose_drift` with a Y delta near `0.66`, followed
+   by stable `hpl_arm_ik` shoulder heights.
+4. Rotate each controller independently through obvious yaw, pitch, and roll.
+   Require `hpl_wrist_orientation_seed ... mode=geometric_palm` for both hands;
+   `legacy_takeover_fallback` is diagnostic failure evidence to preserve.
+5. Manipulate curtains and one drawer to ensure state-13 tracking and the proven
+   interactions did not regress. Do not judge sensitivity in this pass beyond
+   recording whether each feels too fast, too slow, laggy, or directionally
+   wrong.
+6. Enter the laptop. A blue terminal pointer should sit where the active motion
+   controller aims on the overlay, including near all four edges. Click several
+   email/UI targets and confirm the visible pointer and highlight/click agree.
+   Repeat once with curved HUD and once with quad HUD if convenient.
+7. Exit the terminal by look-away and controller A. The pointer must disappear
+   immediately and the normal world interaction reticle must resume.
+8. Exit normally and attach the complete log. Decisive summary fields are
+   `sharedRootDriftCorrections`, `geometricSeeds`, `legacySeeds`,
+   `openxrTerminalPointerUpdates`, `openxrTerminalPointerSubmittedFrames`, and
+   `openxrTerminalPointerFailures`.
+
+For the later manipulation calibration, keep SOMA running and perform one slow
+10 cm drawer pull/push, one fast pull/push, and one slow door open/close while
+the live debugger is attached. That isolates position gain, velocity scale, and
+angular response without changing the now-working curtain path.
+
+## 0.82.0 Torso Ergonomics
+
+1. Run doctor and require `0.82.0-torso-ergonomics` with `fail=0`. Load the
+   apartment save, press F10, and wait for both tracked arms.
+2. Hold both hands still. Roll the HMD, then look 60-90 degrees left and right.
+   The head must move immediately while the shoulder bar remains level and does
+   not follow head-only yaw.
+3. Turn the player using snap/smooth turn. Shoulders, elbows, and their remembered
+   bend direction must rotate with the body without several frames of world-space
+   lag.
+4. Move each hand independently near the chest and waist. Wrists must remain
+   exact and shoulders should stay effectively fixed. Then extend one arm fully
+   forward/upward: only that shoulder may contribute subtly and smoothly, never
+   more than about 5 cm. Retract and check for a smooth release without swimming.
+5. Test relaxed hands, crossed hands, overhead hands, and one hand slightly
+   behind its shoulder. Elbows should favour a lower natural bend, tuck when
+   crossed, preserve continuity overhead, and never flip across the arm.
+6. Repeat the medicine sequence. Require stable shoulder height, body-relative
+   heading, controller wrist rotation, and no finger-animation takeover.
+7. Manipulate the curtain and a drawer. State-13 tracking must remain intact and
+   neither wrist nor elbow should reacquire a different offset after release.
+8. Exit normally and attach the complete log. Decisive rows are `hpl_arm_ik`
+   fields `shoulderReach`, `elbowErgonomics`, and the
+   `hpl_arm_body_summary` ergonomic counters.
+
+Rollback all new inference with `HandArmIKErgonomics=0`. Keep ergonomic elbows
+but disable clavicle contribution with `HandShoulderReachCompensation=0`.
+`HandShoulderReachStart`, `HandShoulderReachMaxMeters`,
+`HandArmIKElbowDownMeters`, and `HandArmIKMaxSwivelDegreesPerFrame` tune the
+remaining bounded behavior.
+
+## 0.81.0 Stable Hands And UI Ownership
+
+1. Run doctor and require `0.81.0-stable-hands-ui` with `fail=0`. Wait through
+   the complete splash/main-menu period, load the apartment save, and press F10.
+2. Before drinking, lean the HMD and rotate the player 90-180 degrees. The
+   shoulder centre should follow HMD position, sit about 10 cm farther back,
+   and rotate with capsule/body heading without following head-only yaw.
+3. Drink the medicine. Shoulders and elbows must not jump upward. Fingers
+   should keep their initial stable pose while the bottle remains attached to
+   the correct native hand socket. Move both controllers through clear rotation
+   and confirm the wrists continue tracking.
+4. Check relaxed, crossed, chest-height, and extended hand poses. Elbows should
+   favour a visibly lower pole instead of jutting horizontally outward.
+5. Manipulate the curtain, a drawer, and a door. Hands must continue following
+   both position and rotation throughout state 13 and must not acquire a new
+   palm offset after release.
+6. Aim either controller at several interactables. The semantic icon should
+   appear at the selected beam hit; the old gaze-centred duplicate should be
+   absent.
+7. Test both the front-end main menu and pause menu. Aim and click with a motion
+   controller and confirm the menu also remains visible on the desktop mirror.
+8. Open the laptop and an email. The email panel should render continuously
+   rather than remain black or flash sparse rectangles. Exit by look-away and
+   right-controller A, then attach the full log.
+
+Decisive rows are `hpl_arm_pose_seed ... nodes=34 freezePose=1`, `hpl_arm_ik`
+with `elbowDownMeters=0.100`, `hpl_controller_gameplay_policy ... mainMenu=1`,
+and `terminal_scissor_bypass`. Independent rollback controls are
+`HandFreezePose=0`, `HandShoulderBackOffsetMeters=0`,
+`HandArmIKElbowDownMeters=0`, and `HudSuppressCenterCrosshair=0`.
+
+## 0.80.1 HMD Shoulder Rig, Physical Grab, Menu, And Terminal Probe
+
+1. Run doctor and require `0.80.1-hmd-shoulder-rig` with `fail=0`. Wait at
+   least 20 seconds at the main menu, load the apartment save, and press F10.
+2. Trigger and drink the medicine. Hold both controllers still, move them, and
+   rotate the player body. Shoulder height and upper/lower segment lengths must
+   remain stable; shoulders must follow body heading rather than remain in the
+   old world orientation.
+3. Without locomotion, physically lean the headset in every direction. The
+   shoulder centre should follow head position at a stable neck offset. Merely
+   looking or tilting must not rotate the shoulder frame.
+4. Rotate each controller through clear yaw, pitch, and roll. Both hands should
+   retain the same initial palm alignment and follow independently after reload.
+5. Pick up a general physics object and walk while holding it. Both tracked
+   hands and arms must continue updating throughout Grab state and resume cleanly
+   after release.
+6. Test pause and the front-end main menu. Motion-controller aim/click must move
+   the native cursor in both, and both must remain visible in the desktop mirror.
+7. Enter a laptop email and wait four seconds. Require an automatic
+   `terminal_draw_state auto_armed` row plus bounded draw-state samples without
+   pressing a key. Confirm right-controller A and look-away still detach in one
+   frame. `Ctrl+F10` is optional for fresh images.
+8. Exit normally. Attach the full log. A passing arm run keeps logged
+   `lengths=` near their first values instead of growing toward `0.6-0.7`.
+
+Independent rollback remains `HandArmIK=0`, `HandAlwaysVisible=0`,
+`HandWristRotation=0`, or `TerminalLookAwayExit=0`.
+
+## 0.79.0 Hands, Terminal, Menu, And Recenter
+
+1. Run doctor and require `0.79.0-hands-terminal-menu` with `fail=0`. Wait at
+   least 20 seconds at the main menu, load the apartment save, and press F10.
+2. Trigger the medicine hands. Confirm full-size bilateral position and
+   rotation tracking, then pause/resume and interact with a room object. Hands
+   must resume tracking instead of freezing in world space; shoulders must stay
+   at the corrected height without progressive arm stretch.
+3. Recenter while visibly pitched and rolled. Position and yaw reset, but the
+   world horizon remains level and headset pitch/roll are not zeroed.
+4. Use the motion-controller pointer in pause and main menu. Confirm each menu
+   also remains visible in the desktop mirror.
+5. Enter the laptop and press right-controller A. Re-enter and trigger the
+   65-degree look-away exit. Both must leave native terminal state; the overlay
+   and cursor must not return merely by looking back.
+6. Open a broken email and press `Ctrl+F10` once. Keep it visible for four
+   seconds, then attach the log and `logs\terminal-captures`. Require bounded
+   `terminal_draw_state` rows containing FBO, program, scissor, texture, and
+   blend state.
+7. Exit normally. There must be no startup, pause, main-menu, or teardown crash.
+
+Independent rollback remains `HandArmIK=0`, `HandAlwaysVisible=0`,
+`HandWristRotation=0`, or `TerminalLookAwayExit=0`.
+
+## 0.78.1 Startup Pause Gate
+
+1. Run doctor and require `0.78.1-startup-pause-gate` with `fail=0`.
+2. Launch twice. On each run, wait at least 20 seconds at the main menu before
+   loading a save. The former deterministic crash occurred at 10 seconds.
+3. Load the apartment medicine save and press F10. Confirm VR activation,
+   locomotion, and the native hand sequence still work.
+4. Continue with the 0.78.0 shoulder, wrist-rotation, tracking-reacquisition,
+   menu resume, and normal quit checks below.
+5. Attach the complete log if either run closes unexpectedly. A successful
+   startup should include `pauseDataReady=1`; unavailable early ownership must
+   fail closed without an access violation.
+
+## 0.78.0 Arm Pose And Menu Safety
+
+1. Run doctor and require `0.78.0-arm-pose-shutdown-safety` with `fail=0`.
+   Load the apartment medicine save and press F10 once.
+2. Trigger the medicine sequence and wait for the initially tiny native hands
+   to become tracked. Both arms should appear as in 0.77.2, with no regression
+   in scale, stereo, locomotion, or independent wrist position.
+3. Compare the shoulders with the previous run. Their shared root should be
+   about 30 cm lower while each wrist still meets its controller. Note whether
+   either elbow now bends too low, crosses the torso, or reaches a hard limit.
+4. Hold each hand in place and rotate that controller through clear yaw, pitch,
+   and roll. The matching hand should rotate through the same relative change
+   without an initial snap; the opposite hand should remain independent.
+5. Briefly hide one controller from tracking, then reacquire it. That hand may
+   return through one native-aligned anchor frame, but must not retain a stale
+   angle, jump to the other hand, or disturb the other arm.
+6. Open the pause/menu screen, close it, resume movement, and trigger the hands
+   again if needed. Then enter the menu once more and quit normally. The game
+   must not crash. Expect a bounded `hpl_hands_visibility ... invalidated`
+   line at the ownership transition.
+7. Attach the complete log. Useful acceptance counters are
+   `shoulderOffsets`, `wristRotation.anchorSeeds/applications/fallbacks`, and
+   `persistentHands.invalidations` in `hpl_arm_body_summary`.
+
+Rollback rotation with `HandWristRotation=0`, shoulder calibration with
+`HandShoulderVerticalOffsetMeters=0`, or persistence with
+`HandAlwaysVisible=0`.
+
+## 0.77.2 Hand Identity Recovery
+
+1. Doctor reports `0.77.2-hand-identity-recovery` and `fail=0`. Load the same
+   apartment medicine save and press F10.
+2. Trigger the sequence that displays the tiny hands. Require a
+   `hpl_entity_identity ... name=PlayerHands_0 playerHands=1` row followed by
+   `hpl_hands_native_seed`. Their absence is the primary failure signal.
+3. Once both controllers are tracked, the model should become life-sized and
+   both wrists should follow independently. Move one controller at a time and
+   require `hpl_hands_scale`, bilateral `hpl_wrist_position`, and `hpl_arm_ik`
+   rows in the log.
+4. Let the animation finish, then walk and turn. Record whether the hands remain
+   visible and tracked; this separately tests the post-seed persistence layer.
+5. Attach the complete log. Do not test the laptop in this pass.
+
+Rollback persistent visibility with `HandAlwaysVisible=0`; scale, wrist, and IK
+can be isolated with `HandScaleNormalization=0`, `HandWristPosition=0`, and
+`HandArmIK=0`.
+
+## 0.77.1 Hand Seed Recovery And Terminal Fallback
+
+1. Doctor reports `0.77.1-hand-seed-terminal-fallback` and `fail=0`. Press F10
+   after loading the apartment.
+2. Trigger the medicine/hand sequence. A brief native setup phase is allowed,
+   but the hands must then become life-sized and track the matching controllers
+   with arm IK. Require `hpl_hands_native_seed`.
+3. Let the native hand animation finish and continue walking/turning. Hands
+   should remain visible in Normal gameplay. Enter and leave any available
+   authored state and confirm native ownership still wins there.
+4. Open the laptop and leave an email visible for at least five seconds. Expect
+   `hpl_terminal_retention_fallback ... action=live_frame_capture` after eight
+   retained samples unless a real color clear is observed. The email may still
+   update in partial tiles, but the panel must not remain permanently black.
+5. While the laptop is active, confirm pointer highlighting/clicks and look-away
+   exit. If email tiles are incomplete, press `Ctrl+F10` once and attach the new
+   four-frame native/HUD RGB and alpha sequence with the complete log.
+
+Rollback hands independently with `HandAlwaysVisible=0` or `HandArmIK=0`.
+`TerminalPreserveDirtyRects=0` forces the same live-frame terminal fallback
+without the eight-sample probe.
+
+## 0.77.0 Persistent Arms And Medicine Gestures
+
+1. Doctor reports version `0.77.0-arm-ik-authored-interactions` and `fail=0`.
+2. After F10 and native hand creation, both hands become full size independently.
+3. Test each arm low/high/crossed/near chest/near reach; elbows bend on the
+   native side and do not snap straight.
+4. Wait for the native hand animation to finish, then walk and turn. Arms stay
+   visible and controller tracked in Normal state.
+5. Enter any authored/non-Normal state available. The native sequence must own
+   hands and camera without a SOMAVR retention fight.
+6. Put the left hand at the medicine cap and press trigger or grip once; expect
+   one haptic and one `cap_remove_requested` row.
+7. Bring the bottle neck to the HMD mouth position and tip it for at least 12
+   frames; expect one haptic and one `drink_requested` row.
+8. Preserve the log through normal exit. Roll back independently with
+   `HandArmIK=0`, `HandAlwaysVisible=0`, or `MedicineInteraction=0`.
+
+## 0.76.0 Full-Scale Independent Wrist Position
+
+1. Run packaged doctor and require
+   `version=0.76.0-fullscale-wrist-position`, OpenXR flavor, and `fail=0`.
+   Press F10 once and briefly regress rigid stereo, normal locomotion, carry
+   locomotion, interaction beams, curtains, and story-object inspection.
+2. Trigger the same interaction that displays `PlayerHands_0`. The hands should
+   become approximately life-sized rather than quarter-sized and should move
+   from the face to their corresponding controller positions. Wrist rotation
+   remains SOMA-authored in this build and is not an acceptance criterion.
+3. Hold both controllers apart, then move only the left hand in a large circle
+   while keeping the right still. Repeat for the right. Cross the controllers,
+   separate them widely, move both vertically, walk, and snap-turn. Require
+   independent positions with no bilateral attachment to the right controller.
+4. Inspect the wrist/forearm transition for stretching, separation, inversion,
+   or an unsuitable palm offset. Record whether each hand center lands above,
+   below, ahead of, or behind the physical grip. This is calibration evidence,
+   not an automatic failure of the position ownership path.
+5. Briefly hide one controller from tracking, restore it, then put down/exit the
+   hand animation and trigger it again. Native behavior must return while
+   ineligible and both hands must recover without a stale offset or scale.
+6. Exit normally and attach the complete `somavr.log`. Require paired
+   `hpl_wrist_position` rows with `restored=1`, scale rows with
+   `rootPosePreserved=1`, nonzero `wristFramesApplied`, and zero authored-post,
+   hierarchy, read, and math fallbacks during the accepted interval.
+
+Roll back size only with `HandScaleNormalization=0`, position only with
+`HandWristPosition=0`, or both for the accepted 0.75 passive behavior. Keep
+`HandControllerRoot=0`.
+
+## 0.75.0 Terminal Dirty Rectangles And Wrist Candidate
+
+1. Run package doctor and require
+   `version=0.75.0-terminal-dirtyrect-wrist-candidate`, OpenXR flavor, and
+   `fail=0`. Press F10 once and confirm rigid stereo, normal locomotion, carry
+   locomotion, curtains, beams, and story-object inspection.
+2. Enter the apartment laptop, open an email, and wait ten seconds without
+   moving the pointer. The shell and complete email must accumulate and remain
+   stable. Require `terminal_color_clear_suppressed` and later
+   `hpl_terminal_capture ... clearSuppression={color=` with a nonzero color
+   count, zero FBO/thread mismatches, and
+   `policy=native_size_retained_surface_suppress_nested_color_clear_then_upscale`.
+3. Move the controller pointer over several email controls and click between
+   the inbox and two messages. Confirm highlights/clicks still work and old
+   page text does not remain incorrectly. Look at least `65` degrees away and
+   confirm native terminal exit. Each click should emit
+   `hpl_terminal_retention_reset ... reason=controller_click`.
+4. If any email content still flashes, smears, or remains stale, leave the bad
+   state visible and press `Ctrl+F10` once. Attach the complete log plus all new
+   `terminal_native_*` and `terminal_hud_*` files. There should be four RGB and
+   four alpha files for each target.
+5. Trigger the interaction that displays `PlayerHands_0`. Hold both controllers
+   still apart for two seconds, then move only the left hand in a large circle,
+   move only the right, and finally rotate both wrists through pitch/yaw/roll.
+   Require left/right rows with `parentMatch=1`, `controllerTargetValid=1`,
+   `postCandidate={valid=1`, and `worldError` close to zero. No miniature pair
+   should follow the right controller because no bone/root mutation is active.
+6. Put the hand-displaying object down, trigger it once more if practical, then
+   exit normally and attach the entire `somavr.log`.
+
+Rendering rollback is `TerminalPreserveDirtyRects=0`. Keep
+`HandControllerRoot=0`; the wrist candidate is diagnostic and has no mutation
+toggle in this build.
+
+## 0.74.0 Native Terminal Surface And Wrist RE
+
+1. Run package doctor and require
+   `version=0.74.0-native-terminal-wrist-re`, OpenXR flavor, and `fail=0`.
+   Press F10 and regress rigid stereo, tracking, locomotion, carry movement,
+   curtains, beams, story objects, and throws.
+2. Enter the apartment laptop and open an email. Require
+   `openxr_terminal_capture_target created size=1024x577` and a terminal capture
+   row with `viewport=0,0,1024,577` and
+   `policy=native_size_retained_surface_then_upscale`. The complete email must
+   remain stable without alternating rectangles. Pointer highlighting, clicks,
+   and look-away exit must still work.
+3. If email tiles still flash, leave the affected email visible and press
+   `Ctrl+F10` once. Attach the four new RGB/alpha pairs and complete log. Do not
+   add Frida to this pass.
+4. Trigger the interaction that creates `PlayerHands_0`. The previous pair of
+   miniature hands must no longer follow the right controller because
+   `HandControllerRoot=0`. Native hands may remain in their authored pose.
+   Move both controllers independently for several seconds and require
+   `hpl_hands_bone` rows with matching `controllerHand=left/right`,
+   `controllerTargetValid=1`, and changing target deltas.
+5. Briefly confirm one Grab carry movement and curtain interaction, then exit
+   normally and attach the complete log.
+
+The terminal rollback remains `TerminalOverlay=0`. `HandControllerRoot=0` is
+the accepted stable setting; do not enable the shared-root prototype.
+
+## 0.73.0 Terminal Retention And Grab Movement
+
+1. Run the stable package doctor and require
+   `version=0.73.0-terminal-retention-grab-move`, OpenXR flavor, and `fail=0`.
+   Press F10 once and briefly regress rigid stereo, tracking, ordinary
+   locomotion, curtains, drawers, doors, beams, and story-object inspection.
+2. Enter the laptop and open an email. Leave it visible for several seconds.
+   The full email pane must accumulate and remain stable rather than showing
+   flashing isolated tiles. Require `hpl_terminal_retention ... active=1` and
+   later `hpl_terminal_capture ... retained=1`.
+3. While still in the laptop, turn the HMD roughly `65` degrees away and hold
+   for a moment. SOMA must leave terminal state and restore scene navigation.
+   Require one `hpl_terminal_lookaway ... route=native_interact_cancel` row and
+   a later retention transition to `active=0`. A quick glance should not exit.
+4. Pick up a loose physics object, keep holding it, and walk forward, backward,
+   and sideways with the left stick. Movement should remain controller-relative
+   and retain SOMA's heavy-object slowdown. Require
+   `hpl_movement_native_input ... state=grab(1)`; release and throw behavior
+   should remain unchanged.
+5. Exit normally and attach the complete log. A fresh `Ctrl+F10` capture is
+   optional only if the email still fragments.
+
+Rollback independently with `TerminalOverlay=0`,
+`TerminalLookAwayExit=0`, or the existing semantic-input fallback settings.
+
+## 0.72.0 Terminal Layer Dump
+
+1. Run the stable package doctor and require
+   `version=0.72.0-terminal-layer-dump`, OpenXR flavor, and `fail=0`. Press F10
+   once and regress the accepted world, locomotion, curtain, drawer, and beams.
+2. Enter the laptop and open the email view that fragments. Leave the broken
+   content visible and press `Ctrl+F10` once. A short synchronous stall is
+   expected while four RGB and four alpha BMPs are written.
+3. Exit normally and attach the complete log plus the newest files from
+   `logs\terminal-captures`. Require one `terminal_hud_dump armed` row, four
+   successful `terminal_hud_dump` rows, and no `read_pixels` failure.
+4. Do not use F6 or Frida in this first pass. The BMP sequence already separates
+   a changing/stateful GUI render from an OpenXR compositor-only defect. A
+   second `Ctrl+F10` capture on the laptop home screen is useful as a coherent
+   control sample.
+
+The diagnostic does not change terminal rendering. `TerminalOverlay=0` remains
+the presentation rollback.
+
+## 0.71.0 Native Semantic Input
+
+1. Run the stable package doctor and require
+   `version=0.71.0-native-semantic-input`, OpenXR flavor, and `fail=0`. Press
+   F10 once and confirm the accepted rigid world, stereo, eye height, shaders,
+   tracking, beams, loose props, and story-object behavior.
+2. In Normal state, push the left stick fully forward/back/left/right and then
+   diagonally. Walking must have ordinary SOMA speed and remain
+   left-controller-relative after snap turns. Require
+   `movementRoute=native_player_analog` and
+   `hpl_movement_native_input ... analogOwner=... amount=... type_1`; synthetic
+   key flags should remain `0000`.
+3. Grab the apartment curtain with either interaction hand and move that hand
+   left/right. Require `playerState=13`, `hpl_manipulation_motion`, then
+   `hpl_manipulation_native_input` with non-null `stateScript` and `context`.
+   The curtain must follow hand travel without snap turn.
+4. Repeat on the desk drawer and bathroom tap, recording each state ID. State
+   `13` mechanisms should use the semantic helper-owner route; Slide `4` may
+   still use the direct joint route. Test both motion directions.
+5. Regress door bidirectionality, laptop overlay/pointer, story-object
+   distance/rotation/exit, loose-prop hold/throw, and clean shutdown. Attach the
+   complete log.
+
+Rollback independently with `ManipulationMotion=0`, `SlideDirectVelocity=0`,
+`NativeLocomotion=1`, or `TerminalOverlay=0`.
+
+## 0.70.0 Input And Terminal Recovery
+
+1. Run the stable package doctor and require
+   `version=0.70.0-input-terminal-recovery`, OpenXR flavor, and `fail=0`. Press
+   F10 once and confirm the accepted stereo, tracking, eye height, shaders,
+   beams, loose props, and story-object behavior.
+2. Push the left stick fully in each direction. Walking must be back at ordinary
+   SOMA speed and remain left-controller-relative after a snap turn. The log
+   should report `movementRoute=semantic_keys` and visible `W/A/S/D` key states.
+3. Grab a curtain and move laterally, then grab the desk drawer and move along
+   its physical rail. Require `hpl_slide_anchor` followed by
+   `hpl_slide_target`; movement must follow the owning hand without snap turn.
+4. Open and close the bathroom door with hand travel around its hinge. Require
+   `hpl_rotate_target ... state=5 ... wristTwist=0`; both directions must follow
+   the hand. Test the tap separately and note its reported state. Lever/tap
+   state `6` may report `wristTwist=1`.
+5. Enter the laptop. Require a coherent sharp overlay and
+   `policy=single_pass_direct_hud_target`, normally with a `1920x1080` viewport.
+   Sweep either controller across the panel: the cursor must visibly follow,
+   widgets must highlight, trigger must click, and A/B must exit.
+6. Exit normally and attach the complete log. Also report whether the physical
+   laptop screen freezing behind the owned overlay is visible or objectionable.
+
+Rollback independently with `NativeLocomotion=1`, `SlideDirectVelocity=0`,
+`RotateDirectVelocity=0`, or `TerminalOverlay=0`.
+
 ## 0.68.2 Native-Phase Recovery
 
 1. Run stable-package doctor and require

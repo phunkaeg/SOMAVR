@@ -87,6 +87,65 @@ bool BuildHeadLockedCylinderPose(
     return true;
 }
 
+bool BuildHudSurfacePointerPose(
+    float normalizedX,
+    float normalizedY,
+    float distanceMeters,
+    float verticalOffsetMeters,
+    float widthMeters,
+    float textureAspect,
+    bool cylinder,
+    float cylinderAngleDegrees,
+    float pointerSizeMeters,
+    HudQuadPose& pose)
+{
+    constexpr float kPi = 3.14159265358979323846f;
+    if (!std::isfinite(normalizedX) || !std::isfinite(normalizedY)
+        || !std::isfinite(distanceMeters) || !std::isfinite(verticalOffsetMeters)
+        || !std::isfinite(widthMeters) || !std::isfinite(textureAspect)
+        || !std::isfinite(pointerSizeMeters)
+        || normalizedX < 0.0f || normalizedX > 1.0f
+        || normalizedY < 0.0f || normalizedY > 1.0f
+        || distanceMeters <= 0.0f || widthMeters <= 0.0f
+        || textureAspect <= 0.0f || pointerSizeMeters <= 0.0f) {
+        return false;
+    }
+
+    pose = {};
+    pose.widthMeters = pointerSizeMeters;
+    pose.heightMeters = pointerSizeMeters;
+    if (!cylinder) {
+        const float heightMeters = widthMeters / textureAspect;
+        pose.position = {
+            (normalizedX - 0.5f) * widthMeters,
+            verticalOffsetMeters + (0.5f - normalizedY) * heightMeters,
+            -distanceMeters + 0.002f,
+        };
+        return true;
+    }
+    if (!std::isfinite(cylinderAngleDegrees)
+        || cylinderAngleDegrees <= 0.0f || cylinderAngleDegrees >= 360.0f) {
+        return false;
+    }
+    const float angle = cylinderAngleDegrees * kPi / 180.0f;
+    const float radius = widthMeters / angle;
+    const float theta = (normalizedX - 0.5f) * angle;
+    const float axisZ = -distanceMeters + radius;
+    pose.position = {
+        radius * std::sin(theta),
+        verticalOffsetMeters
+            + (0.5f - normalizedY) * (radius * angle / textureAspect),
+        axisZ - radius * std::cos(theta) + 0.002f,
+    };
+    pose.orientation = {
+        0.0f,
+        std::sin(-theta * 0.5f),
+        0.0f,
+        std::cos(theta * 0.5f),
+    };
+    return std::isfinite(radius) && radius > 0.0f;
+}
+
 bool ComputeAngularQuadSize(
     float distanceMeters,
     float angularSizeDegrees,

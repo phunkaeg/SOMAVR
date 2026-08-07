@@ -34,6 +34,10 @@ public:
         uint32_t cacheFramebuffer = 0;
         bool cacheValid = false;
         bool depthCacheValid = false;
+        bool colorImageAcquired = false;
+        uint32_t acquiredColorImageIndex = 0;
+        bool depthImageAcquired = false;
+        uint32_t acquiredDepthImageIndex = 0;
         uint64_t depthProbeSamples = 0;
     };
 
@@ -46,8 +50,15 @@ public:
         std::vector<uint32_t> framebuffers;
         uint32_t captureTexture = 0;
         uint32_t captureFramebuffer = 0;
+        uint32_t terminalTexture = 0;
+        uint32_t terminalFramebuffer = 0;
+        int32_t terminalWidth = 0;
+        int32_t terminalHeight = 0;
+        bool terminalValid = false;
         bool captureValid = false;
         uint64_t captureFrame = 0;
+        bool imageAcquired = false;
+        uint32_t acquiredImageIndex = 0;
     };
 
     struct ReticleSwapchain {
@@ -57,6 +68,8 @@ public:
         int64_t format = 0;
         std::vector<XrSwapchainImageOpenGLKHR> images;
         std::vector<uint32_t> framebuffers;
+        bool imageAcquired = false;
+        uint32_t acquiredImageIndex = 0;
     };
 
     struct StatusPanelSwapchain {
@@ -65,6 +78,8 @@ public:
         int32_t height = 0;
         int64_t format = 0;
         std::vector<XrSwapchainImageOpenGLKHR> images;
+        bool imageAcquired = false;
+        uint32_t acquiredImageIndex = 0;
     };
 
     struct ComfortVignetteSwapchain {
@@ -73,6 +88,8 @@ public:
         int32_t height = 0;
         int64_t format = 0;
         std::vector<XrSwapchainImageOpenGLKHR> images;
+        bool imageAcquired = false;
+        uint32_t acquiredImageIndex = 0;
     };
 
     bool Initialize(
@@ -101,6 +118,7 @@ public:
     bool CopyBackbufferToEye(uint32_t eyeIndex);
     bool CaptureBackbufferToCache(uint32_t eyeIndex);
     bool CopyCacheToEye(uint32_t eyeIndex);
+    bool ClearEyeToBlack(uint32_t eyeIndex);
     bool CopyDepthCacheToEye(uint32_t eyeIndex);
     bool CopyCacheToBackbuffer(uint32_t eyeIndex, spectator_math::AspectMode aspectMode);
     void InvalidateStereoCaches();
@@ -111,8 +129,15 @@ public:
     uint32_t EyeCount() const;
     const EyeSwapchain& Eye(uint32_t eyeIndex) const;
     int64_t ColorFormat() const;
-    bool BeginHudCapture(uint64_t frameIndex);
+    bool BeginHudCapture(uint64_t frameIndex, bool preservePreviousFrame = false);
     bool EndHudCapture(uint64_t frameIndex, bool suppressCenterCrosshair);
+    bool BeginTerminalHudCapture(
+        uint64_t frameIndex,
+        int width,
+        int height,
+        bool preservePreviousFrame,
+        bool preserveDirtyRects);
+    bool EndTerminalHudCapture(uint64_t frameIndex);
     bool CaptureFramebufferToHud(
         uint64_t frameIndex,
         uint32_t sourceFramebuffer,
@@ -121,6 +146,16 @@ public:
         int sourceWidth,
         int sourceHeight);
     bool CopyHudCaptureToSwapchain();
+    bool DumpHudCapture(
+        uint64_t frameIndex,
+        uint64_t sequence,
+        uint32_t sampleIndex,
+        const char* reason);
+    bool DumpTerminalHudCapture(
+        uint64_t frameIndex,
+        uint64_t sequence,
+        uint32_t sampleIndex,
+        const char* reason);
     void InvalidateHudCapture();
     bool HudReady() const;
     bool HudCaptureFresh(uint64_t frameIndex, uint64_t maxAgeFrames) const;
@@ -161,6 +196,17 @@ private:
     bool CopyDepthCacheToImage(const EyeSwapchain& eye, uint32_t imageIndex);
     bool CreateHudSwapchain(XrSession session, int width, int height);
     bool CreateHudCaptureTarget();
+    bool CreateTerminalHudCaptureTarget(int width, int height);
+    bool DumpCaptureFramebuffer(
+        uint64_t frameIndex,
+        uint64_t sequence,
+        uint32_t sampleIndex,
+        const char* reason,
+        const char* targetName,
+        uint32_t framebuffer,
+        int width,
+        int height,
+        uint64_t captureFrame);
     bool CopyHudCaptureToImage(uint32_t imageIndex);
     bool CreateInteractionReticleSwapchain(XrSession session, int sizePixels);
     bool CreateControllerAimGuideSwapchain(XrSession session, int sizePixels);
@@ -193,6 +239,7 @@ private:
     std::array<ReticleAsset, 35> interactionReticleAssets_;
     std::vector<uint8_t> interactionReticleUploadPixels_;
     bool interactionReticleNativeIconsEnabled_ = false;
+    bool terminalColorClearSuppressionActive_ = false;
     uint32_t interactionReticleAssetsLoaded_ = 0;
 
     struct HudCaptureState {

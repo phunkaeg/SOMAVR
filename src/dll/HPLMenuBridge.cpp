@@ -163,6 +163,17 @@ bool UpdateHPLMenuPointer(
     return true;
 }
 
+bool IsHPLNativeMenuCursorVisible()
+{
+    std::lock_guard lock(g_mutex);
+    HWND window = ResolveGameWindow();
+    if (window == nullptr || GetForegroundWindow() != window) return false;
+    CURSORINFO cursorInfo{};
+    cursorInfo.cbSize = sizeof(cursorInfo);
+    return GetCursorInfo(&cursorInfo) != FALSE
+        && (cursorInfo.flags & CURSOR_SHOWING) != 0;
+}
+
 void DeactivateHPLMenuPointer()
 {
     std::lock_guard lock(g_mutex);

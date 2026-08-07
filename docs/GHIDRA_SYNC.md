@@ -1,5 +1,134 @@
 # Ghidra Synchronization Ledger
 
+## 2026-07-22 Arm Local Restore Correction
+
+| Program/address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| NoSteam `0x14023fee0` | `HPL3_Node3D_SetMatrix` | Renamed after decompilation confirmed the supplied 64-byte local copy to node `+0x44` followed by world/descendant update. Version 0.80 signature-guards this path for authored arm-local restoration. |
+| NoSteam `0x140240290` | `HPL3_Node3D_ApplyPostAnimTransform` | Plate comment corrected: the function mutates local and returns immediately when `UsePostTransform=0`; the former clear-then-apply restore was a no-op. |
+
+The selected `Soma_NoSteam.exe` database was updated and saved through the
+Ghidra MCP. Static HPL2 `Node3D.cpp` independently matches both semantics.
+
+## 2026-07-21 Persistent Hands Control Sync
+
+| Program/address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| NoSteam `0x1400b3700` | `SOMA_iLuxEntity_SetActive` | Confirmed native `void SetActive(bool)` implementation used by `PlayerHandsHandler.hps`; exact signature and prototype synchronized for the Normal-only retention hook. |
+| NoSteam `0x1402cb5a0` | `HPL3_Entity3D_SetVisible` | Confirmed native `void SetVisible(bool)` wrapper used by the player-hands mesh; exact signature and prototype synchronized. |
+
+Both functions were renamed and typed in the selected `Soma_NoSteam.exe`
+database. Version 0.77 gates them by exact hands identity, cached mesh pointer,
+Normal/Normal ownership, no authored camera, and active VR tracking.
+
+## 2026-07-21 Bilateral Arm Chain Sync
+
+Live ReGenny traversal and the released `hands_human.dae` confirmed the complete
+bilateral hierarchy from clavicle through shoulder, distributed upper-arm,
+two-node elbow, distributed forearm, and wrist. Every live node had native
+`usePre=0 usePost=0`; the active medicine animation authors the whole chain.
+
+| Program/address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| NoSteam `0x1404a94a0` | `HPL3_Node3D_SetPostTransform` | Plate comment now records the complete live chain and the post-animation-only IK contract. Tagged `SOMAVR`, `Hands`, `IK`, `AnimationLayer`, and `Confirmed`. |
+| NoSteam `0x140240290` | `HPL3_Node3D_ApplyPostAnimTransform` | Plate comment records descendant propagation for a future distributed shoulder/elbow solve while preserving and restoring authored state. Tagged with the same evidence set. |
+
+The selected `Soma_NoSteam.exe` database was saved after synchronization.
+
+## 2026-07-21 Medicine Socket Ownership Sync
+
+The live apartment medicine sequence was correlated with the released scripts,
+runtime RTTI, ReGenny node layouts, and the native AngelScript registration.
+
+| Program/address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| NoSteam `0x1400be8f0` | `SOMA_cLuxProp_AttachToSocket` | Native implementation registered as `void AttachToSocket(iLuxEntity@ apEntity, const tString&in asSocket, bool abUseRotation, bool abSnapToParent, bool abLocked=false)`. It allocates/stores attachment state at child `cLuxProp+0x740`, resolves the named socket from the parent mesh, stores it at attachment `+0xa0`, optionally snaps the child, and records the attachment transform. |
+
+The function received its exact six-argument native prototype, a plate comment,
+and `SOMAVR`, `Hands`, `Viewmodel`, `Attachment`, and `Confirmed` tags. This
+confirms that `Tracer_Fluid_HudObject` remains owned by SOMA's native `R_Hand`
+socket path; controller takeover belongs at the wrist/arm layer. The selected
+`Soma_NoSteam.exe` database was saved after synchronization.
+
+## 2026-07-20 Wrist Hierarchy Candidate Sync
+
+All calls explicitly selected `Soma_NoSteam.exe` because three programs were
+open in Ghidra.
+
+| Program/address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| NoSteam `0x14023f610` | `HPL3_Node3D_GetParent` | Renamed and documented. Returns parent pointer at node `+0x180`; used by the passive wrist hierarchy and post-candidate probe. |
+| NoSteam `0x14051a310` | `HPL3_Node3D_GetLocalMatrix` | Renamed and documented. Returns local matrix at node `+0x44`; paired with parent world `+0x84` and `post * animatedLocal`. |
+
+The selected `Soma_NoSteam.exe` database was saved after synchronization.
+
+## 2026-07-20 Bilateral Wrist Control Revalidation
+
+The first live `PlayerHands_0` session proved that entity-root control cannot
+represent two tracked hands: the one quarter-scale bilateral rig followed the
+dominant right controller. The NoSteam database was re-read against the live
+result:
+
+| Program/address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| NoSteam `0x1404a9490` | `HPL3_Node3D_SetUsePostTransform` | Writes node `+0xc5`; remains the independent wrist enable gate. |
+| NoSteam `0x1404a94a0` | `HPL3_Node3D_SetPostTransform` | Copies 64 bytes to node `+0x108`. |
+| NoSteam `0x140240290` | `HPL3_Node3D_ApplyPostAnimTransform` | Applies `post * animatedLocal`, updates descendants, and preserves earlier native animation. |
+
+Version 0.76 promotes these three addresses to guarded runtime control for
+exact left/right wrist identity. Each frame saves native post state, applies a
+position-only candidate, restores the native matrix and flag immediately, and
+verifies restoration. The shared `PlayerHands_*` root retains native position
+and rotation; only its released-handler-supported scale changes from `0.25` to
+`1.0` during eligible Normal-state tracking.
+| NoSteam `0x140200980` | `HPL3_MeshEntity_GetBoneStateFromName` | Resolves stable `j_L_Wrist`, `j_R_Wrist`, hand sockets, and camera socket on the active hands mesh. |
+
+No names or comments required correction. The stable build disables the rejected
+root mutation and extends passive per-wrist controller-delta evidence before
+calling these controls.
+
+## 2026-07-20 Live Native Input Ownership
+
+| Program/address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| NoSteam `0x140154fb0` | `SOMA_cLuxPlayer_OnAnalogInput` | Frida proved RCX is helper `root+0x110`; helper `+0xc8` is root `+0x1d8`. Physical Look is type `0`; physical `W` is type `1` `{0,1,0}`. |
+| NoSteam `0x14015ba20` | `SOMA_cLuxPlayerHelper_Update` | `self` is the analog owner and `self-0x110` is root identity. Version 0.71 dispatches queued Move/Look with this split. |
+| NoSteam `0x1402375f0` | `HPL3_Script_iCharacterBody_Move` | Keyboard `W` reaches direction `0` and changes the per-frame Forward accumulator from `0` to `1`; direct controller calls remain diagnostic. |
+
+## 2026-07-20 Input, Manipulation, And Terminal Recovery
+
+| Program/address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| NoSteam `0x14015ba20` | `SOMA_cLuxPlayerHelper_Update` | Updated after the 0.68.2 live log proved `player+0xc8` remains null during active Slide/MovingButton interaction. The former readiness gate deferred all events and is not a generic state-context contract. |
+| NoSteam `0x140213970` | `HPL3_GuiSet_Render` | Documented adaptive terminal atlas evidence (`256x145` through about `596x337`) and the 0.70 single-pass direct-HUD render contract. |
+| NoSteam `0x140238750` | `HPL3_PidControllerVec3_Output` | Documented default direct Slide joint-follow ownership, point-only SwingDoor arcs, and Lever-only wrist twist. |
+
+The `Soma_NoSteam.exe` database was saved after synchronization.
+
+## 2026-07-19 Authored States And Visible Hands
+
+The `Soma_NoSteam.exe` database now has names, prototypes, and plate comments
+for:
+
+- `0x14023b110` `HPL3_CharacterBody_SetCamera`
+- `0x140071f10` `HPL3_Viewport_SetCamera`
+- `0x140270d70` `HPL3_Camera_SetRotateMode`
+- `0x140270ee0` `HPL3_Camera_SetRotationMatrix`
+- `0x140165270` `SOMA_iLuxEntity_GetMeshEntity`
+- `0x1401fdc30` `HPL3_MeshEntity_GetBoneState`
+- `0x140200980` `HPL3_MeshEntity_GetBoneStateFromName`
+- `0x140200420` `HPL3_MeshEntity_GetSocket`
+- `0x14023f600` / `0x14023f820` node world matrix/position
+- `0x1404a9470` / `0x1404a9480` pre/post transform getters
+- `0x140031c90` / `0x1404a9490` pre/post enable setters
+- `0x140031ca0` / `0x1404a94a0` pre/post matrix setters
+- `0x1402401d0` / `0x140240290` pre/post apply functions
+
+Comments distinguish character-body from viewport camera ownership and mark
+post-animation bone transforms as a proposed, currently disabled visible-hands
+path. Script-owned state behavior is documented in
+`AUTHORED_STATES_AND_VISIBLE_HANDS_RE.md`.
+
 ## 2026-07-19 Native-Phase Recovery Sync
 
 | Program/address | Ghidra name | Evidence/use |

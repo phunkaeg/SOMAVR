@@ -23,6 +23,7 @@ constexpr uintptr_t kGetCurrentMoveStateIdRva = 0x155090;
 constexpr size_t kPlayerCameraOffset = 0x168;
 constexpr size_t kPlayerCharacterBodyOffset = 0x170;
 constexpr size_t kCameraRotateModeOffset = 0x6c;
+constexpr size_t kCharacterBodyCameraOffset = 0x1b0;
 constexpr size_t kCharacterBodyCameraUpdateActiveOffset = 0x1e8;
 constexpr int kEulerAnglesRotateMode = 0;
 
@@ -98,10 +99,62 @@ bool StateChanged(const HPLPlayerStateSnapshot& left, const HPLPlayerStateSnapsh
     return left.player != right.player || left.camera != right.camera || left.characterBody != right.characterBody ||
            left.playerStateId != right.playerStateId || left.moveStateId != right.moveStateId ||
            left.cameraRotateMode != right.cameraRotateMode || left.cameraUpdateActive != right.cameraUpdateActive ||
-           left.authoredCameraActive != right.authoredCameraActive;
+           left.authoredCameraActive != right.authoredCameraActive ||
+           left.semanticAuthoredState != right.semanticAuthoredState ||
+           left.characterBodyCameraValid != right.characterBodyCameraValid ||
+           left.characterBodyCamera != right.characterBodyCamera ||
+           left.characterBodyCameraDetached != right.characterBodyCameraDetached;
 }
 
 } // namespace
+
+const char* HPLPlayerStateName(int playerStateId)
+{
+    switch (static_cast<HPLPlayerStateKind>(playerStateId))
+    {
+    case HPLPlayerStateKind::Normal: return "Normal";
+    case HPLPlayerStateKind::Grab: return "Grab";
+    case HPLPlayerStateKind::Push: return "Push";
+    case HPLPlayerStateKind::Wheel: return "Wheel";
+    case HPLPlayerStateKind::Slide: return "Slide";
+    case HPLPlayerStateKind::SwingDoor: return "SwingDoor";
+    case HPLPlayerStateKind::Lever: return "Lever";
+    case HPLPlayerStateKind::Tear: return "Tear";
+    case HPLPlayerStateKind::Terminal: return "Terminal";
+    case HPLPlayerStateKind::HandheldTerminal: return "HandheldTerminal";
+    case HPLPlayerStateKind::Read: return "Read";
+    case HPLPlayerStateKind::Ladder: return "Ladder";
+    case HPLPlayerStateKind::ClimbLedge: return "ClimbLedge";
+    case HPLPlayerStateKind::MovingButton: return "MovingButton";
+    case HPLPlayerStateKind::InteractiveCameraAnimation: return "InteractiveCameraAnimation";
+    case HPLPlayerStateKind::Sit: return "Sit";
+    case HPLPlayerStateKind::Conversation: return "Conversation";
+    case HPLPlayerStateKind::Dead: return "Dead";
+    case HPLPlayerStateKind::ZoomArea: return "ZoomArea";
+    case HPLPlayerStateKind::CustomControls: return "CustomControls";
+    case HPLPlayerStateKind::NullState: return "Null";
+    default: return "Unknown";
+    }
+}
+
+bool IsHPLSemanticAuthoredState(int playerStateId)
+{
+    switch (static_cast<HPLPlayerStateKind>(playerStateId))
+    {
+    case HPLPlayerStateKind::Ladder:
+    case HPLPlayerStateKind::ClimbLedge:
+    case HPLPlayerStateKind::InteractiveCameraAnimation:
+    case HPLPlayerStateKind::Sit:
+    case HPLPlayerStateKind::Conversation:
+    case HPLPlayerStateKind::Dead:
+    case HPLPlayerStateKind::ZoomArea:
+    case HPLPlayerStateKind::CustomControls:
+    case HPLPlayerStateKind::NullState:
+        return true;
+    default:
+        return false;
+    }
+}
 
 bool InstallHPLPlayerState(const Config& config)
 {
@@ -144,10 +197,11 @@ bool InstallHPLPlayerState(const Config& config)
     Logger::Instance().Write(
         LogLevel::Info,
         "hpl_player_state install_ok getPlayerRva=0x%llx playerStateRva=0x%llx moveStateRva=0x%llx "
-        "cameraRotateModeOffset=0x%llx bodyCameraUpdateOffset=0x%llx eulerMode=%d",
+        "cameraRotateModeOffset=0x%llx bodyCameraOffset=0x%llx bodyCameraUpdateOffset=0x%llx eulerMode=%d",
         static_cast<unsigned long long>(kGetPlayerRva), static_cast<unsigned long long>(kGetCurrentStateIdRva),
         static_cast<unsigned long long>(kGetCurrentMoveStateIdRva),
         static_cast<unsigned long long>(kCameraRotateModeOffset),
+        static_cast<unsigned long long>(kCharacterBodyCameraOffset),
         static_cast<unsigned long long>(kCharacterBodyCameraUpdateActiveOffset), kEulerAnglesRotateMode);
     return true;
 }
@@ -184,12 +238,17 @@ void UpdateHPLPlayerState(uint64_t frameIndex)
 
         bool cameraUpdateActive = false;
         const bool rotateModeValid = ReadField(next.camera, kCameraRotateModeOffset, next.cameraRotateMode);
+        next.characterBodyCameraValid =
+            ReadField(next.characterBody, kCharacterBodyCameraOffset, next.characterBodyCamera);
         const bool cameraUpdateValid =
             ReadField(next.characterBody, kCharacterBodyCameraUpdateActiveOffset, cameraUpdateActive);
         next.cameraControlValid = rotateModeValid && cameraUpdateValid;
         next.cameraUpdateActive = cameraUpdateActive;
         next.authoredCameraActive =
             next.cameraControlValid && (next.cameraRotateMode != kEulerAnglesRotateMode || !next.cameraUpdateActive);
+        next.semanticAuthoredState = IsHPLSemanticAuthoredState(next.playerStateId);
+        next.characterBodyCameraDetached = next.characterBodyCameraValid
+            && next.characterBodyCamera != next.camera;
     }
 
     const bool changed = StateChanged(g_snapshot, next);
@@ -215,12 +274,16 @@ void UpdateHPLPlayerState(uint64_t frameIndex)
         const HPLCameraBridgeStatus cameraStatus = GetHPLCameraBridgeStatus();
         Logger::Instance().Write(
             next.authoredCameraActive ? LogLevel::Warn : LogLevel::Info,
-            "hpl_player_state frame=%llu player=%p camera=%p body=%p playerState=%d moveState=%d controlValid=%d "
-            "rotateMode=%d cameraUpdateActive=%d authoredCamera=%d activeCamera=%p cameraMatch=%d tracking=%d "
-            "stereo=%d transition=%d",
+            "hpl_player_state frame=%llu player=%p camera=%p body=%p bodyCamera=%p bodyCameraValid=%d "
+            "bodyCameraDetached=%d playerState=%d playerStateName=%s moveState=%d controlValid=%d rotateMode=%d "
+            "cameraUpdateActive=%d structuralAuthoredCamera=%d semanticAuthoredState=%d activeCamera=%p "
+            "cameraMatch=%d tracking=%d stereo=%d transition=%d",
             static_cast<unsigned long long>(frameIndex), next.player, next.camera, next.characterBody,
-            next.playerStateId, next.moveStateId, next.cameraControlValid ? 1 : 0, next.cameraRotateMode,
-            next.cameraUpdateActive ? 1 : 0, next.authoredCameraActive ? 1 : 0, cameraStatus.activeCamera,
+            next.characterBodyCamera, next.characterBodyCameraValid ? 1 : 0,
+            next.characterBodyCameraDetached ? 1 : 0, next.playerStateId, HPLPlayerStateName(next.playerStateId),
+            next.moveStateId, next.cameraControlValid ? 1 : 0, next.cameraRotateMode,
+            next.cameraUpdateActive ? 1 : 0, next.authoredCameraActive ? 1 : 0,
+            next.semanticAuthoredState ? 1 : 0, cameraStatus.activeCamera,
             next.camera != nullptr && next.camera == cameraStatus.activeCamera ? 1 : 0,
             cameraStatus.trackingEnabled ? 1 : 0, cameraStatus.stereoEnabled ? 1 : 0, changed ? 1 : 0);
     }
@@ -270,12 +333,16 @@ void LogHPLPlayerStateSummary()
     Logger::Instance().Write(
         LogLevel::Info,
         "hpl_player_state_summary installed=%d updates=%llu transitions=%llu frame=%llu player=%p camera=%p body=%p "
-        "playerState=%d moveState=%d rotateMode=%d cameraUpdateActive=%d authoredCamera=%d",
+        "bodyCamera=%p bodyCameraDetached=%d playerState=%d playerStateName=%s moveState=%d rotateMode=%d "
+        "cameraUpdateActive=%d structuralAuthoredCamera=%d semanticAuthoredState=%d",
         g_snapshot.installed ? 1 : 0, static_cast<unsigned long long>(g_updates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_transitions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_snapshot.frame), g_snapshot.player, g_snapshot.camera,
-        g_snapshot.characterBody, g_snapshot.playerStateId, g_snapshot.moveStateId, g_snapshot.cameraRotateMode,
-        g_snapshot.cameraUpdateActive ? 1 : 0, g_snapshot.authoredCameraActive ? 1 : 0);
+        g_snapshot.characterBody, g_snapshot.characterBodyCamera,
+        g_snapshot.characterBodyCameraDetached ? 1 : 0, g_snapshot.playerStateId,
+        HPLPlayerStateName(g_snapshot.playerStateId), g_snapshot.moveStateId, g_snapshot.cameraRotateMode,
+        g_snapshot.cameraUpdateActive ? 1 : 0, g_snapshot.authoredCameraActive ? 1 : 0,
+        g_snapshot.semanticAuthoredState ? 1 : 0);
 }
 
 void RemoveHPLPlayerState()

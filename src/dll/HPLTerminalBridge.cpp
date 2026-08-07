@@ -3,6 +3,7 @@
 #include "HPLCameraBridge.h"
 #include "HPLMenuMath.h"
 #include "HPLPlayerState.h"
+#include "HPLTerminalMath.h"
 #include "Logger.h"
 
 #include <Windows.h>
@@ -107,6 +108,7 @@ using RotateCameraTowardsFn = void (*)(
     bool localSpace);
 
 Config g_config;
+OpenXRRuntime* g_openxr = nullptr;
 GetImGuiFn g_getCurrentImGui = nullptr;
 GetImGuiFn g_getGameHudImGui = nullptr;
 ImGuiGetSetFn g_imGuiGetSet = nullptr;
@@ -489,10 +491,11 @@ void HookSendMouseVirtualPosition(void* imGui, const Vector2f* position, const V
 
 } // namespace
 
-bool InstallHPLTerminalBridge(const Config& config)
+bool InstallHPLTerminalBridge(const Config& config, OpenXRRuntime* openxr)
 {
     std::lock_guard lock(g_installMutex);
     g_config = config;
+    g_openxr = openxr;
     const bool pointerRequested = config.hplControllerInput
         && config.hplControllerTerminalPointer;
     const bool diegeticRequested = config.hplControllerTerminalDiegetic;
@@ -649,6 +652,14 @@ bool InstallHPLTerminalBridge(const Config& config)
         config.hplControllerTerminalPointerHorizontalDegrees,
         config.hplControllerTerminalPointerVerticalDegrees,
         config.hplControllerTerminalPointerSmoothing);
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_terminal_surface_config hudShape=%s hudDistanceMeters=%.3f hudWidthMeters=%.3f hudCylinderAngleDegrees=%.2f pointerScale=%.2f mapping=exact_quad_or_cylinder_surface_intersection",
+        config.openxrHudShape.c_str(),
+        config.openxrHudDistanceMeters,
+        config.openxrHudWidthMeters,
+        config.openxrHudCylinderAngleDegrees,
+        config.hplControllerTerminalPointerScale);
     return true;
 }
 
@@ -705,12 +716,16 @@ bool UpdateHPLTerminalPointer(
     }
 
     g_headConeFallbacks.fetch_add(1, std::memory_order_relaxed);
-    menu_math::MenuPointerPosition pointer;
-    if (!menu_math::ProjectAimToMenu(
+    terminal_math::HudPointerPosition pointer;
+    if (!terminal_math::ProjectAimToHudSurface(
             {headPose.orientationX, headPose.orientationY, headPose.orientationZ, headPose.orientationW},
             {aimPose.orientationX, aimPose.orientationY, aimPose.orientationZ, aimPose.orientationW},
-            g_config.hplControllerTerminalPointerHorizontalDegrees,
-            g_config.hplControllerTerminalPointerVerticalDegrees,
+            g_config.openxrHudShape == "cylinder",
+            g_config.openxrHudCylinderAngleDegrees,
+            g_config.openxrHudDistanceMeters,
+            g_config.openxrHudWidthMeters,
+            static_cast<float>(g_config.openxrHudWidthPixels)
+                / static_cast<float>(std::max(g_config.openxrHudHeightPixels, 1)),
             pointer)) {
         DeactivateHPLTerminalPointer();
         return false;
@@ -731,6 +746,15 @@ bool UpdateHPLTerminalPointer(
     g_directVirtualCoordinates.store(false, std::memory_order_release);
     g_active.store(true, std::memory_order_release);
     g_projected.fetch_add(1, std::memory_order_relaxed);
+    if (g_openxr != nullptr && g_config.hplControllerTerminalOverlay) {
+        OpenXRTerminalPointerState state;
+        state.valid = true;
+        state.gameFrame = gameFrame;
+        state.normalizedX = std::clamp(g_smoothedX, 0.0f, 1.0f);
+        state.normalizedY = std::clamp(g_smoothedY, 0.0f, 1.0f);
+        state.sizeScale = g_config.hplControllerTerminalPointerScale;
+        g_openxr->SetTerminalPointer(state);
+    }
     if (DispatchControllerVirtualPosition(false)) return true;
     const uint64_t failure = g_directDispatchFailures.fetch_add(
         1, std::memory_order_relaxed) + 1;
@@ -750,6 +774,7 @@ void DeactivateHPLTerminalPointer()
     if (wasActive) g_generation.fetch_add(1, std::memory_order_release);
     g_directVirtualCoordinates.store(false, std::memory_order_release);
     g_smoothed = false;
+    if (g_openxr != nullptr) g_openxr->ClearTerminalPointer();
 }
 
 void LogHPLTerminalBridgeSummary()
@@ -786,6 +811,7 @@ void RemoveHPLTerminalBridge()
 {
     std::lock_guard lock(g_installMutex);
     DeactivateHPLTerminalPointer();
+    g_openxr = nullptr;
     if (g_sendMouseVirtualPositionTarget != nullptr) {
         MH_DisableHook(g_sendMouseVirtualPositionTarget);
         MH_RemoveHook(g_sendMouseVirtualPositionTarget);

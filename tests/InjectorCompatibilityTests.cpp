@@ -47,6 +47,23 @@ int main()
     failures += Check(
         !MatchSomaInteractionSignature(0x1438c0, regressedInner, sizeof(regressedInner)),
         "doctor signature matcher rejects the 0.64 missing-prefix regression");
+    const uint8_t setUsePost[] = {
+        0x88, 0x91, 0xc5, 0x00, 0x00, 0x00, 0xc3,
+    };
+    const uint8_t setPost[] = {
+        0x48, 0x81, 0xc1, 0x08, 0x01, 0x00, 0x00,
+        0x41, 0xb8, 0x40, 0x00, 0x00, 0x00, 0xe9,
+    };
+    const uint8_t applyPost[] = {
+        0x48, 0x8b, 0xc4, 0x48, 0x89, 0x70, 0x10, 0x57,
+        0x48, 0x81, 0xec, 0xa0, 0x00, 0x00, 0x00,
+        0x80, 0xb9, 0xc5, 0x00, 0x00, 0x00, 0x00,
+    };
+    failures += Check(
+        MatchSomaInteractionSignature(0x4a9490, setUsePost, sizeof(setUsePost))
+            && MatchSomaInteractionSignature(0x4a94a0, setPost, sizeof(setPost))
+            && MatchSomaInteractionSignature(0x240290, applyPost, sizeof(applyPost)),
+        "visible-hands post-transform signatures are accepted");
     failures += Check(
         ClassifyCompatibilityName(L"somavr.dll", true, finding)
             && finding.severity == CompatibilitySeverity::Blocking,

@@ -39,6 +39,18 @@ Axis2 ApplyHeadRelativeMovement(
     float forward,
     const camera_math::Quaternion& headOrientation);
 float DegreesToRadians(float degrees);
+float WrapRadians(float radians);
+bool ResolveHorizontalYaw(
+    const camera_math::Quaternion& orientation,
+    float& yawRadians);
+float ComputeBodyFollowStepRadians(
+    float yawErrorRadians,
+    float releaseDegrees,
+    float degreesPerSecond,
+    uint64_t elapsedMilliseconds);
+float QuaternionAngularDistanceDegrees(
+    const camera_math::Quaternion& from,
+    const camera_math::Quaternion& to);
 ManipulationMouseDelta ComputeManipulationMouseDelta(
     const camera_math::Vector3& previousHandRelativePosition,
     const camera_math::Vector3& currentHandRelativePosition,

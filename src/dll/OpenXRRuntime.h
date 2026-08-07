@@ -86,11 +86,21 @@ struct OpenXRInteractionReticleState {
     OpenXRControllerPose aimPose{};
 };
 
+struct OpenXRTerminalPointerState {
+    bool valid = false;
+    uint64_t gameFrame = 0;
+    float normalizedX = 0.5f;
+    float normalizedY = 0.5f;
+    float sizeScale = 1.0f;
+};
+
 struct OpenXRControllerAimGuideState {
     bool valid = false;
     uint64_t gameFrame = 0;
     uint32_t handIndex = 1;
     float lengthMeters = 1.2f;
+    float alpha = 0.05f;
+    bool interactable = false;
     OpenXRControllerPose aimPose{};
 };
 
@@ -241,8 +251,15 @@ public:
     void InvalidateStereoCaches(const char* reason);
     void RequestComfortBlackout(uint32_t frames, const char* reason);
     void SetPresentationBlackout(bool active, const char* reason);
-    bool BeginHudCapture(uint64_t frameIndex);
+    bool BeginHudCapture(uint64_t frameIndex, bool preservePreviousFrame = false);
     bool EndHudCapture(uint64_t frameIndex, bool suppressCenterCrosshair);
+    bool BeginTerminalHudCapture(
+        uint64_t frameIndex,
+        int width,
+        int height,
+        bool preservePreviousFrame,
+        bool preserveDirtyRects);
+    bool EndTerminalHudCapture(uint64_t frameIndex);
     bool CaptureFramebufferToHud(
         uint64_t frameIndex,
         uint32_t sourceFramebuffer,
@@ -250,14 +267,27 @@ public:
         int sourceY,
         int sourceWidth,
         int sourceHeight);
+    bool DumpHudCapture(
+        uint64_t frameIndex,
+        uint64_t sequence,
+        uint32_t sampleIndex,
+        const char* reason);
+    bool DumpTerminalHudCapture(
+        uint64_t frameIndex,
+        uint64_t sequence,
+        uint32_t sampleIndex,
+        const char* reason);
     void SetInteractionReticle(const OpenXRInteractionReticleState& state);
     void SetInteractionReticleSemantic(int crosshairState);
     void ClearInteractionReticle();
+    void SetTerminalPointer(const OpenXRTerminalPointerState& state);
+    void ClearTerminalPointer();
     void SetControllerAimGuide(const OpenXRControllerAimGuideState& state);
     void ClearControllerAimGuide(uint32_t handIndex);
     void ClearControllerAimGuide();
     void SetStatusPanel(const OpenXRStatusPanelState& state);
     void SetHudRuntimeVisible(bool visible);
+    void SetDesktopMirrorNativeBackbuffer(bool enabled);
     bool ToggleHudLayerShape();
     OpenXRHudLayerShapeStatus GetHudLayerShapeStatus() const;
     void SetInteractionReticleRuntimeVisible(bool visible);

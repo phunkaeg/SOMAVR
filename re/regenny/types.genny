@@ -1,0 +1,56 @@
+// Primitive and value types shared by the SOMAVR schemas.
+
+type void 0
+type bool8 1 [[bool]]
+type u8 1 [[u8]]
+type u16 2 [[u16]]
+type u32 4 [[u32]]
+type u64 8 [[u64]]
+type i8 1 [[i8]]
+type i16 2 [[i16]]
+type i32 4 [[i32]]
+type i64 8 [[i64]]
+type f32 4 [[f32]]
+type f64 8 [[f64]]
+type char 1
+
+namespace soma {
+    struct Vector2i 0x8 {
+        i32 x @ 0x0
+        i32 y @ 0x4
+    }
+
+    struct Vector3f 0xc {
+        f32 x @ 0x0
+        f32 y @ 0x4
+        f32 z @ 0x8
+    }
+
+    struct Matrix4f 0x40 {
+        f32 m00 @ 0x00
+        f32 m01 @ 0x04
+        f32 m02 @ 0x08
+        f32 m03 @ 0x0c
+        f32 m10 @ 0x10
+        f32 m11 @ 0x14
+        f32 m12 @ 0x18
+        f32 m13 @ 0x1c
+        f32 m20 @ 0x20
+        f32 m21 @ 0x24
+        f32 m22 @ 0x28
+        f32 m23 @ 0x2c
+        f32 m30 @ 0x30
+        f32 m31 @ 0x34
+        f32 m32 @ 0x38
+        f32 m33 @ 0x3c
+    }
+
+    // MSVC x64 tString observed in SOMA. Inline storage and heap pointer share
+    // the first 16 bytes; length/capacity decide which representation is live.
+    struct NativeStringPartial 0x20 {
+        u64 storage0 @ 0x00
+        u64 storage1 @ 0x08
+        u64 length @ 0x10
+        u64 capacity @ 0x18
+    }
+}

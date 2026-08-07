@@ -3,6 +3,8 @@
 #include "HPLCameraBridge.h"
 #include "HPLComfortMath.h"
 #include "HPLGrabBridge.h"
+#include "HPLHandsBridge.h"
+#include "HPLHudBridge.h"
 #include "HPLInputMath.h"
 #include "HPLInteractionBridge.h"
 #include "HPLMenuBridge.h"
@@ -72,11 +74,19 @@ struct BridgeState {
     bool gameplaySuppressed = false;
     bool oneHandFallbackActive = false;
     bool nativeMovementActive = false;
+    bool semanticAnalogMovementActive = false;
     bool nativeTurnActive = false;
     bool paused = false;
     bool menuPointerActive = false;
     bool terminalPointerActive = false;
     uint32_t terminalPointerHand = 1;
+    bool terminalLookAwayAnchorValid = false;
+    camera_math::Quaternion terminalLookAwayAnchor{};
+    uint32_t terminalLookAwayFrames = 0;
+    bool terminalLookAwayExitLatched = false;
+    bool terminalCancelPending = false;
+    uint64_t terminalCancelStartFrame = 0;
+    uint64_t terminalCancelReleaseFrame = 0;
     bool menuClickLatchedUntilRelease = false;
     bool readRotateLatched = false;
     crouch_math::PhysicalCrouchState physicalCrouch{};
@@ -84,6 +94,12 @@ struct BridgeState {
     int lastPlayerState = -1;
     bool authoredCameraInitialized = false;
     bool lastAuthoredCameraActive = false;
+    bool bodyFollowAnchorValid = false;
+    bool bodyFollowActive = false;
+    float bodyFollowAnchorYaw = 0.0f;
+    bool bodyFollowNativeYawValid = false;
+    float bodyFollowLastNativeYaw = 0.0f;
+    uint64_t bodyFollowThresholdStartMs = 0;
 };
 
 struct ControllerRoles {
@@ -109,6 +125,7 @@ constexpr int kReadPlayerState = 10;
 constexpr int kMovingButtonPlayerState = 13;
 constexpr int kDeadPlayerState = 17;
 constexpr int kZoomAreaPlayerState = 18;
+constexpr uint64_t kTerminalCancelHoldFrames = 3;
 constexpr uintptr_t kPlayerAnalogInputRva = 0x154fb0;
 constexpr uintptr_t kPlayerHelperUpdateRva = 0x15ba20;
 constexpr std::array<uint8_t, 15> kPlayerAnalogInputSignature{
@@ -131,6 +148,14 @@ struct PendingManipulationAnalog {
     uint64_t inputFrame = 0;
 };
 
+struct PendingMovementAnalog {
+    void* player = nullptr;
+    int playerState = -1;
+    float x = 0.0f;
+    float y = 0.0f;
+    uint64_t inputFrame = 0;
+};
+
 Config g_config;
 OpenXRRuntime* g_openxr = nullptr;
 PlayerAnalogInputFn g_originalPlayerAnalogInput = nullptr;
@@ -141,6 +166,8 @@ BridgeState g_state;
 std::mutex g_mutex;
 std::mutex g_pendingAnalogMutex;
 PendingManipulationAnalog g_pendingAnalog;
+std::mutex g_pendingMovementMutex;
+PendingMovementAnalog g_pendingMovement;
 std::atomic<uint64_t> g_updates = 0;
 std::atomic<uint64_t> g_activeUpdates = 0;
 std::atomic<uint64_t> g_sentEvents = 0;
@@ -161,6 +188,7 @@ std::atomic<uint64_t> g_inventoryActions = 0;
 std::atomic<uint64_t> g_pausedFrames = 0;
 std::atomic<uint64_t> g_menuPointerFrames = 0;
 std::atomic<uint64_t> g_terminalPointerFrames = 0;
+std::atomic<uint64_t> g_terminalLookAwayExits = 0;
 std::atomic<uint64_t> g_gameOverContinueActions = 0;
 std::atomic<uint64_t> g_headRelativeMovementFrames = 0;
 std::atomic<uint64_t> g_controllerRelativeMovementFrames = 0;
@@ -184,10 +212,18 @@ std::atomic<uint64_t> g_manipulationNativeAnalogDispatches = 0;
 std::atomic<uint64_t> g_manipulationMouseFallbacks = 0;
 std::atomic<uint64_t> g_manipulationAnalogStaleDrops = 0;
 std::atomic<uint64_t> g_manipulationAnalogContextDeferrals = 0;
+std::atomic<uint64_t> g_movementNativeAnalogDispatches = 0;
+std::atomic<uint64_t> g_movementAnalogStaleDrops = 0;
+std::atomic<uint64_t> g_movementAnalogContextDeferrals = 0;
 std::atomic<uint64_t> g_nativeThrowActions = 0;
 std::atomic<uint64_t> g_playerStateTransitions = 0;
 std::atomic<uint64_t> g_playerStateBlackouts = 0;
 std::atomic<uint64_t> g_authoredCameraTransitions = 0;
+std::atomic<uint64_t> g_bodyFollowEntries = 0;
+std::atomic<uint64_t> g_bodyFollowSteps = 0;
+std::atomic<uint64_t> g_bodyFollowTurnFailures = 0;
+std::atomic<bool> g_virtualTorsoYawValid = false;
+std::atomic<float> g_virtualTorsoYawRadians = 0.0f;
 
 uint64_t TickMs()
 {
@@ -337,6 +373,19 @@ void ClearPendingManipulationAnalog()
     g_pendingAnalog = {};
 }
 
+void ClearPendingMovementAnalog()
+{
+    std::lock_guard lock(g_pendingMovementMutex);
+    g_pendingMovement = {};
+}
+
+bool PlayerStateAllowsSemanticLocomotion(int playerState)
+{
+    return playerState == kNormalPlayerState || playerState == kGrabPlayerState;
+}
+
+const char* PlayerStateName(int state);
+
 bool ReadPointer(const void* address, void*& value)
 {
     SIZE_T bytesRead = 0;
@@ -347,9 +396,13 @@ bool ReadPointer(const void* address, void*& value)
         && bytesRead == sizeof(value);
 }
 
-bool DispatchPendingManipulationAnalog(void* player)
+bool DispatchPendingManipulationAnalog(void* player, void* analogOwner)
 {
-    if (g_originalPlayerAnalogInput == nullptr || player == nullptr) return false;
+    if (g_originalPlayerAnalogInput == nullptr
+        || player == nullptr
+        || analogOwner == nullptr) {
+        return false;
+    }
     PendingManipulationAnalog pending;
     {
         std::lock_guard lock(g_pendingAnalogMutex);
@@ -369,7 +422,7 @@ bool DispatchPendingManipulationAnalog(void* player)
     void* stateScript = nullptr;
     void* scriptContextManager = nullptr;
     if (!ReadPointer(
-            reinterpret_cast<const uint8_t*>(player) + 0xc8,
+            reinterpret_cast<const uint8_t*>(analogOwner) + 0xc8,
             stateScript)
         || stateScript == nullptr
         || !ReadPointer(
@@ -383,11 +436,12 @@ bool DispatchPendingManipulationAnalog(void* player)
                 std::max(g_config.hplControllerLogInterval, 1)) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "hpl_manipulation_native_input deferred=%llu state=%s(%d) player=%p stateScript=%p context=%p route=player_helper_update_context_not_ready",
+                "hpl_manipulation_native_input deferred=%llu state=%s(%d) player=%p analogOwner=%p stateScript=%p context=%p route=player_helper_update_context_not_ready",
                 static_cast<unsigned long long>(deferral),
                 PhysicalManipulationStateName(pending.playerState),
                 pending.playerState,
                 player,
+                analogOwner,
                 stateScript,
                 scriptContextManager);
         }
@@ -417,18 +471,108 @@ bool DispatchPendingManipulationAnalog(void* player)
             std::max(g_config.hplControllerLogInterval, 1)) == 0) {
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_manipulation_native_input dispatch=%llu state=%s(%d) player=%p stateScript=%p context=%p inputFrame=%llu amount=%.1f,%.1f route=player_helper_update_0x15ba20_to_analog_0x154fb0",
+            "hpl_manipulation_native_input dispatch=%llu state=%s(%d) player=%p analogOwner=%p stateScript=%p context=%p inputFrame=%llu amount=%.1f,%.1f route=player_helper_update_0x15ba20_to_analog_0x154fb0",
             static_cast<unsigned long long>(dispatch),
             PhysicalManipulationStateName(pending.playerState),
             pending.playerState,
             player,
+            analogOwner,
             stateScript,
             scriptContextManager,
             static_cast<unsigned long long>(pending.inputFrame),
             controllerAmount[0],
             controllerAmount[1]);
     }
-    g_originalPlayerAnalogInput(player, 0, controllerAmount);
+    g_originalPlayerAnalogInput(analogOwner, 0, controllerAmount);
+    return true;
+}
+
+bool DispatchPendingMovementAnalog(void* player, void* analogOwner)
+{
+    if (g_originalPlayerAnalogInput == nullptr
+        || player == nullptr
+        || analogOwner == nullptr) {
+        return false;
+    }
+
+    PendingMovementAnalog pending;
+    {
+        std::lock_guard lock(g_pendingMovementMutex);
+        if (g_pendingMovement.player != player
+            || (g_pendingMovement.x == 0.0f && g_pendingMovement.y == 0.0f)) {
+            return false;
+        }
+        pending = g_pendingMovement;
+    }
+
+    if (!PlayerStateAllowsSemanticLocomotion(pending.playerState)
+        || !IsHPLPlayerStateActiveNow(pending.playerState, player, nullptr)) {
+        g_movementAnalogStaleDrops.fetch_add(1, std::memory_order_relaxed);
+        ClearPendingMovementAnalog();
+        return false;
+    }
+
+    void* stateScript = nullptr;
+    void* scriptContextManager = nullptr;
+    if (!ReadPointer(
+            reinterpret_cast<const uint8_t*>(analogOwner) + 0xc8,
+            stateScript)
+        || stateScript == nullptr
+        || !ReadPointer(
+            reinterpret_cast<const uint8_t*>(stateScript) + 0x10,
+            scriptContextManager)
+        || scriptContextManager == nullptr) {
+        const uint64_t deferral = g_movementAnalogContextDeferrals.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+        if (deferral <= 8
+            || deferral % static_cast<uint64_t>(
+                std::max(g_config.hplControllerLogInterval, 1)) == 0) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_movement_native_input deferred=%llu state=%s(%d) player=%p analogOwner=%p stateScript=%p context=%p route=player_helper_update_context_not_ready",
+                static_cast<unsigned long long>(deferral),
+                PlayerStateName(pending.playerState),
+                pending.playerState,
+                player,
+                analogOwner,
+                stateScript,
+                scriptContextManager);
+        }
+        return false;
+    }
+
+    {
+        std::lock_guard lock(g_pendingMovementMutex);
+        if (g_pendingMovement.player != pending.player
+            || g_pendingMovement.playerState != pending.playerState
+            || g_pendingMovement.inputFrame != pending.inputFrame) {
+            return false;
+        }
+        pending = g_pendingMovement;
+        g_pendingMovement = {};
+    }
+
+    const float controllerAmount[3] = {pending.x, pending.y, 0.0f};
+    const uint64_t dispatch = g_movementNativeAnalogDispatches.fetch_add(
+        1, std::memory_order_relaxed) + 1;
+    if (dispatch <= 16
+        || dispatch % static_cast<uint64_t>(
+            std::max(g_config.hplControllerLogInterval, 1)) == 0) {
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_movement_native_input dispatch=%llu state=%s(%d) player=%p analogOwner=%p stateScript=%p context=%p inputFrame=%llu amount=%.4f,%.4f route=player_helper_update_0x15ba20_to_analog_0x154fb0_type_1",
+            static_cast<unsigned long long>(dispatch),
+            PlayerStateName(pending.playerState),
+            pending.playerState,
+            player,
+            analogOwner,
+            stateScript,
+            scriptContextManager,
+            static_cast<unsigned long long>(pending.inputFrame),
+            controllerAmount[0],
+            controllerAmount[1]);
+    }
+    g_originalPlayerAnalogInput(analogOwner, 1, controllerAmount);
     return true;
 }
 
@@ -436,7 +580,8 @@ void HookPlayerHelperUpdate(void* helper, float deltaTime)
 {
     if (helper != nullptr) {
         auto* player = reinterpret_cast<uint8_t*>(helper) - 0x110;
-        DispatchPendingManipulationAnalog(player);
+        DispatchPendingMovementAnalog(player, helper);
+        DispatchPendingManipulationAnalog(player, helper);
     }
     g_originalPlayerHelperUpdate(helper, deltaTime);
 }
@@ -473,6 +618,32 @@ bool QueueManipulationAnalog(
             g_pendingAnalog.y + y, -maximumQueued, maximumQueued);
         g_pendingAnalog.inputFrame = inputFrame;
     }
+    return true;
+}
+
+bool QueueMovementAnalog(
+    void* player,
+    int playerState,
+    float x,
+    float y,
+    uint64_t inputFrame)
+{
+    if (g_originalPlayerAnalogInput == nullptr
+        || g_originalPlayerHelperUpdate == nullptr
+        || player == nullptr) {
+        return false;
+    }
+
+    std::lock_guard lock(g_pendingMovementMutex);
+    if (x == 0.0f && y == 0.0f) {
+        g_pendingMovement = {};
+        return true;
+    }
+    g_pendingMovement.player = player;
+    g_pendingMovement.playerState = playerState;
+    g_pendingMovement.x = x;
+    g_pendingMovement.y = y;
+    g_pendingMovement.inputFrame = inputFrame;
     return true;
 }
 
@@ -662,9 +833,20 @@ void TapMouseButton(DWORD downFlag, DWORD upFlag)
     SendInputs(inputs.data(), static_cast<UINT>(inputs.size()));
 }
 
+void ResetPhysicalBodyFollow()
+{
+    g_state.bodyFollowAnchorValid = false;
+    g_state.bodyFollowActive = false;
+    g_state.bodyFollowNativeYawValid = false;
+    g_state.bodyFollowThresholdStartMs = 0;
+    g_virtualTorsoYawValid.store(false, std::memory_order_release);
+}
+
 void ReleaseGameplayInputs()
 {
     ReleaseMovementInputs();
+    ClearPendingMovementAnalog();
+    g_state.semanticAnalogMovementActive = false;
     SetMouseButton(g_state.interact, false);
     SetMiddleMouseButton(g_state.rotate, false);
     SetRightMouseButton(g_state.cancel, false);
@@ -673,17 +855,34 @@ void ReleaseGameplayInputs()
     g_state.smoothTurnRemainder = 0.0;
     ResetManipulationMotion();
     g_state.readRotateLatched = false;
+    ResetPhysicalBodyFollow();
 }
 
 void ReleaseGameplayExceptPointer()
 {
     ReleaseMovementInputs();
+    ClearPendingMovementAnalog();
+    g_state.semanticAnalogMovementActive = false;
     SetKey(g_state.sprint, VK_LSHIFT, false);
     SetMiddleMouseButton(g_state.rotate, false);
     SetRightMouseButton(g_state.cancel, false);
     g_state.snapLatched = false;
     g_state.smoothTurnRemainder = 0.0;
     ResetManipulationMotion();
+    ResetPhysicalBodyFollow();
+}
+
+void ReleaseGameplayForTerminalPointer()
+{
+    ReleaseMovementInputs();
+    ClearPendingMovementAnalog();
+    g_state.semanticAnalogMovementActive = false;
+    SetKey(g_state.sprint, VK_LSHIFT, false);
+    SetMiddleMouseButton(g_state.rotate, false);
+    g_state.snapLatched = false;
+    g_state.smoothTurnRemainder = 0.0;
+    ResetManipulationMotion();
+    ResetPhysicalBodyFollow();
 }
 
 const OpenXRHandInput& HandInput(const OpenXRInputSnapshot& input, uint32_t hand)
@@ -762,9 +961,16 @@ void ReleaseAll()
     DeactivateHPLTerminalPointer();
     g_state.menuPointerActive = false;
     g_state.terminalPointerActive = false;
+    g_state.terminalLookAwayAnchorValid = false;
+    g_state.terminalLookAwayFrames = 0;
+    g_state.terminalLookAwayExitLatched = false;
+    g_state.terminalCancelPending = false;
+    g_state.terminalCancelStartFrame = 0;
+    g_state.terminalCancelReleaseFrame = 0;
     g_state.recenterStartMs = 0;
     g_state.recenterLatched = false;
     g_state.menuClickLatchedUntilRelease = false;
+    ResetPhysicalBodyFollow();
     if (g_openxr != nullptr) g_openxr->ClearControllerAimGuide();
 }
 
@@ -774,6 +980,7 @@ bool ApplyLocomotion(
     const HPLPlayerStateSnapshot& player,
     const HPLCameraBridgeStatus& camera)
 {
+    g_state.semanticAnalogMovementActive = false;
     input_math::Axis2 movement{roles.moveX, roles.moveY};
     const input_math::Axis2 rawMovement = movement;
     bool controllerReferenceAttempted = false;
@@ -882,13 +1089,34 @@ bool ApplyLocomotion(
                 camera.nativeCameraForwardZ);
         }
     }
-    if (ApplyHPLNativeMovement(player, nativeMove.x, nativeMove.y))
+    const bool physicalInteractionState =
+        (player.playerStateId >= kWheelPlayerState
+            && player.playerStateId <= kLastPhysicalManipulationState)
+        || player.playerStateId == kMovingButtonPlayerState;
+    if ((physicalInteractionState
+            && ApplyHPLInteractionMovement(player, nativeMove.x, nativeMove.y))
+        || ApplyHPLNativeMovement(player, nativeMove.x, nativeMove.y))
     {
+        ClearPendingMovementAnalog();
         ReleaseMovementInputs();
         g_nativeMovementFrames.fetch_add(1, std::memory_order_relaxed);
         return true;
     }
 
+    if (PlayerStateAllowsSemanticLocomotion(player.playerStateId)
+        && player.moveStateId == 0
+        && QueueMovementAnalog(
+            player.player,
+            player.playerStateId,
+            nativeMove.x,
+            nativeMove.y,
+            input.gameFrame)) {
+        ReleaseMovementInputs();
+        g_state.semanticAnalogMovementActive = true;
+        return true;
+    }
+
+    ClearPendingMovementAnalog();
     g_semanticMovementFallbackFrames.fetch_add(1, std::memory_order_relaxed);
     const float press = g_config.hplControllerMoveDeadzone;
     const float release = std::min(g_config.hplControllerMoveReleaseDeadzone, press);
@@ -924,9 +1152,109 @@ bool ApplyPausedMenuActions(const OpenXRInputSnapshot& input, const ControllerRo
     return true;
 }
 
-bool ApplyTerminalPointerActions(const OpenXRInputSnapshot& input, const ControllerRoles& roles)
+void ResetTerminalLookAwayTracking()
 {
-    ReleaseGameplayExceptPointer();
+    SetRightMouseButton(g_state.cancel, false);
+    g_state.terminalLookAwayAnchorValid = false;
+    g_state.terminalLookAwayFrames = 0;
+    g_state.terminalLookAwayExitLatched = false;
+    g_state.terminalCancelPending = false;
+    g_state.terminalCancelStartFrame = 0;
+    g_state.terminalCancelReleaseFrame = 0;
+}
+
+void BeginTerminalCancel(uint64_t inputFrame, uint32_t hand, const char* source)
+{
+    if (!g_state.terminalCancelPending) {
+        g_state.terminalCancelStartFrame = inputFrame;
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "hpl_terminal_cancel begin frame=%llu hand=%s source=%s holdFrames=%llu route=held_right_mouse_button",
+            static_cast<unsigned long long>(inputFrame),
+            hand == 0 ? "left" : "right",
+            source,
+            static_cast<unsigned long long>(kTerminalCancelHoldFrames));
+    }
+    g_state.terminalCancelPending = true;
+    g_state.terminalCancelReleaseFrame = std::max(
+        g_state.terminalCancelReleaseFrame,
+        inputFrame + kTerminalCancelHoldFrames);
+    SetRightMouseButton(g_state.cancel, true);
+}
+
+bool ShouldExitTerminalForLookAway(
+    const OpenXRHeadPose& headPose,
+    int playerState,
+    uint64_t inputFrame)
+{
+    if (!g_config.hplControllerTerminalLookAwayExit
+        || playerState != kTerminalPlayerState
+        || !headPose.valid
+        || !headPose.orientationTracked) {
+        if (playerState != kTerminalPlayerState) {
+            ResetTerminalLookAwayTracking();
+        } else {
+            g_state.terminalLookAwayFrames = 0;
+        }
+        return false;
+    }
+
+    const camera_math::Quaternion orientation{
+        headPose.orientationX,
+        headPose.orientationY,
+        headPose.orientationZ,
+        headPose.orientationW,
+    };
+    if (!g_state.terminalLookAwayAnchorValid) {
+        g_state.terminalLookAwayAnchor = camera_math::Normalize(orientation);
+        g_state.terminalLookAwayAnchorValid = true;
+        g_state.terminalLookAwayFrames = 0;
+        g_state.terminalLookAwayExitLatched = false;
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_terminal_lookaway anchor frame=%llu thresholdDegrees=%.1f dwellFrames=%d",
+            static_cast<unsigned long long>(inputFrame),
+            g_config.hplControllerTerminalLookAwayDegrees,
+            g_config.hplControllerTerminalLookAwayFrames);
+        return false;
+    }
+
+    const float angleDegrees = input_math::QuaternionAngularDistanceDegrees(
+        g_state.terminalLookAwayAnchor, orientation);
+    if (!std::isfinite(angleDegrees)
+        || angleDegrees < g_config.hplControllerTerminalLookAwayDegrees) {
+        g_state.terminalLookAwayFrames = 0;
+        return false;
+    }
+    if (g_state.terminalLookAwayFrames < UINT32_MAX) {
+        ++g_state.terminalLookAwayFrames;
+    }
+    if (g_state.terminalLookAwayExitLatched
+        || g_state.terminalLookAwayFrames
+            < static_cast<uint32_t>(g_config.hplControllerTerminalLookAwayFrames)) {
+        return false;
+    }
+
+    g_state.terminalLookAwayExitLatched = true;
+    const uint64_t exit = g_terminalLookAwayExits.fetch_add(
+        1, std::memory_order_relaxed) + 1;
+    Logger::Instance().Write(
+        LogLevel::Warn,
+        "hpl_terminal_lookaway exit=%llu frame=%llu angleDegrees=%.2f thresholdDegrees=%.1f dwellFrames=%u route=native_interact_cancel",
+        static_cast<unsigned long long>(exit),
+        static_cast<unsigned long long>(inputFrame),
+        angleDegrees,
+        g_config.hplControllerTerminalLookAwayDegrees,
+        g_state.terminalLookAwayFrames);
+    return true;
+}
+
+bool ApplyTerminalPointerActions(
+    const OpenXRInputSnapshot& input,
+    const ControllerRoles& roles,
+    int playerState)
+{
+    ReleaseGameplayForTerminalPointer();
     DeactivateHPLMenuPointer();
     const bool leftPressed = InteractionPressed(input.left);
     const bool rightPressed = InteractionPressed(input.right);
@@ -936,15 +1264,35 @@ bool ApplyTerminalPointerActions(const OpenXRInputSnapshot& input, const Control
     if (!HandInput(input, pointerHand).active) pointerHand = roles.dominantHand;
     g_state.terminalPointerHand = pointerHand;
     const OpenXRHandInput& hand = HandInput(input, pointerHand);
-    if (hand.secondary && hand.secondaryChanged) {
-        TapMouseButton(MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP);
+    const bool controllerCancelHeld = input.right.primary || input.right.secondary;
+    const bool controllerCancelPressed = controllerCancelHeld
+        && (input.right.primaryChanged || input.right.secondaryChanged);
+    if (controllerCancelPressed) {
+        BeginTerminalCancel(input.gameFrame, 1, "right_controller_a_or_b");
         PulseHaptic(pointerHand, "inspection_exit");
         g_inspectionExitActions.fetch_add(1, std::memory_order_relaxed);
     }
     OpenXRHeadPose headPose;
+    const bool headPoseValid = g_openxr != nullptr
+        && g_openxr->GetLatestHeadPose(headPose);
+    if (headPoseValid
+        && ShouldExitTerminalForLookAway(headPose, playerState, input.gameFrame)) {
+        SetMouseButton(g_state.interact, false);
+        DeactivateHPLTerminalPointer();
+        BeginTerminalCancel(input.gameFrame, pointerHand, "look_away");
+        PulseHaptic(pointerHand, "terminal_lookaway_exit");
+        return false;
+    }
+    const bool syntheticCancelHeld = g_state.terminalCancelPending
+        && input.gameFrame <= g_state.terminalCancelReleaseFrame;
+    SetRightMouseButton(g_state.cancel, controllerCancelHeld || syntheticCancelHeld);
+    if (g_state.terminalCancelPending || controllerCancelHeld) {
+        SetMouseButton(g_state.interact, false);
+        DeactivateHPLTerminalPointer();
+        return false;
+    }
     const bool pointerActive = g_config.hplControllerTerminalPointer
-        && g_openxr != nullptr
-        && g_openxr->GetLatestHeadPose(headPose)
+        && headPoseValid
         && UpdateHPLTerminalPointer(headPose, hand.aimPose, input.gameFrame);
     if (!pointerActive) {
         SetMouseButton(g_state.interact, false);
@@ -990,13 +1338,29 @@ void UpdateControllerAimGuide(
         guide.lengthMeters = lengthMeters > 0.0f
             ? lengthMeters
             : g_config.hplControllerAimGuideLengthMeters;
+        guide.alpha = g_config.hplControllerAimGuideIdleAlpha;
+        float sceneDistanceMeters = 0.0f;
+        if (guide.valid
+            && ResolveHPLControllerBeamDistance(
+                hand.aimPose,
+                input.gameFrame,
+                guide.lengthMeters,
+                sceneDistanceMeters)) {
+            guide.lengthMeters = std::min(
+                guide.lengthMeters,
+                std::max(sceneDistanceMeters - 0.015f, 0.05f));
+        }
         if (hit.valid && hit.handIndex == handIndex
             && input.gameFrame >= hit.gameFrame
             && input.gameFrame - hit.gameFrame <= 4) {
-            guide.lengthMeters = std::clamp(
-                hit.distance / std::max(g_config.hplWorldScale, 0.001f),
-                0.3f,
-                20.0f);
+            guide.interactable = true;
+            guide.alpha = g_config.hplControllerAimGuideInteractableAlpha;
+            guide.lengthMeters = std::min(
+                guide.lengthMeters,
+                std::clamp(
+                    hit.distance / std::max(g_config.hplWorldScale, 0.001f),
+                    0.05f,
+                    20.0f));
         }
         guide.aimPose = hand.aimPose;
         if (guide.valid) {
@@ -1057,6 +1421,148 @@ bool ApplyTurn(const ControllerRoles& roles, const HPLPlayerStateSnapshot& playe
     g_state.smoothTurnRemainder -= pixels;
     SendMouseMove(pixels);
     return false;
+}
+
+bool ApplyPhysicalBodyFollow(
+    const ControllerRoles& roles,
+    const HPLPlayerStateSnapshot& player,
+    const HPLCameraBridgeStatus& camera,
+    uint64_t nowMs)
+{
+    if (!g_config.hplControllerPhysicalBodyFollow
+        || !camera.trackingEnabled
+        || !camera.headWorldRotationValid
+        || !player.playerValid
+        || player.authoredCameraActive
+        || player.playerStateId != kNormalPlayerState
+        || player.moveStateId != 0) {
+        ResetPhysicalBodyFollow();
+        return false;
+    }
+    bool paused = false;
+    if (!GetHPLGamePausedState(paused) || paused) {
+        ResetPhysicalBodyFollow();
+        return false;
+    }
+
+    float headYaw = 0.0f;
+    if (!input_math::ResolveHorizontalYaw(
+            {
+                camera.headWorldRotationX,
+                camera.headWorldRotationY,
+                camera.headWorldRotationZ,
+                camera.headWorldRotationW,
+            },
+            headYaw)) {
+        return false;
+    }
+    float nativeYaw = headYaw;
+    bool nativeYawValid = false;
+    if (camera.nativeCameraBasisValid) {
+        camera_math::Quaternion nativeOrientation{};
+        nativeYawValid = camera_math::QuaternionFromForwardUp(
+                {camera.nativeCameraForwardX, 0.0f, camera.nativeCameraForwardZ},
+                {0.0f, 1.0f, 0.0f},
+                nativeOrientation)
+            && input_math::ResolveHorizontalYaw(nativeOrientation, nativeYaw);
+    }
+    if (!g_state.bodyFollowAnchorValid) {
+        g_state.bodyFollowAnchorValid = true;
+        g_state.bodyFollowAnchorYaw = nativeYawValid ? nativeYaw : headYaw;
+        g_state.bodyFollowNativeYawValid = nativeYawValid;
+        g_state.bodyFollowLastNativeYaw = nativeYaw;
+        g_virtualTorsoYawRadians.store(
+            g_state.bodyFollowAnchorYaw, std::memory_order_relaxed);
+        g_virtualTorsoYawValid.store(true, std::memory_order_release);
+        return false;
+    }
+
+    if (nativeYawValid) {
+        if (g_state.bodyFollowNativeYawValid) {
+            const float nativeDelta = input_math::WrapRadians(
+                nativeYaw - g_state.bodyFollowLastNativeYaw);
+            g_state.bodyFollowAnchorYaw = input_math::WrapRadians(
+                g_state.bodyFollowAnchorYaw + nativeDelta);
+        }
+        g_state.bodyFollowNativeYawValid = true;
+        g_state.bodyFollowLastNativeYaw = nativeYaw;
+    }
+    g_virtualTorsoYawRadians.store(
+        g_state.bodyFollowAnchorYaw, std::memory_order_relaxed);
+    g_virtualTorsoYawValid.store(true, std::memory_order_release);
+
+    if (std::fabs(roles.turnX) >= g_config.hplControllerTurnReleaseDeadzone) {
+        g_state.bodyFollowActive = false;
+        g_state.bodyFollowThresholdStartMs = 0;
+        return false;
+    }
+
+    const float error = input_math::WrapRadians(
+        headYaw - g_state.bodyFollowAnchorYaw);
+    const float threshold = input_math::DegreesToRadians(
+        g_config.hplControllerPhysicalBodyFollowThresholdDegrees);
+    const float release = input_math::DegreesToRadians(
+        std::min(
+            g_config.hplControllerPhysicalBodyFollowReleaseDegrees,
+            g_config.hplControllerPhysicalBodyFollowThresholdDegrees));
+    if (!g_state.bodyFollowActive) {
+        if (std::fabs(error) < threshold) {
+            g_state.bodyFollowThresholdStartMs = 0;
+            return false;
+        }
+        if (g_state.bodyFollowThresholdStartMs == 0) {
+            g_state.bodyFollowThresholdStartMs = nowMs;
+            return false;
+        }
+        if (nowMs - g_state.bodyFollowThresholdStartMs
+            < static_cast<uint64_t>(g_config.hplControllerPhysicalBodyFollowDelayMs)) {
+            return false;
+        }
+        g_state.bodyFollowActive = true;
+        const uint64_t entry = g_bodyFollowEntries.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_physical_body_follow entry=%llu frame=%llu headYawDegrees=%.2f errorDegrees=%.2f thresholdDegrees=%.2f releaseDegrees=%.2f speedDegreesPerSecond=%.2f delayMs=%d",
+            static_cast<unsigned long long>(entry),
+            static_cast<unsigned long long>(player.frame),
+            headYaw * 57.2957795f,
+            error * 57.2957795f,
+            g_config.hplControllerPhysicalBodyFollowThresholdDegrees,
+            g_config.hplControllerPhysicalBodyFollowReleaseDegrees,
+            g_config.hplControllerPhysicalBodyFollowDegreesPerSecond,
+            g_config.hplControllerPhysicalBodyFollowDelayMs);
+    }
+
+    if (std::fabs(error) <= release) {
+        g_state.bodyFollowActive = false;
+        g_state.bodyFollowThresholdStartMs = 0;
+        return false;
+    }
+    const uint64_t elapsedMs = g_state.lastTickMs == 0
+        ? 0 : std::min<uint64_t>(nowMs - g_state.lastTickMs, 100);
+    const float physicalStep = input_math::ComputeBodyFollowStepRadians(
+        error,
+        g_config.hplControllerPhysicalBodyFollowReleaseDegrees,
+        g_config.hplControllerPhysicalBodyFollowDegreesPerSecond,
+        elapsedMs);
+    if (std::fabs(physicalStep) <= 1.0e-6f) return false;
+    g_state.bodyFollowAnchorYaw = input_math::WrapRadians(
+        g_state.bodyFollowAnchorYaw + physicalStep);
+    g_virtualTorsoYawRadians.store(
+        g_state.bodyFollowAnchorYaw, std::memory_order_relaxed);
+    const uint64_t step = g_bodyFollowSteps.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (step <= 8 || step % 120 == 0) {
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_physical_body_follow step=%llu frame=%llu errorDegrees=%.2f appliedDegrees=%.3f residualDegrees=%.2f policy=yaw_only_delayed_rate_limited_virtual_torso_follow_no_camera_turn",
+            static_cast<unsigned long long>(step),
+            static_cast<unsigned long long>(player.frame),
+            error * 57.2957795f,
+            physicalStep * 57.2957795f,
+            input_math::WrapRadians(error - physicalStep) * 57.2957795f);
+    }
+    return true;
 }
 
 void ApplySystemActions(
@@ -1425,12 +1931,22 @@ void ApplyGameplayActions(
 
 } // namespace
 
+bool GetHPLVirtualTorsoYaw(camera_math::Quaternion& yaw)
+{
+    if (!g_virtualTorsoYawValid.load(std::memory_order_acquire)) return false;
+    const float radians = g_virtualTorsoYawRadians.load(std::memory_order_relaxed);
+    if (!std::isfinite(radians)) return false;
+    const float halfYaw = radians * 0.5f;
+    yaw = {0.0f, std::sin(halfYaw), 0.0f, std::cos(halfYaw)};
+    return true;
+}
+
 bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
 {
     std::lock_guard lock(g_mutex);
     g_config = config;
     g_openxr = openxr;
-    bool nativeManipulationAnalog = false;
+    bool nativeSemanticAnalog = false;
     if (ResolvePlayerAnalogInputTarget() && ResolvePlayerHelperUpdateTarget()) {
         MH_STATUS status = MH_CreateHook(
             g_playerHelperUpdateTarget,
@@ -1440,12 +1956,12 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
             || (status == MH_ERROR_ALREADY_CREATED
                 && g_originalPlayerHelperUpdate != nullptr)) {
             status = MH_EnableHook(g_playerHelperUpdateTarget);
-            nativeManipulationAnalog = status == MH_OK || status == MH_ERROR_ENABLED;
+            nativeSemanticAnalog = status == MH_OK || status == MH_ERROR_ENABLED;
         }
-        if (!nativeManipulationAnalog) {
+        if (!nativeSemanticAnalog) {
             Logger::Instance().Write(
                 LogLevel::Warn,
-                "hpl_input_bridge native_manipulation_hook_unavailable status=%s fallback=windows_mouse",
+                "hpl_input_bridge native_semantic_hook_unavailable status=%s fallback=windows_input",
                 MH_StatusToString(status));
             MH_RemoveHook(g_playerHelperUpdateTarget);
             g_playerHelperUpdateTarget = nullptr;
@@ -1455,7 +1971,7 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
     }
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d aimGuide=%d aimGuideLength=%.2f flashlight=%d inventory=%d menu=%d menuPointer=%d terminalPointer=%d terminalOverlay=%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d manipulationMappings=%d manipulationMotion=%d nativeManipulationAnalog=%d nativeManipulationAnalogRva=0x%llx nativeInputPhaseRva=0x%llx manipulationMotionScale=%.1f slideScale=%.1f readRotationScale=%.1f slideDirectVelocity=%d manipulationMotionDeadzone=%.4f manipulationMotionCap=%d manipulationMotionSigns=%.1f,%.1f suppressAuthoredCamera=%d comfortBlackoutFrames=%d stateTransitionBlackoutFrames=%d maxInputAgeFrames=%d comfortVignette=%d comfortVignetteSmoothTurn=%d",
+        "hpl_input_bridge install_ok enabled=%d moveDeadzone=%.2f nativeLocomotion=%d movementReference=%s physicalCrouch=%d physicalCrouchThresholds=%.3f,%.3f turnMode=%s turnDeadzone=%.2f nativeTurn=%d snapDegrees=%.1f smoothDegreesPerSecond=%.1f nativeTurnSign=%.1f interaction=%d aimGuide=%d aimGuideLength=%.2f flashlight=%d inventory=%d menu=%d menuPointer=%d terminalPointer=%d terminalOverlay=%d terminalLookAway=%d,%.1f,%d recenterChord=%d haptics=%d hapticAmplitude=%.2f hapticDurationMs=%d dominantHand=%s swapSticks=%d oneHandFallback=%d manipulationMappings=%d manipulationMotion=%d nativeSemanticAnalog=%d nativeSemanticAnalogRva=0x%llx nativeInputPhaseRva=0x%llx manipulationMotionScale=%.1f slideScale=%.1f readRotationScale=%.1f slideDirectVelocity=%d manipulationMotionDeadzone=%.4f manipulationMotionCap=%d manipulationMotionSigns=%.1f,%.1f suppressAuthoredCamera=%d comfortBlackoutFrames=%d stateTransitionBlackoutFrames=%d maxInputAgeFrames=%d comfortVignette=%d comfortVignetteSmoothTurn=%d",
         config.hplControllerInput ? 1 : 0,
         config.hplControllerMoveDeadzone,
         config.hplControllerNativeLocomotion ? 1 : 0,
@@ -1478,6 +1994,9 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplControllerMenuPointer ? 1 : 0,
         config.hplControllerTerminalPointer ? 1 : 0,
         config.hplControllerTerminalOverlay ? 1 : 0,
+        config.hplControllerTerminalLookAwayExit ? 1 : 0,
+        config.hplControllerTerminalLookAwayDegrees,
+        config.hplControllerTerminalLookAwayFrames,
         config.hplControllerRecenterChord ? 1 : 0,
         config.hplControllerHaptics ? 1 : 0,
         config.hplControllerHapticAmplitude,
@@ -1487,7 +2006,7 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplControllerOneHandFallback ? 1 : 0,
         config.hplControllerManipulationMappings ? 1 : 0,
         config.hplControllerManipulationMotion ? 1 : 0,
-        nativeManipulationAnalog ? 1 : 0,
+        nativeSemanticAnalog ? 1 : 0,
         static_cast<unsigned long long>(kPlayerAnalogInputRva),
         static_cast<unsigned long long>(kPlayerHelperUpdateRva),
         config.hplControllerManipulationMotionPixelsPerMeter,
@@ -1504,6 +2023,22 @@ bool InstallHPLInputBridge(const Config& config, OpenXRRuntime* openxr)
         config.hplControllerMaxInputAgeFrames,
         config.openxrComfortVignette ? 1 : 0,
         config.openxrComfortVignetteSmoothTurn && !config.hplControllerSnapTurn ? 1 : 0);
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_body_follow_config enabled=%d thresholdDegrees=%.2f releaseDegrees=%.2f speedDegreesPerSecond=%.2f delayMs=%d aimGuideSceneDepth=%d policy=virtual_torso_yaw_never_mutates_game_camera_for_physical_turn",
+        config.hplControllerPhysicalBodyFollow ? 1 : 0,
+        config.hplControllerPhysicalBodyFollowThresholdDegrees,
+        config.hplControllerPhysicalBodyFollowReleaseDegrees,
+        config.hplControllerPhysicalBodyFollowDegreesPerSecond,
+        config.hplControllerPhysicalBodyFollowDelayMs,
+        config.hplControllerAimGuideSceneDepth ? 1 : 0);
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_interaction_presence_config locomotionDuringInteractions=%d aimGuideAlpha=%.3f,%.3f aimGuideLengthMeters=%.2f",
+        config.hplControllerLocomotionDuringInteractions ? 1 : 0,
+        config.hplControllerAimGuideIdleAlpha,
+        config.hplControllerAimGuideInteractableAlpha,
+        config.hplControllerAimGuideLengthMeters);
     return true;
 }
 
@@ -1593,15 +2128,44 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
     }
     bool paused = false;
     const bool pauseStateValid = GetHPLGamePausedState(paused);
+    const bool nativeMenuCursorVisible = IsHPLNativeMenuCursorVisible();
+    const bool currentImGuiSurface = IsHPLCurrentImGuiSurfaceActive(frameIndex, 4);
+    const bool mainMenuSurface = !paused
+        && !player.authoredCameraActive
+        && ((nativeMenuCursorVisible
+                && (!player.playerValid
+                    || player.playerStateId == kNormalPlayerState))
+            || (currentImGuiSurface
+                && (!player.playerValid
+                    || player.playerStateId == kNormalPlayerState))
+            || !player.playerValid || !player.cameraControlValid);
     const bool suppressForAuthoredCamera = g_config.hplControllerSuppressDuringAuthoredCamera
         && player.authoredCameraActive;
-    const bool suppressGameplay = suppressForAuthoredCamera || paused;
+    const bool suppressGameplay = suppressForAuthoredCamera || paused || mainMenuSurface;
     const bool previousPaused = g_state.paused;
     const bool previousMenuPointerActive = g_state.menuPointerActive;
     const bool previousTerminalPointerActive = g_state.terminalPointerActive;
     float comfortMotionIntensity = 0.0f;
+    const bool terminalState = player.playerValid
+        && (player.playerStateId == kTerminalPlayerState
+            || player.playerStateId == kHandheldTerminalPlayerState);
+    if (!terminalState) {
+        if (g_state.terminalCancelPending) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_terminal_cancel completed frame=%llu latencyFrames=%llu route=held_right_mouse_button",
+                static_cast<unsigned long long>(frameIndex),
+                static_cast<unsigned long long>(
+                    frameIndex >= g_state.terminalCancelStartFrame
+                        ? frameIndex - g_state.terminalCancelStartFrame : 0));
+        }
+        ResetTerminalLookAwayTracking();
+    }
+    if (g_openxr != nullptr) {
+        g_openxr->SetDesktopMirrorNativeBackbuffer(paused || mainMenuSurface);
+    }
     UpdateControllerAimGuide(input, roles, false);
-    if (paused) {
+    if (paused || mainMenuSurface) {
         g_pausedFrames.fetch_add(1, std::memory_order_relaxed);
         DeactivateHPLTerminalPointer();
         g_state.terminalPointerActive = false;
@@ -1637,7 +2201,8 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
         g_state.menuPointerActive = false;
         UpdateControllerAimGuide(
             input, roles, true, g_config.hplControllerTerminalRayLengthMeters);
-        g_state.terminalPointerActive = ApplyTerminalPointerActions(input, roles);
+        g_state.terminalPointerActive = ApplyTerminalPointerActions(
+            input, roles, player.playerStateId);
         g_state.nativeMovementActive = false;
         g_state.nativeTurnActive = false;
     } else if (suppressForAuthoredCamera) {
@@ -1657,7 +2222,10 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
         const bool nativeMovement = ApplyLocomotion(input, roles, player, camera);
         const bool turnAllowed = !player.playerValid
             || player.playerStateId == kNormalPlayerState;
-        const bool nativeTurn = turnAllowed ? ApplyTurn(roles, player, nowMs) : false;
+        bool nativeTurn = turnAllowed ? ApplyTurn(roles, player, nowMs) : false;
+        const bool physicalBodyFollow = turnAllowed
+            && ApplyPhysicalBodyFollow(roles, player, camera, nowMs);
+        nativeTurn = nativeTurn || physicalBodyFollow;
         if (!turnAllowed) {
             g_state.snapLatched = false;
             g_state.smoothTurnRemainder = 0.0;
@@ -1669,7 +2237,9 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
                 LogLevel::Info,
                 "hpl_controller_native_route frame=%llu movement=%s turn=%s playerState=%d moveState=%d body=%p",
                 static_cast<unsigned long long>(frameIndex),
-                nativeMovement ? "native_analog" : "semantic_keys",
+                g_state.semanticAnalogMovementActive
+                    ? "native_player_analog"
+                    : (nativeMovement ? "native_body" : "semantic_keys"),
                 nativeTurn ? "native_radians" : "semantic_mouse",
                 player.playerStateId, player.moveStateId, player.characterBody);
         }
@@ -1682,6 +2252,9 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
             g_config.openxrComfortVignetteSmoothTurn && !g_config.hplControllerSnapTurn,
             g_config.hplControllerMoveDeadzone,
             g_config.hplControllerTurnDeadzone);
+        if (physicalBodyFollow) {
+            comfortMotionIntensity = std::max(comfortMotionIntensity, 0.20f);
+        }
         ApplyGameplayActions(input, roles, player, camera);
     }
     if (g_openxr != nullptr) {
@@ -1696,12 +2269,15 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
         || g_state.terminalPointerActive != previousTerminalPointerActive) {
         Logger::Instance().Write(
             suppressGameplay ? LogLevel::Warn : LogLevel::Info,
-            "hpl_controller_gameplay_policy frame=%llu suppressed=%d authoredCamera=%d paused=%d pauseGateValid=%d menuPointer=%d terminalPointer=%d rotateMode=%d cameraUpdateActive=%d playerState=%d moveState=%d",
+            "hpl_controller_gameplay_policy frame=%llu suppressed=%d authoredCamera=%d paused=%d pauseGateValid=%d mainMenu=%d nativeCursor=%d currentImGui=%d menuPointer=%d terminalPointer=%d rotateMode=%d cameraUpdateActive=%d playerState=%d moveState=%d",
             static_cast<unsigned long long>(frameIndex),
             suppressGameplay ? 1 : 0,
             suppressForAuthoredCamera ? 1 : 0,
             paused ? 1 : 0,
             pauseStateValid ? 1 : 0,
+            mainMenuSurface ? 1 : 0,
+            nativeMenuCursorVisible ? 1 : 0,
+            currentImGuiSurface ? 1 : 0,
             g_state.menuPointerActive ? 1 : 0,
             g_state.terminalPointerActive ? 1 : 0,
             player.cameraRotateMode,
@@ -1731,7 +2307,9 @@ void UpdateHPLInputBridge(uint64_t frameIndex)
             roles.oneHand ? 1 : 0,
             roles.moveX, roles.moveY,
             g_config.hplControllerMovementReference.c_str(),
-            g_state.nativeMovementActive ? "native_analog" : "semantic_keys",
+            g_state.semanticAnalogMovementActive
+                ? "native_player_analog"
+                : (g_state.nativeMovementActive ? "native_body" : "semantic_keys"),
             g_state.forward.down ? 1 : 0, g_state.backward.down ? 1 : 0,
             g_state.left.down ? 1 : 0, g_state.right.down ? 1 : 0,
             g_state.sprint.down ? 1 : 0, input.jump ? 1 : 0, input.crouch ? 1 : 0,
@@ -1782,6 +2360,9 @@ void RemoveHPLInputBridge()
     g_playerAnalogInputTarget = nullptr;
     g_originalPlayerAnalogInput = nullptr;
     ClearPendingManipulationAnalog();
+    ClearPendingMovementAnalog();
+    g_virtualTorsoYawRadians.store(0.0f, std::memory_order_relaxed);
+    g_virtualTorsoYawValid.store(false, std::memory_order_release);
     g_state = {};
     Logger::Instance().Write(LogLevel::Info, "hpl_input_bridge removed");
 }
@@ -1792,7 +2373,21 @@ void LogHPLInputBridgeSummary()
     GetHPLPlayerStateSnapshot(player);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu loadingSuppressedFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu worldAimPoseSamples=%llu worldGripPoseSamples=%llu nativeMovementFrames=%llu headRelativeMovementFrames=%llu controllerRelativeMovementFrames=%llu controllerReferenceAttempts=%llu controllerReferenceApplied=%llu controllerReferenceFallbacks=%llu controllerDirectionSamples=%llu controllerAimGuideFrames=%llu inspectionExitActions=%llu nativeTurnEvents=%llu semanticMovementFallbackFrames=%llu physicalCrouchEntries=%llu physicalCrouchExits=%llu manipulationRotateFrames=%llu manipulationMotionFrames=%llu manipulationMotionEntries=%llu manipulationMotionEvents=%llu manipulationMotionTrackingLosses=%llu manipulationMotionSessionSummaries=%llu manipulationMotionPixels=%lld,%lld manipulationNativeDispatches=%llu manipulationMouseFallbacks=%llu manipulationStaleDrops=%llu manipulationContextDeferrals=%llu nativeThrowActions=%llu flashlightActions=%llu inventoryActions=%llu pausedFrames=%llu menuPointerFrames=%llu terminalPointerFrames=%llu gameOverContinueActions=%llu playerStateTransitions=%llu authoredCameraTransitions=%llu playerStateBlackouts=%llu gameplaySuppressed=%d paused=%d menuPointerActive=%d terminalPointerActive=%d physicalCrouch=%d rotate=%d manipulationMotionActive=%d manipulationMotionState=%d manipulationMotionLast=%d,%d player=%p camera=%p body=%p playerState=%d moveState=%d",
+        "hpl_physical_body_follow_summary configured=%d entries=%llu steps=%llu turnFailures=%llu active=%d anchorValid=%d virtualTorsoValid=%d thresholdDegrees=%.2f releaseDegrees=%.2f speedDegreesPerSecond=%.2f delayMs=%d policy=no_game_camera_mutation",
+        g_config.hplControllerPhysicalBodyFollow ? 1 : 0,
+        static_cast<unsigned long long>(g_bodyFollowEntries.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_bodyFollowSteps.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_bodyFollowTurnFailures.load(std::memory_order_relaxed)),
+        g_state.bodyFollowActive ? 1 : 0,
+        g_state.bodyFollowAnchorValid ? 1 : 0,
+        g_virtualTorsoYawValid.load(std::memory_order_acquire) ? 1 : 0,
+        g_config.hplControllerPhysicalBodyFollowThresholdDegrees,
+        g_config.hplControllerPhysicalBodyFollowReleaseDegrees,
+        g_config.hplControllerPhysicalBodyFollowDegreesPerSecond,
+        g_config.hplControllerPhysicalBodyFollowDelayMs);
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_input_bridge_summary installed=%d updates=%llu activeUpdates=%llu sentEvents=%llu sendFailures=%llu staleInputFrames=%llu loadingSuppressedFrames=%llu recenterRequests=%llu hapticRequests=%llu hapticApplied=%llu oneHandFallbackFrames=%llu worldAimPoseSamples=%llu worldGripPoseSamples=%llu nativeMovementFrames=%llu movementNativeDispatches=%llu movementStaleDrops=%llu movementContextDeferrals=%llu headRelativeMovementFrames=%llu controllerRelativeMovementFrames=%llu controllerReferenceAttempts=%llu controllerReferenceApplied=%llu controllerReferenceFallbacks=%llu controllerDirectionSamples=%llu controllerAimGuideFrames=%llu inspectionExitActions=%llu nativeTurnEvents=%llu semanticMovementFallbackFrames=%llu physicalCrouchEntries=%llu physicalCrouchExits=%llu manipulationRotateFrames=%llu manipulationMotionFrames=%llu manipulationMotionEntries=%llu manipulationMotionEvents=%llu manipulationMotionTrackingLosses=%llu manipulationMotionSessionSummaries=%llu manipulationMotionPixels=%lld,%lld manipulationNativeDispatches=%llu manipulationMouseFallbacks=%llu manipulationStaleDrops=%llu manipulationContextDeferrals=%llu nativeThrowActions=%llu flashlightActions=%llu inventoryActions=%llu pausedFrames=%llu menuPointerFrames=%llu terminalPointerFrames=%llu terminalLookAwayExits=%llu gameOverContinueActions=%llu playerStateTransitions=%llu authoredCameraTransitions=%llu playerStateBlackouts=%llu gameplaySuppressed=%d paused=%d menuPointerActive=%d terminalPointerActive=%d physicalCrouch=%d rotate=%d manipulationMotionActive=%d manipulationMotionState=%d manipulationMotionLast=%d,%d player=%p camera=%p body=%p playerState=%d moveState=%d",
         g_openxr != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_updates.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_activeUpdates.load(std::memory_order_relaxed)),
@@ -1807,6 +2402,9 @@ void LogHPLInputBridgeSummary()
         static_cast<unsigned long long>(g_worldAimPoseSamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_worldGripPoseSamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_nativeMovementFrames.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_movementNativeAnalogDispatches.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_movementAnalogStaleDrops.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_movementAnalogContextDeferrals.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_headRelativeMovementFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_controllerRelativeMovementFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_controllerReferenceAttempts.load(std::memory_order_relaxed)),
@@ -1837,6 +2435,7 @@ void LogHPLInputBridgeSummary()
         static_cast<unsigned long long>(g_pausedFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_menuPointerFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_terminalPointerFrames.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_terminalLookAwayExits.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_gameOverContinueActions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_playerStateTransitions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_authoredCameraTransitions.load(std::memory_order_relaxed)),

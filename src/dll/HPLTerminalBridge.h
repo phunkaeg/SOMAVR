@@ -5,7 +5,7 @@
 
 namespace somavr {
 
-bool InstallHPLTerminalBridge(const Config& config);
+bool InstallHPLTerminalBridge(const Config& config, OpenXRRuntime* openxr);
 bool UpdateHPLTerminalPointer(
     const OpenXRHeadPose& headPose,
     const OpenXRControllerPose& aimPose,

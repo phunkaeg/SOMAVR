@@ -76,6 +76,7 @@ void RemoveHPLCameraBridge();
 void LogHPLCameraBridgeSummary();
 HPLCameraBridgeStatus GetHPLCameraBridgeStatus();
 bool GetHPLPendingStereoRenderTarget(HPLPendingStereoRenderTarget& target);
+bool CommitHPLStereoEyeFill(uint32_t eyeIndex, uint64_t poseFrame, const char* source);
 bool ResolveHPLTrackedPoseWorld(
     const OpenXRControllerPose& pose,
     uint64_t gameFrame,

@@ -6,8 +6,10 @@
 #include "HPLPlayerState.h"
 #include "HPLTwoHandMath.h"
 #include "Logger.h"
+#include "PatchSafety.h"
 
 #include <Windows.h>
+#include <TlHelp32.h>
 
 #include <MinHook.h>
 
@@ -19,6 +21,7 @@
 #include <cstdint>
 #include <cstring>
 #include <mutex>
+#include <vector>
 
 namespace somavr {
 namespace {
@@ -110,6 +113,7 @@ PidVectorOutputFn g_originalPidOutput = nullptr;
 void* g_pidOutputTarget = nullptr;
 void* g_addImpulseTarget = nullptr;
 uint8_t g_addImpulseOriginal[sizeof(kAddImpulseThunkSignature)]{};
+uint8_t g_addImpulsePatch[sizeof(kAddImpulseThunkSignature)]{};
 GrabAnchor g_anchor;
 PendingThrow g_pendingThrow;
 SlideAnchor g_slideAnchor;
@@ -1350,11 +1354,169 @@ void HookAddImpulse(void* body, const float* impulse)
     CallNativeAddImpulse(body, redirected);
 }
 
-bool WriteCodeBytes(void* target, const void* bytes, size_t size)
+enum class PatchWriteFailure {
+    None,
+    ThreadSnapshot,
+    ThreadEnumeration,
+    ThreadOpen,
+    ThreadSuspend,
+    ThreadContext,
+    InstructionPointerInRange,
+    ExpectedBytesChanged,
+    Protect,
+};
+
+const char* PatchWriteFailureName(PatchWriteFailure failure)
 {
+    switch (failure) {
+    case PatchWriteFailure::None: return "none";
+    case PatchWriteFailure::ThreadSnapshot: return "thread_snapshot";
+    case PatchWriteFailure::ThreadEnumeration: return "thread_enumeration";
+    case PatchWriteFailure::ThreadOpen: return "thread_open";
+    case PatchWriteFailure::ThreadSuspend: return "thread_suspend";
+    case PatchWriteFailure::ThreadContext: return "thread_context";
+    case PatchWriteFailure::InstructionPointerInRange: return "instruction_pointer_in_range";
+    case PatchWriteFailure::ExpectedBytesChanged: return "expected_bytes_changed";
+    case PatchWriteFailure::Protect: return "virtual_protect";
+    }
+    return "unknown";
+}
+
+class ScopedPeerThreadSuspension final {
+public:
+    ~ScopedPeerThreadSuspension()
+    {
+        for (auto it = threads_.rbegin(); it != threads_.rend(); ++it) {
+            ResumeThread(it->handle);
+            CloseHandle(it->handle);
+        }
+    }
+
+    bool Acquire(uintptr_t patchStart, size_t patchSize, PatchWriteFailure& failure, DWORD& threadId)
+    {
+        threads_.reserve(128);
+        HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+        if (snapshot == INVALID_HANDLE_VALUE) {
+            failure = PatchWriteFailure::ThreadSnapshot;
+            return false;
+        }
+
+        THREADENTRY32 entry{};
+        entry.dwSize = sizeof(entry);
+        if (!Thread32First(snapshot, &entry)) {
+            CloseHandle(snapshot);
+            failure = PatchWriteFailure::ThreadEnumeration;
+            return false;
+        }
+
+        const DWORD processId = GetCurrentProcessId();
+        const DWORD currentThreadId = GetCurrentThreadId();
+        do {
+            if (entry.th32OwnerProcessID != processId || entry.th32ThreadID == currentThreadId) {
+                continue;
+            }
+            HANDLE thread = OpenThread(
+                THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
+                FALSE,
+                entry.th32ThreadID);
+            if (thread == nullptr) {
+                CloseHandle(snapshot);
+                failure = PatchWriteFailure::ThreadOpen;
+                threadId = entry.th32ThreadID;
+                return false;
+            }
+            if (SuspendThread(thread) == static_cast<DWORD>(-1)) {
+                CloseHandle(thread);
+                CloseHandle(snapshot);
+                failure = PatchWriteFailure::ThreadSuspend;
+                threadId = entry.th32ThreadID;
+                return false;
+            }
+            threads_.push_back({thread});
+
+            CONTEXT context{};
+            context.ContextFlags = CONTEXT_CONTROL;
+            if (!GetThreadContext(thread, &context)) {
+                CloseHandle(snapshot);
+                failure = PatchWriteFailure::ThreadContext;
+                threadId = entry.th32ThreadID;
+                return false;
+            }
+#if defined(_M_X64)
+            const uintptr_t instructionPointer = static_cast<uintptr_t>(context.Rip);
+#else
+            const uintptr_t instructionPointer = static_cast<uintptr_t>(context.Eip);
+#endif
+            if (patch_safety::InstructionPointerOverlapsPatch(
+                    instructionPointer, patchStart, patchSize)) {
+                CloseHandle(snapshot);
+                failure = PatchWriteFailure::InstructionPointerInRange;
+                threadId = entry.th32ThreadID;
+                return false;
+            }
+        } while (Thread32Next(snapshot, &entry));
+
+        const DWORD enumerationError = GetLastError();
+        CloseHandle(snapshot);
+        if (enumerationError != ERROR_NO_MORE_FILES) {
+            failure = PatchWriteFailure::ThreadEnumeration;
+            return false;
+        }
+        return true;
+    }
+
+private:
+    struct SuspendedThread {
+        HANDLE handle = nullptr;
+    };
+    std::vector<SuspendedThread> threads_;
+};
+
+size_t CountExecutablePatternMatches(HMODULE module, const uint8_t* pattern, size_t patternSize)
+{
+    if (module == nullptr || pattern == nullptr || patternSize == 0) return 0;
+    const auto* base = reinterpret_cast<const uint8_t*>(module);
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return 0;
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return 0;
+
+    size_t matches = 0;
+    const IMAGE_SECTION_HEADER* section = IMAGE_FIRST_SECTION(nt);
+    for (uint16_t index = 0; index < nt->FileHeader.NumberOfSections; ++index, ++section) {
+        if ((section->Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0) continue;
+        const size_t sectionSize = static_cast<size_t>(section->Misc.VirtualSize);
+        if (sectionSize < patternSize
+            || section->VirtualAddress > nt->OptionalHeader.SizeOfImage
+            || sectionSize > nt->OptionalHeader.SizeOfImage - section->VirtualAddress) {
+            continue;
+        }
+        const uint8_t* bytes = base + section->VirtualAddress;
+        for (size_t offset = 0; offset <= sectionSize - patternSize; ++offset) {
+            if (std::memcmp(bytes + offset, pattern, patternSize) == 0) {
+                ++matches;
+            }
+        }
+    }
+    return matches;
+}
+
+bool WriteCodeBytes(void* target, const void* expected, const void* bytes, size_t size,
+                    PatchWriteFailure& failure, DWORD& blockedThreadId)
+{
+    ScopedPeerThreadSuspension suspendedThreads;
+    if (target == nullptr || expected == nullptr || bytes == nullptr || size == 0
+        || !suspendedThreads.Acquire(
+            reinterpret_cast<uintptr_t>(target), size, failure, blockedThreadId)) {
+        return false;
+    }
+    if (std::memcmp(target, expected, size) != 0) {
+        failure = PatchWriteFailure::ExpectedBytesChanged;
+        return false;
+    }
     DWORD oldProtect = 0;
-    if (target == nullptr || bytes == nullptr || size == 0
-        || !VirtualProtect(target, size, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+    if (!VirtualProtect(target, size, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+        failure = PatchWriteFailure::Protect;
         return false;
     }
     std::memcpy(target, bytes, size);
@@ -1370,6 +1532,16 @@ bool InstallAddImpulsePatch(HMODULE executable)
         return false;
     }
     auto* target = reinterpret_cast<uint8_t*>(executable) + kAddImpulseThunkRva;
+    const size_t signatureMatches = CountExecutablePatternMatches(
+        executable, kAddImpulseThunkSignature, sizeof(kAddImpulseThunkSignature));
+    if (signatureMatches != 1) {
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_grab_bridge impulse_patch_failed reason=signature_not_unique matches=%zu rva=0x%llx",
+            signatureMatches,
+            static_cast<unsigned long long>(kAddImpulseThunkRva));
+        return false;
+    }
     if (std::memcmp(target, kAddImpulseThunkSignature, sizeof(kAddImpulseThunkSignature)) != 0) {
         Logger::Instance().Write(
             LogLevel::Error,
@@ -1383,9 +1555,19 @@ bool InstallAddImpulsePatch(HMODULE executable)
     std::memcpy(jump + 2, &hook, sizeof(hook));
     jump[10] = 0xff;
     jump[11] = 0xe0;
-    if (!WriteCodeBytes(target, jump, sizeof(jump))) {
+    PatchWriteFailure failure = PatchWriteFailure::None;
+    DWORD blockedThreadId = 0;
+    if (!WriteCodeBytes(
+            target, kAddImpulseThunkSignature, jump, sizeof(jump), failure, blockedThreadId)) {
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_grab_bridge impulse_patch_failed reason=%s thread=%lu rva=0x%llx",
+            PatchWriteFailureName(failure),
+            static_cast<unsigned long>(blockedThreadId),
+            static_cast<unsigned long long>(kAddImpulseThunkRva));
         return false;
     }
+    std::memcpy(g_addImpulsePatch, jump, sizeof(g_addImpulsePatch));
     g_addImpulseTarget = target;
     return true;
 }
@@ -1393,8 +1575,23 @@ bool InstallAddImpulsePatch(HMODULE executable)
 void RestoreAddImpulsePatch()
 {
     if (g_addImpulseTarget != nullptr) {
-        WriteCodeBytes(g_addImpulseTarget, g_addImpulseOriginal, sizeof(g_addImpulseOriginal));
-        g_addImpulseTarget = nullptr;
+        PatchWriteFailure failure = PatchWriteFailure::None;
+        DWORD blockedThreadId = 0;
+        if (WriteCodeBytes(
+                g_addImpulseTarget,
+                g_addImpulsePatch,
+                g_addImpulseOriginal,
+                sizeof(g_addImpulseOriginal),
+                failure,
+                blockedThreadId)) {
+            g_addImpulseTarget = nullptr;
+        } else {
+            Logger::Instance().Write(
+                LogLevel::Error,
+                "hpl_grab_bridge impulse_restore_failed reason=%s thread=%lu action=leave_patch_owned",
+                PatchWriteFailureName(failure),
+                static_cast<unsigned long>(blockedThreadId));
+        }
     }
 }
 

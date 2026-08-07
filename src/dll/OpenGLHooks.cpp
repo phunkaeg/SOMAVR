@@ -11,6 +11,7 @@
 #include "HPLPlayerState.h"
 #include "Logger.h"
 #include "OpenGLMatrixAnalysis.h"
+#include "OpenGLOwnership.h"
 
 #include <Windows.h>
 #include <gl/GL.h>
@@ -1288,6 +1289,10 @@ void UpdateRenderDiagnosticHotkey(uint64_t frame)
 
 void APIENTRY HookGlUniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value)
 {
+    if (IsOwnOpenGLWork()) {
+        g_originalGlUniformMatrix4fv(location, count, transpose, value);
+        return;
+    }
     g_uniformMatricesThisFrame.fetch_add(static_cast<uint64_t>(count > 0 ? count : 1), std::memory_order_relaxed);
 
     const uint32_t sampleIndex = g_matrixSamplesThisFrame.fetch_add(1, std::memory_order_relaxed);
@@ -1363,6 +1368,10 @@ void LogShadowJitterUpload(GLuint program, GLint location, GLsizei count, const 
 
 void APIENTRY HookGlUniform2f(GLint location, GLfloat v0, GLfloat v1)
 {
+    if (IsOwnOpenGLWork()) {
+        g_originalGlUniform2f(location, v0, v1);
+        return;
+    }
     const GLuint program = g_currentProgram.load(std::memory_order_relaxed);
     const std::string uniformName = UniformNameFor(program, location);
     const bool isShadowJitter = IsShadowJitterRadiusUniform(uniformName);
@@ -1378,6 +1387,10 @@ void APIENTRY HookGlUniform2f(GLint location, GLfloat v0, GLfloat v1)
 
 void APIENTRY HookGlUniform2fv(GLint location, GLsizei count, const GLfloat* value)
 {
+    if (IsOwnOpenGLWork()) {
+        g_originalGlUniform2fv(location, count, value);
+        return;
+    }
     const GLuint program = g_currentProgram.load(std::memory_order_relaxed);
     const std::string uniformName = UniformNameFor(program, location);
     const bool isShadowJitter = value != nullptr && count > 0 && IsShadowJitterRadiusUniform(uniformName);
@@ -1397,6 +1410,9 @@ void APIENTRY HookGlUniform2fv(GLint location, GLsizei count, const GLfloat* val
 
 GLint APIENTRY HookGlGetUniformLocation(GLuint program, const GLchar* uniformName)
 {
+    if (IsOwnOpenGLWork()) {
+        return g_originalGlGetUniformLocation(program, uniformName);
+    }
     const GLint location = g_originalGlGetUniformLocation(program, uniformName);
     if (location >= 0 && uniformName != nullptr) {
         {
@@ -1424,6 +1440,10 @@ GLint APIENTRY HookGlGetUniformLocation(GLuint program, const GLchar* uniformNam
 
 void APIENTRY HookGlUseProgram(GLuint program)
 {
+    if (IsOwnOpenGLWork()) {
+        g_originalGlUseProgram(program);
+        return;
+    }
     g_totalProgramUses.fetch_add(1, std::memory_order_relaxed);
     g_currentProgram.store(program, std::memory_order_relaxed);
     g_originalGlUseProgram(program);
@@ -1432,6 +1452,10 @@ void APIENTRY HookGlUseProgram(GLuint program)
 
 void APIENTRY HookGlBindFramebuffer(GLenum target, GLuint framebuffer)
 {
+    if (IsOwnOpenGLWork()) {
+        g_originalGlBindFramebuffer(target, framebuffer);
+        return;
+    }
     g_framebufferBindsThisFrame.fetch_add(1, std::memory_order_relaxed);
     g_totalFramebufferBinds.fetch_add(1, std::memory_order_relaxed);
     g_currentFramebuffer.store(framebuffer, std::memory_order_relaxed);
@@ -1460,6 +1484,10 @@ void APIENTRY HookGlBindFramebuffer(GLenum target, GLuint framebuffer)
 
 void APIENTRY HookGlBindTexture(GLenum target, GLuint texture)
 {
+    if (IsOwnOpenGLWork()) {
+        g_originalGlBindTexture(target, texture);
+        return;
+    }
     g_originalGlBindTexture(target, texture);
     ObserveHPLSSAOTemporalGLBind(target, texture);
     if (!g_postEffectResourceCapture.active || texture == 0
@@ -1877,12 +1905,20 @@ PROC WINAPI HookWglGetProcAddress(LPCSTR name)
 
 void APIENTRY HookGlMatrixMode(GLenum mode)
 {
+    if (IsOwnOpenGLWork()) {
+        g_originalGlMatrixMode(mode);
+        return;
+    }
     g_currentMatrixMode.store(mode, std::memory_order_relaxed);
     g_originalGlMatrixMode(mode);
 }
 
 void APIENTRY HookGlLoadMatrixf(const GLfloat* matrix)
 {
+    if (IsOwnOpenGLWork()) {
+        g_originalGlLoadMatrixf(matrix);
+        return;
+    }
     g_matrixLoadsThisFrame.fetch_add(1, std::memory_order_relaxed);
 
     GLenum matrixMode = g_currentMatrixMode.load(std::memory_order_relaxed);
@@ -1917,6 +1953,10 @@ void APIENTRY HookGlLoadMatrixf(const GLfloat* matrix)
 
 void APIENTRY HookGlViewport(GLint x, GLint y, GLsizei width, GLsizei height)
 {
+    if (IsOwnOpenGLWork()) {
+        g_originalGlViewport(x, y, width, height);
+        return;
+    }
     g_viewportCallsThisFrame.fetch_add(1, std::memory_order_relaxed);
     g_totalViewportCalls.fetch_add(1, std::memory_order_relaxed);
     g_currentViewportX.store(x, std::memory_order_relaxed);
@@ -1928,6 +1968,10 @@ void APIENTRY HookGlViewport(GLint x, GLint y, GLsizei width, GLsizei height)
 
 void APIENTRY HookGlDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices)
 {
+    if (IsOwnOpenGLWork()) {
+        g_originalGlDrawElements(mode, count, type, indices);
+        return;
+    }
     g_drawElementsThisFrame.fetch_add(1, std::memory_order_relaxed);
     g_totalDrawElements.fetch_add(1, std::memory_order_relaxed);
     RecordRenderDiagnosticDraw("elements", mode, count);
@@ -1942,6 +1986,10 @@ void APIENTRY HookGlDrawElements(GLenum mode, GLsizei count, GLenum type, const 
 
 void APIENTRY HookGlDrawArrays(GLenum mode, GLint first, GLsizei count)
 {
+    if (IsOwnOpenGLWork()) {
+        g_originalGlDrawArrays(mode, first, count);
+        return;
+    }
     g_drawArraysThisFrame.fetch_add(1, std::memory_order_relaxed);
     g_totalDrawArrays.fetch_add(1, std::memory_order_relaxed);
     RecordRenderDiagnosticDraw("arrays", mode, count);
@@ -1956,6 +2004,10 @@ void APIENTRY HookGlDrawArrays(GLenum mode, GLint first, GLsizei count)
 
 void APIENTRY HookGlClear(GLbitfield mask)
 {
+    if (IsOwnOpenGLWork()) {
+        g_originalGlClear(mask);
+        return;
+    }
     g_totalClears.fetch_add(1, std::memory_order_relaxed);
     const bool suppressionActive =
         g_terminalClearSuppressionActive.load(std::memory_order_acquire);
@@ -2311,11 +2363,12 @@ void LogOpenGLProofSummary()
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "proof_summary frames=%llu swaps=%llu wglMakeCurrent=%llu renderThread=%lu terminalClear={active=%d targetFbo=%u frame=%llu armed=%llu colorSuppressed=%llu depthStencilForwarded=%llu framebufferMismatches=%llu threadMismatches=%llu} shadowJitterControl=%d shadowJitterSuppressed=%d shadowJitterUploads=%llu shadowJitterOverrides=%llu reflectionFadeControl=%d reflectionFadeBypassed=%d reflectionFadePatches=%llu postEffectResources={enabled=%d captures=%llu logs=%llu textures=%llu framebuffers=%llu sharedClassifications=%llu distinctClassifications=%llu effects=%llu} fixedProjection={%s} uniformProjectionName=\"%s\" uniformProjectionProgram=%u uniformProjectionLocation=%d uniformProjection={%s} %s",
+        "proof_summary frames=%llu swaps=%llu wglMakeCurrent=%llu renderThread=%lu ownGlBypasses=%llu terminalClear={active=%d targetFbo=%u frame=%llu armed=%llu colorSuppressed=%llu depthStencilForwarded=%llu framebufferMismatches=%llu threadMismatches=%llu} shadowJitterControl=%d shadowJitterSuppressed=%d shadowJitterUploads=%llu shadowJitterOverrides=%llu reflectionFadeControl=%d reflectionFadeBypassed=%d reflectionFadePatches=%llu postEffectResources={enabled=%d captures=%llu logs=%llu textures=%llu framebuffers=%llu sharedClassifications=%llu distinctClassifications=%llu effects=%llu} fixedProjection={%s} uniformProjectionName=\"%s\" uniformProjectionProgram=%u uniformProjectionLocation=%d uniformProjection={%s} %s",
         static_cast<unsigned long long>(g_frameIndex.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_swapCount.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_wglMakeCurrentCount.load(std::memory_order_relaxed)),
         static_cast<unsigned long>(g_renderThreadId.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(OwnOpenGLBypassCount()),
         g_terminalClearSuppressionActive.load(std::memory_order_relaxed) ? 1 : 0,
         g_terminalClearTargetFramebuffer.load(std::memory_order_relaxed),
         static_cast<unsigned long long>(g_terminalClearFrame.load(std::memory_order_relaxed)),

@@ -2,6 +2,35 @@
 
 ## 2026-08-07
 
+### 0.89.0-frame-contract
+
+- Made a projection layer a hard invariant for every begun OpenXR frame.
+  `shouldRender=false`, blackout, tracking loss, copy failure, emergency close,
+  session stop, recovery, and GL-context replacement now submit retained or
+  opaque-black eye swapchains rather than calling `xrEndFrame` with zero layers.
+- Split submission pose from upcoming-render pose. The completed image keeps
+  the pose recorded when it rendered; HMD and controller action spaces are
+  located at `predictedDisplayTime + predictedDisplayPeriod` for the render
+  beginning after `SwapBuffers`, with bounded current-time fallback telemetry.
+- AFR eye phase now advances only after the corresponding backbuffer cache fill
+  succeeds. Eye zero's rotation is latched through eye one while each eye keeps
+  its own tracked position, preserving pair rigidity without collapsing IPD.
+- Added a nested thread-local own-GL scope around the complete OpenXR bridge
+  operation, including runtime acquire/release calls. GL detours immediately
+  forward mod-owned work and no longer feed it into HPL matrix, terminal,
+  shader, post-effect, or draw diagnostics.
+- Hardened the live AddImpulse patch: its executable-section signature must be
+  unique, all peer threads are suspended, instruction pointers in the 12-byte
+  window reject the operation, and expected bytes are revalidated for both
+  installation and restoration before any write.
+- Installer checksums are no longer deletion authority. Install/update and
+  uninstall use a literal file allowlist, preserve unknown/tampered-manifest
+  entries, require an explicit switch for custom destinations, and never
+  recursively remove the destination tree.
+- The canonical OpenXR Release build and all seven CTest suites pass, including
+  nested GL ownership, prediction overflow, projection-floor, patch-window,
+  and tampered-manifest lifecycle coverage.
+
 ### 0.88.0-release-integrity
 
 - Removed the build-machine source path from normal runtime behavior. The DLL

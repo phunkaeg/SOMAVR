@@ -4,6 +4,7 @@
 
 #include "Logger.h"
 #include "OpenGLHooks.h"
+#include "OpenGLOwnership.h"
 
 #include <Windows.h>
 #include <gl/GL.h>
@@ -196,6 +197,7 @@ bool OpenXRGLBridge::Initialize(
     bool comfortVignetteEnabled,
     int comfortVignetteSizePixels)
 {
+    ScopedOwnOpenGLWork ownGl;
     Shutdown();
 
     if (session == XR_NULL_HANDLE || views.size() < 2 || formats.empty() || wglGetCurrentContext() == nullptr) {
@@ -358,6 +360,7 @@ bool OpenXRGLBridge::Initialize(
 
 void OpenXRGLBridge::Shutdown(bool deleteGlResources)
 {
+    ScopedOwnOpenGLWork ownGl;
     EndTerminalCaptureGuard();
     if (terminalColorClearSuppressionActive_) {
         EndTerminalColorClearSuppression();
@@ -463,6 +466,7 @@ void OpenXRGLBridge::Shutdown(bool deleteGlResources)
 
 bool OpenXRGLBridge::CopyBackbufferToEye(uint32_t eyeIndex)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!Ready() || eyeIndex >= eyes_.size()) {
         return false;
     }
@@ -518,6 +522,7 @@ bool OpenXRGLBridge::CopyBackbufferToEye(uint32_t eyeIndex)
 
 bool OpenXRGLBridge::CaptureBackbufferToCache(uint32_t eyeIndex)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!Ready() || eyeIndex >= eyes_.size()) {
         return false;
     }
@@ -640,6 +645,7 @@ bool OpenXRGLBridge::CaptureBackbufferToCache(uint32_t eyeIndex)
 
 bool OpenXRGLBridge::CopyCacheToEye(uint32_t eyeIndex)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!Ready() || eyeIndex >= eyes_.size() || !eyes_[eyeIndex].cacheValid) {
         return false;
     }
@@ -695,6 +701,7 @@ bool OpenXRGLBridge::CopyCacheToEye(uint32_t eyeIndex)
 
 bool OpenXRGLBridge::ClearEyeToBlack(uint32_t eyeIndex)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!Ready() || eyeIndex >= eyes_.size()) return false;
 
     EyeSwapchain& eye = eyes_[eyeIndex];
@@ -775,6 +782,7 @@ bool OpenXRGLBridge::ClearEyeToBlack(uint32_t eyeIndex)
 
 bool OpenXRGLBridge::CopyDepthCacheToEye(uint32_t eyeIndex)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!DepthSwapchainsReady()
         || eyeIndex >= eyes_.size()
         || !eyes_[eyeIndex].depthCacheValid) {
@@ -834,6 +842,7 @@ bool OpenXRGLBridge::CopyCacheToBackbuffer(
     uint32_t eyeIndex,
     spectator_math::AspectMode aspectMode)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!Ready() || eyeIndex >= eyes_.size() || !eyes_[eyeIndex].cacheValid) {
         return false;
     }
@@ -914,6 +923,7 @@ bool OpenXRGLBridge::CopyCacheToBackbuffer(
 
 bool OpenXRGLBridge::BeginHudCapture(uint64_t frameIndex, bool preservePreviousFrame)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!HudReady()
         || hudCaptureState_.active
         || wglGetCurrentContext() == nullptr) {
@@ -960,6 +970,7 @@ bool OpenXRGLBridge::BeginHudCapture(uint64_t frameIndex, bool preservePreviousF
 
 bool OpenXRGLBridge::EndHudCapture(uint64_t frameIndex, bool suppressCenterCrosshair)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!hudCaptureState_.active) {
         return false;
     }
@@ -988,6 +999,7 @@ bool OpenXRGLBridge::BeginTerminalHudCapture(
     bool preservePreviousFrame,
     bool preserveDirtyRects)
 {
+    ScopedOwnOpenGLWork ownGl;
     EndTerminalCaptureGuard();
     if (terminalColorClearSuppressionActive_) {
         EndTerminalColorClearSuppression();
@@ -1044,6 +1056,7 @@ bool OpenXRGLBridge::BeginTerminalHudCapture(
 
 bool OpenXRGLBridge::EndTerminalHudCapture(uint64_t frameIndex)
 {
+    ScopedOwnOpenGLWork ownGl;
     EndTerminalCaptureGuard();
     if (terminalColorClearSuppressionActive_) {
         EndTerminalColorClearSuppression();
@@ -1090,6 +1103,7 @@ bool OpenXRGLBridge::CaptureFramebufferToHud(
     int sourceWidth,
     int sourceHeight)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (sourceFramebuffer == 0
         || sourceWidth <= 0
         || sourceHeight <= 0
@@ -1121,6 +1135,7 @@ bool OpenXRGLBridge::CaptureFramebufferToHud(
 
 void OpenXRGLBridge::RestoreHudCaptureState()
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!hudCaptureState_.active) {
         return;
     }
@@ -1158,6 +1173,7 @@ void OpenXRGLBridge::RestoreHudCaptureState()
 
 bool OpenXRGLBridge::CopyHudCaptureToSwapchain()
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!HudReady() || !hud_.captureValid) {
         return false;
     }
@@ -1209,6 +1225,7 @@ bool OpenXRGLBridge::DumpHudCapture(
     uint32_t sampleIndex,
     const char* reason)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!hud_.captureValid) {
         return false;
     }
@@ -1230,6 +1247,7 @@ bool OpenXRGLBridge::DumpTerminalHudCapture(
     uint32_t sampleIndex,
     const char* reason)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!hud_.terminalValid) {
         return false;
     }
@@ -1256,6 +1274,7 @@ bool OpenXRGLBridge::DumpCaptureFramebuffer(
     int height,
     uint64_t captureFrame)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (framebuffer == 0
         || width <= 0
         || height <= 0
@@ -1415,6 +1434,7 @@ bool OpenXRGLBridge::DrawInteractionReticleToSwapchain(
     float blue,
     float alpha)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!InteractionReticleReady()) {
         return false;
     }
@@ -1488,6 +1508,7 @@ bool OpenXRGLBridge::DrawControllerAimGuideToSwapchain(
     float blue,
     float alpha)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!ControllerAimGuideReady()) return false;
     std::swap(interactionReticle_, controllerAimGuide_);
     const bool drawn = DrawInteractionReticleToSwapchain(
@@ -1511,6 +1532,7 @@ const OpenXRGLBridge::ReticleSwapchain& OpenXRGLBridge::ControllerAimGuide() con
 
 bool OpenXRGLBridge::DrawStatusPanelToSwapchain(const std::vector<uint8_t>& rgbaPixels)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!StatusPanelReady()
         || rgbaPixels.size() != static_cast<size_t>(statusPanel_.width) * statusPanel_.height * 4) {
         return false;
@@ -1583,6 +1605,7 @@ const OpenXRGLBridge::StatusPanelSwapchain& OpenXRGLBridge::StatusPanel() const
 
 bool OpenXRGLBridge::DrawComfortVignetteToSwapchain(const std::vector<uint8_t>& rgbaPixels)
 {
+    ScopedOwnOpenGLWork ownGl;
     if (!ComfortVignetteReady()
         || rgbaPixels.size()
             != static_cast<size_t>(comfortVignette_.width) * comfortVignette_.height * 4) {

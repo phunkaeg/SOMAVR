@@ -47,8 +47,10 @@ Install or update a packaged build into a dedicated directory:
 
 The installer verifies every packaged SHA-256 before copying. Existing
 `somavr.ini` is preserved and changed package defaults are written to
-`somavr.defaults.ini`. Updates remove only stale files recorded in the previous
-install manifest. Uninstall is equally bounded:
+`somavr.defaults.ini`. Updates and uninstall delete only a built-in SOMAVR file
+allowlist; the writable install manifest is inventory, not deletion authority,
+and unknown files are preserved. Non-default destinations require the explicit
+`-AllowCustomDestination` switch. Uninstall is equally bounded:
 
 ```powershell
 & ".\Uninstall-SOMAVR.ps1" -Destination "$env:LOCALAPPDATA\SOMAVR"

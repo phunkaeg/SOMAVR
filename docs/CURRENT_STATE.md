@@ -22,10 +22,22 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 ## Active Baseline
 
 The active engineering and gameplay test build is
-`0.88.0-release-integrity`, layered on the
+`0.89.0-frame-contract`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Version 0.89 makes the compositor and AFR contracts explicit. Every begun XR
+  frame carries a projection layer; loading, tracking loss and recovery retain
+  or black-fill projection content. Submission uses the image's recorded pose,
+  while the next HPL render and OpenXR controller input use a one-period-ahead
+  prediction. AFR rotation is latched across each pair and eye phase advances
+  only after a successful cache fill. Private bridge GL work bypasses every HPL
+  GL detour through a nested own-GL scope.
+- The AddImpulse redirect now patches only after unique-signature, suspended-
+  thread, instruction-pointer and expected-byte checks. Release scripts delete
+  only a compiled allowlist; the install manifest remains an inventory record,
+  never authority over unknown files.
 
 - Version 0.88 is the first relocatable, package-owned baseline. Runtime files
   resolve beside the loaded DLL, the shipped INI comes from a tracked sanitized
@@ -699,10 +711,10 @@ compatibility probes:
   F10 tracking is active; native requests and fade speeds return unchanged when
   VR is inactive or a channel is disabled.
 - `HPLPresentationBridge` queries SOMA's exact loading-screen visibility once per
-  game frame. Load entry invalidates both AFR caches, submits zero XR layers,
-  and releases controller input; load exit invalidates again and adds a bounded
-  two-frame guard before stereo repopulates. The desktop retains SOMA's native
-  loading backbuffer.
+  game frame. Load entry invalidates both AFR caches, submits opaque-black
+  projection content, and releases controller input; load exit invalidates
+  again and adds a bounded two-frame guard before stereo repopulates. The
+  desktop retains SOMA's native loading backbuffer.
 - Signature-guarded `CreateVideo`/`DestroyVideo` hooks record stream identity,
   source name, active count, and peak concurrency without changing playback.
   This is deliberately a classifier for fullscreen versus diegetic video, not

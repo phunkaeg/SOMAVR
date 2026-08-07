@@ -51,32 +51,68 @@ try {
     Set-Content -LiteralPath (Join-Path $package "somavr_injector.exe") -Value "injector-v1"
     Set-Content -LiteralPath (Join-Path $package "somavr_build_manifest.txt") -Value "version=0.32.0-test1"
     Set-Content -LiteralPath (Join-Path $package "somavr.ini") -Value "UserScale=1.0"
-    Set-Content -LiteralPath (Join-Path $package "legacy.txt") -Value "legacy"
+    Set-Content -LiteralPath (Join-Path $package "somavr_dumper.exe") -Value "dumper-v1"
+    Set-Content -LiteralPath (Join-Path $package "unknown-payload.bin") -Value "reject-me"
     Write-PackageChecksums
 
-    & (Join-Path $package "Install-Or-Update-SOMAVR.ps1") -Destination $destination
+    $unknownPayloadRejected = $false
+    try {
+        & (Join-Path $package "Install-Or-Update-SOMAVR.ps1") `
+            -Destination $destination -AllowCustomDestination
+    } catch {
+        $unknownPayloadRejected = $true
+    }
+    if (-not $unknownPayloadRejected) {
+        throw "Installer accepted a package file outside the literal allowlist"
+    }
+    Remove-Item -LiteralPath (Join-Path $package "unknown-payload.bin")
+    Write-PackageChecksums
+
+    $customDestinationRejected = $false
+    try {
+        & (Join-Path $package "Install-Or-Update-SOMAVR.ps1") -Destination $destination
+    } catch {
+        $customDestinationRejected = $true
+    }
+    if (-not $customDestinationRejected) {
+        throw "Installer accepted a custom destination without explicit opt-in"
+    }
+
+    & (Join-Path $package "Install-Or-Update-SOMAVR.ps1") `
+        -Destination $destination -AllowCustomDestination
     Assert-Text (Join-Path $destination "somavr.ini") "UserScale=1.0" "Fresh config mismatch"
 
     Set-Content -LiteralPath (Join-Path $destination "somavr.ini") -Value "UserScale=1.75"
-    Remove-Item -LiteralPath (Join-Path $package "legacy.txt")
+    Set-Content -LiteralPath (Join-Path $destination "user-owned.txt") -Value "preserve-me"
+    $manifestPath = Join-Path $destination ".somavr-install.json"
+    $tamperedManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $tamperedManifest.managedFiles += "user-owned.txt"
+    $tamperedManifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding utf8
+    Remove-Item -LiteralPath (Join-Path $package "somavr_dumper.exe")
     Set-Content -LiteralPath (Join-Path $package "somavr.dll") -Value "dll-v2"
     Set-Content -LiteralPath (Join-Path $package "somavr_build_manifest.txt") -Value "version=0.32.0-test2"
     Set-Content -LiteralPath (Join-Path $package "somavr.ini") -Value "UserScale=1.1"
     Write-PackageChecksums
 
-    & (Join-Path $package "Install-Or-Update-SOMAVR.ps1") -Destination $destination
+    & (Join-Path $package "Install-Or-Update-SOMAVR.ps1") `
+        -Destination $destination -AllowCustomDestination
     Assert-Text (Join-Path $destination "somavr.ini") "UserScale=1.75" "Update overwrote user config"
     Assert-Text (Join-Path $destination "somavr.defaults.ini") "UserScale=1.1" "Updated defaults missing"
-    if (Test-Path -LiteralPath (Join-Path $destination "legacy.txt")) {
+    if (Test-Path -LiteralPath (Join-Path $destination "somavr_dumper.exe")) {
         throw "Update left a stale managed file"
     }
+    Assert-Text (Join-Path $destination "user-owned.txt") "preserve-me" `
+        "Update trusted a tampered manifest and removed an unknown file"
 
-    & (Join-Path $package "Uninstall-SOMAVR.ps1") -Destination $destination
+    & (Join-Path $package "Uninstall-SOMAVR.ps1") `
+        -Destination $destination -AllowCustomDestination
     if (-not (Test-Path -LiteralPath (Join-Path $destination "somavr.ini") -PathType Leaf)) {
         throw "Uninstall removed user config"
     }
     $remaining = @(Get-ChildItem -LiteralPath $destination -Force)
-    if ($remaining.Count -ne 1 -or $remaining[0].Name -ne "somavr.ini") {
+    $remainingNames = @($remaining.Name | Sort-Object)
+    if ($remaining.Count -ne 2 -or
+        ($remainingNames -join ',') -ne "somavr.ini,user-owned.txt") {
         throw "Unexpected uninstall residue: $($remaining.Name -join ', ')"
     }
     Write-Host "Installer lifecycle tests passed"

@@ -1,5 +1,31 @@
 # Test Checklists
 
+## 0.89.0 Frame Contract And Native Safety
+
+1. Launch the canonical package, load the apartment save, and press F10 once.
+   Confirm world rigidity, hand/arm tracking, locomotion, interactions, terminal
+   emails, pause/main-menu behavior and desktop mirror match the 0.88 baseline.
+2. Stand still, then turn and pitch the HMD while walking. `openxr_frame ok`
+   must report `upcomingRenderDisplayTime` one `predictionLeadNs` period after
+   `predictedDisplayTime`. There must be no new inter-eye latency or skew.
+3. Leave same-frame stereo off for at least 30 seconds. Require alternating
+   `hpl_stereo fill_committed ... eye=0/1`, nonzero `pairRotationLatches` and
+   `pairRotationReuses`, no repeating `fill_rejected`, and a rigid world while
+   moving. Then enable same-frame stereo and verify the same fill sequence.
+4. Reload the save or cross a loading boundary, then briefly occlude tracking.
+   Every sampled `openxr_frame ok` must report `layers>=1`. Fallback rows may
+   report retained or black projection, but no `xrEndFrame` zero-layer path,
+   compositor freeze, stale eye, or second F10 may occur.
+5. Exercise the laptop, pause HUD, reticle and both controller guides. At clean
+   shutdown `proof_summary ... ownGlBypasses=` must be nonzero; terminal clear,
+   reflection and post-effect counters must reflect game work only.
+6. Pick up and throw one ordinary physics prop, then exit and relaunch once.
+   Require `hpl_grab_bridge install_ok` with no `signature_not_unique`,
+   `instruction_pointer_in_range`, `expected_bytes_changed`, or
+   `impulse_restore_failed` rows. Throw behavior should match the prior build.
+7. Exit through the pause menu and attach the complete `somavr.log`. Confirm no
+   crash dump and a normal process exit.
+
 ## 0.88.0 Release Integrity And OpenXR Contract
 
 1. Launch from `out/SOMAVR-latest` with the packaged injector and DLL. Confirm

@@ -1,6 +1,7 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
-    [string]$Destination = (Join-Path $env:LOCALAPPDATA "SOMAVR")
+    [string]$Destination = (Join-Path $env:LOCALAPPDATA "SOMAVR"),
+    [switch]$AllowCustomDestination
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,13 +13,48 @@ function Resolve-PackageRoot {
     return [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 }
 
-function Resolve-SafeDestination([string]$Path) {
+function Get-ManagedFileAllowlist {
+    $files = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($relative in @(
+        "somavr.dll",
+        "somavr_injector.exe",
+        "somavr_dumper.exe",
+        "openxr_loader.dll",
+        "somavr_build_flavor.txt",
+        "somavr_build_manifest.txt",
+        "somavr.ini",
+        "somavr.defaults.ini",
+        "README.md",
+        "Install-Or-Update-SOMAVR.ps1",
+        "Launch-SOMAVR-Dev.ps1",
+        "Uninstall-SOMAVR.ps1",
+        "docs/USER_GUIDE.md",
+        "docs/CURRENT_STATE.md",
+        "docs/TEST_CHECKLISTS.md",
+        "docs/SMOKE_TEST_MATRIX.md",
+        "SHA256SUMS.txt",
+        ".somavr-install.json"
+    )) {
+        [void]$files.Add($relative)
+    }
+    return $files
+}
+
+function Resolve-SafeDestination([string]$Path, [bool]$CustomDestinationAllowed) {
     $resolved = [System.IO.Path]::GetFullPath($Path)
     $root = [System.IO.Path]::GetPathRoot($resolved).TrimEnd('\')
     if ($resolved.TrimEnd('\') -eq $root) {
         throw "Refusing to install into a filesystem root: $resolved"
     }
-    return $resolved.TrimEnd('\')
+    $resolved = $resolved.TrimEnd('\')
+    $expected = [System.IO.Path]::GetFullPath(
+        (Join-Path $env:LOCALAPPDATA "SOMAVR")).TrimEnd('\')
+    if (-not $resolved.Equals($expected, [System.StringComparison]::OrdinalIgnoreCase) -and
+        -not $CustomDestinationAllowed) {
+        throw "Custom install destinations require -AllowCustomDestination: $resolved"
+    }
+    return $resolved
 }
 
 function Resolve-ChildPath([string]$Root, [string]$RelativePath) {
@@ -67,7 +103,8 @@ function Read-Checksums([string]$PackageRoot) {
 }
 
 $packageRoot = Resolve-PackageRoot
-$destinationRoot = Resolve-SafeDestination $Destination
+$managedAllowlist = Get-ManagedFileAllowlist
+$destinationRoot = Resolve-SafeDestination $Destination $AllowCustomDestination.IsPresent
 if ($packageRoot.TrimEnd('\').Equals($destinationRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "Source package and destination must be different directories"
 }
@@ -80,6 +117,10 @@ foreach ($required in @("somavr.dll", "somavr_injector.exe", "somavr_build_manif
 
 $checksums = Read-Checksums $packageRoot
 foreach ($entry in $checksums.GetEnumerator()) {
+    $allowlistKey = $entry.Key.Replace('\', '/')
+    if (-not $managedAllowlist.Contains($allowlistKey)) {
+        throw "Package contains a file outside the SOMAVR allowlist: $($entry.Key)"
+    }
     $source = Resolve-ChildPath $packageRoot $entry.Key
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
         throw "Package file is missing: $($entry.Key)"
@@ -136,6 +177,11 @@ if ($PSCmdlet.ShouldProcess($destinationRoot, "Install or update SOMAVR $version
 
     foreach ($relative in $previousManaged) {
         $normalized = ([string]$relative).Replace('/', '\')
+        $allowlistKey = $normalized.Replace('\', '/')
+        if (-not $managedAllowlist.Contains($allowlistKey)) {
+            Write-Warning "Preserving unknown manifest entry: $relative"
+            continue
+        }
         if (($normalized.Equals("somavr.ini", [System.StringComparison]::OrdinalIgnoreCase)) -or
             ($managed.Contains(([string]$relative).Replace('\', '/')))) {
             continue

@@ -1321,8 +1321,8 @@ boolean. A failed or partially valid `xrLocateViews` sample never enters the
 persistent eye cache. The camera may consume the previous sample only within
 `TrackingHoldFrames`; during that grace period the sample is explicitly marked
 untracked, and after it expires the HPL bridge restores the native base view for
-the frame without deleting stereo intent. Recovery adds a short zero-layer
-blackout before normal stereo presentation resumes. Live coverage still needs a
+the frame without deleting stereo intent. Recovery adds a short opaque-black
+projection interval before normal stereo presentation resumes. Live coverage still needs a
 repeatable way to obstruct or disable HMD tracking for both short and extended
 intervals.
 
@@ -1471,7 +1471,7 @@ Body turn should be a separate action:
 the native camera or projection. The resolved gameplay input owner publishes a
 deadzone-normalized movement level after every suppression gate. Smooth-turn
 input may raise the same target; snap-turn stick hold is excluded because snap
-already requests a bounded zero-layer blackout. `OpenXRRuntime` advances a
+already requests a bounded opaque-black projection. `OpenXRRuntime` advances a
 tested attack/release envelope from predicted display period and submits a
 transparent-center radial mask last in VIEW space. Stale motion, loading,
 menus/panel ownership, terminals, death, and authored cameras all release it.

@@ -15,6 +15,15 @@ Source review: `REVIEW_HANDOVER_2026-08-07.md`.
 | F-09 | Unknown sections/keys warn and are counted; release-config parser coverage is an automated test. |
 | F-15 | `Logger::Path()` returns a mutex-protected value. |
 
+## Closed In 0.89
+
+| Finding | Resolution |
+| --- | --- |
+| F-02 follow-up | Every begun frame now has a hard one-projection minimum, including `shouldRender=false` and emergency close. Context recovery closes before GL resource release. |
+| F-11 | AddImpulse installation/restoration requires one executable signature, suspended peer threads, no RIP in the patch window, and exact expected bytes. |
+| F-12 | A DLL-wide nested own-GL scope brackets complete bridge operations; all GL detours directly forward mod-owned calls. |
+| Packaging safety | Install/update/uninstall use a literal allowlist, require explicit custom-destination opt-in, preserve unknown files, and never recursively remove the install tree. |
+
 ## Partially Closed
 
 | Finding | Resolution and remaining work |
@@ -28,8 +37,6 @@ Source review: `REVIEW_HANDOVER_2026-08-07.md`.
 | Finding | Next isolated build |
 | --- | --- |
 | F-10 | Convert the three remaining raw camera/grab/probe accesses to checked process-memory helpers, with focused stale-pointer tests. |
-| F-11 | Replace or thread-suspend around the live 12-byte `AddImpulse` patch and verify no instruction pointer lies in the patch window. |
-| F-12 | Add a DLL-wide thread-local own-GL scope shared by private OpenXR rendering and every GL detour. This changes telemetry and terminal suppression ownership, so it needs its own headset regression pass. |
 | F-13 | Split the large positional config log into section records and make logger formatting length-aware. |
 
 The lock split, raw-memory conversion, code-patch synchronization and own-GL

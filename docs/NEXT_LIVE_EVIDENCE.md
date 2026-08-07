@@ -3,19 +3,24 @@
 Date: 2026-08-07
 
 Use `out\SOMAVR-latest`
-(`0.88.0-release-integrity`) for the next run.
+(`0.89.0-frame-contract`) for the next run.
 
-The first priority is the 0.88 release-integrity and OpenXR-contract pass in
-`TEST_CHECKLISTS.md`; the earlier 0.87 focus-pacing checks remain part of the
-regression baseline.
+The first priority is the 0.89 frame-contract and native-safety pass in
+`TEST_CHECKLISTS.md`; the 0.88 release-integrity and 0.87 focus-pacing checks
+remain part of the regression baseline.
 Establish ordinary VR with F10, leave the already-focused headset idle for at
 least 60 seconds, then return without pressing F10. The desktop game must stay
 responsive and stereo/input must recover automatically. Preserve these rows:
 
 ```text
-build_identity identity=0.88.0-release-integrity+...
+build_identity identity=0.89.0-frame-contract+...
 runtime_paths ... source=module
 config_loaded ... parsedKeyHash=... accepted=... unknownKeys=0 unknownSections=0
+openxr_frame ok ... layers=... predictedDisplayTime=... upcomingRenderDisplayTime=... predictionLeadNs=...
+openxr_projection fallback ... content=retained_or_black ...
+hpl_stereo fill_committed ... eye=... nextEye=... policy=advance_only_after_cache_fill
+hpl_camera_bridge summary ... fillCommits=... fillRejects=... pairRotationLatches=... pairRotationReuses=...
+proof_summary ... ownGlBypasses=...
 openxr_layer_budget ... (only if the runtime cap drops decoration)
 openxr_focus_pacing armed ...
 openxr_focus_pacing skip_begin ...
@@ -26,7 +31,7 @@ hpl_entity_profiles save=1 ...
 
 After normal shutdown, check `somavr_entity_profiles.ini` and launch once more
 to prove `logs\somavr.previous.log` preservation. The profiles are telemetry-only
-in 0.88, so hands, flashlight, story objects, and medicine must behave exactly
+in 0.89, so hands, flashlight, story objects, and medicine must behave exactly
 as in 0.86. Do not intentionally crash SOMA; crash capture has an automated
 child-process integration test.
 
@@ -268,7 +273,7 @@ repeat on another OpenXR runtime or headset.
 Required evidence:
 
 - resource recreation or recovery without process restart;
-- bounded tracking-loss zero-layer path and one recovery blackout;
+- bounded tracking-loss retained/black projection path and one recovery blackout;
 - no stale camera, renderer, history, GL context, or swapchain identity;
 - clean lifecycle summaries and no lingering SOMA process;
 - stable desktop spectator output and no graphics-proxy conflict;

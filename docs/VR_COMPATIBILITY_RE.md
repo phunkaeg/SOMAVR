@@ -1,5 +1,31 @@
 # VR Compatibility Reverse-Engineering Map
 
+## 0.89.0 Frame Prediction And Projection Contract
+
+`SwapBuffers` is the handoff between a completed HPL image and the render that
+will start immediately afterward. SOMAVR therefore locates two pose sets after
+`xrWaitFrame`: `predictedDisplayTime` describes submission fallback for the
+completed image, while `predictedDisplayTime + predictedDisplayPeriod` is
+published to the HPL camera and OpenXR input spaces for the upcoming render.
+AFR projection still uses the exact pose recorded with each cached eye.
+
+AFR phase is now transactional. `ApplyStereoEye` marks a pending eye but does
+not toggle it; only successful cache capture commits the next eye. Eye zero's
+orientation is latched through eye one, while current per-eye positions remain
+independent. Failed fills retry the same eye and cannot permanently invert the
+pair.
+
+Every successful `xrBeginFrame` is backed by two valid eye swapchains and must
+end with one projection layer. `shouldRender=false`, loading, tracking loss,
+copy failure and emergency close retain valid content or clear opaque black.
+No `xrEndFrame(layerCount=0)` call remains.
+
+All OpenXR bridge GL operations carry a nested thread-local own-GL scope from
+before swapchain acquire through after release. HPL GL detours directly forward
+those calls, so private blits/clears/uploads cannot trigger terminal retention,
+reflection control, matrix capture, post-effect resource capture, or render
+diagnostics.
+
 ## 0.33.0 Compositor Depth And Resource Recovery
 
 The capture-only depth experiment is now a guarded submission path. When
@@ -27,9 +53,9 @@ swapchains, caches, and layer resources. Stable checks do no GL allocation.
 
 Authored script zoom no longer needs to distort the headset projection: exact
 FOV, FOV-multiplier, and aspect-multiplier wrappers can retain native script
-timing while selecting VR-neutral targets. Exact loading visibility now owns a
-zero-layer XR interval with stereo-cache invalidation on both edges and input
-release throughout. Video playback remains untouched while native stream names
+timing while selecting VR-neutral targets. Exact loading visibility now owns an
+opaque-black projection interval with stereo-cache invalidation on both edges
+and input release throughout. Video playback remains untouched while native stream names
 and lifetimes are collected to separate fullscreen presentation from diegetic
 screens.
 

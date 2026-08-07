@@ -125,9 +125,10 @@ struct BridgeState {
     bool stereoEnabled = false;
     bool trackingFallbackActive = false;
     bool baseMatricesValid = false;
-    uint32_t nextEyeIndex = 0;
     int currentEyeIndex = -1;
     uint64_t currentEyePoseFrame = 0;
+    bool pairRotationValid = false;
+    Quaternion pairRotation{};
     uint32_t activationTrackingWaitLogs = 0;
     uint32_t recenterTrackingWaitLogs = 0;
     void* activeCamera = nullptr;
@@ -167,6 +168,13 @@ std::atomic<uint64_t> g_baseRefreshes = 0;
 std::atomic<uint64_t> g_poseMisses = 0;
 std::atomic<uint64_t> g_stereoAppliedCalls = 0;
 std::atomic<uint64_t> g_stereoEyeCalls[2] = {};
+std::atomic<uint32_t> g_nextEyeIndex = 0;
+std::atomic<int> g_committableEye = -1;
+std::atomic<uint64_t> g_committableEyePoseFrame = 0;
+std::atomic<uint64_t> g_stereoFillCommits = 0;
+std::atomic<uint64_t> g_stereoFillRejects = 0;
+std::atomic<uint64_t> g_pairRotationLatches = 0;
+std::atomic<uint64_t> g_pairRotationReuses = 0;
 std::atomic<uint64_t> g_trackingFallbackFrames = 0;
 std::atomic<uint64_t> g_trackingRecoveryEvents = 0;
 std::atomic<uint64_t> g_nativeRollObservedCalls = 0;
@@ -187,6 +195,14 @@ std::atomic<bool> g_projectionCenterF5Down = false;
 std::atomic<bool> g_projectionCentered = false;
 std::atomic<bool> g_roomscaleF4Down = false;
 std::atomic<bool> g_roomscaleEnabled = true;
+
+void ResetStereoFillPhase()
+{
+    g_nextEyeIndex.store(0, std::memory_order_release);
+    g_committableEye.store(-1, std::memory_order_release);
+    g_committableEyePoseFrame.store(0, std::memory_order_release);
+    g_state.pairRotationValid = false;
+}
 
 Vector3 TransformLocalDirectionToWorld(const Vector3& local, const std::array<float, 16>& baseView)
 {
@@ -645,13 +661,25 @@ bool ApplyStereoEye(
 
     const OpenXREyeView& eye = views.eyes[eyeIndex];
     const bool projectionCentered = g_projectionCentered.load(std::memory_order_relaxed);
-    const OpenXREyeView renderEye = projectionCentered ? CenterProjectionFov(eye) : eye;
-    const Quaternion eyeOrientation = Normalize({
+    OpenXREyeView renderEye = projectionCentered ? CenterProjectionFov(eye) : eye;
+    Quaternion eyeOrientation = Normalize({
         eye.orientationX,
         eye.orientationY,
         eye.orientationZ,
         eye.orientationW,
     });
+    if (eyeIndex == 0) {
+        g_state.pairRotation = eyeOrientation;
+        g_state.pairRotationValid = true;
+        g_pairRotationLatches.fetch_add(1, std::memory_order_relaxed);
+    } else if (g_state.pairRotationValid) {
+        eyeOrientation = g_state.pairRotation;
+        g_pairRotationReuses.fetch_add(1, std::memory_order_relaxed);
+    }
+    renderEye.orientationX = eyeOrientation.x;
+    renderEye.orientationY = eyeOrientation.y;
+    renderEye.orientationZ = eyeOrientation.z;
+    renderEye.orientationW = eyeOrientation.w;
     const Quaternion eyeViewRotation = Normalize(Multiply(
         Conjugate(eyeOrientation),
         g_state.neutralOrientation));
@@ -720,6 +748,8 @@ bool ApplyStereoEye(
     }
     g_state.currentEyeIndex = static_cast<int>(eyeIndex);
     g_state.currentEyePoseFrame = eye.gameFrame;
+    g_committableEyePoseFrame.store(renderEye.gameFrame, std::memory_order_release);
+    g_committableEye.store(static_cast<int>(eyeIndex), std::memory_order_release);
 
     const uint64_t stereoApplied = g_stereoAppliedCalls.fetch_add(1, std::memory_order_relaxed) + 1;
     g_stereoEyeCalls[eyeIndex].fetch_add(1, std::memory_order_relaxed);
@@ -1068,7 +1098,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
         InvalidateRoomscaleSafetyCache();
         if (g_config.hplStereoAfr) {
             g_state.stereoEnabled = true;
-            g_state.nextEyeIndex = 0;
+            ResetStereoFillPhase();
             g_state.currentEyeIndex = -1;
             g_state.currentEyePoseFrame = 0;
             if (g_openxr != nullptr) {
@@ -1133,6 +1163,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
             g_state.stereoEnabled = false;
             g_state.currentEyeIndex = -1;
             g_state.currentEyePoseFrame = 0;
+            ResetStereoFillPhase();
             if (g_openxr != nullptr) {
                 g_openxr->SetStereoSubmissionEnabled(false);
             }
@@ -1151,7 +1182,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
                     "hpl_stereo enable_ignored key=F11 reason=stereo_views_unavailable");
             } else {
                 g_state.stereoEnabled = true;
-                g_state.nextEyeIndex = 0;
+                ResetStereoFillPhase();
                 g_state.currentEyeIndex = -1;
                 g_state.currentEyePoseFrame = 0;
                 if (g_openxr != nullptr) {
@@ -1259,7 +1290,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
             ++g_state.calibrationGeneration;
             g_state.currentEyeIndex = -1;
             g_state.currentEyePoseFrame = 0;
-            g_state.nextEyeIndex = 0;
+            ResetStereoFillPhase();
             InvalidateRoomscaleSafetyCache();
             if (g_openxr != nullptr && g_config.hplControllerComfortBlackoutFrames > 0) {
                 g_openxr->RequestComfortBlackout(
@@ -1287,7 +1318,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
 
     if (g_state.stereoEnabled) {
         OpenXRStereoViewSnapshot views;
-        const uint32_t eyeIndex = g_state.nextEyeIndex;
+        const uint32_t eyeIndex = g_nextEyeIndex.load(std::memory_order_acquire);
         if (!ReadStereoViews(views)) {
             g_trackingFallbackFrames.fetch_add(1, std::memory_order_relaxed);
             if (!g_state.trackingFallbackActive) {
@@ -1308,13 +1339,13 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
                 static_cast<unsigned long long>(views.gameFrame));
         }
         if (ApplyStereoEye(frustum, views, eyeIndex, wasDirty)) {
-            g_state.nextEyeIndex ^= 1;
             return frustum;
         }
 
         g_state.stereoEnabled = false;
         g_state.currentEyeIndex = -1;
         g_state.currentEyePoseFrame = 0;
+        ResetStereoFillPhase();
         if (g_openxr != nullptr) {
             g_openxr->SetStereoSubmissionEnabled(false);
         }
@@ -1457,6 +1488,7 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
     {
         std::lock_guard lock(g_stateMutex);
         g_state = BridgeState{};
+        ResetStereoFillPhase();
     }
     g_getFrustumCalls.store(0, std::memory_order_relaxed);
     g_candidateCalls.store(0, std::memory_order_relaxed);
@@ -1466,6 +1498,10 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
     g_stereoAppliedCalls.store(0, std::memory_order_relaxed);
     g_stereoEyeCalls[0].store(0, std::memory_order_relaxed);
     g_stereoEyeCalls[1].store(0, std::memory_order_relaxed);
+    g_stereoFillCommits.store(0, std::memory_order_relaxed);
+    g_stereoFillRejects.store(0, std::memory_order_relaxed);
+    g_pairRotationLatches.store(0, std::memory_order_relaxed);
+    g_pairRotationReuses.store(0, std::memory_order_relaxed);
     g_nativeRollObservedCalls.store(0, std::memory_order_relaxed);
     g_nativeRollSuppressedCalls.store(0, std::memory_order_relaxed);
     g_nativePitchObservedCalls.store(0, std::memory_order_relaxed);
@@ -1544,7 +1580,7 @@ void LogHPLCameraBridgeSummary()
     std::lock_guard lock(g_stateMutex);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu secondaryCameraCandidates=%llu secondaryCameraControlSkips=%llu authoredCameraOwnershipChanges=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativePitchObserved=%llu nativePitchSuppressed=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyProbes=%llu roomscaleSafetySkippedProbes=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu roomscaleBodyShiftProbes=%llu roomscaleBodyShiftBlocks=%llu roomscaleBodyShiftCommits=%llu",
+        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu secondaryCameraCandidates=%llu secondaryCameraControlSkips=%llu authoredCameraOwnershipChanges=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu fillCommits=%llu fillRejects=%llu pairRotationLatches=%llu pairRotationReuses=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativePitchObserved=%llu nativePitchSuppressed=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyProbes=%llu roomscaleSafetySkippedProbes=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu roomscaleBodyShiftProbes=%llu roomscaleBodyShiftBlocks=%llu roomscaleBodyShiftCommits=%llu",
         static_cast<unsigned long long>(g_getFrustumCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_candidateCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_secondaryCameraCandidates.load(std::memory_order_relaxed)),
@@ -1561,6 +1597,10 @@ void LogHPLCameraBridgeSummary()
         static_cast<unsigned long long>(g_stereoAppliedCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stereoEyeCalls[0].load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_stereoEyeCalls[1].load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_stereoFillCommits.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_stereoFillRejects.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_pairRotationLatches.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_pairRotationReuses.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_baseRefreshes.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_poseMisses.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_trackingFallbackFrames.load(std::memory_order_relaxed)),
@@ -1672,7 +1712,8 @@ bool GetHPLPendingStereoRenderTarget(HPLPendingStereoRenderTarget& target)
 {
     std::lock_guard lock(g_stateMutex);
     target = {};
-    if (!g_state.trackingEnabled || !g_state.stereoEnabled || g_state.nextEyeIndex > 1) {
+    const uint32_t nextEyeIndex = g_nextEyeIndex.load(std::memory_order_acquire);
+    if (!g_state.trackingEnabled || !g_state.stereoEnabled || nextEyeIndex > 1) {
         return false;
     }
 
@@ -1681,10 +1722,53 @@ bool GetHPLPendingStereoRenderTarget(HPLPendingStereoRenderTarget& target)
         return false;
     }
 
-    target.eyeIndex = static_cast<int>(g_state.nextEyeIndex);
+    target.eyeIndex = static_cast<int>(nextEyeIndex);
     target.poseFrame = views.gameFrame;
     target.calibrationGeneration = g_state.calibrationGeneration;
     return true;
+}
+
+bool CommitHPLStereoEyeFill(uint32_t eyeIndex, uint64_t poseFrame, const char* source)
+{
+    const int committableEye = g_committableEye.load(std::memory_order_acquire);
+    const uint64_t committablePoseFrame =
+        g_committableEyePoseFrame.load(std::memory_order_acquire);
+    uint32_t expectedEye = eyeIndex;
+    const bool committed = eyeIndex < 2
+        && committableEye == static_cast<int>(eyeIndex)
+        && committablePoseFrame == poseFrame
+        && g_nextEyeIndex.compare_exchange_strong(
+            expectedEye, eyeIndex ^ 1u, std::memory_order_acq_rel);
+    if (committed) {
+        g_committableEye.store(-1, std::memory_order_release);
+        const uint64_t count = g_stereoFillCommits.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (count <= 4 || count % 120 == 0) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_stereo fill_committed count=%llu eye=%u nextEye=%u poseFrame=%llu source=%s policy=advance_only_after_cache_fill",
+                static_cast<unsigned long long>(count),
+                eyeIndex,
+                eyeIndex ^ 1u,
+                static_cast<unsigned long long>(poseFrame),
+                source != nullptr ? source : "unspecified");
+        }
+        return true;
+    }
+
+    const uint64_t rejects = g_stereoFillRejects.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (rejects <= 8 || rejects % 120 == 0) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "hpl_stereo fill_rejected count=%llu eye=%u expectedEye=%u committableEye=%d poseFrame=%llu committablePoseFrame=%llu source=%s action=retain_eye_phase",
+            static_cast<unsigned long long>(rejects),
+            eyeIndex,
+            expectedEye,
+            committableEye,
+            static_cast<unsigned long long>(poseFrame),
+            static_cast<unsigned long long>(committablePoseFrame),
+            source != nullptr ? source : "unspecified");
+    }
+    return false;
 }
 
 bool ResolveHPLTrackedPoseWorld(
@@ -1972,7 +2056,7 @@ void NotifyHPLPlayerCameraChanged(void* previousCamera, void* currentCamera)
     g_state.recenterTrackingWaitLogs = 0;
     g_state.activationPoseStability = PoseStabilityState{};
     g_state.recenterPoseStability = PoseStabilityState{};
-    g_state.nextEyeIndex = 0;
+    ResetStereoFillPhase();
     g_state.currentEyeIndex = -1;
     g_state.currentEyePoseFrame = 0;
     InvalidateRoomscaleSafetyCache();
@@ -1998,7 +2082,7 @@ void NotifyHPLAuthoredCameraOwnershipChanged(void* camera, bool authoredCameraAc
     }
     g_state.baseMatricesValid = false;
     g_state.activeFrustum = nullptr;
-    g_state.nextEyeIndex = 0;
+    ResetStereoFillPhase();
     g_state.currentEyeIndex = -1;
     g_state.currentEyePoseFrame = 0;
     ++g_state.calibrationGeneration;
@@ -2033,6 +2117,7 @@ void RemoveHPLCameraBridge()
     g_checkLineOfSight = nullptr;
     g_openxr = nullptr;
     g_state = BridgeState{};
+    ResetStereoFillPhase();
     g_projectionCentered.store(false, std::memory_order_relaxed);
     g_projectionCenterF5Down.store(false, std::memory_order_relaxed);
     g_roomscaleEnabled.store(true, std::memory_order_relaxed);

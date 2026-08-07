@@ -420,6 +420,7 @@ struct OpenXRRuntime::Impl {
             if (recoveryEnabled_) {
                 // Old-context GL names must not be deleted while the replacement
                 // context is current; the owning context will release them.
+                CloseOpenFrameLocked("graphics_binding_changed", frameIndex);
                 glBridge_.Shutdown(false);
                 recoveryRequested_ = true;
                 BeginRuntimeRecoveryLocked(frameIndex);
@@ -567,6 +568,14 @@ struct OpenXRRuntime::Impl {
                 << static_cast<unsigned long long>(maxSubmittedLayers_)
             << " openxrDroppedLayers="
                 << static_cast<unsigned long long>(droppedLayers_)
+            << " openxrZeroLayerPreventions="
+                << static_cast<unsigned long long>(zeroLayerPreventions_)
+            << " openxrPredictionLeadNs="
+                << static_cast<unsigned long long>(predictionLeadNsLatest_)
+            << " openxrUpcomingPoseFallbacks="
+                << static_cast<unsigned long long>(upcomingPoseFallbacks_)
+            << " openxrUpcomingPoseFailures="
+                << static_cast<unsigned long long>(upcomingPoseFailures_)
             << " openxrMirrorBackbuffer=" << (mirrorBackbufferEnabled_ ? 1 : 0)
             << " openxrDesktopMirrorEye=" << desktopMirrorEye_
             << " openxrDesktopMirrorAspect=" << desktopMirrorAspect_
@@ -2543,7 +2552,7 @@ private:
             ++trackingLossEvents_;
             Logger::Instance().Write(
                 LogLevel::Warn,
-                "openxr_tracking lost frame=%llu degradedFrames=%llu poseAgeFrames=%llu lossEvents=%llu action=zero_layers",
+                "openxr_tracking lost frame=%llu degradedFrames=%llu poseAgeFrames=%llu lossEvents=%llu action=retained_or_black_projection",
                 static_cast<unsigned long long>(frameIndex),
                 static_cast<unsigned long long>(frameIndex - trackingDegradedStartFrame_ + 1),
                 static_cast<unsigned long long>(PoseAgeFramesLocked()),
@@ -2617,6 +2626,7 @@ private:
             lastCapturedStereoEye_ = eyeIndex;
             ++stereoCapturedEyeCount_;
             stereoCaptureFailures_ = 0;
+            CommitHPLStereoEyeFill(eyeIndex, renderedView.gameFrame, captureSource);
             if (stereoCapturedEyeCount_ <= 4
                 || (stereoCapturedEyeCount_ % 120) == 0
                 || (sameFramePair && captureDeltaUs > 20000)) {
@@ -2671,6 +2681,19 @@ private:
             BeginFocusPacingSkipLocked(frameIndex);
             return;
         }
+        if (!frameResourcesReady_ || !glBridge_.Ready() || appSpace_ == XR_NULL_HANDLE
+            || glBridge_.EyeCount() != 2) {
+            frameSubmitFailed_ = true;
+            Logger::Instance().Write(
+                LogLevel::Error,
+                "openxr_frame begin_blocked frame=%llu resources=%d bridge=%d space=%d eyes=%u reason=projection_invariant",
+                static_cast<unsigned long long>(frameIndex),
+                frameResourcesReady_ ? 1 : 0,
+                glBridge_.Ready() ? 1 : 0,
+                appSpace_ != XR_NULL_HANDLE ? 1 : 0,
+                glBridge_.EyeCount());
+            return;
+        }
 
         XrFrameWaitInfo waitInfo{XR_TYPE_FRAME_WAIT_INFO};
         XrFrameState frameState{XR_TYPE_FRAME_STATE};
@@ -2706,7 +2729,14 @@ private:
         frameOpen_ = true;
         frameOpenDisplayTime_ = frameState.predictedDisplayTime;
 
-        input_.Sync(session_, appSpace_, frameState.predictedDisplayTime, frameIndex);
+        const XrTime upcomingRenderDisplayTime = static_cast<XrTime>(
+            openxr_frame_pacing_math::UpcomingRenderDisplayTime(
+                static_cast<int64_t>(frameState.predictedDisplayTime),
+                static_cast<int64_t>(frameState.predictedDisplayPeriod)));
+        predictionLeadNsLatest_ = upcomingRenderDisplayTime >= frameState.predictedDisplayTime
+            ? static_cast<uint64_t>(upcomingRenderDisplayTime - frameState.predictedDisplayTime)
+            : 0;
+        input_.Sync(session_, appSpace_, upcomingRenderDisplayTime, frameIndex);
         const bool comfortMotionFresh = comfortVignetteMotionFrame_ != 0
             && frameIndex >= comfortVignetteMotionFrame_
             && frameIndex - comfortVignetteMotionFrame_
@@ -2786,16 +2816,25 @@ private:
         bool viewsLocatedValid = false;
         bool copyAttemptFailed = false;
         bool stereoReady = false;
+        bool projectionLayerAppended = false;
+        std::vector<XrView> submissionLocatedViews(glBridge_.EyeCount());
+        std::vector<XrView> upcomingLocatedViews(glBridge_.EyeCount());
         for (XrView& view : pendingLocatedViews_) {
             view = {XR_TYPE_VIEW};
         }
+        for (XrView& view : submissionLocatedViews) {
+            view = {XR_TYPE_VIEW};
+        }
+        for (XrView& view : upcomingLocatedViews) {
+            view = {XR_TYPE_VIEW};
+        }
 
-        if (frameState.shouldRender == XR_TRUE && glBridge_.Ready()) {
+        if (glBridge_.Ready()) {
             XrViewLocateInfo locateInfo{XR_TYPE_VIEW_LOCATE_INFO};
             locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
             locateInfo.displayTime = frameState.predictedDisplayTime;
             locateInfo.space = appSpace_;
-            result = xrLocateViews(
+            const XrResult submissionLocateResult = xrLocateViews(
                 session_,
                 &locateInfo,
                 &viewState,
@@ -2805,19 +2844,32 @@ private:
 
             const XrViewStateFlags requiredFlags =
                 XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
-            const bool viewsValid = XR_SUCCEEDED(result)
+            const bool viewsValid = XR_SUCCEEDED(submissionLocateResult)
                 && locatedViewCount == glBridge_.EyeCount()
                 && (viewState.viewStateFlags & requiredFlags) == requiredFlags;
             viewsLocatedValid = viewsValid;
 
-            bool copied = viewsValid;
-            if (!viewsValid) {
-                RecordTrackingInvalidLocked(frameIndex, result, viewState.viewStateFlags);
-                if (XR_FAILED(result)) {
-                    RecordFrameFailureLocked("xrLocateViews", result, frameIndex);
+            submissionLocatedViews = pendingLocatedViews_;
+            XrViewState upcomingViewState{XR_TYPE_VIEW_STATE};
+            uint32_t upcomingViewCount = 0;
+            locateInfo.displayTime = upcomingRenderDisplayTime;
+            const XrResult upcomingLocateResult = xrLocateViews(
+                session_,
+                &locateInfo,
+                &upcomingViewState,
+                static_cast<uint32_t>(upcomingLocatedViews.size()),
+                &upcomingViewCount,
+                upcomingLocatedViews.data());
+            const bool upcomingViewsValid = XR_SUCCEEDED(upcomingLocateResult)
+                && upcomingViewCount == glBridge_.EyeCount()
+                && (upcomingViewState.viewStateFlags & requiredFlags) == requiredFlags;
+            const bool renderViewsValid = upcomingViewsValid || viewsValid;
+            if (renderViewsValid) {
+                locatedViews_ = upcomingViewsValid
+                    ? upcomingLocatedViews : submissionLocatedViews;
+                if (!upcomingViewsValid) {
+                    ++upcomingPoseFallbacks_;
                 }
-            } else {
-                locatedViews_ = pendingLocatedViews_;
                 RecordTrackingRestoredLocked(frameIndex);
                 latestLeftEyePose_ = locatedViews_[0].pose;
                 latestRightEyePose_ = locatedViews_[1].pose;
@@ -2831,14 +2883,28 @@ private:
                 const float eyeDy = latestRightEyePose_.position.y - latestLeftEyePose_.position.y;
                 const float eyeDz = latestRightEyePose_.position.z - latestLeftEyePose_.position.z;
                 latestIpdMeters_ = std::sqrt(eyeDx * eyeDx + eyeDy * eyeDy + eyeDz * eyeDz);
-                latestViewStateFlags_ = viewState.viewStateFlags;
+                latestViewStateFlags_ = upcomingViewsValid
+                    ? upcomingViewState.viewStateFlags : viewState.viewStateFlags;
                 latestPoseGameFrame_ = frameIndex;
                 latestPoseValid_ = true;
+            }
 
-                stereoReady = stereoSubmissionEnabled_
-                    && glBridge_.StereoCachesReady()
-                    && renderedStereoViewValid_[0]
-                    && renderedStereoViewValid_[1];
+            stereoReady = stereoSubmissionEnabled_
+                && glBridge_.StereoCachesReady()
+                && renderedStereoViewValid_[0]
+                && renderedStereoViewValid_[1];
+            bool copied = viewsValid && frameState.shouldRender == XR_TRUE;
+            if (!viewsValid) {
+                if (!upcomingViewsValid) {
+                    ++upcomingPoseFailures_;
+                    RecordTrackingInvalidLocked(
+                        frameIndex, upcomingLocateResult, upcomingViewState.viewStateFlags);
+                }
+                if (XR_FAILED(submissionLocateResult) && !upcomingViewsValid) {
+                    RecordFrameFailureLocked(
+                        "xrLocateViews_submission", submissionLocateResult, frameIndex);
+                }
+            } else {
                 if (stereoReady) {
                     const uint64_t leftFrame = renderedStereoViews_[0].gameFrame;
                     const uint64_t rightFrame = renderedStereoViews_[1].gameFrame;
@@ -2921,10 +2987,10 @@ private:
                         projectionView.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
                         projectionView.pose = stereoReady
                             ? ToXrPose(renderedStereoViews_[eyeIndex])
-                            : locatedViews_[eyeIndex].pose;
+                            : submissionLocatedViews[eyeIndex].pose;
                         projectionView.fov = stereoReady
                             ? ToXrFov(renderedStereoViews_[eyeIndex])
-                            : locatedViews_[eyeIndex].fov;
+                            : submissionLocatedViews[eyeIndex].fov;
                         projectionView.subImage.swapchain = eye.handle;
                         projectionView.subImage.imageRect.offset = {0, 0};
                         projectionView.subImage.imageRect.extent = {eye.width, eye.height};
@@ -2977,7 +3043,10 @@ private:
                     const OpenXRGLBridge::EyeSwapchain& eye = glBridge_.Eye(eyeIndex);
                     XrCompositionLayerProjectionView& projectionView = projectionViews[eyeIndex];
                     projectionView = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
-                    if (latestPoseValid_ && eyeIndex < locatedViews_.size()) {
+                    if (stereoReady) {
+                        projectionView.pose = ToXrPose(renderedStereoViews_[eyeIndex]);
+                        projectionView.fov = ToXrFov(renderedStereoViews_[eyeIndex]);
+                    } else if (latestPoseValid_ && eyeIndex < locatedViews_.size()) {
                         projectionView.pose = locatedViews_[eyeIndex].pose;
                         projectionView.fov = locatedViews_[eyeIndex].fov;
                     } else {
@@ -2996,10 +3065,63 @@ private:
                 projectionLayer.space = appSpace_;
                 projectionLayer.viewCount = glBridge_.EyeCount();
                 projectionLayer.views = projectionViews.data();
-                appendLayer(
+                projectionLayerAppended = appendLayer(
                     reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projectionLayer),
                     0,
                     "projection");
+            }
+        }
+
+        if (openxr_frame_pacing_math::RequiresFallbackProjection(
+                frameOpen_, projectionLayerAppended ? 1u : 0u)) {
+            const bool blackRequested = comfortBlackout || presentationBlackout
+                || copyAttemptFailed || !projectionContentValid_;
+            bool blackCleared = !blackRequested;
+            if (blackRequested) {
+                blackCleared = true;
+                for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
+                    blackCleared = glBridge_.ClearEyeToBlack(eyeIndex) && blackCleared;
+                }
+                projectionContentValid_ = projectionContentValid_ || blackCleared;
+            }
+            submittedDepth = false;
+            for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
+                const OpenXRGLBridge::EyeSwapchain& eye = glBridge_.Eye(eyeIndex);
+                XrCompositionLayerProjectionView& projectionView = projectionViews[eyeIndex];
+                projectionView = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
+                if (stereoReady) {
+                    projectionView.pose = ToXrPose(renderedStereoViews_[eyeIndex]);
+                    projectionView.fov = ToXrFov(renderedStereoViews_[eyeIndex]);
+                } else if (latestPoseValid_ && eyeIndex < locatedViews_.size()) {
+                    projectionView.pose = locatedViews_[eyeIndex].pose;
+                    projectionView.fov = locatedViews_[eyeIndex].fov;
+                } else {
+                    projectionView.pose.orientation.w = 1.0f;
+                    projectionView.pose.position.x = eyeIndex == 0 ? -0.032f : 0.032f;
+                    projectionView.fov = {-0.80f, 0.80f, 0.80f, -0.80f};
+                }
+                projectionView.subImage.swapchain = eye.handle;
+                projectionView.subImage.imageRect.offset = {0, 0};
+                projectionView.subImage.imageRect.extent = {eye.width, eye.height};
+                projectionView.subImage.imageArrayIndex = 0;
+            }
+            projectionLayer.space = appSpace_;
+            projectionLayer.viewCount = glBridge_.EyeCount();
+            projectionLayer.views = projectionViews.data();
+            projectionLayerAppended = appendLayer(
+                reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projectionLayer),
+                0,
+                "projection_fallback");
+            ++zeroLayerPreventions_;
+            if (zeroLayerPreventions_ <= 8 || zeroLayerPreventions_ % 120 == 0) {
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "openxr_projection fallback frame=%llu shouldRender=%d content=%s blackClear=%d preventions=%llu",
+                    static_cast<unsigned long long>(frameIndex),
+                    frameState.shouldRender == XR_TRUE ? 1 : 0,
+                    projectionContentValid_ ? "retained_or_black" : "unknown_retained",
+                    blackCleared ? 1 : 0,
+                    static_cast<unsigned long long>(zeroLayerPreventions_));
             }
         }
 
@@ -3586,6 +3708,15 @@ private:
             comfortBlackoutUntilFrame_ = 0;
         }
 
+        if (!projectionLayerAppended || layerCount == 0) {
+            Logger::Instance().Write(
+                LogLevel::Error,
+                "openxr_projection invariant_failed frame=%llu action=emergency_close",
+                static_cast<unsigned long long>(frameIndex));
+            CloseOpenFrameLocked("projection_invariant", frameIndex);
+            return;
+        }
+
         XrFrameEndInfo endInfo{XR_TYPE_FRAME_END_INFO};
         endInfo.displayTime = frameState.predictedDisplayTime;
         endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
@@ -3614,7 +3745,7 @@ private:
                 static_cast<unsigned long long>(droppedLayers_));
         }
         endInfo.layerCount = layerCount;
-        endInfo.layers = layerCount > 0 ? layers.data() : nullptr;
+        endInfo.layers = layers.data();
         result = xrEndFrame(session_, &endInfo);
         frameOpen_ = false;
         frameOpenDisplayTime_ = 0;
@@ -3683,7 +3814,7 @@ private:
         if (completedXrFrameCount_ == 1 || (completedXrFrameCount_ % 300) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d stereoPoseFrames=%llu,%llu stereoPoseGap=%llu stereoCaptureDeltaUs=%llu stereoCacheAgeUs=%llu,%llu depth=%d hud=%d hudShape=%s reticle=%d aimGuide=%d statusPanel=%d comfortVignette=%d comfortVignetteLevel=%.3f spectatorFrames=%llu stereoCaptured=%llu stereoSubmitted=%llu depthSubmitted=%llu depthFailures=%llu hudSubmitted=%llu reticleSubmitted=%llu aimGuideSubmitted=%llu panelSubmitted=%llu vignetteSubmitted=%llu predictedDisplayTime=%lld leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
+                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d stereoPoseFrames=%llu,%llu stereoPoseGap=%llu stereoCaptureDeltaUs=%llu stereoCacheAgeUs=%llu,%llu depth=%d hud=%d hudShape=%s reticle=%d aimGuide=%d statusPanel=%d comfortVignette=%d comfortVignetteLevel=%.3f spectatorFrames=%llu stereoCaptured=%llu stereoSubmitted=%llu depthSubmitted=%llu depthFailures=%llu hudSubmitted=%llu reticleSubmitted=%llu aimGuideSubmitted=%llu panelSubmitted=%llu vignetteSubmitted=%llu predictedDisplayTime=%lld upcomingRenderDisplayTime=%lld predictionLeadNs=%llu upcomingFallbacks=%llu zeroLayerPreventions=%llu leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
                 static_cast<unsigned long long>(frameIndex),
                 static_cast<unsigned long long>(completedXrFrameCount_),
                 frameState.shouldRender == XR_TRUE ? 1 : 0,
@@ -3715,6 +3846,10 @@ private:
                 static_cast<unsigned long long>(statusPanelSubmittedFrames_),
                 static_cast<unsigned long long>(comfortVignetteSubmittedFrames_),
                 static_cast<long long>(frameState.predictedDisplayTime),
+                static_cast<long long>(upcomingRenderDisplayTime),
+                static_cast<unsigned long long>(predictionLeadNsLatest_),
+                static_cast<unsigned long long>(upcomingPoseFallbacks_),
+                static_cast<unsigned long long>(zeroLayerPreventions_),
                 locatedViewCount > 0 ? locatedViews_[0].pose.position.x : 0.0f,
                 locatedViewCount > 0 ? locatedViews_[0].pose.position.y : 0.0f,
                 locatedViewCount > 0 ? locatedViews_[0].pose.position.z : 0.0f,
@@ -3899,59 +4034,74 @@ private:
             return;
         }
 
+        if (!frameResourcesReady_ || !glBridge_.Ready() || appSpace_ == XR_NULL_HANDLE
+            || glBridge_.EyeCount() != 2) {
+            frameSubmitFailed_ = true;
+            recoveryRequested_ = recoveryEnabled_;
+            Logger::Instance().Write(
+                LogLevel::Error,
+                "openxr_frame recovery_invariant_failed reason=%s gameFrame=%llu frameOpen=1 resources=%d bridge=%d space=%d eyes=%u action=defer_end_never_submit_zero_layers",
+                reason != nullptr ? reason : "unspecified",
+                static_cast<unsigned long long>(frameIndex),
+                frameResourcesReady_ ? 1 : 0,
+                glBridge_.Ready() ? 1 : 0,
+                appSpace_ != XR_NULL_HANDLE ? 1 : 0,
+                glBridge_.EyeCount());
+            return;
+        }
+
         XrFrameEndInfo endInfo{XR_TYPE_FRAME_END_INFO};
         endInfo.displayTime = frameOpenDisplayTime_;
         endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
         std::array<XrCompositionLayerProjectionView, 2> recoveryViews{};
         XrCompositionLayerProjection recoveryProjection{
             XR_TYPE_COMPOSITION_LAYER_PROJECTION};
-        const XrCompositionLayerBaseHeader* recoveryLayer = nullptr;
-        if (frameResourcesReady_ && glBridge_.Ready() && appSpace_ != XR_NULL_HANDLE) {
-            bool contentReady = projectionContentValid_;
-            if (!contentReady) {
-                contentReady = true;
-                for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
-                    contentReady = glBridge_.ClearEyeToBlack(eyeIndex) && contentReady;
-                }
-                projectionContentValid_ = contentReady;
+        bool blackCleared = projectionContentValid_;
+        if (!projectionContentValid_) {
+            blackCleared = true;
+            for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
+                blackCleared = glBridge_.ClearEyeToBlack(eyeIndex) && blackCleared;
             }
-            if (contentReady) {
-                for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
-                    const OpenXRGLBridge::EyeSwapchain& eye = glBridge_.Eye(eyeIndex);
-                    XrCompositionLayerProjectionView& view = recoveryViews[eyeIndex];
-                    view = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
-                    if (latestPoseValid_ && eyeIndex < locatedViews_.size()) {
-                        view.pose = locatedViews_[eyeIndex].pose;
-                        view.fov = locatedViews_[eyeIndex].fov;
-                    } else {
-                        view.pose.orientation.w = 1.0f;
-                        view.pose.position.x = eyeIndex == 0 ? -0.032f : 0.032f;
-                        view.fov = {-0.80f, 0.80f, 0.80f, -0.80f};
-                    }
-                    view.subImage.swapchain = eye.handle;
-                    view.subImage.imageRect.offset = {0, 0};
-                    view.subImage.imageRect.extent = {eye.width, eye.height};
-                }
-                recoveryProjection.space = appSpace_;
-                recoveryProjection.viewCount = glBridge_.EyeCount();
-                recoveryProjection.views = recoveryViews.data();
-                recoveryLayer = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
-                    &recoveryProjection);
-                endInfo.layerCount = 1;
-                endInfo.layers = &recoveryLayer;
-            }
+            projectionContentValid_ = blackCleared;
         }
+        for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
+            const OpenXRGLBridge::EyeSwapchain& eye = glBridge_.Eye(eyeIndex);
+            XrCompositionLayerProjectionView& view = recoveryViews[eyeIndex];
+            view = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
+            if (renderedStereoViewValid_[0] && renderedStereoViewValid_[1]) {
+                view.pose = ToXrPose(renderedStereoViews_[eyeIndex]);
+                view.fov = ToXrFov(renderedStereoViews_[eyeIndex]);
+            } else if (latestPoseValid_ && eyeIndex < locatedViews_.size()) {
+                view.pose = locatedViews_[eyeIndex].pose;
+                view.fov = locatedViews_[eyeIndex].fov;
+            } else {
+                view.pose.orientation.w = 1.0f;
+                view.pose.position.x = eyeIndex == 0 ? -0.032f : 0.032f;
+                view.fov = {-0.80f, 0.80f, 0.80f, -0.80f};
+            }
+            view.subImage.swapchain = eye.handle;
+            view.subImage.imageRect.offset = {0, 0};
+            view.subImage.imageRect.extent = {eye.width, eye.height};
+        }
+        recoveryProjection.space = appSpace_;
+        recoveryProjection.viewCount = glBridge_.EyeCount();
+        recoveryProjection.views = recoveryViews.data();
+        const XrCompositionLayerBaseHeader* recoveryLayer =
+            reinterpret_cast<const XrCompositionLayerBaseHeader*>(&recoveryProjection);
+        endInfo.layerCount = 1;
+        endInfo.layers = &recoveryLayer;
         const XrResult result = xrEndFrame(session_, &endInfo);
         frameOpen_ = false;
         frameOpenDisplayTime_ = 0;
         ++frameOpenRecoveries_;
         Logger::Instance().Write(
             XR_SUCCEEDED(result) ? LogLevel::Warn : LogLevel::Error,
-            "openxr_frame recovered_open_frame reason=%s gameFrame=%llu result=%s layers=%u recoveries=%llu",
+            "openxr_frame recovered_open_frame reason=%s gameFrame=%llu result=%s layers=%u content=%s recoveries=%llu",
             reason != nullptr ? reason : "unspecified",
             static_cast<unsigned long long>(frameIndex),
             XrResultString(result).c_str(),
             endInfo.layerCount,
+            projectionContentValid_ ? "retained_or_black" : "unknown_retained",
             static_cast<unsigned long long>(frameOpenRecoveries_));
     }
 
@@ -4077,6 +4227,10 @@ private:
     uint64_t xrWaitMaxUs_ = 0;
     uint64_t xrWaitLongCount_ = 0;
     uint64_t frameOpenRecoveries_ = 0;
+    uint64_t zeroLayerPreventions_ = 0;
+    uint64_t predictionLeadNsLatest_ = 0;
+    uint64_t upcomingPoseFallbacks_ = 0;
+    uint64_t upcomingPoseFailures_ = 0;
     XrTime frameOpenDisplayTime_ = 0;
     uint64_t submittedFrameCount_ = 0;
     uint64_t lastSubmittedGameFrame_ = 0;

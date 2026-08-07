@@ -27,16 +27,19 @@
 #include "HPLTwoHandMath.h"
 #include "HPLPostEffectResourceMath.h"
 #include "OpenGLMatrixAnalysis.h"
+#include "OpenGLOwnership.h"
 #include "OpenXRSpectatorMath.h"
 #include "OpenXRDepthMath.h"
 #include "OpenXRComfortVignetteMath.h"
 #include "OpenXRFramePacingMath.h"
 #include "OpenXRStatusPanelMath.h"
+#include "PatchSafety.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -63,6 +66,35 @@ int main()
     using namespace somavr;
 
     int failures = 0;
+    failures += Check(
+        openxr_frame_pacing_math::UpcomingRenderDisplayTime(1'000, 11) == 1'011
+            && openxr_frame_pacing_math::UpcomingRenderDisplayTime(1'000, 0) == 1'000
+            && openxr_frame_pacing_math::UpcomingRenderDisplayTime(
+                (std::numeric_limits<int64_t>::max)() - 2, 11)
+                == (std::numeric_limits<int64_t>::max)(),
+        "OpenXR prediction advances one period without overflowing");
+    failures += Check(
+        openxr_frame_pacing_math::RequiresFallbackProjection(true, 0)
+            && !openxr_frame_pacing_math::RequiresFallbackProjection(true, 1)
+            && !openxr_frame_pacing_math::RequiresFallbackProjection(false, 0),
+        "every begun OpenXR frame requires at least one projection layer");
+    failures += Check(!IsOwnOpenGLWork(), "OpenGL ownership starts outside mod GL work");
+    {
+        ScopedOwnOpenGLWork outerOwnGl;
+        failures += Check(IsOwnOpenGLWork(), "OpenGL ownership marks an active mod scope");
+        {
+            ScopedOwnOpenGLWork nestedOwnGl;
+            failures += Check(IsOwnOpenGLWork(), "OpenGL ownership remains active when nested");
+        }
+        failures += Check(IsOwnOpenGLWork(), "nested OpenGL ownership restores the outer scope");
+    }
+    failures += Check(!IsOwnOpenGLWork(), "OpenGL ownership clears after scope exit");
+    failures += Check(
+        !patch_safety::InstructionPointerOverlapsPatch(0x0fff, 0x1000, 12)
+            && patch_safety::InstructionPointerOverlapsPatch(0x1000, 0x1000, 12)
+            && patch_safety::InstructionPointerOverlapsPatch(0x100b, 0x1000, 12)
+            && !patch_safety::InstructionPointerOverlapsPatch(0x100c, 0x1000, 12),
+        "native patch safety treats the byte window as a half-open interval");
     arm_ik_math::TwoBoneSolution armSolution;
     failures += Check(
         arm_ik_math::SolveTwoBone(

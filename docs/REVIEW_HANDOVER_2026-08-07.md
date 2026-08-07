@@ -4,6 +4,7 @@ Date: 2026-08-07
 Reviewer: external read-only review (no code changed, nothing run in-game)
 Baseline reviewed: working tree at `ed2e7d8` **plus 57 modified + 16 untracked source files**
 Reference standard: `D:\dev debug\VR Modding\docs\` (the VR playbook), chapters 06, 07, 08, 10
+Cross-project corroboration: TheDarkModVR (`D:\Dev Debug\thedarkmodvr\`) — see F-16, F-17
 
 ---
 
@@ -28,11 +29,14 @@ genuinely excellent documentation. The problems are almost entirely at the **edg
 configuration delivery, the OpenXR submit contract, and repo state — and two of them mean the
 mod as packaged today does not do what its config says on any machine but this one.
 
-- 1 finding makes every shipped config setting silently inert (**P0**)
-- 1 finding fails a rule the playbook states explicitly and is confirmed firing in the project's own log (**P0**)
-- 1 finding means a clean clone cannot build (**P0**)
-- 4 findings are latent hangs / freezes / crashes (**P1**)
-- The rest are traps that will cost a debugging session each
+18 findings:
+
+- 1 makes every shipped config setting silently inert (**P0**)
+- 1 fails a rule the playbook states explicitly, and is confirmed firing in the project's own log (**P0**)
+- 1 means a clean clone cannot build (**P0**)
+- 5 are latent hangs / freezes / crashes (**P1**)
+- The rest are traps that will cost a debugging session each, including one open architectural
+  question (F-17) that the current instrumentation cannot answer either way
 
 ---
 
@@ -554,6 +558,158 @@ threads — file it as a small correctness cleanup: return by value.
 
 ---
 
+### F-16 · The runtime's GL-context clobber window is outside SOMAVR's save/restore bracket
+
+**Location:** [OpenXRGLBridge.cpp:634-681](src/dll/OpenXRGLBridge.cpp:634) (`CopyCacheToEye`) and
+[:1043](src/dll/OpenXRGLBridge.cpp:1043) (`CopyCacheToImage`)
+
+Corroborated externally. TheDarkModVR (idTech4, OpenGL, shipped) carries **four** separate
+workarounds in `renderer/vr/OpenXRBackend.cpp` for a runtime mutating GL state behind the
+application's back:
+
+```
+:157, :842, :1045  // hack: current SteamVR OpenXR implementation is broken and does not
+                   // properly reset the GL context after certain calls
+:986               // hack: the SteamVR OpenXR runtime does not properly set viewport and
+                   // scissor before copying render textures :(
+```
+
+SOMAVR's ordering leaves it exposed to exactly that:
+
+```
+xrAcquireSwapchainImage      <- runtime issues GL calls here
+xrWaitSwapchainImage         <- runtime issues GL calls here
+  CopyCacheToImage()           save state -> blit -> restore state
+glFlush
+xrReleaseSwapchainImage      <- runtime issues GL calls here, AFTER the restore
+```
+
+The save/restore window is **nested inside** the acquire/release bracket. Two consequences:
+
+1. State captured at the top of `CopyCacheToImage` may already be the *runtime's*, not the game's —
+   so "restore" writes back the wrong values.
+2. Anything the runtime clobbers during `xrReleaseSwapchainImage` is never restored at all. It
+   leaks into the game's next draw after `SwapBuffers` returns.
+
+Note the second TDM comment is *viewport and scissor* — the same pair as SOMAVR's terminal-tile
+stale-scissor bug already recorded in playbook 10. Worth holding as an alternate root cause if that
+one ever recurs.
+
+**Fix.** Move the state capture to before `xrAcquireSwapchainImage` and the restore to after
+`xrReleaseSwapchainImage`, so the guard brackets every runtime call, not just your own blit. Same
+change in `CopyDepthCacheToEye`. This is cheap and correct regardless of how F-17 is decided.
+
+---
+
+### F-17 · There is no instrumentation that could price a GL-vs-D3D11 submission path
+
+**Location:** [OpenXRRuntime.cpp:69](src/dll/OpenXRRuntime.cpp:69),
+[:2669-2684](src/dll/OpenXRRuntime.cpp:2669)
+
+TheDarkModVR ships `xr_preferD3D11` defaulting to **"1"** — D3D11 is their *default* XR path and GL
+is the fallback:
+
+```cpp
+idCVar xr_preferD3D11( "xr_preferD3D11", "1", ...,
+    "Use D3D11 for OpenXR session to work around a performance issue with SteamVR's OpenXR implementation" );
+```
+
+Their mechanism: render into a GL texture as usual, share it via `WGL_NV_DX_interop2`, one small
+D3D11 flip-blit into the real XR swapchain image. The GL renderer is untouched. Cost is one extra
+device plus one extra copy per eye per frame.
+
+**Whether this applies to SOMAVR is currently unanswerable, and that is the finding.** Three gaps:
+
+- **Different runtime.** The only session on file ran `runtime="VirtualDesktopXR" version=1.0.10`
+  ([somavr.log](logs/somavr.log)). TDM's cvar names SteamVR specifically. SOMAVR has never been
+  measured on SteamVR's OpenXR runtime, so the symptom has neither been observed nor excluded.
+- **The one wait metric has a useless threshold.** `kLongXrWaitThresholdUs = 100000` — 100 ms. At
+  90 Hz a healthy `xrWaitFrame` is ~11 ms, so this only fires on a near-hang. It fired **0 times**
+  in that session, which is not evidence of good performance; it is evidence the threshold cannot
+  detect a performance problem. `xrWaitFrame` is also the wrong thing to watch — it is the pacing
+  wait, and TDM's cost is in *submission*.
+- **Submission itself is untimed.** `stereoCaptureDeltaUs` measures the gap *between* eye captures,
+  not the cost of acquire → wait → blit → release. The `GL_TIMESTAMP` query ring exists
+  ([HPLCompatibilityProbe.cpp:468](src/dll/HPLCompatibilityProbe.cpp:468)) but is attributed to AFR
+  eye *render* work, and `HPLPerEyePerformanceTelemetry=0` in the shipped config anyway.
+
+**Do not adopt the D3D11 interop path on this evidence.** It is a second graphics device, a second
+resource-lifetime domain, and a new failure surface — the exact shape playbook 07 warns about when
+a feature's resource lifetime tangles with the compositor's. Measure first.
+
+**Fix (measurement, ~half a day).**
+1. Drop `kLongXrWaitThresholdUs` to something diagnostic (~2× the display period) so the existing
+   counter can actually see a regression.
+2. Add a CPU timer around the acquire→release bracket in `CopyCacheToEye`, reported per eye in the
+   existing `openxr_frame ok` summary as `eyeSubmitUs=`. Two `QpcNow()` calls; the plumbing is
+   already there next to `xrWaitLastUs_`.
+3. Run one A/B: same scene, same route, SteamVR OpenXR vs VirtualDesktopXR, `eyeSubmitUs` compared.
+   If SteamVR shows a large unexplained submit cost, the interop path is priced and justified. If
+   it does not, this is a TDM/SteamVR-specific issue and SOMAVR should stay GL-native.
+
+Reference implementation if it is ever justified: `renderer/vr/OpenXRSwapchainDX.cpp`,
+`OpenXRSwapchainGL.cpp`, `D3D11Helper.cpp` in `D:\Dev Debug\thedarkmodvr\`.
+
+---
+
+### F-18 · The REX-prefix fix was applied at one site, not adopted as a class
+
+**Location:** [SomaBuildSignatures.h:49-60](src/common/SomaBuildSignatures.h:49) (guarded) vs
+[HPLNativeLocomotion.cpp:214-221](src/dll/HPLNativeLocomotion.cpp:214) and
+[HPLHudBridge.cpp:169-172](src/dll/HPLHudBridge.cpp:169) (unguarded)
+
+Prompted by PreyVR's audit of the same class. **Result of the scan: no true interior anchor found**
+— the Prey tell (a signature where somebody abandoned the prologue for an interior offset) does not
+appear in SOMAVR's registry. But the scan surfaced a different gap.
+
+Three sites extract a RIP-relative `disp32` at hardcoded `+3` and compute the next instruction at
+`+7`. Only one carries the coupling guard:
+
+| Site | Prefix verified? | Suffix verified? | `static_assert` on the offsets? |
+| --- | --- | --- | --- |
+| `SomaBuildSignatures.h` (raycast) | yes | — | **yes, ×3** |
+| `HPLHudBridge.cpp:169` | yes (`48 8b 05`) | yes (`48 8b 40 50 c3` at +7) | no |
+| `HPLNativeLocomotion.cpp:214` | via full-signature `memcmp` only | no | **no** |
+
+**This is not a live bug.** `kGetGamePausedSignature` begins `48 8b 05 …` and the full-signature
+`memcmp` gates the extraction, so `+3`/`+7` are correct on the current build. The hazard is that
+nothing *enforces* the coupling. Whoever updates that signature for a future SOMA build — the exact
+moment the raycast incident happened — gets no compile error if the new prologue uses a different
+instruction form. The offsets silently become wrong and resolve `g_gameContextSlot` to garbage;
+`IsReadable` would catch most of it, but not all.
+
+`HPLHudBridge` is the better pattern of the two: verifying both the `48 8b 05` prefix **and** the
+suffix at `+7` pins the instruction length at runtime, independent of any assert.
+
+**Fix (~20 minutes).** Move the two remaining `+3`/`+7` pairs into `SomaBuildSignatures.h` as named
+constants beside `kRaycastGameContextDisplacementOffset`, and give them the same three
+`static_assert`s: displacement offset + `sizeof(int32_t)` == next-instruction offset, next-instruction
+offset ≤ `sizeof(signature)`, and the three bytes before the displacement are `48 8b 05`. That last
+assert is what turns the class into a compile error instead of a session.
+
+**Two follow-ups for whoever has Ghidra open** (I could not confirm these — per `CLAUDE.md` Ghidra
+must be launched before the client, and it was not):
+
+- [HPLCompatibilityProbe.cpp:2147](src/dll/HPLCompatibilityProbe.cpp:2147)
+  `kRenderPostEffectsSignature` begins `4d 85 c9 0f 84 74 01 00 00` — `test r9,r9; je rel32` **before**
+  any register save. That ordering is unusual for a prologue. It is plausibly a function that tests
+  an argument before frame setup, but it is the one signature in the set that would look the same
+  either way. Worth confirming it sits at the function entry.
+- [HPLComfortBridge.cpp:56](src/dll/HPLComfortBridge.cpp:56) extends a 7-byte setter signature with
+  nine `0xcc` alignment bytes to reach uniqueness. Padding is a linker artifact, not code — it moves
+  when the *next* function's alignment changes, not when this function does. It fails closed, so it
+  is safe, but it will produce a confusing "signature mismatch" on a build where nothing about the
+  target function changed.
+
+Separately, several signatures bake build-specific relative displacements into the pattern itself
+(`HPLCrosshairBridge.cpp:30` `e9 5b 73 e1 ff`; `HPLHudBridge.cpp:178/183` and
+`HPLNativeLocomotion.cpp` `48 8b 05 <disp32>`). That makes them build fingerprints rather than
+patterns. Fine — arguably desirable here, since fail-closed on a patched SOMA is the wanted
+behaviour — but it should be a stated intent in `ADDRESS_REGISTRY.md` rather than an accident, so
+nobody "fixes" them into wildcards later.
+
+---
+
 ## What is already right
 
 Do not regress these.
@@ -603,8 +759,16 @@ Do not regress these.
 6. **F-04** — release-config sweep + move the F3 poll to the frame boundary.
 7. **F-07, F-08** — injector timeout/verify, DllMain event lifetime. Small and self-contained.
 8. **F-06** — bounded swapchain waits first (small), lock split second (larger).
-9. **F-10, F-11, F-12** — memory-safety and reentrancy hardening.
-10. **F-13, F-14, F-15** — logging and cleanup.
+9. **F-16** — move the GL state guard outside the acquire/release bracket. Small, and independent
+   of everything else.
+10. **F-18** — hoist the two remaining `+3`/`+7` displacement offsets into `SomaBuildSignatures.h`
+    with the same `static_assert`s the raycast site already has. ~20 minutes, and it converts a
+    future debugging session into a compile error.
+11. **F-10, F-11, F-12** — memory-safety and reentrancy hardening.
+12. **F-13, F-14, F-15** — logging and cleanup.
+13. **F-17** — add submit-path timing, then run the SteamVR-vs-VirtualDesktopXR A/B. This is a
+    measurement task, not an implementation task; do not let it turn into a D3D11 interop port
+    until the numbers ask for one.
 
 Per playbook 07's HaloVR lesson, do these as **one independently verified path per headset build** —
 a broad cleanup touching many paths at once is how you get a clean launch and a fatal error at the

@@ -1,5 +1,6 @@
 build*/
 out/
+out-pending/
 logs/
 .vs/
 Testing/

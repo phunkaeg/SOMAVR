@@ -50,7 +50,8 @@ working tree rather than taken from commit messages:
 | **F-03** clean clone cannot build | **resolved** (`e283a6a`) | every `src/**` path in `CMakeLists.txt` and all three `cmake/` scripts are tracked; `config/somavr.release.ini` is tracked and [Package-Release.ps1:131](scripts/Package-Release.ps1:131) copies it into the package as `somavr.ini`, with the root `somavr.ini` still ignored as dev scratch |
 | **F-01** work root baked to build machine | **resolved**, with one fix applied below | `InitializeWorkRoot(g_module)` is the first statement in `WorkerThreadProc`, ahead of any `LogPath()` call, so the one-shot latch cannot resolve against the host exe; `SOMAVR_DEV_WORK_ROOT` is now an opt-in CMake cache entry defaulting to **empty**, so a default build carries no compiled-in path at all |
 | **F-09** unknown config keys silent | **resolved** | `config_applied` now reports `parsedKeyHash`, `accepted`, `unknownKeys`, `unknownSections` |
-| **F-02** zero-layer `xrEndFrame` | claimed by `02a10c9` | **not verified by this review** |
+| **F-02** zero-layer `xrEndFrame` | **resolved and verified** (`02a10c9`) | zero-layer submission is now structurally unreachable — see the audit below |
+| **F-05** layer budget unenforced | **resolved**, one residual below | `appendLayer` bounds every append against `min(16, max(1, maxLayerCount_))`, array sized 24 for headroom, drops counted and logged |
 | **F-17** submit-path timing | claimed by `2eab163` | **not verified by this review** |
 
 Build and test state at the time of writing: `cmake --build build-openxr --config Release`
@@ -94,6 +95,72 @@ OneDrive case in playbook 07.
 - **Identity is still lost at `Level=error`.** `Warn` clears `Level=warn` but not `Level=error`,
   which would also drop the build-identity banner. Pre-existing and shared with `LogBuildIdentity`,
   so it was left alone rather than special-cased here; worth deciding deliberately.
+
+### F-02 verification: how zero-layer submission is now unreachable
+
+Audited every path that previously reached `layerCount == 0`. There are exactly **two**
+`xrEndFrame` call sites left, and neither can submit zero:
+
+| Old path to zero | Now |
+| --- | --- |
+| comfort / presentation blackout | `layerCount = 0` is gone; the blackout increments counters and sets `requireBlackContent`, which clears both eyes via `ClearEyeToBlack` and still appends the projection layer |
+| `xrLocateViews` fail / invalid flags | `copied` stays false → `requireBlackContent` → black clear → projection appended with best-available pose (rendered stereo → located views → identity + 32 mm IPD) |
+| `CopyCacheToEye` / `CopyBackbufferToEye` fail | `copyAttemptFailed` → same black-clear path |
+| `shouldRender == XR_FALSE`, bridge not ready | outer block skipped → `RequiresFallbackProjection(frameOpen_, 0)` fires → second fallback block clears black and appends projection |
+| anything else | invariant at [OpenXRRuntime.cpp:3778](src/dll/OpenXRRuntime.cpp:3778): `!projectionLayerAppended \|\| layerCount == 0` → `CloseOpenFrameLocked`, which either submits exactly one black projection layer or **defers the frame end entirely**, logging `action=defer_end_never_submit_zero_layers` |
+
+`endInfo.layers = layers.data()` is now unconditional and the old
+`layerCount > 0 ? layers : nullptr` is gone; `grep` confirms no surviving instance.
+
+Two details worth recording because they are what make this real rather than nominal:
+
+- **`ClearEyeToBlack` clears the acquired swapchain image, not the cache.** It acquires and waits
+  the image, binds `eye.framebuffers[imageIndex]`, forces the colour mask on and **disables scissor**
+  before clearing, then restores viewport, clear colour, mask, scissor box and enable. A stale
+  scissor cannot silently clip the clear — the playbook-10 trap, handled at the one place it would
+  have mattered most.
+- **Deferring the end is spec-legal.** A subsequent `xrBeginFrame` without an intervening
+  `xrEndFrame` returns `XR_FRAME_DISCARDED`, a success code, and the next `SubmitFrameLocked` calls
+  `CloseOpenFrameLocked("next_frame", …)` first, so the state self-heals. Deferring is the correct
+  choice over submitting an invalid frame.
+
+`RequiresFallbackProjection` is a pure function with a unit test covering its truth table
+([RenderMathTests.cpp:77](tests/RenderMathTests.cpp:77)).
+
+### Residual on F-05: drops are by arrival order, not by priority
+
+`appendLayer` bounds correctly and the array now has headroom, so the overflow half of F-05 is
+closed. But the drop *policy* does not match what the telemetry claims.
+
+`appendLayer` refuses once `layerCount >= layerCapacity` — that is **arrival order**. The
+`stable_sort` by priority runs afterwards and only reorders the survivors, so it fixes composition
+order, not which layers survive. Meanwhile `openxr_layer_budget` logs
+`priority=projection,hud,reticle,panel,vignette,guide`, which reads as a drop order it does not
+implement.
+
+Priorities and append order disagree:
+
+| Layer | Priority | Appended |
+| --- | --- | --- |
+| projection | 0 | 1st |
+| hud | 10 | 2nd |
+| reticle | 20 | 3rd |
+| **aim_guide** (up to 2 hands x 4 segments) | **50** | **4th** |
+| status_panel | 30 | 5th |
+| comfort_vignette | 40 | 6th |
+
+The guide reservation that used to protect the panel and vignette
+(`reservedGuideLayers` / `availableGuideLayers`) was removed with the rewrite;
+`controllerAimGuideSegmentCount` is now unconditionally the full 4 per hand.
+
+Worst case is 13 candidates, so with any runtime reporting `maxLayerCount >= 16` — the spec floor —
+nothing is dropped and this never fires. It becomes reachable only if a runtime reports fewer than
+13, at which point **the comfort vignette (priority 40) is dropped in favour of eight aim-guide
+decoration segments (priority 50)**, which is precisely the inversion the priority numbers exist to
+prevent. Latent, but now masked by a log line asserting the opposite.
+
+Fix is small: collect candidates unconditionally into the 24-slot array, then sort by priority, then
+truncate to `layerCapacity` — so the drop decision uses the same ordering the log advertises.
 
 ---
 

@@ -51,7 +51,7 @@ working tree rather than taken from commit messages:
 | **F-01** work root baked to build machine | **resolved**, with one fix applied below | `InitializeWorkRoot(g_module)` is the first statement in `WorkerThreadProc`, ahead of any `LogPath()` call, so the one-shot latch cannot resolve against the host exe; `SOMAVR_DEV_WORK_ROOT` is now an opt-in CMake cache entry defaulting to **empty**, so a default build carries no compiled-in path at all |
 | **F-09** unknown config keys silent | **resolved** | `config_applied` now reports `parsedKeyHash`, `accepted`, `unknownKeys`, `unknownSections` |
 | **F-02** zero-layer `xrEndFrame` | **resolved and verified** (`02a10c9`) | zero-layer submission is now structurally unreachable — see the audit below |
-| **F-05** layer budget unenforced | **resolved**, one residual below | `appendLayer` bounds every append against `min(16, max(1, maxLayerCount_))`, array sized 24 for headroom, drops counted and logged |
+| **F-05** layer budget unenforced | **resolved and verified** (`02a10c9`) | `appendLayer` bounds against `min(16, max(1, maxLayerCount_))`, array sized 24 for headroom, and drops by **priority eviction**, not arrival order; projection is structurally non-evictable |
 | **F-17** submit-path timing | claimed by `2eab163` | **not verified by this review** |
 
 Build and test state at the time of writing: `cmake --build build-openxr --config Release`
@@ -127,40 +127,61 @@ Two details worth recording because they are what make this real rather than nom
 `RequiresFallbackProjection` is a pure function with a unit test covering its truth table
 ([RenderMathTests.cpp:77](tests/RenderMathTests.cpp:77)).
 
-### Residual on F-05: drops are by arrival order, not by priority
+### F-05 verification: correction to an earlier claim in this document
 
-`appendLayer` bounds correctly and the array now has headroom, so the overflow half of F-05 is
-closed. But the drop *policy* does not match what the telemetry claims.
+**An earlier revision of this section claimed that layer drops were made by arrival order and that
+the `openxr_layer_budget` priority string overstated the code. That was wrong, and it is corrected
+here.** It was called from a truncated read of `appendLayer` that stopped at the first branch; the
+`else` path was never examined. There is no residual, and no fix is needed.
 
-`appendLayer` refuses once `layerCount >= layerCapacity` — that is **arrival order**. The
-`stable_sort` by priority runs afterwards and only reorders the survivors, so it fixes composition
-order, not which layers survive. Meanwhile `openxr_layer_budget` logs
-`priority=projection,hud,reticle,panel,vignette,guide`, which reads as a drop order it does not
-implement.
+`appendLayer` ([OpenXRRuntime.cpp:2815](src/dll/OpenXRRuntime.cpp:2815)) does priority-based
+eviction. When the array is full it scans the kept candidates for the least important one and
+displaces it if the arriving layer is more important:
 
-Priorities and append order disagree:
+```cpp
+uint32_t leastImportant = 0;
+for (uint32_t index = 1; index < layerCount; ++index) {
+    if (layerCandidates[index].priority > layerCandidates[leastImportant].priority) {
+        leastImportant = index;
+    }
+}
+++layerDropsThisFrame;
+if (priority < layerCandidates[leastImportant].priority) {
+    layerCandidates[leastImportant] = {header, priority, name};
+    return true;
+}
+return false;
+```
 
-| Layer | Priority | Appended |
+Worked through the case that prompted the false alarm — a runtime reporting `maxLayerCount = 12`,
+with 13 candidates and the aim guide appended before the panel and vignette:
+
+| Step | Kept | Outcome |
 | --- | --- | --- |
-| projection | 0 | 1st |
-| hud | 10 | 2nd |
-| reticle | 20 | 3rd |
-| **aim_guide** (up to 2 hands x 4 segments) | **50** | **4th** |
-| status_panel | 30 | 5th |
-| comfort_vignette | 40 | 6th |
+| projection 0, hud 10, reticle 20, 8 x guide 50 | 11 | room remains |
+| status_panel 30 | 12 | inserted, now full |
+| comfort_vignette 40 | 12 | least important kept is a guide at 50; `40 < 50` so the guide is evicted and the vignette survives |
 
-The guide reservation that used to protect the panel and vignette
-(`reservedGuideLayers` / `availableGuideLayers`) was removed with the rewrite;
-`controllerAimGuideSegmentCount` is now unconditionally the full 4 per hand.
+The panel and the vignette both survive and a decoration layer is dropped, which is exactly what
+the `priority=projection,hud,reticle,panel,vignette,guide` log line advertises. The removal of the
+old `reservedGuideLayers` arithmetic was a simplification made safe by the eviction rule, not a
+regression.
 
-Worst case is 13 candidates, so with any runtime reporting `maxLayerCount >= 16` — the spec floor —
-nothing is dropped and this never fires. It becomes reachable only if a runtime reports fewer than
-13, at which point **the comfort vignette (priority 40) is dropped in favour of eight aim-guide
-decoration segments (priority 50)**, which is precisely the inversion the priority numbers exist to
-prevent. Latent, but now masked by a log line asserting the opposite.
+Two further properties worth recording, both verified:
 
-Fix is small: collect candidates unconditionally into the 24-slot array, then sort by priority, then
-truncate to `layerCapacity` — so the drop decision uses the same ordering the log advertises.
+- **The projection layer cannot be evicted.** `leastImportant` can only point at it if every kept
+  layer has a priority no greater than 0, and the guard is `priority < 0`, which is never true for
+  an unsigned priority. The F-02 invariant therefore cannot be broken by layer pressure.
+- **The `submitted*` counters cannot over-report.** `appendLayer` returns true on insertion, and a
+  later call can evict, so in principle a counter could claim a layer that did not survive. In
+  practice only aim-guide layers are ever evictable — they are the sole priority-50 entries, and
+  only two later arrivals (panel 30, vignette 40) can displace anything — while
+  `anyGuideLayerSubmitted` is an OR across all eight guide appends. Eight guides cannot be evicted
+  by two arrivals, so the flag stays truthful.
+
+One open question rather than a defect: the `stable_sort` orders composition ascending by priority,
+so the aim guide (50) composites **on top of** the comfort vignette (40). Whether a comfort vignette
+should be the topmost layer is a design call worth making deliberately.
 
 ---
 

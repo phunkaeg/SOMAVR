@@ -40,6 +40,63 @@ mod as packaged today does not do what its config says on any machine but this o
 
 ---
 
+## Status — updated 2026-08-07, after `f24ecc9`
+
+The tree moved while this review was being written. Verified directly against the
+working tree rather than taken from commit messages:
+
+| Finding | Status | Verification |
+| --- | --- | --- |
+| **F-03** clean clone cannot build | **resolved** (`e283a6a`) | every `src/**` path in `CMakeLists.txt` and all three `cmake/` scripts are tracked; `config/somavr.release.ini` is tracked and [Package-Release.ps1:131](scripts/Package-Release.ps1:131) copies it into the package as `somavr.ini`, with the root `somavr.ini` still ignored as dev scratch |
+| **F-01** work root baked to build machine | **resolved**, with one fix applied below | `InitializeWorkRoot(g_module)` is the first statement in `WorkerThreadProc`, ahead of any `LogPath()` call, so the one-shot latch cannot resolve against the host exe; `SOMAVR_DEV_WORK_ROOT` is now an opt-in CMake cache entry defaulting to **empty**, so a default build carries no compiled-in path at all |
+| **F-09** unknown config keys silent | **resolved** | `config_applied` now reports `parsedKeyHash`, `accepted`, `unknownKeys`, `unknownSections` |
+| **F-02** zero-layer `xrEndFrame` | claimed by `02a10c9` | **not verified by this review** |
+| **F-17** submit-path timing | claimed by `2eab163` | **not verified by this review** |
+
+Build and test state at the time of writing: `cmake --build build-openxr --config Release`
+succeeds, and `ctest -C Release` reports **7/7 passing**.
+
+### Fix applied to F-01: the identity line was gated by the config it identifies
+
+`SetLevel(g_config->Get().logLevel)` ran *before* the `config_applied` write, and that write
+was at `Info`. With `Level=warn` in the ini — an ordinary choice for reducing log volume, or for
+a timing run — the single line proving *which config file was read, when it was written, and what
+its hash was* was silently dropped. Playbook 06: *"Any proof needed for test validity (versions,
+mode flags, which path ran) must also reach a persistent log file."* A proof that the subject of
+the proof can switch off is not a proof.
+
+`runtime_paths` and `config_applied` are now emitted at `Warn`, matching the precedent already set
+by `LogBuildIdentity` ([BuildInfo.cpp:86](src/common/BuildInfo.cpp:86)) for exactly this reason.
+`runtime_paths` previously survived only by accident — it sits before `SetLevel`, so it was
+protected by initialisation order rather than by intent, and any reordering would have broken it
+silently.
+
+`config_applied` also now carries the config file's own **mtime and size**, not just its path.
+The hash catches "different contents"; the timestamp catches "this file is older than the edit I
+just made", which is the actual tell for a redirected or cloud-synced copy — the BioshockVR
+OneDrive case in playbook 07.
+
+### Residuals still open on F-01
+
+- **`SOMAVR_ROOT` works in launch mode and silently does nothing in attach mode.** The injector
+  passes `nullptr` for `CreateProcessW`'s environment, so a launch-injected game inherits the
+  injector's environment and the override lands. An attach-injected DLL inherits whatever the game
+  was started with, and per playbook 06 a variable set in your shell afterwards *never arrives*.
+  Same knob, two injection modes, one of them a silent no-op — which that chapter calls worse than
+  not working at all. Either propagate it explicitly at `CreateProcessW`, or drop the env var in
+  favour of a file-based override beside the DLL.
+- **The module-directory branch returns unconditionally without checking that `somavr.ini` is
+  actually there**, so the `%LOCALAPPDATA%\SOMAVR` fallback below it is unreachable in practice for
+  the DLL. Correct for the shipping layout, where the installer co-locates DLL and config. The
+  consequence for development is that injecting from `build-openxr\Release\` writes a fresh default
+  config into a **gitignored** build tree and ignores any installed one — so a tuned test config
+  now lives somewhere invisible to git and is easy to lose or silently diverge from.
+- **Identity is still lost at `Level=error`.** `Warn` clears `Level=warn` but not `Level=error`,
+  which would also drop the build-identity banner. Pre-existing and shared with `LogBuildIdentity`,
+  so it was left alone rather than special-cased here; worth deciding deliberately.
+
+---
+
 ## P0 — must fix before anything is shipped or tested off this machine
 
 ### F-01 · The DLL reads config, writes logs, and writes crash dumps to the *build machine's source directory*

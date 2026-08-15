@@ -29,6 +29,8 @@
 #include <Windows.h>
 #include <TlHelp32.h>
 
+#include <cstdio>
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -65,12 +67,46 @@ bool IsOnlyCurrentThreadRemaining()
     return currentThreadFound && processThreadCount == 1;
 }
 
+// Config identity needs the file's own timestamp and size, not just its path: a
+// cloud-synced or redirected copy has the right path and the wrong contents, and
+// that failure looks identical to a stale build.
+std::string DescribeFileStamp(const std::filesystem::path& path)
+{
+    WIN32_FILE_ATTRIBUTE_DATA attributes = {};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attributes)) {
+        return "mtime=unavailable bytes=0";
+    }
+
+    SYSTEMTIME utc = {};
+    char stamp[64] = {};
+    if (FileTimeToSystemTime(&attributes.ftLastWriteTime, &utc)) {
+        snprintf(
+            stamp,
+            sizeof(stamp),
+            "%04u-%02u-%02uT%02u:%02u:%02uZ",
+            utc.wYear, utc.wMonth, utc.wDay, utc.wHour, utc.wMinute, utc.wSecond);
+    } else {
+        snprintf(stamp, sizeof(stamp), "unavailable");
+    }
+
+    const uint64_t bytes = (static_cast<uint64_t>(attributes.nFileSizeHigh) << 32)
+        | attributes.nFileSizeLow;
+    char described[128] = {};
+    snprintf(
+        described,
+        sizeof(described),
+        "mtime=%s bytes=%llu",
+        stamp,
+        static_cast<unsigned long long>(bytes));
+    return described;
+}
+
 DWORD WINAPI WorkerThreadProc(LPVOID)
 {
     somavr::InitializeWorkRoot(g_module);
     somavr::Logger::Instance().Initialize(somavr::LogPath(), somavr::LogLevel::Info);
     somavr::Logger::Instance().Write(
-        somavr::LogLevel::Info,
+        somavr::LogLevel::Warn,
         "runtime_paths root=%s source=%s module=%s",
         somavr::WorkRoot().string().c_str(),
         somavr::WorkRootSource().c_str(),
@@ -89,9 +125,10 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
 
     somavr::Logger::Instance().SetLevel(g_config->Get().logLevel);
     somavr::Logger::Instance().Write(
-        somavr::LogLevel::Info,
-        "config_applied path=%s logLevel=%s parsedKeyHash=0x%016llx accepted=%u unknownKeys=%u unknownSections=%u",
+        somavr::LogLevel::Warn,
+        "config_applied path=%s %s logLevel=%s parsedKeyHash=0x%016llx accepted=%u unknownKeys=%u unknownSections=%u",
         g_config->Path().string().c_str(),
+        DescribeFileStamp(g_config->Path()).c_str(),
         somavr::Logger::LevelName(g_config->Get().logLevel),
         static_cast<unsigned long long>(g_config->ParsedKeyHash()),
         g_config->AcceptedKeyCount(),

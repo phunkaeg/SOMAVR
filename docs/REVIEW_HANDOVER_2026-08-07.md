@@ -52,7 +52,7 @@ working tree rather than taken from commit messages:
 | **F-09** unknown config keys silent | **resolved** | `config_applied` now reports `parsedKeyHash`, `accepted`, `unknownKeys`, `unknownSections` |
 | **F-02** zero-layer `xrEndFrame` | **resolved and verified** (`02a10c9`) | zero-layer submission is now structurally unreachable — see the audit below |
 | **F-05** layer budget unenforced | **resolved and verified** (`02a10c9`) | `appendLayer` bounds against `min(16, max(1, maxLayerCount_))`, array sized 24 for headroom, and drops by **priority eviction**, not arrival order; projection is structurally non-evictable |
-| **F-17** submit-path timing | claimed by `2eab163` | **not verified by this review** |
+| **F-17** submit-path timing | **resolved and verified** (`2eab163`) | per-eye phase-separated CPU timing (acquire/wait/copyCpu/flush/release) surfaced every 300 XR frames, plus a documented runtime A/B protocol; one caveat below on which number to read |
 
 Build and test state at the time of writing: `cmake --build build-openxr --config Release`
 succeeds, and `ctest -C Release` reports **7/7 passing**.
@@ -182,6 +182,60 @@ Two further properties worth recording, both verified:
 One open question rather than a defect: the `stable_sort` orders composition ascending by priority,
 so the aim guide (50) composites **on top of** the comfort vignette (40). Whether a comfort vignette
 should be the topmost layer is a design call worth making deliberately.
+
+### F-17 verification: the instrumentation exists and is honestly labelled
+
+`2eab163` builds what F-17 asked for and a little more. Verified against the code rather than the
+commit message:
+
+- **Per-eye, phase-separated CPU timing.** `SwapchainTransferTiming` accumulates
+  latest/total/max microseconds for `acquire`, `wait`, `copy`, `flush`, `release` and `total`
+  independently ([OpenXRGLBridge.h:34](src/dll/OpenXRGLBridge.h:34)), driven by an RAII
+  `ScopedSwapchainTransferTiming` whose destructor folds the phases in. Separating `wait` from
+  `copy` is the thing that makes the number usable at all.
+- **Surfaced, not just collected.** `openxr_gl_transfer` prints both eyes with an explicit
+  `phaseOrder=total/acquire/wait/copyCpu/flush/release` legend
+  ([OpenXRRuntime.cpp:3934](src/dll/OpenXRRuntime.cpp:3934)), gated on the same
+  `completedXrFrameCount_ % 300` interval as the frame summary, so it is bounded.
+- **Honestly caveated.** The line carries `gpuTiming=excluded`, and the field is named `copyCpu`
+  rather than `copy`. `docs/OPENXR_GL_TRANSFER_RE.md` states that this covers GL state
+  queries/restoration and command dispatch, *not* GPU execution, and defers a dedicated blit query
+  ring unless CPU telemetry leaves a material unexplained gap. That is the correct reading of
+  playbook 06's "present-to-present span is not a GPU-work metric".
+- **A runnable A/B protocol**, with the variables actually pinned: same save, viewpoint, refresh
+  rate, resolution scale, depth setting, HUD state and a 60-second route, run once on
+  VirtualDesktopXR and once on SteamVR, comparing projection average/maximum, budget-pressure
+  count, per-eye failure count, and *which phase owns any increase*.
+- **Licence hygiene**: the doc records TheDarkModVR's architecture and observed behaviour only, and
+  notes it is GPL and not copied.
+
+Measurement overhead is negligible — roughly two dozen `QueryPerformanceCounter` calls per eye per
+frame, well under a microsecond against an ~11 ms frame.
+
+**One caveat that decides whether the A/B gives the right answer.** The headline
+`projectionUs` brackets the entire two-eye copy loop starting at
+[OpenXRRuntime.cpp:2976](src/dll/OpenXRRuntime.cpp:2976), and `CopyCacheToEye` performs
+`xrAcquireSwapchainImage` and `xrWaitSwapchainImage` *inside* that bracket. So `projectionUs` is
+**wait-inclusive**: it mixes app-side transfer cost with compositor pacing. Two consequences:
+
+- **When the A/B is run, compare `copyCpu`, not `projectionUs`.** A runtime that holds swapchain
+  images longer will move `projectionUs` for reasons that have nothing to do with GL transfer cost,
+  and reading the headline number alone would produce exactly the wrong architectural conclusion.
+  The RE doc's "which phase owns the increase" step already handles this; the risk is someone
+  skipping to the summary row.
+- **The `budget_pressure` warning thresholds on the wait-inclusive number**
+  (`projectionTransferUsLatest_ * 4 >= displayPeriodUs`,
+  [OpenXRRuntime.cpp:3047](src/dll/OpenXRRuntime.cpp:3047)). Under a streaming or
+  compositor-in-the-loop runtime — which is precisely what VirtualDesktopXR is — a legitimate
+  swapchain wait can trip a 25 %-of-frame alarm that says nothing about transfer cost. Worth
+  re-basing that alarm on `acquire + copyCpu + flush + release` so it measures the part SOMAVR
+  actually controls.
+
+**Not done from the original F-17 fix list:** `kLongXrWaitThresholdUs` is still `100000` (100 ms,
+[OpenXRRuntime.cpp:69](src/dll/OpenXRRuntime.cpp:69)). This is now defensible rather than a gap —
+that counter was only ever a proxy for submission cost, and submission is measured directly today,
+so 100 ms is a reasonable hang detector. It does mean nothing observes *moderate* `xrWaitFrame`
+pacing degradation, which is a separate signal from the one F-17 was about.
 
 ---
 

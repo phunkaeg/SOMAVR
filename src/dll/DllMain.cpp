@@ -590,6 +590,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::ShutdownCrashHandler();
     somavr::Logger::Instance().Write(somavr::LogLevel::Info, "somavr.dll worker exiting");
     somavr::Logger::Instance().Shutdown();
+    // Only the side that wins this exchange may touch the handle. Winning here
+    // means detach never ran, so nobody is waiting on it and closing is safe.
     HANDLE ownedStopEvent = static_cast<HANDLE>(InterlockedExchangePointer(
         reinterpret_cast<void* volatile*>(&g_stopEvent), nullptr));
     if (ownedStopEvent != nullptr) {
@@ -615,8 +617,17 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
             }
         }
     } else if (reason == DLL_PROCESS_DETACH) {
-        if (g_stopEvent != nullptr) {
-            SetEvent(g_stopEvent);
+        // Claim the handle the same way the worker's exit path does, so this
+        // SetEvent cannot land on a handle the worker just closed - a closed
+        // value can be recycled, and signalling an unrelated object is worse
+        // than not signalling at all. Deliberately do not close it here: the
+        // worker may still be blocked on its cached copy. Whichever side loses
+        // the exchange leaves the handle alone, so one event is leaked when
+        // detach wins, which is the path where the module is going away anyway.
+        HANDLE stopEvent = static_cast<HANDLE>(InterlockedExchangePointer(
+            reinterpret_cast<void* volatile*>(&g_stopEvent), nullptr));
+        if (stopEvent != nullptr) {
+            SetEvent(stopEvent);
         }
     }
 

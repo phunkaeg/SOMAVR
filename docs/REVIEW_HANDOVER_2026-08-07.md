@@ -53,6 +53,8 @@ working tree rather than taken from commit messages:
 | **F-02** zero-layer `xrEndFrame` | **resolved and verified** (`02a10c9`) | zero-layer submission is now structurally unreachable — see the audit below |
 | **F-05** layer budget unenforced | **resolved and verified** (`02a10c9`) | `appendLayer` bounds against `min(16, max(1, maxLayerCount_))`, array sized 24 for headroom, and drops by **priority eviction**, not arrival order; projection is structurally non-evictable |
 | **F-17** submit-path timing | **resolved and verified** (`2eab163`) | per-eye phase-separated CPU timing (acquire/wait/copyCpu/flush/release) surfaced every 300 XR frames, plus a documented runtime A/B protocol; one caveat below on which number to read |
+| **F-07** injector treats timeout as success | **resolved and verified** | `waitResult != WAIT_OBJECT_0` fails explicitly, the remote page is **deliberately not freed** on timeout, and injection is confirmed by re-scanning the target's module list for `somavr.dll`; the x64 exit-code truncation is reported honestly as `threadExitLow32` rather than treated as an `HMODULE` |
+| **F-08** detach closes the event the worker waits on | **resolved**, with one fix applied below | `CloseHandle`/null-assignment removed from detach; the worker caches the handle once and exits on any non-`WAIT_TIMEOUT` result, so the hot-spin is gone |
 
 Build and test state at the time of writing: `cmake --build build-openxr --config Release`
 succeeds, and `ctest -C Release` reports **7/7 passing**.
@@ -236,6 +238,50 @@ frame, well under a microsecond against an ~11 ms frame.
 that counter was only ever a proxy for submission cost, and submission is measured directly today,
 so 100 ms is a reasonable hang detector. It does mean nothing observes *moderate* `xrWaitFrame`
 pacing degradation, which is a separate signal from the one F-17 was about.
+
+### Fix applied to F-08: detach could still signal a handle the worker had just closed
+
+The original race is gone — detach no longer calls `CloseHandle` or nulls the global — and the
+worker now caches the handle once and breaks on any non-`WAIT_TIMEOUT` result, so the hot spin on
+`WaitForSingleObject(nullptr, 500)` is closed too.
+
+What remained was asymmetric ownership. The worker's exit path claims the handle atomically:
+
+```cpp
+HANDLE ownedStopEvent = static_cast<HANDLE>(InterlockedExchangePointer(
+    reinterpret_cast<void* volatile*>(&g_stopEvent), nullptr));
+if (ownedStopEvent != nullptr) CloseHandle(ownedStopEvent);
+```
+
+…while `DLL_PROCESS_DETACH` did a plain read followed by a use:
+
+```cpp
+if (g_stopEvent != nullptr) SetEvent(g_stopEvent);
+```
+
+Interleaved, detach reads a non-null handle, the worker exchanges and closes it, and detach's
+`SetEvent` then lands on a closed value. A closed handle value can be **recycled by another
+thread**, so the failure is not a benign `ERROR_INVALID_HANDLE` — it is signalling an unrelated
+kernel object. Narrow (it needs detach to coincide with the worker completing teardown, which in
+turn needs the worker to have exited for a reason other than being signalled) but real, and with a
+cross-object side effect.
+
+Detach now claims the handle through the same interlocked exchange, so exactly one side ever owns
+it. It deliberately does **not** close: the worker may still be blocked on its cached copy, and
+closing a handle another thread is waiting on is the same recycling hazard in the other direction.
+Both orderings are now safe:
+
+| Order | Outcome |
+| --- | --- |
+| detach wins the exchange | signals; worker's wait returns `WAIT_OBJECT_0` on a still-valid handle and it exits cleanly. Worker's own exchange gets null and skips the close, so one event handle is leaked — on the path where the module is unloading anyway |
+| worker wins the exchange | closes the handle it alone owns; a later detach exchanges null and never touches it |
+
+The leak is the deliberate trade. The alternative — closing from detach — would invalidate a handle
+the worker is mid-`WaitForSingleObject` on, which is strictly worse than one leaked event per
+unload. The injector already refuses to inject into a process that has `somavr.dll` loaded, so
+load/unload cycles are bounded to begin with.
+
+Verified: Release build clean, `ctest -C Release` 7/7 passing.
 
 ---
 

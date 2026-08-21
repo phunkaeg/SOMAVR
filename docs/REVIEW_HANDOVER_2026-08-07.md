@@ -393,8 +393,27 @@ interaction with the padding rule recorded under F-18.
 Verified: Release build clean, `ctest -C Release` 7/7 passing. Argument pairing at all eight call
 sites was checked field by field after the change, because `InstallAbsoluteJumpPatch` now takes
 eight positional arguments — chapter 07's "wide positional argument lists transpose silently".
-**Follow-up worth taking: convert that signature to a named-field struct**, which is what that rule
-actually recommends; it was left alone here to keep a live-code-patch change small and reviewable.
+**Follow-up taken.** Both helpers now take a named-field struct instead of a positional list, built
+at the call site with C++20 designated initializers:
+
+```cpp
+InstallAbsoluteJumpPatch(
+    {
+        .name      = "SetDepthOfFieldActive",
+        .target    = const_cast<std::byte*>(base + kSetDepthOfFieldActiveRva),
+        .hook      = reinterpret_cast<void*>(&HookSetDepthOfFieldActive),
+        .expected  = kSetDepthOfFieldActiveSignature,
+        .original  = g_depthOfFieldOriginal,
+        .installed = g_depthOfFieldPatch,
+    },
+    g_setDepthOfFieldActiveTarget)
+```
+
+Two properties beyond readability. The buffers are passed as `std::span` rather than
+pointer-plus-length, so the three lengths are one fact instead of three that have to agree — and
+`InstallAbsoluteJumpPatch` now rejects any site where `expected`, `original` and `installed`
+disagree, which was previously unrepresentable and unchecked. And a mis-paired buffer is now visible
+as a mismatched field name on adjacent lines rather than an anonymous pointer in slot five.
 
 ---
 

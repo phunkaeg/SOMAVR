@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <cstring>
 #include <mutex>
+#include <span>
 
 namespace somavr {
 namespace {
@@ -399,18 +400,31 @@ void RemoveMinHook(void*& target)
     }
 }
 
-bool InstallAbsoluteJumpPatch(
-    void* target,
-    void* hook,
-    const void* expected,
-    uint8_t* original,
-    uint8_t* installed,
-    size_t size,
-    void*& installedTarget,
-    const char* name)
+// Named fields rather than a positional argument list. This call previously took
+// eight same-shaped pointers, where swapping two would compile cleanly and patch
+// one function with another's saved bytes - chapter 07's "wide positional
+// argument lists transpose silently". The spans also make the three buffer
+// lengths a single fact instead of three that have to be kept in agreement.
+struct AbsoluteJumpPatchSite {
+    const char* name = nullptr;
+    void* target = nullptr;
+    void* hook = nullptr;
+    std::span<const uint8_t> expected;
+    std::span<uint8_t> original;
+    std::span<uint8_t> installed;
+};
+
+struct AbsoluteJumpRestoreSite {
+    const char* name = nullptr;
+    std::span<const uint8_t> installed;
+    std::span<const uint8_t> original;
+};
+
+bool InstallAbsoluteJumpPatch(const AbsoluteJumpPatchSite& site, void*& installedTarget)
 {
-    if (target == nullptr || hook == nullptr || expected == nullptr
-        || original == nullptr || installed == nullptr || size < 12) {
+    const size_t size = site.expected.size();
+    if (site.name == nullptr || site.target == nullptr || site.hook == nullptr
+        || size < 12 || site.original.size() != size || site.installed.size() != size) {
         return false;
     }
     std::array<uint8_t, 32> jump{};
@@ -418,7 +432,7 @@ bool InstallAbsoluteJumpPatch(
     jump.fill(0x90);
     jump[0] = 0x48;
     jump[1] = 0xb8;
-    const uintptr_t hookAddress = reinterpret_cast<uintptr_t>(hook);
+    const uintptr_t hookAddress = reinterpret_cast<uintptr_t>(site.hook);
     std::memcpy(jump.data() + 2, &hookAddress, sizeof(hookAddress));
     jump[10] = 0xff;
     jump[11] = 0xe0;
@@ -429,36 +443,33 @@ bool InstallAbsoluteJumpPatch(
     // thread-overlap check inside WriteCodeBytes must cover that whole range,
     // not just the function body, or it would wave through a thread parked in
     // the padding about to be overwritten.
-    std::memcpy(original, target, size);
+    std::memcpy(site.original.data(), site.target, size);
     live_patch::PatchWriteFailure failure = live_patch::PatchWriteFailure::None;
     DWORD blockedThreadId = 0;
     if (!live_patch::WriteCodeBytes(
-            target, expected, jump.data(), size, failure, blockedThreadId)) {
+            site.target, site.expected.data(), jump.data(), size, failure, blockedThreadId)) {
         Logger::Instance().Write(
             LogLevel::Error,
             "hpl_comfort_bridge patch_failed name=%s reason=%s thread=%lu",
-            name,
+            site.name,
             live_patch::PatchWriteFailureName(failure),
             static_cast<unsigned long>(blockedThreadId));
         return false;
     }
-    std::memcpy(installed, jump.data(), size);
-    installedTarget = target;
+    std::memcpy(site.installed.data(), jump.data(), size);
+    installedTarget = site.target;
     return true;
 }
 
-void RemoveAbsoluteJumpPatch(
-    void*& target,
-    const uint8_t* installed,
-    const uint8_t* original,
-    size_t size,
-    const char* name)
+void RemoveAbsoluteJumpPatch(void*& target, const AbsoluteJumpRestoreSite& site)
 {
     if (target == nullptr) return;
+    const size_t size = site.original.size();
+    if (site.name == nullptr || size == 0 || site.installed.size() != size) return;
     live_patch::PatchWriteFailure failure = live_patch::PatchWriteFailure::None;
     DWORD blockedThreadId = 0;
     if (live_patch::WriteCodeBytes(
-            target, installed, original, size, failure, blockedThreadId)) {
+            target, site.installed.data(), site.original.data(), size, failure, blockedThreadId)) {
         target = nullptr;
         return;
     }
@@ -468,7 +479,7 @@ void RemoveAbsoluteJumpPatch(
     Logger::Instance().Write(
         LogLevel::Error,
         "hpl_comfort_bridge restore_failed name=%s reason=%s thread=%lu action=leave_patch_owned",
-        name,
+        site.name,
         live_patch::PatchWriteFailureName(failure),
         static_cast<unsigned long>(blockedThreadId));
 }
@@ -477,28 +488,32 @@ void RollbackHooks()
 {
     RemoveAbsoluteJumpPatch(
         g_fadeCameraFovTarget,
-        g_fovPatch.data(),
-        g_fovOriginal.data(),
-        g_fovOriginal.size(),
-        "FadeCameraFov");
+        {
+            .name = "FadeCameraFov",
+            .installed = g_fovPatch,
+            .original = g_fovOriginal,
+        });
     RemoveAbsoluteJumpPatch(
         g_fadeCameraAspectMultiplierTarget,
-        g_aspectMultiplierPatch.data(),
-        g_aspectMultiplierOriginal.data(),
-        g_aspectMultiplierOriginal.size(),
-        "FadeCameraAspectMultiplier");
+        {
+            .name = "FadeCameraAspectMultiplier",
+            .installed = g_aspectMultiplierPatch,
+            .original = g_aspectMultiplierOriginal,
+        });
     RemoveAbsoluteJumpPatch(
         g_fadeCameraFovMultiplierTarget,
-        g_fovMultiplierPatch.data(),
-        g_fovMultiplierOriginal.data(),
-        g_fovMultiplierOriginal.size(),
-        "FadeCameraFovMultiplier");
+        {
+            .name = "FadeCameraFovMultiplier",
+            .installed = g_fovMultiplierPatch,
+            .original = g_fovMultiplierOriginal,
+        });
     RemoveAbsoluteJumpPatch(
         g_setDepthOfFieldActiveTarget,
-        g_depthOfFieldPatch.data(),
-        g_depthOfFieldOriginal.data(),
-        g_depthOfFieldOriginal.size(),
-        "SetDepthOfFieldActive");
+        {
+            .name = "SetDepthOfFieldActive",
+            .installed = g_depthOfFieldPatch,
+            .original = g_depthOfFieldOriginal,
+        });
     RemoveMinHook(g_setCameraRollTarget);
     RemoveMinHook(g_fadeCameraRollTarget);
     RemoveMinHook(g_setCameraPosAddTarget);
@@ -614,14 +629,15 @@ bool InstallHPLComfortBridge(const Config& config)
     }
     if (dofEnabled
         && !InstallAbsoluteJumpPatch(
-            const_cast<std::byte*>(base + kSetDepthOfFieldActiveRva),
-            reinterpret_cast<void*>(&HookSetDepthOfFieldActive),
-            kSetDepthOfFieldActiveSignature,
-            g_depthOfFieldOriginal.data(),
-            g_depthOfFieldPatch.data(),
-            g_depthOfFieldOriginal.size(),
-            g_setDepthOfFieldActiveTarget,
-            "SetDepthOfFieldActive")) {
+            {
+                .name = "SetDepthOfFieldActive",
+                .target = const_cast<std::byte*>(base + kSetDepthOfFieldActiveRva),
+                .hook = reinterpret_cast<void*>(&HookSetDepthOfFieldActive),
+                .expected = kSetDepthOfFieldActiveSignature,
+                .original = g_depthOfFieldOriginal,
+                .installed = g_depthOfFieldPatch,
+            },
+            g_setDepthOfFieldActiveTarget)) {
         Logger::Instance().Write(
             LogLevel::Error,
             "hpl_comfort_bridge install_failed reason=depth_of_field_patch");
@@ -630,32 +646,35 @@ bool InstallHPLComfortBridge(const Config& config)
     }
     if (opticsEnabled
         && (!InstallAbsoluteJumpPatch(
-                const_cast<std::byte*>(base + kFadeCameraFovMultiplierRva),
-                reinterpret_cast<void*>(&HookFadeCameraFovMultiplier),
-                kFadeCameraFovMultiplierSignature,
-                g_fovMultiplierOriginal.data(),
-                g_fovMultiplierPatch.data(),
-                g_fovMultiplierOriginal.size(),
-                g_fadeCameraFovMultiplierTarget,
-                "FadeCameraFovMultiplier")
+                {
+                    .name = "FadeCameraFovMultiplier",
+                    .target = const_cast<std::byte*>(base + kFadeCameraFovMultiplierRva),
+                    .hook = reinterpret_cast<void*>(&HookFadeCameraFovMultiplier),
+                    .expected = kFadeCameraFovMultiplierSignature,
+                    .original = g_fovMultiplierOriginal,
+                    .installed = g_fovMultiplierPatch,
+                },
+                g_fadeCameraFovMultiplierTarget)
             || !InstallAbsoluteJumpPatch(
-                const_cast<std::byte*>(base + kFadeCameraAspectMultiplierRva),
-                reinterpret_cast<void*>(&HookFadeCameraAspectMultiplier),
-                kFadeCameraAspectMultiplierSignature,
-                g_aspectMultiplierOriginal.data(),
-                g_aspectMultiplierPatch.data(),
-                g_aspectMultiplierOriginal.size(),
-                g_fadeCameraAspectMultiplierTarget,
-                "FadeCameraAspectMultiplier")
+                {
+                    .name = "FadeCameraAspectMultiplier",
+                    .target = const_cast<std::byte*>(base + kFadeCameraAspectMultiplierRva),
+                    .hook = reinterpret_cast<void*>(&HookFadeCameraAspectMultiplier),
+                    .expected = kFadeCameraAspectMultiplierSignature,
+                    .original = g_aspectMultiplierOriginal,
+                    .installed = g_aspectMultiplierPatch,
+                },
+                g_fadeCameraAspectMultiplierTarget)
             || !InstallAbsoluteJumpPatch(
-                const_cast<std::byte*>(base + kFadeCameraFovRva),
-                reinterpret_cast<void*>(&HookFadeCameraFov),
-                kFadeCameraFovSignature,
-                g_fovOriginal.data(),
-                g_fovPatch.data(),
-                g_fovOriginal.size(),
-                g_fadeCameraFovTarget,
-                "FadeCameraFov"))) {
+                {
+                    .name = "FadeCameraFov",
+                    .target = const_cast<std::byte*>(base + kFadeCameraFovRva),
+                    .hook = reinterpret_cast<void*>(&HookFadeCameraFov),
+                    .expected = kFadeCameraFovSignature,
+                    .original = g_fovOriginal,
+                    .installed = g_fovPatch,
+                },
+                g_fadeCameraFovTarget))) {
         Logger::Instance().Write(
             LogLevel::Error,
             "hpl_comfort_bridge install_failed reason=optics_patch");

@@ -3,6 +3,7 @@
 #include "HPLCameraBridge.h"
 #include "HPLComfortMath.h"
 #include "HPLPlayerState.h"
+#include "LiveCodePatch.h"
 #include "Logger.h"
 
 #include <Windows.h>
@@ -89,6 +90,10 @@ std::array<uint8_t, sizeof(kSetDepthOfFieldActiveSignature)> g_depthOfFieldOrigi
 std::array<uint8_t, sizeof(kFadeCameraFovMultiplierSignature)> g_fovMultiplierOriginal{};
 std::array<uint8_t, sizeof(kFadeCameraAspectMultiplierSignature)> g_aspectMultiplierOriginal{};
 std::array<uint8_t, sizeof(kFadeCameraFovSignature)> g_fovOriginal{};
+std::array<uint8_t, sizeof(kSetDepthOfFieldActiveSignature)> g_depthOfFieldPatch{};
+std::array<uint8_t, sizeof(kFadeCameraFovMultiplierSignature)> g_fovMultiplierPatch{};
+std::array<uint8_t, sizeof(kFadeCameraAspectMultiplierSignature)> g_aspectMultiplierPatch{};
+std::array<uint8_t, sizeof(kFadeCameraFovSignature)> g_fovPatch{};
 std::mutex g_installMutex;
 std::atomic<uint64_t> g_cameraAddCalls = 0;
 std::atomic<uint64_t> g_cameraAddSuppressed = 0;
@@ -358,20 +363,6 @@ void HookFadeCameraFov(void* player, float target, float speed)
         g_fovSuppressed);
 }
 
-bool WriteCodeBytes(void* target, const void* bytes, size_t size)
-{
-    DWORD oldProtect = 0;
-    if (target == nullptr || bytes == nullptr || size == 0
-        || !VirtualProtect(target, size, PAGE_EXECUTE_READWRITE, &oldProtect)) {
-        return false;
-    }
-    std::memcpy(target, bytes, size);
-    FlushInstructionCache(GetCurrentProcess(), target, size);
-    DWORD ignored = 0;
-    VirtualProtect(target, size, oldProtect, &ignored);
-    return true;
-}
-
 bool InstallMinHook(
     void* target, void* hook, void** original, void*& installedTarget, const char* name)
 {
@@ -411,12 +402,17 @@ void RemoveMinHook(void*& target)
 bool InstallAbsoluteJumpPatch(
     void* target,
     void* hook,
+    const void* expected,
     uint8_t* original,
+    uint8_t* installed,
     size_t size,
-    void*& installedTarget)
+    void*& installedTarget,
+    const char* name)
 {
-    if (target == nullptr || hook == nullptr || original == nullptr || size < 12) return false;
-    std::memcpy(original, target, size);
+    if (target == nullptr || hook == nullptr || expected == nullptr
+        || original == nullptr || installed == nullptr || size < 12) {
+        return false;
+    }
     std::array<uint8_t, 32> jump{};
     if (size > jump.size()) return false;
     jump.fill(0x90);
@@ -426,35 +422,83 @@ bool InstallAbsoluteJumpPatch(
     std::memcpy(jump.data() + 2, &hookAddress, sizeof(hookAddress));
     jump[10] = 0xff;
     jump[11] = 0xe0;
-    if (!WriteCodeBytes(target, jump.data(), size)) return false;
+
+    // `size` is the full patch extent. These setters are shorter than the
+    // twelve-byte absolute jump, so the write deliberately spills into their
+    // trailing alignment padding - which is why the signatures include it. The
+    // thread-overlap check inside WriteCodeBytes must cover that whole range,
+    // not just the function body, or it would wave through a thread parked in
+    // the padding about to be overwritten.
+    std::memcpy(original, target, size);
+    live_patch::PatchWriteFailure failure = live_patch::PatchWriteFailure::None;
+    DWORD blockedThreadId = 0;
+    if (!live_patch::WriteCodeBytes(
+            target, expected, jump.data(), size, failure, blockedThreadId)) {
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_comfort_bridge patch_failed name=%s reason=%s thread=%lu",
+            name,
+            live_patch::PatchWriteFailureName(failure),
+            static_cast<unsigned long>(blockedThreadId));
+        return false;
+    }
+    std::memcpy(installed, jump.data(), size);
     installedTarget = target;
     return true;
 }
 
 void RemoveAbsoluteJumpPatch(
-    void*& target, const uint8_t* original, size_t size)
+    void*& target,
+    const uint8_t* installed,
+    const uint8_t* original,
+    size_t size,
+    const char* name)
 {
     if (target == nullptr) return;
-    WriteCodeBytes(target, original, size);
-    target = nullptr;
+    live_patch::PatchWriteFailure failure = live_patch::PatchWriteFailure::None;
+    DWORD blockedThreadId = 0;
+    if (live_patch::WriteCodeBytes(
+            target, installed, original, size, failure, blockedThreadId)) {
+        target = nullptr;
+        return;
+    }
+    // Leave the patch owned rather than forcing the write: something else is
+    // either executing inside it or has replaced it, and clobbering that is
+    // worse than staying hooked.
+    Logger::Instance().Write(
+        LogLevel::Error,
+        "hpl_comfort_bridge restore_failed name=%s reason=%s thread=%lu action=leave_patch_owned",
+        name,
+        live_patch::PatchWriteFailureName(failure),
+        static_cast<unsigned long>(blockedThreadId));
 }
 
 void RollbackHooks()
 {
     RemoveAbsoluteJumpPatch(
-        g_fadeCameraFovTarget, g_fovOriginal.data(), g_fovOriginal.size());
+        g_fadeCameraFovTarget,
+        g_fovPatch.data(),
+        g_fovOriginal.data(),
+        g_fovOriginal.size(),
+        "FadeCameraFov");
     RemoveAbsoluteJumpPatch(
         g_fadeCameraAspectMultiplierTarget,
+        g_aspectMultiplierPatch.data(),
         g_aspectMultiplierOriginal.data(),
-        g_aspectMultiplierOriginal.size());
+        g_aspectMultiplierOriginal.size(),
+        "FadeCameraAspectMultiplier");
     RemoveAbsoluteJumpPatch(
         g_fadeCameraFovMultiplierTarget,
+        g_fovMultiplierPatch.data(),
         g_fovMultiplierOriginal.data(),
-        g_fovMultiplierOriginal.size());
+        g_fovMultiplierOriginal.size(),
+        "FadeCameraFovMultiplier");
     RemoveAbsoluteJumpPatch(
         g_setDepthOfFieldActiveTarget,
+        g_depthOfFieldPatch.data(),
         g_depthOfFieldOriginal.data(),
-        g_depthOfFieldOriginal.size());
+        g_depthOfFieldOriginal.size(),
+        "SetDepthOfFieldActive");
     RemoveMinHook(g_setCameraRollTarget);
     RemoveMinHook(g_fadeCameraRollTarget);
     RemoveMinHook(g_setCameraPosAddTarget);
@@ -572,9 +616,12 @@ bool InstallHPLComfortBridge(const Config& config)
         && !InstallAbsoluteJumpPatch(
             const_cast<std::byte*>(base + kSetDepthOfFieldActiveRva),
             reinterpret_cast<void*>(&HookSetDepthOfFieldActive),
+            kSetDepthOfFieldActiveSignature,
             g_depthOfFieldOriginal.data(),
+            g_depthOfFieldPatch.data(),
             g_depthOfFieldOriginal.size(),
-            g_setDepthOfFieldActiveTarget)) {
+            g_setDepthOfFieldActiveTarget,
+            "SetDepthOfFieldActive")) {
         Logger::Instance().Write(
             LogLevel::Error,
             "hpl_comfort_bridge install_failed reason=depth_of_field_patch");
@@ -585,21 +632,30 @@ bool InstallHPLComfortBridge(const Config& config)
         && (!InstallAbsoluteJumpPatch(
                 const_cast<std::byte*>(base + kFadeCameraFovMultiplierRva),
                 reinterpret_cast<void*>(&HookFadeCameraFovMultiplier),
+                kFadeCameraFovMultiplierSignature,
                 g_fovMultiplierOriginal.data(),
+                g_fovMultiplierPatch.data(),
                 g_fovMultiplierOriginal.size(),
-                g_fadeCameraFovMultiplierTarget)
+                g_fadeCameraFovMultiplierTarget,
+                "FadeCameraFovMultiplier")
             || !InstallAbsoluteJumpPatch(
                 const_cast<std::byte*>(base + kFadeCameraAspectMultiplierRva),
                 reinterpret_cast<void*>(&HookFadeCameraAspectMultiplier),
+                kFadeCameraAspectMultiplierSignature,
                 g_aspectMultiplierOriginal.data(),
+                g_aspectMultiplierPatch.data(),
                 g_aspectMultiplierOriginal.size(),
-                g_fadeCameraAspectMultiplierTarget)
+                g_fadeCameraAspectMultiplierTarget,
+                "FadeCameraAspectMultiplier")
             || !InstallAbsoluteJumpPatch(
                 const_cast<std::byte*>(base + kFadeCameraFovRva),
                 reinterpret_cast<void*>(&HookFadeCameraFov),
+                kFadeCameraFovSignature,
                 g_fovOriginal.data(),
+                g_fovPatch.data(),
                 g_fovOriginal.size(),
-                g_fadeCameraFovTarget))) {
+                g_fadeCameraFovTarget,
+                "FadeCameraFov"))) {
         Logger::Instance().Write(
             LogLevel::Error,
             "hpl_comfort_bridge install_failed reason=optics_patch");

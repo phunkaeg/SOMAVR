@@ -56,7 +56,7 @@ working tree rather than taken from commit messages:
 | **F-07** injector treats timeout as success | **resolved and verified** | `waitResult != WAIT_OBJECT_0` fails explicitly, the remote page is **deliberately not freed** on timeout, and injection is confirmed by re-scanning the target's module list for `somavr.dll`; the x64 exit-code truncation is reported honestly as `threadExitLow32` rather than treated as an `HMODULE` |
 | **F-08** detach closes the event the worker waits on | **resolved**, with one fix applied below | `CloseHandle`/null-assignment removed from detach; the worker caches the handle once and exits on any non-`WAIT_TIMEOUT` result, so the hot-spin is gone |
 | **F-12** GL detours intercept own calls | **resolved**, one gap below | `OpenGLOwnership.h` adds a `thread_local` depth counter with an RAII scope; 13 of 17 detours bypass on it, ~22 bridge entry points take it, and the bypass count is surfaced in the OpenGL summary |
-| **F-11** raw code patch without thread suspension | **half resolved** — fixed in `HPLGrabBridge`, **still open in `HPLComfortBridge`** | see below |
+| **F-11** raw code patch without thread suspension | **resolved** — fixed in both files | `ScopedPeerThreadSuspension` lifted into `LiveCodePatch.h`; all eight `HPLComfortBridge` writes now suspend peer threads, reject the write if any thread's instruction pointer is inside the full patch extent, and verify expected bytes first |
 
 Build and test state at the time of writing: `cmake --build build-openxr --config Release`
 succeeds, and `ctest -C Release` reports **7/7 passing**.
@@ -333,7 +333,7 @@ shared-vs-distinct ownership classification. `HPLPostEffectResourceProbe=0` in
 Fix is one line — `ScopedOwnOpenGLWork ownGl;` at the top of `CreateHistories`. `DeleteHistories`
 and `Copy` need nothing; `glDeleteTextures` and `glCopyImageSubData` are not hooked.
 
-#### F-11 — fixed in one file, unchanged in the other
+#### F-11 — was fixed in one file only; now fixed in both
 
 `HPLGrabBridge` now does this **better than MinHook**.
 `ScopedPeerThreadSuspension` ([HPLGrabBridge.cpp:1384](src/dll/HPLGrabBridge.cpp:1384)) enumerates
@@ -367,6 +367,34 @@ header, and have `InstallAbsoluteJumpPatch` / `RemoveAbsoluteJumpPatch` use it. 
 with the padding rule above: the comfort-bridge patches spill past the end of short functions by
 design, so the RIP-in-range check has to cover the **full patch extent**, not just the function
 body.
+
+**Fixed.** `ScopedPeerThreadSuspension`, the `PatchWriteFailure` enum and the guarded
+`WriteCodeBytes` were lifted verbatim out of `HPLGrabBridge.cpp` into a new shared header,
+[LiveCodePatch.h](src/dll/LiveCodePatch.h) (`namespace somavr::live_patch`). Both bridges now use
+it, so all live-code writes in the project go through one guarded path.
+
+`HPLComfortBridge`'s own unguarded `WriteCodeBytes` is deleted. `InstallAbsoluteJumpPatch` and
+`RemoveAbsoluteJumpPatch` now take the expected bytes and a buffer for the installed jump, mirroring
+what `HPLGrabBridge` already did for `AddImpulse`:
+
+- **install** verifies the target still holds the validated signature before writing, under
+  suspension, and stashes the jump it wrote;
+- **restore** verifies the target still holds *that jump* before putting the original back, so a
+  third party that has since re-patched the same function does not get silently clobbered;
+- **either failing** logs the specific reason and the blocking thread id, and the restore path
+  leaves the patch in place (`action=leave_patch_owned`) rather than forcing the write.
+
+The `size` passed is the full patch extent — `sizeof(signature)`, which for these short setters
+includes the trailing alignment padding the jump spills into. That is deliberate and commented at
+the call site: the instruction-pointer overlap check has to cover every byte being written, or it
+would wave through a thread parked in the padding about to be overwritten. This is the direct
+interaction with the padding rule recorded under F-18.
+
+Verified: Release build clean, `ctest -C Release` 7/7 passing. Argument pairing at all eight call
+sites was checked field by field after the change, because `InstallAbsoluteJumpPatch` now takes
+eight positional arguments — chapter 07's "wide positional argument lists transpose silently".
+**Follow-up worth taking: convert that signature to a named-field struct**, which is what that rule
+actually recommends; it was left alone here to keep a live-code-patch change small and reviewable.
 
 ---
 

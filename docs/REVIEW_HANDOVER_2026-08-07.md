@@ -932,19 +932,54 @@ constants beside `kRaycastGameContextDisplacementOffset`, and give them the same
 offset ≤ `sizeof(signature)`, and the three bytes before the displacement are `48 8b 05`. That last
 assert is what turns the class into a compile error instead of a session.
 
-**Two follow-ups for whoever has Ghidra open** (I could not confirm these — per `CLAUDE.md` Ghidra
-must be launched before the client, and it was not):
+**Both follow-ups now resolved against the live binary.** Ghidra was running with the `SS2_VR`
+project; `/SOMA/Soma_NoSteam.exe` (version 75, image base `0x140000000`, 15,822 functions) was
+opened read-only with `auto_analyze=false`. One came back negative, one confirmed.
 
-- [HPLCompatibilityProbe.cpp:2147](src/dll/HPLCompatibilityProbe.cpp:2147)
-  `kRenderPostEffectsSignature` begins `4d 85 c9 0f 84 74 01 00 00` — `test r9,r9; je rel32` **before**
-  any register save. That ordering is unusual for a prologue. It is plausibly a function that tests
-  an argument before frame setup, but it is the one signature in the set that would look the same
-  either way. Worth confirming it sits at the function entry.
-- [HPLComfortBridge.cpp:56](src/dll/HPLComfortBridge.cpp:56) extends a 7-byte setter signature with
-  nine `0xcc` alignment bytes to reach uniqueness. Padding is a linker artifact, not code — it moves
-  when the *next* function's alignment changes, not when this function does. It fails closed, so it
-  is safe, but it will produce a confusing "signature mismatch" on a build where nothing about the
-  target function changed.
+**Negative — `kRenderPostEffectsSignature` is a genuine prologue.**
+[HPLCompatibilityProbe.cpp:2147](src/dll/HPLCompatibilityProbe.cpp:2147), RVA `0x33bd80` →
+`0x14033bd80`, which Ghidra reports as `Entry: 14033bd80` for
+`HPL3_PostEffectComposite_Render(void* composite, float frameTime, void* frustum,
+void* inputTexture, void* renderTarget)`. The disassembly matches the signature byte for byte:
+
+```
+14033bd80: TEST R9,R9                       4d 85 c9
+14033bd83: JZ 0x14033befd                   0f 84 74 01 00 00
+14033bd89: MOV qword ptr [RSP + 0x20],RBP   48 89 6c 24 20
+```
+
+`R9` is the fourth integer argument (`inputTexture`) under the Win64 convention, and the `JZ` target
+`0x14033befd` is the function's own `RET`. It is an argument null-check that early-outs before frame
+setup — unusual to look at, entirely legitimate, and not an interior anchor. No action.
+
+**Confirmed — the depth-of-field signature is 56 % linker padding.**
+[HPLComfortBridge.cpp:55](src/dll/HPLComfortBridge.cpp:55), RVA `0x071f80`. Ghidra reports
+`HPL3_World_SetDepthOfFieldActive(void* world, bool active)` with
+`Body: 140071f80 - 140071f86` — **seven bytes**. The 32 bytes actually present:
+
+```
+140071f80: 88 91 64 02 00 00 c3            mov [rcx+0x264], dl ; ret   <- the entire function
+140071f87: cc cc cc cc cc cc cc cc cc      int3 x9                     <- alignment padding
+140071f90: f3 0f 11 89 58 02 00 00 c3      movss [rcx+0x258], xmm1     <- the NEXT function
+```
+
+The 16-byte signature is 7 bytes of function plus 9 bytes of inter-function padding, ending exactly
+where the next function begins on a 16-byte boundary. That padding length is decided by the
+*neighbour's* placement, so a SOMA build in which `SetDepthOfFieldActive` is byte-identical but its
+successor moves or changes size will fail the check and log
+`hpl_comfort_bridge install_failed reason=signature_mismatch` — disabling depth-of-field comfort
+control for a reason that has nothing to do with the function named in the error.
+
+**The padding buys nothing.** The check is
+`memcmp(base + kSetDepthOfFieldActiveRva, sig, sizeof(sig))` at a **fixed RVA**, not an AOB scan, so
+uniqueness elsewhere in the binary is irrelevant — which is the only thing extra bytes could have
+bought. The seven real bytes are the whole function including its `ret`, which is as complete a
+fingerprint as that function can have. Recommended fix: drop the `0xcc` row from
+`kSetDepthOfFieldActiveSignature`. One line, and it removes a failure mode that reports the wrong
+cause.
+
+The neighbouring `kFadeCameraFovMultiplier` / `AspectMultiplier` / `Fov` signatures are unaffected —
+they are two real `movss` stores each, no padding.
 
 Separately, several signatures bake build-specific relative displacements into the pattern itself
 (`HPLCrosshairBridge.cpp:30` `e9 5b 73 e1 ff`; `HPLHudBridge.cpp:178/183` and

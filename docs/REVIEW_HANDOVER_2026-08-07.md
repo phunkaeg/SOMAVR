@@ -952,34 +952,64 @@ void* inputTexture, void* renderTarget)`. The disassembly matches the signature 
 `0x14033befd` is the function's own `RET`. It is an argument null-check that early-outs before frame
 setup — unusual to look at, entirely legitimate, and not an interior anchor. No action.
 
-**Confirmed — the depth-of-field signature is 56 % linker padding.**
-[HPLComfortBridge.cpp:55](src/dll/HPLComfortBridge.cpp:55), RVA `0x071f80`. Ghidra reports
-`HPL3_World_SetDepthOfFieldActive(void* world, bool active)` with
-`Body: 140071f80 - 140071f86` — **seven bytes**. The 32 bytes actually present:
+**Correction — the padding is load-bearing, and an earlier revision of this section was wrong.**
+That revision described `kSetDepthOfFieldActiveSignature` as "56 % linker padding" and recommended
+dropping the `0xcc` row. **Do not do that.** The recommendation came from reading only the
+`memcmp` use of the signature and not the other two, and it would have broken the comfort bridge on
+every machine.
+
+The facts, confirmed against the live binary. `HPL3_World_SetDepthOfFieldActive` at RVA `0x071f80`
+has `Body: 140071f80 - 140071f86` — seven bytes — and is followed by nine `0xcc` alignment bytes
+before the next function begins on the 16-byte boundary:
 
 ```
-140071f80: 88 91 64 02 00 00 c3            mov [rcx+0x264], dl ; ret   <- the entire function
+140071f80: 88 91 64 02 00 00 c3            mov [rcx+0x264], dl ; ret   <- entire function
 140071f87: cc cc cc cc cc cc cc cc cc      int3 x9                     <- alignment padding
-140071f90: f3 0f 11 89 58 02 00 00 c3      movss [rcx+0x258], xmm1     <- the NEXT function
+140071f90: f3 0f 11 89 58 02 00 00 c3      movss [rcx+0x258], xmm1     <- next function
 ```
 
-The 16-byte signature is 7 bytes of function plus 9 bytes of inter-function padding, ending exactly
-where the next function begins on a 16-byte boundary. That padding length is decided by the
-*neighbour's* placement, so a SOMA build in which `SetDepthOfFieldActive` is byte-identical but its
-successor moves or changes size will fail the check and log
-`hpl_comfort_bridge install_failed reason=signature_mismatch` — disabling depth-of-field comfort
-control for a reason that has nothing to do with the function named in the error.
+`sizeof(kSetDepthOfFieldActiveSignature)` is used in **three** places, not one:
 
-**The padding buys nothing.** The check is
-`memcmp(base + kSetDepthOfFieldActiveRva, sig, sizeof(sig))` at a **fixed RVA**, not an AOB scan, so
-uniqueness elsewhere in the binary is irrelevant — which is the only thing extra bytes could have
-bought. The seven real bytes are the whole function including its `ret`, which is as complete a
-fingerprint as that function can have. Recommended fix: drop the `0xcc` row from
-`kSetDepthOfFieldActiveSignature`. One line, and it removes a failure mode that reports the wrong
-cause.
+| Use | Line | Effect of trimming to 7 |
+| --- | --- | --- |
+| `memcmp` build check | [HPLComfortBridge.cpp:520](src/dll/HPLComfortBridge.cpp:520) | harmless |
+| sizes `g_depthOfFieldOriginal`, the patch save/restore buffer | [HPLComfortBridge.cpp:88](src/dll/HPLComfortBridge.cpp:88) | buffer shrinks to 7 |
+| passed as `size` to `InstallAbsoluteJumpPatch` | [HPLComfortBridge.cpp:573](src/dll/HPLComfortBridge.cpp:573) | **`if (… size < 12) return false;`** — the patch is refused |
 
-The neighbouring `kFadeCameraFovMultiplier` / `AspectMultiplier` / `Fov` signatures are unaffected —
-they are two real `movss` stores each, no padding.
+The comfort bridge installs its hook here as an **absolute jump**, `mov rax, imm64; jmp rax`, which
+is twelve bytes. The target function is seven. A twelve-byte patch into a seven-byte function
+*must* spill five bytes past its end, so the nine `0xcc` bytes in the signature are the check that
+the spill region is inter-function padding and therefore safe to overwrite. They also size the
+buffer that restores all sixteen bytes on shutdown.
+
+Trimming to seven would hit the `size < 12` guard, `InstallAbsoluteJumpPatch` would return false,
+and `InstallHPLComfortBridge` would log `reason=depth_of_field_patch` and `return false` —
+**disabling the entire comfort bridge**, since the DoF, camera-add, roll and optics checks are ANDed
+into one `signaturesValid` and one install path. Head-bob, camera-shake, sway, roll and optics
+suppression would all silently stop, on every machine, with an error naming the patch rather than
+the signature edit that caused it.
+
+**This is a deliberate project convention, not an accident, and it appears wherever a target is
+shorter than the twelve-byte patch.** `kAddImpulseThunkSignature`
+([HPLGrabBridge.cpp:35](src/dll/HPLGrabBridge.cpp:35)) is the same shape, also confirmed live:
+
+```
+14049c720: 48 8b 01 ff a0 30 01 00 00      mov rax,[rcx] ; jmp [rax+0x130]   <- 9-byte thunk
+14049c729: cc cc cc                        int3 x3                           <- 3 bytes headroom
+                                           = 12, exactly the patch size
+```
+
+That is the playbook's own SOMAVR entry in chapter 07 — *"not every callsite has room for a standard
+trampoline … check the available prologue length before designing the hook, not after it corrupts
+the next function"* — encoded directly into the signature. The `0xcc` bytes **are** the "INT3" half
+of "INT3-plus-absolute-jump".
+
+**Rule for anyone touching these: a signature that ends in `0xcc` bytes on a short function is
+headroom, not decoration. Check every use of `sizeof(...)` before shortening one.** The residual
+fragility noted earlier is real but minor and correctly traded — the padding length does depend on
+the neighbour's placement, so a repacked SOMA could fail this check for a reason unrelated to the
+named function, and it fails closed when it does. That is the intended behaviour, because the patch
+would be unsafe in exactly that case.
 
 Separately, several signatures bake build-specific relative displacements into the pattern itself
 (`HPLCrosshairBridge.cpp:30` `e9 5b 73 e1 ff`; `HPLHudBridge.cpp:178/183` and

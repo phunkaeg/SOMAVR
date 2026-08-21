@@ -55,6 +55,8 @@ working tree rather than taken from commit messages:
 | **F-17** submit-path timing | **resolved and verified** (`2eab163`) | per-eye phase-separated CPU timing (acquire/wait/copyCpu/flush/release) surfaced every 300 XR frames, plus a documented runtime A/B protocol; one caveat below on which number to read |
 | **F-07** injector treats timeout as success | **resolved and verified** | `waitResult != WAIT_OBJECT_0` fails explicitly, the remote page is **deliberately not freed** on timeout, and injection is confirmed by re-scanning the target's module list for `somavr.dll`; the x64 exit-code truncation is reported honestly as `threadExitLow32` rather than treated as an `HMODULE` |
 | **F-08** detach closes the event the worker waits on | **resolved**, with one fix applied below | `CloseHandle`/null-assignment removed from detach; the worker caches the handle once and exits on any non-`WAIT_TIMEOUT` result, so the hot-spin is gone |
+| **F-12** GL detours intercept own calls | **resolved**, one gap below | `OpenGLOwnership.h` adds a `thread_local` depth counter with an RAII scope; 13 of 17 detours bypass on it, ~22 bridge entry points take it, and the bypass count is surfaced in the OpenGL summary |
+| **F-11** raw code patch without thread suspension | **half resolved** — fixed in `HPLGrabBridge`, **still open in `HPLComfortBridge`** | see below |
 
 Build and test state at the time of writing: `cmake --build build-openxr --config Release`
 succeeds, and `ctest -C Release` reports **7/7 passing**.
@@ -282,6 +284,89 @@ unload. The injector already refuses to inject into a process that has `somavr.d
 load/unload cycles are bounded to begin with.
 
 Verified: Release build clean, `ctest -C Release` 7/7 passing.
+
+### F-11 and F-12 re-checked, this time by grepping every use
+
+Both were re-audited after two earlier claims in this document turned out to rest on partial reads.
+Method: enumerate **every** use of the identifier before drawing a conclusion.
+
+#### F-12 — implemented, with one gap that is currently harmless
+
+[OpenGLOwnership.h](src/dll/OpenGLOwnership.h) is the "this call is mine" scope the finding asked
+for, and it is built correctly: `inline thread_local uint32_t g_ownOpenGLDepth`, an RAII
+`ScopedOwnOpenGLWork` that is non-copyable, and a bypass counter surfaced via
+`OwnOpenGLBypassCount()` in the OpenGL summary line
+([OpenGLHooks.cpp:2371](src/dll/OpenGLHooks.cpp:2371)) — so the guard reports how often it fires
+rather than being invisible.
+
+**13 of 17 detours bypass on it.** The four that do not are correct to omit:
+
+| Unguarded detour | Why that is right |
+| --- | --- |
+| `HookSwapBuffers` | the mod never calls `SwapBuffers`; bypassing would break the frame boundary |
+| `HookWglMakeCurrent` | `grep` across `src/` finds no call outside the hook itself |
+| `HookWglSwapIntervalEXT` | never called by the mod |
+| `HookWglGetProcAddress` | **deliberately** re-entrant — `ResolveGlProc` calling it is how extension hooks get installed, and `MaybeInstallExtensionHook` is idempotent |
+
+**The gap:** `CreateHistories` in
+[HPLSSAOTemporalHistory.cpp:141](src/dll/HPLSSAOTemporalHistory.cpp:141) calls hooked
+`glBindTexture` twice — once per history texture, once to restore — with **no**
+`ScopedOwnOpenGLWork`. It is the only hooked-GL call the mod makes outside `OpenXRGLBridge`.
+
+That re-enters `HookGlBindTexture`, which calls `ObserveHPLSSAOTemporalGLBind` — feeding the mod's
+own texture binds back into the subsystem that created them. It is **not** currently a live bug:
+the observer early-outs unless `g_bindingNativeTexture` is non-null, and that marker is set only
+between `BeginHPLSSAOTemporalTextureBind` and `EndHPLSSAOTemporalTextureBind`
+([:296-304](src/dll/HPLSSAOTemporalHistory.cpp:296)), a window on a different call path from the
+pass-commit path that reaches `CreateHistories` at
+[:262](src/dll/HPLSSAOTemporalHistory.cpp:262). So the mod's own binds are discarded — but by
+**call-path ordering, not by the guard that exists for exactly this**. Any future caller that
+creates histories while a native bind is in flight would record the mod's own history texture as the
+native texture's identity, and the `SameIdentity` mismatch that follows would delete and rebuild the
+temporal history every frame.
+
+Secondary, and gated off in the shipping config: the same unguarded binds would be recorded into
+`g_postEffectResourceCapture` if that probe were armed, polluting the per-eye
+shared-vs-distinct ownership classification. `HPLPostEffectResourceProbe=0` in
+`config/somavr.release.ini`.
+
+Fix is one line — `ScopedOwnOpenGLWork ownGl;` at the top of `CreateHistories`. `DeleteHistories`
+and `Copy` need nothing; `glDeleteTextures` and `glCopyImageSubData` are not hooked.
+
+#### F-11 — fixed in one file, unchanged in the other
+
+`HPLGrabBridge` now does this **better than MinHook**.
+`ScopedPeerThreadSuspension` ([HPLGrabBridge.cpp:1384](src/dll/HPLGrabBridge.cpp:1384)) enumerates
+every thread in the process except the current one, suspends each, reads its `CONTEXT`, and refuses
+the patch if any thread's instruction pointer lies inside the patch range —
+`PatchWriteFailure::InstructionPointerInRange`. It also verifies the current bytes still match the
+expected bytes (`ExpectedBytesChanged`) before writing, and resumes every thread from the
+destructor. That is a genuine compare-and-swap over live code.
+
+**`HPLComfortBridge` was not given the same treatment.** It has its *own*
+`WriteCodeBytes(void* target, const void* bytes, size_t size)`
+([HPLComfortBridge.cpp:361](src/dll/HPLComfortBridge.cpp:361)) — `VirtualProtect`, `memcpy`,
+`FlushInstructionCache`, restore protection. No suspension, no RIP check, no expected-bytes
+verification. `grep -rn "SuspendThread" src/dll/` returns `HPLGrabBridge.cpp` only.
+
+It is used for **eight** raw twelve-byte writes over live code:
+
+| Phase | Sites | Functions |
+| --- | --- | --- |
+| install | [:572](src/dll/HPLComfortBridge.cpp:572), [:585](src/dll/HPLComfortBridge.cpp:585), [:591](src/dll/HPLComfortBridge.cpp:591), [:597](src/dll/HPLComfortBridge.cpp:597) | `SetDepthOfFieldActive`, `FadeCameraFovMultiplier`, `FadeCameraAspectMultiplier`, `FadeCameraFov` |
+| restore | [:444](src/dll/HPLComfortBridge.cpp:444), [:446](src/dll/HPLComfortBridge.cpp:446), [:450](src/dll/HPLComfortBridge.cpp:450), [:454](src/dll/HPLComfortBridge.cpp:454) | the same four, at shutdown |
+
+The restore path is the sharper half: shutdown happens while the game is still running and still
+calling these camera functions, so a twelve-byte non-atomic rewrite can be observed mid-sequence.
+These are small, hot camera setters — `FadeCameraFov` and friends are exactly the kind of function
+called every frame.
+
+The fix already exists in this codebase, one file over. Lift `ScopedPeerThreadSuspension`, the
+`PatchWriteFailure` enum and the guarded `WriteCodeBytes` out of `HPLGrabBridge.cpp` into a shared
+header, and have `InstallAbsoluteJumpPatch` / `RemoveAbsoluteJumpPatch` use it. Note the interaction
+with the padding rule above: the comfort-bridge patches spill past the end of short functions by
+design, so the RIP-in-range check has to cover the **full patch extent**, not just the function
+body.
 
 ---
 

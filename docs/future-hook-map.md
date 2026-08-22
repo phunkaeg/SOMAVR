@@ -40,8 +40,8 @@ Created: 2026-07-09. Status: early reverse-engineering notes. Keep confirmed add
 
 | Candidate | Confidence | Purpose | Evidence |
 | --- | --- | --- | --- |
-| `Soma_NoSteam.exe+0x271b80` | Static confirmed, runtime hook pending | Intercept `cCamera::GetFrustum` on every render query | Ghidra behavior matches released HPL2 camera code; selection is restricted to the render-viewport return RVA `+0x298697`. |
-| `Soma_NoSteam.exe+0x270230` | Static confirmed, direct call pending | Rebuild perspective frustum after applying HMD view orientation | HPL2 match updates view-projection and all culling derivatives. |
+| `Soma_NoSteam.exe+0x271b80` | Runtime confirmed, guarded hook active | Intercept `cCamera::GetFrustum` on every render query | Ghidra behavior matches released HPL2 camera code; selection is restricted to the render-viewport return RVA `+0x298697`, and hot packet access is page-validated/SEH-guarded. |
+| `Soma_NoSteam.exe+0x270230` | Runtime confirmed, guarded call active | Rebuild perspective frustum after applying HMD view orientation | HPL2 match updates view-projection and all culling derivatives; the active bridge calls it only for validated perspective frusta. |
 | F10 orientation calibration | Runtime confirmed | Define a neutral pose and toggle the native bridge | Live `0.4.0` applied `1210` renders and restored the base view cleanly. |
 | `frustum+0xd8/+0x118/+0x158` | Static confirmed | Projection/view-projection/view matrix packet | Read/write behavior in renderer and setup matches HPL2 layout. |
 | F11 alternating-eye bridge | Build ready | First native IPD, position, and asymmetric-FOV stereo proof | Updates one HPL eye per game frame and retains both through GL caches. |

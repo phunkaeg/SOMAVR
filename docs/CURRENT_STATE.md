@@ -1209,41 +1209,20 @@ The OpenXR build now asks for:
 The prioritized multi-feature live plan is maintained in
 `docs/NEXT_LIVE_EVIDENCE.md`.
 
-1. Launch the current OpenXR build:
+Launch the rolling 0.92 package:
 
 ```powershell
-& "D:\Dev Debug\SOMAVR\build-openxr\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
+& "D:\Dev Debug\SOMAVR\out\SOMAVR-latest\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe" "D:\Dev Debug\SOMAVR\out\SOMAVR-latest\somavr.dll"
 ```
 
-2. Run `somavr_injector --doctor <Soma_NoSteam.exe>` and require zero failures,
-   then confirm `version=0.56.0-authored-camera-handoff`,
-   `hpl_per_eye_view_history initialized configured=1 packetBytes=0x40`, and no
-   hook/signature failure. Load a save, face forward, and press F10 once.
-3. Confirm the proven rigid world, eye height, centered projection, depth,
-   shadows, reflections, controller input, HUD, and audio before changing mode.
-   Open F1 and confirm `HUD SHAPE: CURVED`; toggle to `QUAD` and back while
-   checking identical alpha, center distance, vertical placement, and content.
-   An unsupported runtime must show `HUD SHAPE: QUAD ONLY` without XR failures.
-4. Walk at partial and full stick, release, and confirm the comfort vignette
-   fades only at the periphery. Open F1 and toggle it off/on; pause, terminal,
-   loading, dead, authored-camera, and panel ownership must release it. Snap
-   stick hold must not sustain it; smooth turn may drive it.
-5. Before changing modes, `VIEW HISTORY` must already be `ACTIVE` in F10 AFR.
-   Expect alternating eye `0/1` restores/captures. Recenter once and confirm a
-   single generation reseed. Then enable `SAME FRAME STEREO` and confirm both
-   eye transactions share each pose identity without a history fault.
-6. Exercise quiet, reflective, shadowed, tone/bloom, fade, terminal, inventory,
-   pause, authored-camera, and loading scenes while rotating and translating the
-   HMD. Stop on cross-eye history, skew, changing shadow/reflection position,
-   stale frames, duplicated GUI, or unacceptable pacing.
-7. Toggle same-frame stereo off. AFR must return immediately and `VIEW HISTORY`
-   must remain `ACTIVE`. Toggle on once more and confirm a clean transition.
-8. Set `HPLPerEyeViewHistoryControl=0` for the direct rollback test; status must
-   show `UNAVAILABLE` and native shared history must remain untouched.
-9. Confirm the build manifest version/flavor/hash, exit normally, and attach the
-   full log with final dual-render and per-eye-history summaries.
-   Include the two `openxr_input interaction_profile` rows and verify they name
-   the controller profile actually in use.
+Run `somavr_injector --doctor` first and require zero failures. The next normal
+headset pass should confirm the 0.91 visual/gameplay baseline while collecting
+the new `openxr_gl_transfer`, `hpl_occlusion_query_summary`,
+`hpl_framebuffer_copy_summary`, XR lock-contention, and guarded camera-memory
+counters. A separate opt-in `HandTrackingProbe=1` pass can then prove the
+player-hands owner timing. Exact steps, expected records, rollback rules, and
+promotion gates are kept only in `docs/NEXT_LIVE_EVIDENCE.md` to avoid another
+stale duplicate checklist here.
 
 ## apitrace Camera Confirmation (2026-08-10)
 

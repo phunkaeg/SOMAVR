@@ -66,8 +66,9 @@ working tree rather than taken from commit messages:
 | **F-16** GL state guard nested inside acquire/release | **fixed** | `ScopedRuntimeGlState` brackets the whole acquire/wait/copy/release transaction in all four swapchain paths, so state the runtime clobbers on either side is restored before the game's next draw |
 | **F-18** REX/displacement coupling unguarded | **fixed** | `kRipRelativeLoadDisplacementOffset` / `NextInstructionOffset` now live in `SomaBuildSignatures.h` with `static_assert`s, and both remaining decode sites use them; `HPLNativeLocomotion` additionally asserts its signature opens `48 8b 05` |
 
-Build and test state at the time of writing: `cmake --build build-openxr --config Release`
-succeeds, and `ctest -C Release` reports **7/7 passing**.
+Build and test state at the time of writing: `0.91.0-review-hardening`, full Release build
+clean, `ctest -C Release` **7/7 passing**, and the build manifest SHA-256 matches the produced
+`somavr.dll` (which is what `Package-Release.ps1` refuses to package without).
 
 ### What is deliberately still open, and why
 

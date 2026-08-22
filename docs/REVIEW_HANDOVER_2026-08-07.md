@@ -5,6 +5,7 @@ Reviewer: external read-only review (no code changed, nothing run in-game)
 Baseline reviewed: working tree at `ed2e7d8` **plus 57 modified + 16 untracked source files**
 Reference standard: `D:\dev debug\VR Modding\docs\` (the VR playbook), chapters 06, 07, 08, 10
 Cross-project corroboration: TheDarkModVR (`D:\Dev Debug\thedarkmodvr\`) — see F-16, F-17
+FEAR-VR (`D:/Dev Debug/Other VR Mods/fear-vr`, MIT) and FarCry2-VR — see F-19
 
 ---
 
@@ -57,6 +58,7 @@ working tree rather than taken from commit messages:
 | **F-08** detach closes the event the worker waits on | **resolved**, with one fix applied below | `CloseHandle`/null-assignment removed from detach; the worker caches the handle once and exits on any non-`WAIT_TIMEOUT` result, so the hot-spin is gone |
 | **F-12** GL detours intercept own calls | **resolved**, one gap below | `OpenGLOwnership.h` adds a `thread_local` depth counter with an RAII scope; 13 of 17 detours bypass on it, ~22 bridge entry points take it, and the bypass count is surfaced in the OpenGL summary |
 | **F-11** raw code patch without thread suspension | **resolved** — fixed in both files | `ScopedPeerThreadSuspension` lifted into `LiveCodePatch.h`; all eight `HPLComfortBridge` writes now suspend peer threads, reject the write if any thread's instruction pointer is inside the full patch extent, and verify expected bytes first |
+| **F-19** transient fault clears persistent stereo mode | **fixed** | one failed `ApplyStereoEye` no longer surrenders stereo ownership; only F11, an 8-consecutive-failure threshold, or a camera-changed reset can. Found by cross-checking FEAR-VR / FarCry2-VR |
 
 Build and test state at the time of writing: `cmake --build build-openxr --config Release`
 succeeds, and `ctest -C Release` reports **7/7 passing**.
@@ -415,7 +417,80 @@ pointer-plus-length, so the three lengths are one fact instead of three that hav
 disagree, which was previously unrepresentable and unchecked. And a mis-paired buffer is now visible
 as a mismatched field name on adjacent lines rather than an anonymous pointer in slot five.
 
+### F-19 · A single failed stereo apply permanently dropped the player to mono
+
+**Location:** [HPLCameraBridge.cpp:1344](src/dll/HPLCameraBridge.cpp:1344) — **fixed**
+
+Found by cross-checking against two external native-stereo projects:
+[FEAR-VR](file:///D:/Dev%20Debug/Other%20VR%20Mods/fear-vr) (MIT) and the FarCry2-VR mod derived
+from it. No code was copied from either; the finding is architectural.
+
+FEAR-VR's proxy uses one shared-memory bit, `FEARVR_BF_STEREO_ACTIVE`, for two different facts:
+*stereo is the current render mode*, and *the present just transferred was stereo*. Its transfer
+path ends `if (stereo) { set } else { clear }`
+([`src/proxy32/bridge.cpp`](file:///D:/Dev%20Debug/Other%20VR%20Mods/fear-vr/src/proxy32/bridge.cpp)),
+so any ordinary mono present revoked stereo ownership. The host reads that bit every XR frame to
+choose `XrCompositionLayerProjection` vs `XrCompositionLayerQuad`, so transient mono presents made
+the layer type flap between true VR and a flat theatre rectangle. FarCry2-VR's fix was to **NOP that
+single instruction** (RVA `0x00008B48`) so only explicit menu / comfort / stereo-disable transitions
+can clear the bit. It is still unfixed upstream.
+
+SOMAVR had the same shape. On a failed `ApplyStereoEye`:
+
+```cpp
+g_state.stereoEnabled = false;
+g_state.currentEyeIndex = -1;
+g_state.currentEyePoseFrame = 0;
+ResetStereoFillPhase();
+g_openxr->SetStereoSubmissionEnabled(false);
+```
+
+One bad frame permanently disabled stereo, recoverable only with the F11 hotkey — and the explicit
+F11 disable path at [:1168](src/dll/HPLCameraBridge.cpp:1168) performed **the same four
+assignments**, so nothing downstream could distinguish a transient fault from a user decision.
+
+**Fix.** A failed apply is now a frame-level event: the per-frame eye state resets, the frame falls
+back to mono orientation, and stereo is retried next frame. Ownership is surrendered only after
+`kStereoApplyFailureLimit` (8) *consecutive* failures — matching the existing
+`stereoCaptureFailures_` suspend budget in `OpenXRRuntime`, so the two stereo lanes fail over
+together. The counter resets on the first success (logging `apply_recovered afterConsecutiveFailures=N`),
+on explicit F11 enable, and on the player-camera-changed state reset.
+
+After the change every `stereoEnabled = false` is an explicit transition: F11, the 8-failure
+threshold, and the camera-changed reset. Verified: Release build clean, `ctest -C Release` 7/7.
+
+### Also worth taking from those two projects, not yet done
+
+- **Hold the last complete pair rather than blanking.** SOMAVR is already correct on the sharper
+  half of this — `if (stereoSubmissionEnabled_ && !stereoReady) copied = false;` refuses to publish
+  a mono image into both eye slots while stereo owns the mode, which is exactly the bug FarCry2-VR
+  needed its R4 bridge hooks to fix. The remaining difference is what happens instead: SOMAVR clears
+  both eyes to black, FarCry2-VR retains the last coherent L/R pair until the next complete one
+  arrives. For a one-frame transient a held pair reprojects correctly through timewarp and is less
+  jarring than a black flash. `projectionContentValid_` already distinguishes "never had a pair"
+  (black is right — warmup) from "had one, lost it this frame" (hold is right). Measure the failure
+  mix first: `StereoCachesReady()` is part of `stereoReady`, so a hold only helps when the caches are
+  intact and something else failed.
+- **Validate camera writes in pose space, not raw matrix space.** FarCry2-VR's R4 replaced a
+  16-coefficient View-matrix comparison against a fixed `0.010` threshold with separate physical
+  checks — rotation error `< 0.0025`, position error `< 0.010` — because world-space translation
+  terms amplify tiny rotation rounding by the player's large map coordinates, producing
+  *yaw-dependent* false rejects. SOMAVR does no camera readback verification at all today, so this
+  is prospective; but chapter 06 says one should exist, and this is a precise warning about how to
+  build it wrong. SOMA has large world coordinates too.
+- **Tag failure records with world position and heading.** That is how FarCry2-VR discovered its
+  rejects clustered near one world direction and again 180° opposite, which is what diagnosed the
+  amplification. SOMAVR's failure logs carry frame and reason but no pose.
+- **Give the skip counter a reason histogram.** `XR_REQUEST=298 / XR_PAIR=215 / XR_SKIP=84, all
+  retained skip reason = LEFT_NATIVE_VIEW_BEGIN_FAILED` is what made their diagnosis possible from a
+  single run. SOMAVR has `RecordFrameFailureLocked(reason, …)` but the periodic summary reports
+  totals, not a breakdown by reason.
+
+Sobering context for any future native-stereo work on HPL3: FarCry2-VR still rejected **84 of 298**
+eye transactions (28%) after two rounds of targeted fixes, and ships as a test build.
+
 ---
+
 
 ## P0 — must fix before anything is shipped or tested off this machine
 

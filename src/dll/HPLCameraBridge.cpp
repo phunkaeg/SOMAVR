@@ -41,6 +41,11 @@ using camera_math::UpdatePoseStability;
 using camera_math::ValidateStereoProjectionMath;
 using camera_math::Vector3;
 
+// Consecutive failed stereo applies before stereo ownership is actually given
+// up. Matches the existing stereoCaptureFailures_ suspend threshold in
+// OpenXRRuntime so the two stereo lanes fail over on the same budget.
+constexpr uint32_t kStereoApplyFailureLimit = 8;
+
 constexpr uintptr_t kCameraGetFrustumRva = 0x271b80;
 constexpr uintptr_t kSetupPerspectiveFrustumRva = 0x270230;
 constexpr uintptr_t kCheckLineOfSightRva = 0x0cd710;
@@ -127,6 +132,7 @@ struct BridgeState {
     bool baseMatricesValid = false;
     int currentEyeIndex = -1;
     uint64_t currentEyePoseFrame = 0;
+    uint32_t stereoApplyFailures = 0;
     bool pairRotationValid = false;
     Quaternion pairRotation{};
     uint32_t activationTrackingWaitLogs = 0;
@@ -1098,6 +1104,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
         InvalidateRoomscaleSafetyCache();
         if (g_config.hplStereoAfr) {
             g_state.stereoEnabled = true;
+            g_state.stereoApplyFailures = 0;
             ResetStereoFillPhase();
             g_state.currentEyeIndex = -1;
             g_state.currentEyePoseFrame = 0;
@@ -1182,6 +1189,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
                     "hpl_stereo enable_ignored key=F11 reason=stereo_views_unavailable");
             } else {
                 g_state.stereoEnabled = true;
+                g_state.stereoApplyFailures = 0;
                 ResetStereoFillPhase();
                 g_state.currentEyeIndex = -1;
                 g_state.currentEyePoseFrame = 0;
@@ -1339,19 +1347,48 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
                 static_cast<unsigned long long>(views.gameFrame));
         }
         if (ApplyStereoEye(frustum, views, eyeIndex, wasDirty)) {
+            if (g_state.stereoApplyFailures != 0) {
+                Logger::Instance().Write(
+                    LogLevel::Info,
+                    "hpl_stereo apply_recovered afterConsecutiveFailures=%u",
+                    g_state.stereoApplyFailures);
+                g_state.stereoApplyFailures = 0;
+            }
             return frustum;
         }
 
-        g_state.stereoEnabled = false;
+        // A failed apply is a frame-level event, not a mode change. Clearing
+        // stereoEnabled here would let one bad frame drop the player to mono
+        // permanently, with the F11 toggle as the only way back - and it would
+        // do it through the same four assignments as an explicit F11 disable,
+        // so nothing downstream could tell a transient fault from a user
+        // decision. Only an explicit transition owns the mode; a fault falls
+        // back to mono for this frame and stereo is retried on the next one.
+        // Corroborated by FEAR-VR, whose bridge clears its persistent
+        // STEREO_ACTIVE bit on any non-stereo present: the derived FarCry2-VR
+        // mod had to NOP that instruction to stop layer-type flapping.
         g_state.currentEyeIndex = -1;
         g_state.currentEyePoseFrame = 0;
         ResetStereoFillPhase();
-        if (g_openxr != nullptr) {
-            g_openxr->SetStereoSubmissionEnabled(false);
+        ++g_state.stereoApplyFailures;
+        if (g_state.stereoApplyFailures < kStereoApplyFailureLimit) {
+            if (g_state.stereoApplyFailures <= 4) {
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "hpl_stereo apply_failed consecutive=%u limit=%u fallback=mono_orientation_this_frame",
+                    g_state.stereoApplyFailures,
+                    kStereoApplyFailureLimit);
+            }
+        } else {
+            g_state.stereoEnabled = false;
+            if (g_openxr != nullptr) {
+                g_openxr->SetStereoSubmissionEnabled(false);
+            }
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_stereo suspended reason=projection_apply_failed consecutive=%u fallback=mono_orientation",
+                g_state.stereoApplyFailures);
         }
-        Logger::Instance().Write(
-            LogLevel::Warn,
-            "hpl_stereo suspended reason=projection_apply_failed fallback=mono_orientation");
     }
 
     Quaternion currentOrientation;
@@ -2049,6 +2086,7 @@ void NotifyHPLPlayerCameraChanged(void* previousCamera, void* currentCamera)
     g_state.recenterPending = false;
     g_state.trackingEnabled = false;
     g_state.stereoEnabled = false;
+    g_state.stereoApplyFailures = 0;
     g_state.baseMatricesValid = false;
     g_state.activeCamera = currentCamera;
     g_state.activeFrustum = nullptr;

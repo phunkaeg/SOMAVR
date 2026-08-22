@@ -67,6 +67,11 @@ using xr_helpers::XrVersionString;
 
 constexpr uint64_t kViewConfigurationCheckIntervalFrames = 300;
 constexpr uint64_t kLongXrWaitThresholdUs = 100000;
+// Frames a stale-but-coherent stereo pair may be re-submitted before the eyes
+// are blacked instead. The pair reprojects correctly because it carries its own
+// render poses, so a short hold is safer than a black flash - but an unbounded
+// hold is a frozen world, so it is budgeted. ~130 ms at 90 Hz.
+constexpr uint32_t kStereoHoldLimitFrames = 12;
 
 int64_t QpcNow()
 {
@@ -640,6 +645,9 @@ struct OpenXRRuntime::Impl {
             << " openxrPresentationBlackout=" << (presentationBlackoutActive_ ? 1 : 0)
             << " openxrPresentationBlackoutTransitions=" << static_cast<unsigned long long>(presentationBlackoutTransitions_)
             << " openxrPresentationBlackoutFrames=" << static_cast<unsigned long long>(presentationBlackoutFrames_)
+            << " openxrStereoHoldEpisodes=" << static_cast<unsigned long long>(stereoHoldEpisodes_)
+            << " openxrStereoHoldFrames=" << static_cast<unsigned long long>(stereoHoldTotalFrames_)
+            << " openxrStereoHoldExhausted=" << static_cast<unsigned long long>(stereoHoldExhausted_)
             << " openxrSessionRunning=" << (sessionRunning_ ? 1 : 0)
             << " openxrEverFocused=" << (everFocused_ ? 1 : 0)
             << " openxrFocusPacingEpisode=" << (focusPacingEpisodeActive_ ? 1 : 0)
@@ -1175,6 +1183,8 @@ struct OpenXRRuntime::Impl {
         stereoCacheAgeUsLatest_[0] = 0;
         stereoCacheAgeUsLatest_[1] = 0;
         stereoWarmupLogged_ = false;
+        heldPair_ = {};
+        stereoHoldFrames_ = 0;
         ++stereoCacheInvalidations_;
         Logger::Instance().Write(
             LogLevel::Warn,
@@ -2467,6 +2477,8 @@ private:
     {
         glBridge_.Shutdown();
         projectionContentValid_ = false;
+        heldPair_ = {};
+        stereoHoldFrames_ = 0;
         DestroyFoveationProfilesLocked();
         if (viewSpace_ != XR_NULL_HANDLE) {
             xrDestroySpace(viewSpace_);
@@ -3086,10 +3098,73 @@ private:
 
             if (copied) {
                 projectionContentValid_ = true;
+                if (submittedStereo) {
+                    for (uint32_t eyeIndex = 0;
+                        eyeIndex < glBridge_.EyeCount() && eyeIndex < heldPair_.pose.size();
+                        ++eyeIndex) {
+                        heldPair_.pose[eyeIndex] = projectionViews[eyeIndex].pose;
+                        heldPair_.fov[eyeIndex] = projectionViews[eyeIndex].fov;
+                    }
+                    heldPair_.valid = true;
+                    heldPair_.gameFrame = frameIndex;
+                }
+                if (stereoHoldFrames_ != 0) {
+                    Logger::Instance().Write(
+                        LogLevel::Info,
+                        "openxr_stereo_hold released frame=%llu heldFrames=%u episodes=%llu totalHeldFrames=%llu",
+                        static_cast<unsigned long long>(frameIndex),
+                        stereoHoldFrames_,
+                        static_cast<unsigned long long>(stereoHoldEpisodes_),
+                        static_cast<unsigned long long>(stereoHoldTotalFrames_));
+                    stereoHoldFrames_ = 0;
+                }
+            }
+
+            // A frame that cannot refresh the eye images does not acquire the
+            // swapchains at all, so the runtime keeps presenting the last
+            // released pair. That is a legitimate hold, but only if the layer
+            // carries the poses those images were rendered from: submitting them
+            // against the current head pose tells the compositor they are fresh
+            // and suppresses the reprojection that keeps the world world-locked,
+            // which reads as the image sticking to the face. Bound it, and black
+            // the eyes once the budget is spent rather than freezing indefinitely.
+            const bool holdCandidate = !copied
+                && !comfortBlackout
+                && !presentationBlackout
+                && !copyAttemptFailed
+                && projectionContentValid_
+                && heldPair_.valid;
+            const bool holdActive = holdCandidate && stereoHoldFrames_ < kStereoHoldLimitFrames;
+            if (holdActive) {
+                if (stereoHoldFrames_ == 0) ++stereoHoldEpisodes_;
+                ++stereoHoldFrames_;
+                ++stereoHoldTotalFrames_;
+                if (stereoHoldEpisodes_ <= 4 || stereoHoldEpisodes_ % 120 == 0) {
+                    Logger::Instance().Write(
+                        LogLevel::Info,
+                        "openxr_stereo_hold active frame=%llu heldFrames=%u limit=%u pairGameFrame=%llu stereoReady=%d policy=resubmit_last_pair_with_its_own_poses",
+                        static_cast<unsigned long long>(frameIndex),
+                        stereoHoldFrames_,
+                        kStereoHoldLimitFrames,
+                        static_cast<unsigned long long>(heldPair_.gameFrame),
+                        stereoReady ? 1 : 0);
+                }
+            } else if (holdCandidate) {
+                ++stereoHoldExhausted_;
+                if (stereoHoldExhausted_ <= 4 || stereoHoldExhausted_ % 120 == 0) {
+                    Logger::Instance().Write(
+                        LogLevel::Warn,
+                        "openxr_stereo_hold exhausted frame=%llu heldFrames=%u limit=%u exhausted=%llu fallback=black",
+                        static_cast<unsigned long long>(frameIndex),
+                        stereoHoldFrames_,
+                        kStereoHoldLimitFrames,
+                        static_cast<unsigned long long>(stereoHoldExhausted_));
+                }
             }
 
             const bool requireBlackContent = comfortBlackout || presentationBlackout
-                || copyAttemptFailed || !projectionContentValid_;
+                || copyAttemptFailed || !projectionContentValid_
+                || (holdCandidate && !holdActive);
             if (requireBlackContent) {
                 bool cleared = true;
                 for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
@@ -3110,7 +3185,12 @@ private:
                     const OpenXRGLBridge::EyeSwapchain& eye = glBridge_.Eye(eyeIndex);
                     XrCompositionLayerProjectionView& projectionView = projectionViews[eyeIndex];
                     projectionView = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
-                    if (stereoReady) {
+                    if (holdActive && eyeIndex < heldPair_.pose.size()) {
+                        // Held imagery must carry the poses it was rendered
+                        // from, so the compositor still reprojects it.
+                        projectionView.pose = heldPair_.pose[eyeIndex];
+                        projectionView.fov = heldPair_.fov[eyeIndex];
+                    } else if (stereoReady) {
                         projectionView.pose = ToXrPose(renderedStereoViews_[eyeIndex]);
                         projectionView.fov = ToXrFov(renderedStereoViews_[eyeIndex]);
                     } else if (latestPoseValid_ && eyeIndex < locatedViews_.size()) {
@@ -4405,6 +4485,22 @@ private:
     uint64_t comfortBlackoutRequests_ = 0;
     uint64_t comfortBlackoutFrames_ = 0;
     bool projectionContentValid_ = false;
+    // The last stereo pair actually submitted, kept so a frame that cannot
+    // refresh the eye images can re-submit them with the poses they were
+    // rendered from. Submitting held imagery with a *fresh* pose tells the
+    // compositor the image is current, which suppresses the reprojection that
+    // would otherwise keep the world world-locked while the image goes stale.
+    struct HeldStereoPair {
+        bool valid = false;
+        std::array<XrPosef, 2> pose{};
+        std::array<XrFovf, 2> fov{};
+        uint64_t gameFrame = 0;
+    };
+    HeldStereoPair heldPair_;
+    uint32_t stereoHoldFrames_ = 0;
+    uint64_t stereoHoldTotalFrames_ = 0;
+    uint64_t stereoHoldEpisodes_ = 0;
+    uint64_t stereoHoldExhausted_ = 0;
     uint64_t maxLayerCandidates_ = 0;
     uint64_t maxSubmittedLayers_ = 0;
     uint64_t droppedLayers_ = 0;
@@ -4654,6 +4750,7 @@ struct OpenXRRuntime::Impl {
             << " openxrRecoveryPending=0 openxrRecoveries=0 openxrStereoCacheInvalidations=0"
             << " openxrComfortBlackoutUntilFrame=0 openxrComfortBlackoutRequests=0 openxrComfortBlackoutFrames=0"
             << " openxrPresentationBlackout=0 openxrPresentationBlackoutTransitions=0 openxrPresentationBlackoutFrames=0"
+            << " openxrStereoHoldEpisodes=0 openxrStereoHoldFrames=0 openxrStereoHoldExhausted=0"
             << " openxrFrameResourcesReady=0"
             << " openxrFrameSubmitFailed=" << (enabled_ && frameSubmitEnabled_ ? 1 : 0)
             << " openxrSessionRunning=0"

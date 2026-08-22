@@ -59,6 +59,7 @@ working tree rather than taken from commit messages:
 | **F-12** GL detours intercept own calls | **resolved**, one gap below | `OpenGLOwnership.h` adds a `thread_local` depth counter with an RAII scope; 13 of 17 detours bypass on it, ~22 bridge entry points take it, and the bypass count is surfaced in the OpenGL summary |
 | **F-11** raw code patch without thread suspension | **resolved** — fixed in both files | `ScopedPeerThreadSuspension` lifted into `LiveCodePatch.h`; all eight `HPLComfortBridge` writes now suspend peer threads, reject the write if any thread's instruction pointer is inside the full patch extent, and verify expected bytes first |
 | **F-19** transient fault clears persistent stereo mode | **fixed** | one failed `ApplyStereoEye` no longer surrenders stereo ownership; only F11, an 8-consecutive-failure threshold, or a camera-changed reset can. Found by cross-checking FEAR-VR / FarCry2-VR |
+| **F-20** stereo hold submitted stale images with a fresh pose | **fixed** | the held pair now carries the poses it was rendered from, so the compositor still reprojects it; the hold is budgeted at 12 frames and falls back to black when spent |
 
 Build and test state at the time of writing: `cmake --build build-openxr --config Release`
 succeeds, and `ctest -C Release` reports **7/7 passing**.
@@ -459,18 +460,54 @@ on explicit F11 enable, and on the player-camera-changed state reset.
 After the change every `stereoEnabled = false` is an explicit transition: F11, the 8-failure
 threshold, and the camera-changed reset. Verified: Release build clean, `ctest -C Release` 7/7.
 
+### F-20 · The stereo hold submitted stale imagery against a fresh head pose
+
+**Location:** [OpenXRRuntime.cpp:3176](src/dll/OpenXRRuntime.cpp:3176) — **fixed**
+
+A frame that cannot refresh the eye images never acquires the swapchains, so the runtime keeps
+presenting the last released pair. Correct so far. But the projection layer built for that frame
+chose its poses like this:
+
+```cpp
+if (stereoReady)              { pose = ToXrPose(renderedStereoViews_[eye]); }
+else if (latestPoseValid_)    { pose = locatedViews_[eye].pose; }   // <- fresh pose, stale image
+```
+
+On a hold frame `stereoReady` is false by construction, so every held frame was submitted against
+the **current** head pose. A compositor reprojects a layer by the difference between the pose the
+layer declares and the pose at display time; declaring the current pose makes that difference zero,
+so the stale image is not reprojected at all and moves with the head. The world un-anchors for the
+duration of the hold. Blacking the eyes would have been better, which is why this masqueraded as an
+argument for blanking.
+
+**Fix.** `heldPair_` snapshots the pose and FOV of each eye at the moment a stereo pair is actually
+submitted. A hold frame re-submits those, so the compositor sees a layer that is genuinely old and
+reprojects it — the image goes stale but stays world-locked, which is what timewarp exists for.
+
+The hold is bounded at `kStereoHoldLimitFrames` (12, ~130 ms at 90 Hz); past that the eyes are
+blacked rather than freezing the world indefinitely. `heldPair_` is invalidated wherever the
+swapchain content stops being trustworthy — `DestroyFrameResourcesLocked` and
+`InvalidateStereoCachesLocked` — so a hold can never re-present a pair from before a recovery.
+Counters `openxrStereoHoldEpisodes / Frames / Exhausted` are in the summary line, and
+`openxr_stereo_hold active|released|exhausted` events are bounded-logged, so hold frequency is
+measurable rather than invisible.
+
+Verified: Release build clean, `ctest -C Release` 7/7.
+
 ### Also worth taking from those two projects, not yet done
 
-- **Hold the last complete pair rather than blanking.** SOMAVR is already correct on the sharper
-  half of this — `if (stereoSubmissionEnabled_ && !stereoReady) copied = false;` refuses to publish
-  a mono image into both eye slots while stereo owns the mode, which is exactly the bug FarCry2-VR
-  needed its R4 bridge hooks to fix. The remaining difference is what happens instead: SOMAVR clears
-  both eyes to black, FarCry2-VR retains the last coherent L/R pair until the next complete one
-  arrives. For a one-frame transient a held pair reprojects correctly through timewarp and is less
-  jarring than a black flash. `projectionContentValid_` already distinguishes "never had a pair"
-  (black is right — warmup) from "had one, lost it this frame" (hold is right). Measure the failure
-  mix first: `StereoCachesReady()` is part of `stereoReady`, so a hold only helps when the caches are
-  intact and something else failed.
+- **Hold the last complete pair rather than blanking — done, and it corrected an earlier
+  misreading in this document.** An earlier revision said SOMAVR "clears both eyes to black" when
+  stereo is unavailable. That is only true for blackouts, copy failures, and the first frames. In
+  the ordinary transient case SOMAVR *already held* the pair: a frame that cannot refresh the eyes
+  never acquires the swapchains, so the runtime keeps presenting the last released images. That is
+  a legal and correct hold.
+
+  The bug was inside it. On a hold frame `stereoReady` is false, so the pose branch fell through to
+  `locatedViews_` — submitting **stale imagery against the current head pose**. That tells the
+  compositor the image is fresh and suppresses exactly the reprojection that would keep the world
+  world-locked while the picture goes stale, so the held frame sticks to the face instead of staying
+  put. Worse than the black flash it was avoiding. See F-20.
 - **Validate camera writes in pose space, not raw matrix space.** FarCry2-VR's R4 replaced a
   16-coefficient View-matrix comparison against a fixed `0.010` threshold with separate physical
   checks — rotation error `< 0.0025`, position error `< 0.010` — because world-space translation

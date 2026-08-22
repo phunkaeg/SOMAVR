@@ -1,11 +1,45 @@
 # Next Live Evidence
 
-Date: 2026-08-07
+Date: 2026-08-22
 
 Use `out\SOMAVR-latest`
-(`0.90.0-gl-transfer-audit`) for the next run.
+(`0.91.0-review-hardening`) for the next run.
 
-The first priority is the 0.90 OpenXR GL transfer audit in
+The first priority is one focused 0.91 hardening pass. This is a regression and
+recovery build, not the native same-frame stereo experiment described in
+`NATIVE_STEREO_FEASIBILITY.md`.
+
+1. Launch the rolling package, load the apartment save, press F10 once, and
+   verify the established world, hands/IK, locomotion, interactions, terminal,
+   HUD/menu and desktop-mirror behavior.
+2. Reload the save or cross a loading boundary. If practical, briefly interrupt
+   headset tracking during ordinary AFR. A short incomplete-pair episode may
+   hold the last complete stereo pair, but it must remain world-locked, recover
+   automatically, and never become a persistent frozen image.
+3. Exercise the laptop, pause HUD, controller reticles/guides and comfort
+   presentation to cover the full private-GL state transaction. Then throw one
+   ordinary prop to exercise the shared live-patch guard.
+4. Exit normally and attach the complete log. Preserve these rows when present:
+
+```text
+build_identity identity=0.91.0-review-hardening+...
+runtime_paths ... source=module
+config_applied ... mtime=... bytes=... parsedKeyHash=... accepted=... unknownKeys=0 unknownSections=0
+hpl_stereo apply_failed consecutive=... limit=8 fallback=mono_orientation_this_frame
+hpl_stereo apply_recovered afterConsecutiveFailures=...
+openxr_stereo_hold active ... limit=12 ... policy=resubmit_last_pair_with_its_own_poses
+openxr_stereo_hold released ...
+openxr_stereo_hold exhausted ... fallback=black
+openxr_gl_transfer ... phaseOrder=total/acquire/wait/copyCpu/flush/release gpuTiming=excluded
+proof_summary ... ownGlBypasses=...
+```
+
+The apply-failure and stereo-hold rows are event-driven, so their absence in a
+healthy run is not a failure. Repeating `apply_failed` through the eight-frame
+threshold, an unbounded hold, a fresh-pose/stale-image skew, any zero-layer
+submit, or a second-F10 recovery requirement is a failure.
+
+The secondary priority remains the 0.90 OpenXR GL transfer audit in
 `TEST_CHECKLISTS.md`. Run the fixed 60-second apartment route under the current
 `VirtualDesktopXR` runtime and attach the complete log. If practical, repeat
 with SteamVR active using identical refresh rate, resolution, depth and scene
@@ -21,6 +55,10 @@ proof_summary ... openxrGlProjectionTransferAvgUs=... openxrGlLeftTransferFailur
 
 This is an evidence gate, not a D3D11 build. Ordinary visuals and interaction
 must remain identical to 0.89.
+
+For the SteamVR/VirtualDesktopXR comparison, use the `copyCpu` phase as the
+renderer-to-swapchain transfer cost. `projectionUs` includes runtime-controlled
+acquire/wait time and cannot by itself justify a D3D11 interop backend.
 
 The first priority is the 0.89 frame-contract and native-safety pass in
 `TEST_CHECKLISTS.md`; the 0.88 release-integrity and 0.87 focus-pacing checks

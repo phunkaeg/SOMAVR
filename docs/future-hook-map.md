@@ -47,6 +47,24 @@ Created: 2026-07-09. Status: early reverse-engineering notes. Keep confirmed add
 | F11 alternating-eye bridge | Build ready | First native IPD, position, and asymmetric-FOV stereo proof | Updates one HPL eye per game frame and retains both through GL caches. |
 | Per-eye GL cache texture/FBO | Build ready | Decouple AFR game renders from OpenXR swapchain image rotation | Each acquired swapchain image receives the latest cached render for that eye. |
 
+## apitrace Baseline Capture (2026-08-10)
+
+Vanilla `Soma_NoSteam.exe` traced under apitrace 14.0 (win64, GL) via the apitrace MCP —
+`traces\soma-gl-c3c7442f2aed`, 3874 frames, no mod loaded. Independent GL-driver-level confirmation
+of the camera candidates above. `find_matrices` + `track_camera`:
+
+| Slot (GL upload site) | Kind | Confirmation |
+| --- | --- | --- |
+| `glUniformMatrix4fv(program=822, location=1)` | view-projection | **`camera_moves=true`.** Eye position tracked WASD and `view_z_axis` tracked mouse-look across the capture (static → walk → stop → walk) — the real view matrix, i.e. the `a_mtxModelViewProjection`-class upload. Driver-level analogue of the native `frustum+0x118` (view-projection) packet. |
+| `glUniformMatrix4fv(program=884, location=1)` | projection | Decoded confidence 1.0: **FOV_y 70.0°, FOV_x 102.4°, aspect 16:9, near 0.03, far 998.67, GL right-handed, normal-Z.** Matches `game.cfg` (`FOV=70`, `NearClipPlane=0.03`, `FarClipPlane~1000`) and the main-scene program `884` already logged above. Analogue of native `frustum+0xd8`. |
+
+GL-layer VR-patch targets: rewrite the **view-projection** uniform (`program 822, loc 1`, and the
+equivalent upload in every scene program) per eye with the IPD-offset view; adjust the **projection**
+uniform (`program 884, loc 1`) for per-eye asymmetric FOV. These are the API-level counterparts of the
+native `+0x271b80` / `+0x270230` / `frustum+*` candidates — use those RVAs to bind the patch in code.
+Program object names are trace-local and must not become runtime signatures;
+the decoded matrix role and validated native anchors are the authority.
+
 ## Native Physics And Input Candidates
 
 | Candidate | Confidence | Purpose | Evidence |

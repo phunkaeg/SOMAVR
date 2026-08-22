@@ -29,3 +29,10 @@ per-tool caveats, and the pairing workflows (Ghidra static offsets -> ReGenny li
 7. **RenderDoc is unavailable for SOMA** — it runs an OpenGL version incompatible with the installed
    RenderDoc 1.41, so captures cannot be taken. Use Frida / Ghidra / ReGenny instead; do not plan a
    workflow around RenderDoc on this project.
+8. **For frame capture use apitrace (has an MCP now), not RenderDoc.** apitrace captures legacy GL,
+   which RenderDoc rejects. **Proven on SOMA (2026-08-10)** via the apitrace MCP: view-projection at
+   `glUniformMatrix4fv(program=822, location=1)` (`camera_moves=true`) and projection at `program=884,
+   location=1` (FOV 70°/102°, near 0.03, far 998.67) — see `docs/future-hook-map.md`. Flow:
+   `trace_launch(api="gl")` the **vanilla** game (no mod) → move around → `trace_stop` → `find_matrices`
+   (scope to one frame) + `track_camera`; `decode_matrix` to check candidates. Manual fallback:
+   `apitrace trace` / `qapitrace` / `glretrace --dump-state`. See **`vr-re-workflow`**.

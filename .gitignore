@@ -17,3 +17,5 @@ compile_commands.json
 !tools/*.exe
 somavr.ini
 graphify-out/
+.claude/settings.local.json
+AGENTS.md.bak-remcp-*

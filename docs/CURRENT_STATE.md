@@ -1,6 +1,6 @@
 # Current State
 
-Date: 2026-08-07
+Date: 2026-08-22
 
 ## Objective
 
@@ -22,10 +22,33 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 ## Active Baseline
 
 The active engineering and gameplay test build is
-`0.90.0-gl-transfer-audit`, layered on the
+`0.91.0-review-hardening`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Version 0.91 hardens the current AFR path before any native dual-render
+  experiment is promoted. A transient per-eye projection-apply failure now
+  costs one mono-orientation frame and retries; stereo ownership is suspended
+  only after eight consecutive failures. A temporarily incomplete pair can
+  re-submit the last complete stereo images with the exact poses used to render
+  them for at most 12 frames, after which projection falls back to black rather
+  than presenting an unbounded frozen world.
+
+- All live native code patches now use the shared suspended-peer-thread,
+  instruction-pointer and expected-byte transaction. Build-signature decode
+  offsets have compile-time assertions, private GL operations preserve the full
+  touched transaction state, logger output truncation is explicit, and release
+  defaults no longer enable the hand-tracking diagnostic probe. Startup's
+  `runtime_paths` and `config_applied` identity records remain visible at Warn
+  log level and include config mtime and size.
+
+- Native same-frame stereo is now an evidence-backed design, not a shipped
+  feature. Static and source-backed RE identifies the second world-render call,
+  culling traversal, occlusion-query lifecycle, temporal owner and presentation
+  boundary, but the 0.91 binary still uses the established AFR/optional replay
+  paths. The next implementation gate is default-off occlusion-query
+  instrumentation followed by a budgeted headset experiment.
 
 - Version 0.90 prices the native OpenGL OpenXR handoff before SOMAVR adopts the
   D3D11 interop architecture proven by TheDarkModVR. Per-eye acquire, wait,
@@ -1186,3 +1209,19 @@ The prioritized multi-feature live plan is maintained in
    full log with final dual-render and per-eye-history summaries.
    Include the two `openxr_input interaction_profile` rows and verify they name
    the controller profile actually in use.
+
+## apitrace Camera Confirmation (2026-08-10)
+
+Captured a vanilla `Soma_NoSteam.exe` GL trace (no mod) with the apitrace MCP and confirmed the camera
+end-to-end at the GL-driver layer:
+
+- **View-projection**: `glUniformMatrix4fv(program=822, location=1)` — `track_camera` reported
+  `camera_moves=true`; eye position and orientation tracked live gameplay movement (walk → stop → walk).
+- **Projection**: `glUniformMatrix4fv(program=884, location=1)` — FOV_y 70° / FOV_x 102°, near 0.03,
+  far 998.67, GL right-handed. Matches `game.cfg` and the native `frustum` packet.
+
+Trace: `D:\Dev Debug\apitrace\traces\soma-gl-c3c7442f2aed` (3874 frames). This is independent
+confirmation of the existing native camera RE, not a new lane. Detail in `docs/future-hook-map.md`
+and `docs/HPL_OPENGL_NOTES.md`. GL program object names are trace-local evidence;
+the uniform semantics and native frustum anchors, not numeric program IDs, are
+the stable implementation authority.

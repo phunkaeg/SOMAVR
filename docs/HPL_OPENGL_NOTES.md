@@ -61,3 +61,18 @@ glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, &vColor[0]);
 ```
 
 That points at an OpenGL compatibility profile path. The initial probe should avoid assuming a modern core-only renderer.
+
+## apitrace-Measured Projection (2026-08-10, confirmed)
+
+A vanilla trace of `Soma_NoSteam.exe` under apitrace 14.0 (GL) decoded the main-scene projection
+uniform `glUniformMatrix4fv(program=884, location=1)` at confidence 1.0:
+
+- FOV_y = 70.0°, FOV_x = 102.4°, aspect 16:9, near = 0.03, far = 998.67
+- OpenGL right-handed, normal (`-1..1`) depth, not reversed-Z
+
+This confirms the expected `game.cfg` camera shape (`FOV=70`, `NearClipPlane=0.03`, `FarClipPlane~1000`)
+at the driver layer, and that HPL3 uploads projection as a GLSL uniform (not fixed-function
+`glLoadMatrixf` — negative for the main scene). The moving view-projection uploads via
+`glUniformMatrix4fv(program=822, location=1)` (`camera_moves=true`). Full detail: `future-hook-map.md`.
+The numeric GL program names belong to this trace and may change between runs;
+matrix semantics and the native frustum packet are the stable anchors.

@@ -1,5 +1,27 @@
 # Build History
 
+## 2026-08-22
+
+### 0.91.0-review-hardening
+
+- Changed a transient stereo projection-apply failure from a session-ending
+  condition into a one-frame mono-orientation fallback. Stereo retries on the
+  next frame, logs recovery, and suspends only after eight consecutive
+  failures or an explicit ownership reset.
+- Added a bounded last-complete-pair hold for interrupted AFR delivery. Held
+  images are submitted with the poses they were rendered from, release on the
+  next complete pair, and exhaust to black after 12 frames.
+- Moved all live native code patches onto the shared peer-thread suspension,
+  instruction-pointer exclusion and expected-byte transaction. Added compile-
+  time signature-decode assertions for the supported SOMA build.
+- Expanded private OpenGL ownership to preserve the complete touched state
+  transaction, made logger truncation explicit, exposed config file mtime and
+  size in the Warn-level startup identity, and disabled the final diagnostic
+  hand-tracking probe in the release profile.
+- Reconciled the canonical test/evidence documents with the 0.91 source and the
+  apitrace camera confirmation. Native same-frame stereo remains a documented,
+  default-off future experiment; no second world render is enabled here.
+
 ## 2026-08-07
 
 ### 0.90.0-gl-transfer-audit

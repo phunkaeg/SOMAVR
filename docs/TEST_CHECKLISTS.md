@@ -1,5 +1,41 @@
 # Test Checklists
 
+## 0.91.0 Review Hardening
+
+1. Launch `out\SOMAVR-latest`, load the apartment save, and press F10 once.
+   Require `version=0.91.0-review-hardening`, `runtime_paths ... source=module`,
+   and `config_applied` with package-local path, mtime, byte size, nonzero hash,
+   `unknownKeys=0`, and `unknownSections=0`.
+2. Confirm the accepted world, stereo, hand/arm tracking, locomotion, physical
+   interactions, story-object presentation, terminal emails, HUD/menu and
+   desktop mirror have no visible regression.
+3. Reload the save or cross one loading boundary. If practical, briefly remove
+   and restore HMD tracking. A held pair must remain world-locked and recover
+   without F10. `openxr_stereo_hold active` must use
+   `policy=resubmit_last_pair_with_its_own_poses`, release promptly, and fall
+   back to black after its 12-frame budget rather than hold forever.
+4. Transient `hpl_stereo apply_failed` is allowed to affect one frame and must
+   be followed by `apply_recovered`. Stereo may suspend only after eight
+   consecutive failures; normal loading or one rejected projection must not
+   permanently collapse the session to mono orientation.
+5. Exercise laptop terminal, pause HUD, reticle, both guides, comfort vignette
+   and a blackout/loading transition. Require no GL-state leak, email/HUD
+   corruption, compositor freeze, zero-layer submit, or layer-limit stream.
+6. Pick up and throw one ordinary physics prop. The shared live-patch lane must
+   install/restore normally with no signature, expected-byte, instruction-
+   pointer, peer-thread, or protection failure.
+7. Exit through the pause menu and attach the complete log. Require a clean
+   process exit and no crash dump. `proof_summary ... ownGlBypasses=` should be
+   nonzero after the presentation exercise.
+8. Treat `NATIVE_STEREO_FEASIBILITY.md` as the next experiment only. Native
+   second-world-render stereo is not enabled by this package and is not part of
+   the 0.91 acceptance result.
+
+The GL transfer A/B below is still useful, but compare each eye's `copyCpu`
+phase across identical runs. The wait-inclusive `projectionUs` total measures
+runtime pacing as well as the copy and is not an interop decision metric by
+itself.
+
 ## 0.90.0 OpenXR GL Transfer Audit
 
 1. Launch the canonical package, load the apartment save and press F10. Confirm

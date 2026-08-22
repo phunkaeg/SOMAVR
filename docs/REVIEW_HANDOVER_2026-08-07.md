@@ -41,7 +41,7 @@ mod as packaged today does not do what its config says on any machine but this o
 
 ---
 
-## Status — updated 2026-08-07, after `f24ecc9`
+## Status — updated 2026-08-23 for `0.92.0-native-stereo-evidence`
 
 The tree moved while this review was being written. Verified directly against the
 working tree rather than taken from commit messages:
@@ -53,7 +53,8 @@ working tree rather than taken from commit messages:
 | **F-09** unknown config keys silent | **resolved** | `config_applied` now reports `parsedKeyHash`, `accepted`, `unknownKeys`, `unknownSections` |
 | **F-02** zero-layer `xrEndFrame` | **resolved and verified** (`02a10c9`) | zero-layer submission is now structurally unreachable — see the audit below |
 | **F-05** layer budget unenforced | **resolved and verified** (`02a10c9`) | `appendLayer` bounds against `min(16, max(1, maxLayerCount_))`, array sized 24 for headroom, and drops by **priority eviction**, not arrival order; projection is structurally non-evictable |
-| **F-17** submit-path timing | **resolved and verified** (`2eab163`) | per-eye phase-separated CPU timing (acquire/wait/copyCpu/flush/release) surfaced every 300 XR frames, plus a documented runtime A/B protocol; one caveat below on which number to read |
+| **F-17** submit-path timing | **resolved, live comparison pending** | per-eye CPU phases are joined by nonblocking GPU timestamp rings for cache capture and XR-image submission; both surfaces are reported every 300 XR frames without a forced synchronization |
+| **F-06** single XR frame mutex | **instrumented; structural split evidence-gated** | frame-boundary wait/hold and hot snapshot-accessor wait/over-100-us counts are now persistent summary fields, so the next headset run can distinguish real render-thread contention from architectural suspicion |
 | **F-07** injector treats timeout as success | **resolved and verified** | `waitResult != WAIT_OBJECT_0` fails explicitly, the remote page is **deliberately not freed** on timeout, and injection is confirmed by re-scanning the target's module list for `somavr.dll`; the x64 exit-code truncation is reported honestly as `threadExitLow32` rather than treated as an `HMODULE` |
 | **F-08** detach closes the event the worker waits on | **resolved**, with one fix applied below | `CloseHandle`/null-assignment removed from detach; the worker caches the handle once and exits on any non-`WAIT_TIMEOUT` result, so the hot-spin is gone |
 | **F-12** GL detours intercept own calls | **resolved**, gap now closed | `OpenGLOwnership.h` adds a `thread_local` depth counter with an RAII scope; 13 of 17 detours bypass on it, ~22 bridge entry points take it, and the bypass count is surfaced in the OpenGL summary |
@@ -61,19 +62,18 @@ working tree rather than taken from commit messages:
 | **F-19** transient fault clears persistent stereo mode | **fixed** | one failed `ApplyStereoEye` no longer surrenders stereo ownership; only F11, an 8-consecutive-failure threshold, or a camera-changed reset can. Found by cross-checking FEAR-VR / FarCry2-VR |
 | **F-20** stereo hold submitted stale images with a fresh pose | **fixed** | the held pair now carries the poses it was rendered from, so the compositor still reprojects it; the hold is budgeted at 12 frames and falls back to black when spent |
 | **F-04** dev probe config shipped as release default | **resolved** | every probe/capture/diagnostic key is `0` in `config/somavr.release.ini`; the last one, `HandTrackingProbe`, is now off and hand tracking still works because `HandWristPosition/Rotation/ArmIK` independently satisfy `skeletonAccessRequested`. `Probe`/`SessionProbe` stay `1` — despite the names they are the OpenXR master enables |
-| **F-13** giant `printf` truncates silently | **partly fixed** | `WriteV` now detects `_TRUNCATE` and appends `[log_truncated bufferBytes=… totalTruncated=…]` with a counter, so a dropped tail announces itself. Splitting the 2.4 KB `hook_config` line into per-section lines is still open |
+| **F-10** raw camera memory reads/writes | **resolved** | shared guarded POD access validates every page with `VirtualQuery`, rejects guard/no-access/non-writable ranges, wraps copies in SEH, and reports fail-closed read/write counters; deterministic tests cover cross-page protection and arithmetic overflow |
+| **F-13** giant `printf` truncates silently | **resolved** | logger truncation remains explicit and startup config now uses nine ownership-scoped rows, preserving the former values without relying on one oversized variadic record |
 | **F-15** `Logger::Path()` returned an unlocked reference | **resolved** | already by-value under the mutex in committed code; no change needed |
 | **F-16** GL state guard nested inside acquire/release | **fixed** | `ScopedRuntimeGlState` brackets the whole acquire/wait/copy/release transaction in all four swapchain paths, so state the runtime clobbers on either side is restored before the game's next draw |
 | **F-18** REX/displacement coupling unguarded | **fixed** | `kRipRelativeLoadDisplacementOffset` / `NextInstructionOffset` now live in `SomaBuildSignatures.h` with `static_assert`s, and both remaining decode sites use them; `HPLNativeLocomotion` additionally asserts its signature opens `48 8b 05` |
 
-Build and test state at the time of writing: `0.91.0-review-hardening`, full Release build
-clean, `ctest -C Release` **7/7 passing**, and the build manifest SHA-256 matches the produced
-`somavr.dll` (which is what `Package-Release.ps1` refuses to package without).
+Build and test state at the time of writing: `0.92.0-native-stereo-evidence`, clean OpenXR
+Release/Ninja build, CTest **8/8**, and packaged doctor `pass=8 warn=0 fail=0`.
 
 ### What is deliberately still open, and why
 
-Three findings were left unfixed on purpose rather than overlooked. Each is real; none can be
-validated from this machine.
+Two findings remain deliberately evidence-gated rather than overlooked:
 
 - **F-06 — the single mutex over the XR frame loop.** The bounded-timeout half is done
   (`kSwapchainWaitTimeout`, 50 ms, replacing `XR_INFINITE_DURATION`), so the whole-process hang is
@@ -82,21 +82,10 @@ validated from this machine.
   lock ordering on a path that only misbehaves under real frame pacing. That is precisely the
   "clean one independently verified path per headset build" case from chapter 07; doing it blind
   would be a large, unverifiable diff on the most timing-sensitive code in the project.
-- **F-10 — unguarded raw reads in the camera path.** `ReadField`/`WriteField` in `HPLCameraBridge`
-  still `memcpy` game memory without validation, unlike the `ReadProcessMemory` helpers everywhere
-  else. The obvious fix has a real cost: these run per-frame on the render thread, and
-  `ReadProcessMemory` is a syscall per field. Choosing between a syscall per read, an SEH-guarded
-  POD helper, or a one-time `VirtualQuery` of the camera object needs a frametime measurement to
-  decide, which needs a headset.
 - **F-14 — synchronous `glReadPixels` in the depth probe.** Bounded (samples 1-4, then every 120th)
   and now switched off in the shipping config with the rest of F-04, so it costs nothing to a user.
   Left in place because it is genuine diagnostic value for the depth work; it should simply be
   counted as a covariate in any frametime measurement taken with it on.
-
-Also still open from F-13: the 2.4 KB single-line `hook_config` dump. Truncation is now announced
-rather than silent, which removes the trap; splitting it into per-section lines remains worth doing
-but is churn without a correctness argument now that the failure is visible.
-
 
 ### Fix applied to F-01: the identity line was gated by the config it identifies
 

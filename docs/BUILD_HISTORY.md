@@ -1,5 +1,34 @@
 # Build History
 
+## 2026-08-23
+
+### 0.92.0-native-stereo-evidence
+
+- Added nonblocking per-eye GL GPU timestamp rings around framebuffer-to-cache
+  capture and cache/backbuffer/black-to-XR submission. CPU phase timing remains
+  separate; unavailable query results are never waited on.
+- Added bounded observation for HPL occlusion queries and partial framebuffer
+  copies while the existing continuous replay/control lane is active.
+  First/replay pass tags report
+  same-frame query-ID and destination-texture reuse without modifying results,
+  copy order, or renderer resources.
+- Mined the vanilla apitrace baseline and released HPL source. HPL immediately
+  recycles pooled query IDs, performs per-object refraction clip-rectangle
+  copies, and supplies translucent view/projection/inverse matrices through a
+  UBO. These constraints are now promotion gates for native stereo.
+- Hardened every hot HPL camera/frustum read and write with page-range
+  validation plus SEH, with fail-closed counters and deterministic memory-
+  protection tests. Added XR frame-lock and snapshot-lock contention metrics.
+- Split oversized startup config records into ownership-scoped rows. Added a
+  release-default-off, read-only player-hands module-owner probe at the native
+  update dispatcher; it discovers module ID 18 and its script object but does
+  not invoke AngelScript or alter visibility.
+- Updated and saved the Ghidra database, registries, test instructions, and
+  Graphify inputs. Native stereo and pre-authored hand creation remain
+  deliberately disabled pending live evidence.
+- Verification: clean OpenXR Release/Ninja build, CTest `8/8`, installer
+  lifecycle included, and packaged doctor `pass=8 warn=0 fail=0`.
+
 ## 2026-08-22
 
 ### 0.91.0-review-hardening

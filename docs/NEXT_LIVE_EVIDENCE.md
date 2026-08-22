@@ -1,43 +1,74 @@
 # Next Live Evidence
 
-Date: 2026-08-22
+Date: 2026-08-23
 
 Use `out\SOMAVR-latest`
-(`0.91.0-review-hardening`) for the next run.
+(`0.92.0-native-stereo-evidence`) for the next run.
 
-The first priority is one focused 0.91 hardening pass. This is a regression and
-recovery build, not the native same-frame stereo experiment described in
-`NATIVE_STEREO_FEASIBILITY.md`.
+The first priority is a normal/default regression pass. Version 0.92 does not
+enable native same-frame stereo or the hands-owner probe in the release profile;
+ordinary visuals and controls must match 0.91.
 
 1. Launch the rolling package, load the apartment save, press F10 once, and
    verify the established world, hands/IK, locomotion, interactions, terminal,
    HUD/menu and desktop-mirror behavior.
-2. Reload the save or cross a loading boundary. If practical, briefly interrupt
-   headset tracking during ordinary AFR. A short incomplete-pair episode may
-   hold the last complete stereo pair, but it must remain world-locked, recover
-   automatically, and never become a persistent frozen image.
-3. Exercise the laptop, pause HUD, controller reticles/guides and comfort
-   presentation to cover the full private-GL state transaction. Then throw one
-   ordinary prop to exercise the shared live-patch guard.
-4. Exit normally and attach the complete log. Preserve these rows when present:
+2. Stand, turn, and walk for at least 30 seconds, then use the laptop and pause
+   menu. This collects XR mutex and GPU transfer evidence under ordinary frame
+   pacing. Reload the save once to cover fallback-black/cache recovery.
+3. Exit normally and attach the complete log. Preserve these rows when present:
 
 ```text
-build_identity identity=0.91.0-review-hardening+...
+build_identity identity=0.92.0-native-stereo-evidence+...
 runtime_paths ... source=module
 config_applied ... mtime=... bytes=... parsedKeyHash=... accepted=... unknownKeys=0 unknownSections=0
-hpl_stereo apply_failed consecutive=... limit=8 fallback=mono_orientation_this_frame
-hpl_stereo apply_recovered afterConsecutiveFailures=...
-openxr_stereo_hold active ... limit=12 ... policy=resubmit_last_pair_with_its_own_poses
-openxr_stereo_hold released ...
-openxr_stereo_hold exhausted ... fallback=black
-openxr_gl_transfer ... phaseOrder=total/acquire/wait/copyCpu/flush/release gpuTiming=excluded
+hook_config_diagnostics ...
+hook_config_camera ...
+hook_config_render ...
+hook_config_openxr ...
+controller_config_locomotion ...
+controller_config_routing ...
+controller_config_interaction ...
+controller_config_hands ...
+controller_config_presentation ...
+openxr_gl_transfer ... phaseOrder=total/acquire/wait/copyCpu/flush/release gpuOrder=capture/submit ...
+proof_summary ... openxrFrameLockWaitMaxUs=... openxrFrameLockHoldMaxUs=...
+proof_summary ... openxrSnapshotLockWaitMaxUs=... openxrSnapshotLockWaitOver100Us=...
+proof_summary ... openxrGlLeftGpuCaptureAvgUs=... openxrGlLeftGpuSubmitAvgUs=...
+proof_summary ... openxrGlRightGpuCaptureAvgUs=... openxrGlRightGpuSubmitAvgUs=...
+hpl_camera_bridge summary ... nativeMemoryReadFailures=0 nativeMemoryWriteFailures=0
 proof_summary ... ownGlBypasses=...
 ```
 
-The apply-failure and stereo-hold rows are event-driven, so their absence in a
-healthy run is not a failure. Repeating `apply_failed` through the eight-frame
-threshold, an unbounded hold, a fresh-pose/stale-image skew, any zero-layer
-submit, or a second-F10 recovery requirement is a failure.
+Any native-memory failure, sustained snapshot lock wait above 100 us, busy GPU
+query ring, zero-layer submit, persistent eye skew, or second-F10 recovery is a
+specific follow-up target rather than a reason to guess at architecture.
+
+The second pass is optional and explicitly diagnostic. In a package-local copy
+of `somavr.ini`, change only `HandTrackingProbe=1`, leave the packaged
+same-frame/dual-render values unchanged, load a save before and after the first
+authored hands sequence, and preserve:
+
+```text
+hpl_user_module_bridge install_ok ... handsOwnerInstalled=1 ...
+hpl_player_hands_module owner_acquired ... moduleId=18 scriptObject=... callback=4 policy=read_only_owner_discovery
+hpl_user_module_bridge_summary ... handsIdCandidates=... handsVtableMatches=... handsOwnerChanges=... handsScriptObjectReads=...
+```
+
+No visual or hand behavior should change. Missing owner acquisition after a
+loaded gameplay map means the next RE rung is dispatcher/lifetime attribution;
+it does not authorize a direct script call.
+
+The packaged continuous replay already activates the new read-only resource
+observers. The ordinary pass should therefore end with:
+
+```text
+hpl_occlusion_query_summary ... sameFrameQueryReuse=... anomalies={targetConflicts=... unmatchedEnds=... stateOverflows=...}
+hpl_framebuffer_copy_summary ... crossEyeTextureReuses=... textureReadFailures=... stateOverflows=...
+```
+
+Do not change the stereo mode until the normal visual regression is complete.
+Afterward, one F1 same-frame off/on comparison is useful if convenient; record
+whether query/copy pass counts disappear and return with the control.
 
 The secondary priority remains the 0.90 OpenXR GL transfer audit in
 `TEST_CHECKLISTS.md`. Run the fixed 60-second apartment route under the current

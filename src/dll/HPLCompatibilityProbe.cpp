@@ -1547,7 +1547,7 @@ void HookRenderViewport(void* scene, void* viewport, float frameTime, uint64_t r
         && armSource != DualRenderArmSource::Continuous;
     const bool previousForceResourceCapture = g_forcePostEffectResourceCapture;
     g_forcePostEffectResourceCapture = previousForceResourceCapture || diagnosticReplay;
-    g_dualRenderPass = diagnosticReplay
+    g_dualRenderPass = dualRenderRequested
         ? HPLDualRenderPass::FirstEye
         : HPLDualRenderPass::None;
     g_dualRenderAttempt = diagnosticReplay ? attempt : 0;
@@ -1622,9 +1622,7 @@ void HookRenderViewport(void* scene, void* viewport, float frameTime, uint64_t r
             LARGE_INTEGER replayEnd = {};
             QueryPerformanceCounter(&replayStart);
             g_activeRenderMask = replayMask;
-            g_dualRenderPass = diagnosticReplay
-                ? HPLDualRenderPass::ReplayEye
-                : HPLDualRenderPass::None;
+            g_dualRenderPass = HPLDualRenderPass::ReplayEye;
             HPLPendingStereoRenderTarget replayHistoryTarget;
             if (continuousReplayRequested
                 && GetHPLPendingStereoRenderTarget(replayHistoryTarget)) {
@@ -2045,6 +2043,20 @@ const char* GetHPLRenderStageName(HPLRenderStage stage)
     case HPLRenderStage::PostEffects: return "post_effects";
     case HPLRenderStage::PostPostEffect: return "post_post_effect";
     case HPLRenderStage::ScreenGui: return "screen_gui";
+    default: return "none";
+    }
+}
+
+HPLDualRenderPass GetActiveHPLDualRenderPass()
+{
+    return g_dualRenderPass;
+}
+
+const char* GetHPLDualRenderPassName(HPLDualRenderPass pass)
+{
+    switch (pass) {
+    case HPLDualRenderPass::FirstEye: return "first_eye";
+    case HPLDualRenderPass::ReplayEye: return "replay_eye";
     default: return "none";
     }
 }

@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.91.0-review-hardening")
+set(SOMAVR_BUILD_VERSION "0.92.0-native-stereo-evidence")
 
 include(FetchContent)
 
@@ -72,6 +72,7 @@ add_library(somavr_common STATIC
     src/common/Config.cpp
     src/common/ConfigPreset.cpp
     src/common/Logger.cpp
+    src/common/NativeMemoryAccess.cpp
 )
 target_include_directories(somavr_common PUBLIC src/common)
 set(SOMAVR_DEV_WORK_ROOT "" CACHE PATH
@@ -156,6 +157,7 @@ add_library(somavr SHARED
     src/dll/OpenGLHooks.cpp
     src/dll/OpenXRGLBridge.cpp
     src/dll/OpenXRRuntime.cpp
+    src/dll/StartupConfigLog.cpp
 )
 add_dependencies(somavr somavr_build_info)
 target_include_directories(somavr PRIVATE src/dll "${SOMAVR_GENERATED_DIR}")
@@ -226,6 +228,10 @@ if(BUILD_TESTING)
     add_executable(somavr_logger_tests tests/LoggerTests.cpp)
     target_link_libraries(somavr_logger_tests PRIVATE somavr_common)
     add_test(NAME somavr_logger COMMAND somavr_logger_tests)
+
+    add_executable(somavr_native_memory_tests tests/NativeMemoryAccessTests.cpp)
+    target_link_libraries(somavr_native_memory_tests PRIVATE somavr_common)
+    add_test(NAME somavr_native_memory COMMAND somavr_native_memory_tests)
 
     add_executable(somavr_crash_handler_tests
         tests/CrashHandlerIntegrationTests.cpp

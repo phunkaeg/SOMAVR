@@ -63,6 +63,9 @@ constexpr uint32_t kGlPixelPackBuffer = 0x88EB;
 constexpr uint32_t kGlPixelPackBufferBinding = 0x88ED;
 constexpr uint32_t kGlLinear = 0x2601;
 constexpr uint32_t kGlNearest = 0x2600;
+constexpr uint32_t kGlTimestamp = 0x8E28;
+constexpr uint32_t kGlQueryResult = 0x8866;
+constexpr uint32_t kGlQueryResultAvailable = 0x8867;
 constexpr int64_t kGlSrgb8Alpha8 = 0x8C43;
 constexpr int64_t kGlRgba8 = 0x8058;
 constexpr int64_t kGlRgba16f = 0x881A;
@@ -552,6 +555,16 @@ void OpenXRGLBridge::Shutdown(bool deleteGlResources)
     const bool canDeleteGlResources = deleteGlResources && wglGetCurrentContext() != nullptr;
     const bool canDeleteFramebuffers = glDeleteFramebuffers_ != nullptr && canDeleteGlResources;
     for (EyeSwapchain& eye : eyes_) {
+        if (canDeleteGlResources && glDeleteQueries_ != nullptr) {
+            PollGpuTiming(eye);
+            for (GpuTimestampSlot& slot : eye.gpuTimestampSlots) {
+                const uint32_t queries[2] = {slot.startQuery, slot.endQuery};
+                if (queries[0] != 0 || queries[1] != 0) {
+                    glDeleteQueries_(2, queries);
+                }
+                slot = {};
+            }
+        }
         if (canDeleteFramebuffers && eye.cacheFramebuffer != 0) {
             glDeleteFramebuffers_(1, &eye.cacheFramebuffer);
             eye.cacheFramebuffer = 0;
@@ -689,7 +702,10 @@ bool OpenXRGLBridge::CopyBackbufferToEye(uint32_t eyeIndex)
     }
 
     const bool copied = transferTiming.MeasureCopy([&] {
-        return CopyBackbufferToImage(eye, imageIndex);
+        const int gpuSlot = BeginGpuTiming(eye, GpuTransferPhase::Submit);
+        const bool result = CopyBackbufferToImage(eye, imageIndex);
+        EndGpuTiming(eye, gpuSlot);
+        return result;
     });
     transferTiming.MeasureFlush([] { glFlush(); });
 
@@ -746,6 +762,7 @@ bool OpenXRGLBridge::CaptureBackbufferToCache(uint32_t eyeIndex)
     glReadBuffer(kGlBack);
     glBindFramebuffer_(kGlDrawFramebuffer, eye.cacheFramebuffer);
     glDrawBuffer(kGlColorAttachment0);
+    const int gpuSlot = BeginGpuTiming(eye, GpuTransferPhase::Capture);
     glBlitFramebuffer_(
         viewport[0],
         viewport[1],
@@ -757,6 +774,7 @@ bool OpenXRGLBridge::CaptureBackbufferToCache(uint32_t eyeIndex)
         eye.height,
         kGlColorBufferBit,
         kGlLinear);
+    EndGpuTiming(eye, gpuSlot);
 
     if (depthCaptureProbeEnabled_ && eye.depthCacheTexture != 0) {
         int32_t depthBits = 0;
@@ -883,7 +901,10 @@ bool OpenXRGLBridge::CopyCacheToEye(uint32_t eyeIndex)
     }
 
     const bool copied = transferTiming.MeasureCopy([&] {
-        return CopyCacheToImage(eye, imageIndex);
+        const int gpuSlot = BeginGpuTiming(eye, GpuTransferPhase::Submit);
+        const bool result = CopyCacheToImage(eye, imageIndex);
+        EndGpuTiming(eye, gpuSlot);
+        return result;
     });
     transferTiming.MeasureFlush([] { glFlush(); });
 
@@ -970,7 +991,9 @@ bool OpenXRGLBridge::ClearEyeToBlack(uint32_t eyeIndex)
     if (scissorEnabled == GL_TRUE) glDisable(kGlScissorTest);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    const int gpuSlot = BeginGpuTiming(eye, GpuTransferPhase::Submit);
     glClear(kGlColorBufferBit);
+    EndGpuTiming(eye, gpuSlot);
 
     glClearColor(
         savedClearColor[0], savedClearColor[1], savedClearColor[2], savedClearColor[3]);
@@ -1977,6 +2000,75 @@ int64_t OpenXRGLBridge::ColorFormat() const
     return colorFormat_;
 }
 
+void OpenXRGLBridge::PollGpuTiming(EyeSwapchain& eye)
+{
+    if (!gpuTimingAvailable_) {
+        return;
+    }
+    for (GpuTimestampSlot& slot : eye.gpuTimestampSlots) {
+        if (!slot.pending || slot.endQuery == 0) {
+            continue;
+        }
+        int32_t available = 0;
+        glGetQueryObjectiv_(slot.endQuery, kGlQueryResultAvailable, &available);
+        if (available == 0) {
+            continue;
+        }
+        uint64_t startTimestamp = 0;
+        uint64_t endTimestamp = 0;
+        glGetQueryObjectui64v_(slot.startQuery, kGlQueryResult, &startTimestamp);
+        glGetQueryObjectui64v_(slot.endQuery, kGlQueryResult, &endTimestamp);
+        slot.pending = false;
+        if (endTimestamp < startTimestamp) {
+            ++eye.colorTransferTiming.gpuInvalidSamples;
+            continue;
+        }
+        const uint64_t elapsedUs = (endTimestamp - startTimestamp) / 1'000;
+        if (slot.phase == GpuTransferPhase::Capture) {
+            AccumulateTransferPhase(eye.colorTransferTiming.gpuCapture, elapsedUs);
+            ++eye.colorTransferTiming.gpuCaptureSamples;
+        } else {
+            AccumulateTransferPhase(eye.colorTransferTiming.gpuSubmit, elapsedUs);
+            ++eye.colorTransferTiming.gpuSubmitSamples;
+        }
+    }
+}
+
+int OpenXRGLBridge::BeginGpuTiming(EyeSwapchain& eye, GpuTransferPhase phase)
+{
+    if (!gpuTimingAvailable_) {
+        return -1;
+    }
+    PollGpuTiming(eye);
+    const uint32_t slotIndex = eye.nextGpuTimestampSlot
+        % static_cast<uint32_t>(eye.gpuTimestampSlots.size());
+    eye.nextGpuTimestampSlot = (slotIndex + 1)
+        % static_cast<uint32_t>(eye.gpuTimestampSlots.size());
+    GpuTimestampSlot& slot = eye.gpuTimestampSlots[slotIndex];
+    if (slot.pending) {
+        ++eye.colorTransferTiming.gpuQueryDrops;
+        return -1;
+    }
+    if (slot.startQuery == 0 || slot.endQuery == 0) {
+        return -1;
+    }
+    slot.phase = phase;
+    glQueryCounter_(slot.startQuery, kGlTimestamp);
+    return static_cast<int>(slotIndex);
+}
+
+void OpenXRGLBridge::EndGpuTiming(EyeSwapchain& eye, int slotIndex)
+{
+    if (!gpuTimingAvailable_
+        || slotIndex < 0
+        || static_cast<size_t>(slotIndex) >= eye.gpuTimestampSlots.size()) {
+        return;
+    }
+    GpuTimestampSlot& slot = eye.gpuTimestampSlots[static_cast<size_t>(slotIndex)];
+    glQueryCounter_(slot.endQuery, kGlTimestamp);
+    slot.pending = true;
+}
+
 bool OpenXRGLBridge::ResolveFunctions()
 {
     glGenFramebuffers_ = ResolveGlProc<GlGenFramebuffersFn>("glGenFramebuffers");
@@ -1985,6 +2077,16 @@ bool OpenXRGLBridge::ResolveFunctions()
     glFramebufferTexture2D_ = ResolveGlProc<GlFramebufferTexture2DFn>("glFramebufferTexture2D");
     glCheckFramebufferStatus_ = ResolveGlProc<GlCheckFramebufferStatusFn>("glCheckFramebufferStatus");
     glBlitFramebuffer_ = ResolveGlProc<GlBlitFramebufferFn>("glBlitFramebuffer");
+    glGenQueries_ = ResolveGlProc<GlGenQueriesFn>("glGenQueries");
+    glDeleteQueries_ = ResolveGlProc<GlDeleteQueriesFn>("glDeleteQueries");
+    glQueryCounter_ = ResolveGlProc<GlQueryCounterFn>("glQueryCounter");
+    glGetQueryObjectiv_ = ResolveGlProc<GlGetQueryObjectivFn>("glGetQueryObjectiv");
+    glGetQueryObjectui64v_ = ResolveGlProc<GlGetQueryObjectui64vFn>("glGetQueryObjectui64v");
+    gpuTimingAvailable_ = glGenQueries_ != nullptr
+        && glDeleteQueries_ != nullptr
+        && glQueryCounter_ != nullptr
+        && glGetQueryObjectiv_ != nullptr
+        && glGetQueryObjectui64v_ != nullptr;
 
     const bool ready = glGenFramebuffers_ != nullptr
         && glDeleteFramebuffers_ != nullptr
@@ -1994,14 +2096,15 @@ bool OpenXRGLBridge::ResolveFunctions()
         && glBlitFramebuffer_ != nullptr;
     Logger::Instance().Write(
         ready ? LogLevel::Info : LogLevel::Warn,
-        "openxr_gl_functions ready=%d genFbo=%d deleteFbo=%d bindFbo=%d attachTexture=%d checkFbo=%d blitFbo=%d",
+        "openxr_gl_functions ready=%d genFbo=%d deleteFbo=%d bindFbo=%d attachTexture=%d checkFbo=%d blitFbo=%d gpuTimestampTiming=%d",
         ready ? 1 : 0,
         glGenFramebuffers_ != nullptr ? 1 : 0,
         glDeleteFramebuffers_ != nullptr ? 1 : 0,
         glBindFramebuffer_ != nullptr ? 1 : 0,
         glFramebufferTexture2D_ != nullptr ? 1 : 0,
         glCheckFramebufferStatus_ != nullptr ? 1 : 0,
-        glBlitFramebuffer_ != nullptr ? 1 : 0);
+        glBlitFramebuffer_ != nullptr ? 1 : 0,
+        gpuTimingAvailable_ ? 1 : 0);
     return ready;
 }
 
@@ -2135,9 +2238,30 @@ bool OpenXRGLBridge::CreateEyeSwapchain(
             eyeIndex);
     }
 
+    if (gpuTimingAvailable_) {
+        std::array<uint32_t, 16> queries{};
+        glGenQueries_(static_cast<int32_t>(queries.size()), queries.data());
+        const bool allocated = std::all_of(
+            queries.begin(), queries.end(), [](uint32_t query) { return query != 0; });
+        if (allocated) {
+            eye.colorTransferTiming.gpuTimingAvailable = true;
+            for (size_t slotIndex = 0; slotIndex < eye.gpuTimestampSlots.size(); ++slotIndex) {
+                eye.gpuTimestampSlots[slotIndex].startQuery = queries[slotIndex * 2];
+                eye.gpuTimestampSlots[slotIndex].endQuery = queries[slotIndex * 2 + 1];
+            }
+        } else {
+            glDeleteQueries_(static_cast<int32_t>(queries.size()), queries.data());
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_gl_gpu_timing allocation_failed eye=%u queries=%zu fallback=cpu_timing",
+                eyeIndex,
+                queries.size());
+        }
+    }
+
     Logger::Instance().Write(
         LogLevel::Info,
-        "openxr_swapchain created eye=%u size=%dx%d images=%u format=0x%llx(%s) depthSwapchain=%d depthFormat=0x%llx(%s)",
+        "openxr_swapchain created eye=%u size=%dx%d images=%u format=0x%llx(%s) depthSwapchain=%d depthFormat=0x%llx(%s) gpuTiming=%d",
         eyeIndex,
         eye.width,
         eye.height,
@@ -2146,7 +2270,8 @@ bool OpenXRGLBridge::CreateEyeSwapchain(
         GlFormatName(colorFormat_),
         eye.depthHandle != XR_NULL_HANDLE ? 1 : 0,
         static_cast<unsigned long long>(eye.depthFormat),
-        GlFormatName(eye.depthFormat));
+        GlFormatName(eye.depthFormat),
+        eye.gpuTimestampSlots[0].startQuery != 0 ? 1 : 0);
     eyes_.push_back(std::move(eye));
     return true;
 }

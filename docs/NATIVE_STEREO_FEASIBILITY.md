@@ -1,8 +1,27 @@
 # Native Stereo on HPL3 — Precondition Study
 
-Date: 2026-08-22
-Status: **offline evidence only.** No binary was modified, nothing was run in-game.
+Date: 2026-08-23
+Status: **observation build ready; existing viewport replay unchanged; future world-only native stereo unimplemented.**
 Prompted by playbook chapter 17 (native stereo) and FEAR-VR's LithTech precedent.
+
+## 0.92 Evidence Update
+
+The original study correctly named occlusion queries as the first unknown, but
+the vanilla apitrace baseline now makes the risk concrete. HPL polls query IDs
+`1..4` for availability/result and immediately reuses the same IDs for new
+work. Across the trace there are `14,828` begin/end pairs. Version 0.92 therefore
+tags query begin/end/result traffic by first/replay eye and reports same-frame
+ID reuse, target conflicts, unmatched ends, and bounded-state overflow. It does
+not alter results or query ownership.
+
+A second shared resource is now proven. Gameplay performs partial
+`glCopyTexSubImage2D` rectangles immediately before refractive translucent
+draws, matching released HPL2's per-object refraction texture copy. The shader
+samples copied scene color and scene depth while receiving all camera and
+inverse-camera matrices through a UBO. Version 0.92 observes destination texture
+reuse across first/replay eyes. A valid native-stereo transaction must render,
+copy, and consume refraction scratch sequentially per eye; duplicating opaque
+world work alone is insufficient.
 
 ## Question
 
@@ -107,8 +126,12 @@ built for AFR and native stereo needs the same ownership:
   `HPLPerEyePostEffect` exist precisely to give those per-eye ownership. Playbook 14's hazard atlas
   is the checklist.
 - **Occlusion queries.** HPL2's `iRenderer` assigns and retrieves occlusion samples keyed by source
-  pointer, and those span frames. Two world renders per frame against one query set is an
-  unvalidated interaction and should be the first thing instrumented.
+  pointer, and those span frames. apitrace proves immediate pooled-ID reuse; 0.92 now provides the
+  first/replay observation surface. Whether the existing second render corrupts visibility remains
+  a live observation question on the existing replay path.
+- **Refraction scratch.** HPL copies object clip rectangles into shared scene-color texture storage
+  immediately before translucent draws. Both the copy and the camera UBO must be eye-local within
+  the sequential render transaction.
 
 ## The discipline this must be held to
 
@@ -131,7 +154,8 @@ and fails closed on mismatch.
 | The seam is locatable in the shipping binary | **yes** — already hooked, signature-verified, five stages mapped |
 | The second render advances no simulation | **structurally yes**; needs a live side-effect assertion before it is a claim |
 | Temporal passes can be given per-eye ownership | **partly built already** (SSAO, tone mapping, image trail, view history) |
-| Occlusion queries survive two renders per frame | **unknown** — first thing to instrument |
+| Occlusion queries survive two renders per frame | **instrumented, live result pending** — vanilla ID recycling is proven; first/replay reuse is now logged |
+| Refraction scratch survives two renders per frame | **instrumented, live result pending** — partial-copy and shared destination texture ownership are now logged |
 | Frame budget allows two world renders | **unknown** — the question the per-eye GPU timestamp telemetry was built to answer, and it needs a headset |
 
 ## Bottom line
@@ -141,9 +165,11 @@ render that takes a camera you control* — is **already satisfied and already h
 project. What remains is not RE work but a budget question and a temporal-ownership audit, and
 neither can be settled from this machine.
 
-The next concrete step is measurement, not more reading: put one experimental second `RenderWorld`
-call behind a default-off config gate, assert the side-effect gate live (no doubled sound events,
-particle ageing, AI ticks or input), and read the per-eye GPU timestamps that already exist.
+The next concrete step is measurement, not more reading: use the existing
+bounded existing second-render lane, assert the side-effect gate live (no
+doubled sound events, particle ageing, AI ticks or input), preserve the new
+query/refraction summaries, and read both HPL-stage and OpenXR-transfer GPU
+timestamps. Promotion is prohibited until that evidence is clean.
 
 
 ---
@@ -219,7 +245,8 @@ passing a different one **is** the override.
 | --- | --- |
 | Camera reaches the renderer as a parameter, not a mutated global | **yes** — `mpCurrentFrustum = apFrustum` per call; the borrow/restore/freeze family is not needed |
 | Per-frame arenas survive two passes | **yes** for the render list and the light batch buffer |
-| Occlusion queries survive two renders per frame | **open — now the highest-value thing to instrument**, since both halves of the gate point at it |
+| Occlusion queries survive two renders per frame | **instrumented, headset result pending** — vanilla immediate reuse is proven and 0.92 tags first/replay traffic |
+| Refraction scratch survives two renders per frame | **instrumented, headset result pending** — partial copied rectangles and cross-eye destination texture reuse are logged |
 | Frame budget allows two world renders | still the headset question |
 
 ## Note

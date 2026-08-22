@@ -1,6 +1,6 @@
 # Authored-State Compatibility And Visible Hands RE
 
-Date: 2026-07-22
+Date: 2026-08-23
 
 Feature nodes: `FEATURE.AUTHORED_STATE_COMPATIBILITY`,
 `FEATURE.VISIBLE_HANDS`, `FEATURE.AUTHORED_CAMERA`, and
@@ -13,6 +13,33 @@ scripts/assets, released HPL2 source, the current SOMAVR bridge, and confirmed
 
 No camera or bone mutation was enabled by this pass. Build
 `0.69.0-authored-hands-probe` adds passive state-ownership and skeleton probes.
+
+## 0.92 Player-Hands Owner And Creation Route
+
+Released SOMA scripts close the model-selection question. The public
+`PlayerHands_SetVisible(true)` route obtains module ID `18` and calls
+`PlayerHandsHandler.SetVisible`. That method always calls
+`CreateHandModelIfNeeded(currentMap)` before applying visibility. Creation uses
+the handler's current `msHandModel`, so it preserves campaign swaps among human,
+diving, deep-sea, and mutilated hands. `SetActive(true)` is not equivalent: it
+returns early when `mbActive` is already true and can therefore skip creation.
+
+Static HPL3 RE identifies `0x140154c40` as the generic active-updateable message
+dispatcher. Callback ID `4` dispatches the native update virtual. Version 0.92
+optionally observes this boundary under the existing release-default-off
+`HandTrackingProbe`, then accepts a candidate only when:
+
+- `updateable+0x158` reads module ID `18`;
+- the candidate vtable contains the confirmed `cLuxUserModule::OnAction`
+  wrapper at `0x1401378e0`; and
+- `updateable+0x90` is safely readable as the AngelScript object owner.
+
+The probe logs owner changes and never invokes script or changes visibility.
+The next control rung is deliberately gated: call the public SetVisible route
+only from a proven script-owned/native update phase after map creation, and
+invalidate ownership on map/module teardown. Directly invoking AngelScript from
+SwapBuffers, OpenXR submission, or an arbitrary input hook remains prohibited by
+the earlier out-of-phase script-context crash at `0x140299fca`.
 
 ## 0.83 Shared Root And Palm-Basis Finding
 

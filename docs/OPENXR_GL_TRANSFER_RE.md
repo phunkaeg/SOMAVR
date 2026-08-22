@@ -1,6 +1,6 @@
 # OpenXR OpenGL Transfer Audit
 
-Date: 2026-08-07
+Date: 2026-08-23
 
 ## Decision
 
@@ -43,9 +43,17 @@ frames and bounded `budget_pressure` warnings when transfer consumes at least
 25 percent of `predictedDisplayPeriod`.
 
 The `copyCpu` value covers GL state queries/restoration and command dispatch;
-it is not GPU execution time. Existing nonblocking HPL stage GPU telemetry can
-identify broad GPU pressure, but a dedicated swapchain-blit query ring should
-only be added if CPU telemetry leaves a material unexplained gap.
+it is not GPU execution time. Version `0.92.0-native-stereo-evidence` adds the
+missing GPU measurement without synchronizing the pipeline: each eye owns an
+eight-slot ring of GL timestamp pairs. Capture brackets game framebuffer to eye
+cache; submit brackets eye cache/backbuffer/black into the acquired XR image.
+Availability is polled on later transfers and unavailable results are skipped,
+never waited on. The log reports latest/average/maximum microseconds, samples,
+dropped busy slots, invalid timestamp pairs, and API availability.
+
+The GPU ring uses GL query IDs allocated by SOMAVR inside the own-GL scope, so
+the HPL occlusion-query observer ignores them. It is telemetry only and does not
+alter acquire, copy, flush, release, or swapchain ownership.
 
 ## Runtime A/B Gate
 
@@ -56,14 +64,17 @@ depth setting, HUD state, and 60-second movement route for both runs:
 2. Make SteamVR the active OpenXR runtime and repeat the route.
 3. Preserve every `openxr_gl_transfer` and final OpenXR summary row.
 4. Compare projection average/maximum, budget-pressure count, per-eye failure
-   count, and the phase that owns any increase.
+   count, the CPU phase that owns any increase, and per-eye `gpuCapture` /
+   `gpuSubmit` time and query-drop rate.
 
 Build the D3D11 interop prototype only if SteamVR repeatedly shows material
 transfer cost or budget pressure that is absent under VirtualDesktopXR. A high
-`wait` or `release` value supports the runtime-handoff hypothesis. A high
-`copyCpu` value points first to SOMAVR's own state/copy path. Comparable low
-numbers do not justify another graphics device, extension path, swapchain
-format negotiation branch, recovery path, and packaging dependency.
+`wait` or `release` with low `gpuSubmit` supports a runtime-pacing/context
+hypothesis. A high `copyCpu` with low GPU time points first to SOMAVR's own
+state/copy dispatch. A high `gpuSubmit` is direct evidence that the GL copy is
+expensive. Comparable low numbers do not justify another graphics device,
+extension path, swapchain format negotiation branch, recovery path, and
+packaging dependency.
 
 ## Conditional D3D11 Shape
 

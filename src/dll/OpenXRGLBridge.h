@@ -42,6 +42,25 @@ public:
         TransferPhaseTiming flush;
         TransferPhaseTiming release;
         TransferPhaseTiming total;
+        TransferPhaseTiming gpuCapture;
+        TransferPhaseTiming gpuSubmit;
+        uint64_t gpuCaptureSamples = 0;
+        uint64_t gpuSubmitSamples = 0;
+        uint64_t gpuQueryDrops = 0;
+        uint64_t gpuInvalidSamples = 0;
+        bool gpuTimingAvailable = false;
+    };
+
+    enum class GpuTransferPhase : uint8_t {
+        Capture = 0,
+        Submit,
+    };
+
+    struct GpuTimestampSlot {
+        uint32_t startQuery = 0;
+        uint32_t endQuery = 0;
+        GpuTransferPhase phase = GpuTransferPhase::Submit;
+        bool pending = false;
     };
 
     struct EyeSwapchain {
@@ -66,6 +85,8 @@ public:
         uint32_t acquiredDepthImageIndex = 0;
         uint64_t depthProbeSamples = 0;
         SwapchainTransferTiming colorTransferTiming;
+        std::array<GpuTimestampSlot, 8> gpuTimestampSlots{};
+        uint32_t nextGpuTimestampSlot = 0;
     };
 
     struct HudSwapchain {
@@ -237,6 +258,9 @@ private:
         int height,
         uint64_t captureFrame);
     bool CopyHudCaptureToImage(uint32_t imageIndex);
+    int BeginGpuTiming(EyeSwapchain& eye, GpuTransferPhase phase);
+    void EndGpuTiming(EyeSwapchain& eye, int slotIndex);
+    void PollGpuTiming(EyeSwapchain& eye);
     bool CreateInteractionReticleSwapchain(XrSession session, int sizePixels);
     bool CreateControllerAimGuideSwapchain(XrSession session, int sizePixels);
     bool CreateStatusPanelSwapchain(XrSession session, int width, int height);
@@ -296,6 +320,11 @@ private:
     using GlFramebufferTexture2DFn = void(APIENTRY*)(uint32_t, uint32_t, uint32_t, uint32_t, int32_t);
     using GlCheckFramebufferStatusFn = uint32_t(APIENTRY*)(uint32_t);
     using GlBlitFramebufferFn = void(APIENTRY*)(int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t, uint32_t);
+    using GlGenQueriesFn = void(APIENTRY*)(int32_t, uint32_t*);
+    using GlDeleteQueriesFn = void(APIENTRY*)(int32_t, const uint32_t*);
+    using GlQueryCounterFn = void(APIENTRY*)(uint32_t, uint32_t);
+    using GlGetQueryObjectivFn = void(APIENTRY*)(uint32_t, uint32_t, int32_t*);
+    using GlGetQueryObjectui64vFn = void(APIENTRY*)(uint32_t, uint32_t, uint64_t*);
 
     GlGenFramebuffersFn glGenFramebuffers_ = nullptr;
     GlDeleteFramebuffersFn glDeleteFramebuffers_ = nullptr;
@@ -303,6 +332,12 @@ private:
     GlFramebufferTexture2DFn glFramebufferTexture2D_ = nullptr;
     GlCheckFramebufferStatusFn glCheckFramebufferStatus_ = nullptr;
     GlBlitFramebufferFn glBlitFramebuffer_ = nullptr;
+    GlGenQueriesFn glGenQueries_ = nullptr;
+    GlDeleteQueriesFn glDeleteQueries_ = nullptr;
+    GlQueryCounterFn glQueryCounter_ = nullptr;
+    GlGetQueryObjectivFn glGetQueryObjectiv_ = nullptr;
+    GlGetQueryObjectui64vFn glGetQueryObjectui64v_ = nullptr;
+    bool gpuTimingAvailable_ = false;
 };
 
 } // namespace somavr

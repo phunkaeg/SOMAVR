@@ -1,5 +1,34 @@
 # VR Compatibility Reverse-Engineering Map
 
+## 0.92.0 Native-Stereo Evidence Gate
+
+The established same-frame viewport replay remains configured as before;
+version 0.92 does not promote the distinct future world-only native stereo
+design. It instruments two shared renderer resources now proven by vanilla
+apitrace and released HPL source:
+
+1. Occlusion queries are pooled and immediately recycled after result polling.
+   The first/replay pass tracker records same-frame ID reuse, target conflicts,
+   unmatched ends, and bounded state overflow without modifying query results.
+2. Translucent refraction copies per-object framebuffer rectangles into shared
+   scene-color texture storage. The first/replay copy tracker records destination
+   texture reuse and dimensions without changing texture ownership or copy order.
+3. The refraction family receives all camera and inverse-camera matrices through
+   a UBO, not ordinary `glUniformMatrix4fv` calls. Any native stereo promotion
+   must update that native/UBO packet per eye and preserve the per-eye copied
+   scene color through each corresponding translucent pass.
+
+The safe candidate render transaction is therefore sequential: apply eye camera,
+run world/culling/query work, run that eye's refraction copies and translucent
+draws, finish eye-local post history, cache the eye, then repeat. Replaying only
+opaque world work and sharing query/refraction scratch is explicitly rejected.
+Promotion still requires headset proof of timing, query/copy summaries, shadow
+and reflection parity, HUD ownership, and immediate AFR rollback.
+
+The existing OpenGL OpenXR path also measures cache-capture and swapchain-submit
+GPU durations using nonblocking timestamp rings. These numbers decide whether a
+D3D11 interop prototype is warranted; they do not change the renderer backend.
+
 ## 0.90.0 Native GL Transfer Evidence Gate
 
 TheDarkModVR proves that an OpenGL engine can keep its renderer untouched while

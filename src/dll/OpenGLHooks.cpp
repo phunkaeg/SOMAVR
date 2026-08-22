@@ -88,6 +88,10 @@ constexpr GLenum kGLTextureInternalFormat = 0x1003;
 constexpr GLenum kGLTextureDepth = 0x8071;
 constexpr GLenum kGLTextureCubeMap = 0x8513;
 constexpr GLenum kGLTextureCubeMapPositiveX = 0x8515;
+constexpr GLenum kGLQueryResult = 0x8866;
+constexpr GLenum kGLQueryResultAvailable = 0x8867;
+constexpr size_t kMaxOcclusionQueryStates = 4096;
+constexpr size_t kMaxFramebufferCopyStates = 4096;
 
 using SwapBuffersFn = BOOL(WINAPI*)(HDC);
 using WglMakeCurrentFn = BOOL(WINAPI*)(HDC, HGLRC);
@@ -99,6 +103,8 @@ using GlGetIntegervFn = void(APIENTRY*)(GLenum, GLint*);
 using GlGetFloatvFn = void(APIENTRY*)(GLenum, GLfloat*);
 using GlGetTexLevelParameterivFn = void(APIENTRY*)(GLenum, GLint, GLenum, GLint*);
 using GlBindTextureFn = void(APIENTRY*)(GLenum, GLuint);
+using GlCopyTexSubImage2DFn = void(APIENTRY*)(
+    GLenum, GLint, GLint, GLint, GLint, GLint, GLsizei, GLsizei);
 using GlMatrixModeFn = void(APIENTRY*)(GLenum);
 using GlLoadMatrixfFn = void(APIENTRY*)(const GLfloat*);
 using GlViewportFn = void(APIENTRY*)(GLint, GLint, GLsizei, GLsizei);
@@ -123,6 +129,11 @@ using GlGetIntegeriVFn = void(APIENTRY*)(GLenum, GLuint, GLint*);
 using GlGetInteger64iVFn = void(APIENTRY*)(GLenum, GLuint, int64_t*);
 using GlGetNamedBufferSubDataFn = void(APIENTRY*)(GLuint, intptr_t, ptrdiff_t, void*);
 using GlNamedBufferSubDataFn = void(APIENTRY*)(GLuint, intptr_t, ptrdiff_t, const void*);
+using GlBeginQueryFn = void(APIENTRY*)(GLenum, GLuint);
+using GlEndQueryFn = void(APIENTRY*)(GLenum);
+using GlGetQueryObjectivFn = void(APIENTRY*)(GLuint, GLenum, GLint*);
+using GlGetQueryObjectuivFn = void(APIENTRY*)(GLuint, GLenum, GLuint*);
+using GlGetQueryObjectui64vFn = void(APIENTRY*)(GLuint, GLenum, uint64_t*);
 
 struct LastSamples {
     MatrixSummary fixedProjection = {};
@@ -179,6 +190,23 @@ struct PostEffectEyeResourceState {
     uint64_t calls = 0;
 };
 
+struct OcclusionQueryState {
+    GLenum target = 0;
+    bool active = false;
+    uint64_t lastBeginFrame = 0;
+    uint64_t firstEyeFrame = 0;
+    uint64_t replayEyeFrame = 0;
+    HPLDualRenderPass lastPass = HPLDualRenderPass::None;
+    uint64_t begins = 0;
+    uint64_t results = 0;
+};
+
+struct FramebufferCopyState {
+    uint64_t firstEyeFrame = 0;
+    uint64_t replayEyeFrame = 0;
+    uint64_t copies = 0;
+};
+
 Config g_config = {};
 OpenXRRuntime* g_openxr = nullptr;
 
@@ -190,6 +218,8 @@ std::mutex g_matrixCaptureMutex;
 std::mutex g_renderDiagnosticMutex;
 std::mutex g_reflectionFadeMutex;
 std::mutex g_postEffectResourceMutex;
+std::mutex g_occlusionQueryMutex;
+std::mutex g_framebufferCopyMutex;
 
 bool g_minHookInitialized = false;
 bool g_hooksInstalled = false;
@@ -207,6 +237,7 @@ GlGetIntegervFn g_glGetIntegerv = nullptr;
 GlGetFloatvFn g_glGetFloatv = nullptr;
 GlGetTexLevelParameterivFn g_glGetTexLevelParameteriv = nullptr;
 GlBindTextureFn g_originalGlBindTexture = nullptr;
+GlCopyTexSubImage2DFn g_originalGlCopyTexSubImage2D = nullptr;
 GlMatrixModeFn g_originalGlMatrixMode = nullptr;
 GlLoadMatrixfFn g_originalGlLoadMatrixf = nullptr;
 GlViewportFn g_originalGlViewport = nullptr;
@@ -231,6 +262,48 @@ GlGetIntegeriVFn g_glGetIntegeriV = nullptr;
 GlGetInteger64iVFn g_glGetInteger64iV = nullptr;
 GlGetNamedBufferSubDataFn g_glGetNamedBufferSubData = nullptr;
 GlNamedBufferSubDataFn g_glNamedBufferSubData = nullptr;
+GlBeginQueryFn g_originalGlBeginQuery = nullptr;
+GlEndQueryFn g_originalGlEndQuery = nullptr;
+GlGetQueryObjectivFn g_originalGlGetQueryObjectiv = nullptr;
+GlGetQueryObjectuivFn g_originalGlGetQueryObjectuiv = nullptr;
+GlGetQueryObjectui64vFn g_originalGlGetQueryObjectui64v = nullptr;
+
+bool g_occlusionQueryTelemetryEnabled = false;
+std::unordered_map<GLuint, OcclusionQueryState> g_occlusionQueryStates;
+std::unordered_map<GLenum, GLuint> g_activeOcclusionQueries;
+std::atomic<uint64_t> g_occlusionQueryBegins = 0;
+std::atomic<uint64_t> g_occlusionQueryEnds = 0;
+std::atomic<uint64_t> g_occlusionQueryResults = 0;
+std::atomic<uint64_t> g_occlusionQueryAvailabilityChecks = 0;
+std::atomic<uint64_t> g_occlusionQueryFirstEyeBegins = 0;
+std::atomic<uint64_t> g_occlusionQueryReplayEyeBegins = 0;
+std::atomic<uint64_t> g_occlusionQuerySameFrameReuses = 0;
+std::atomic<uint64_t> g_occlusionQueryTargetConflicts = 0;
+std::atomic<uint64_t> g_occlusionQueryUnmatchedEnds = 0;
+std::atomic<uint64_t> g_occlusionQueryStateOverflows = 0;
+std::unordered_map<GLuint, FramebufferCopyState> g_framebufferCopyStates;
+std::atomic<uint64_t> g_framebufferCopies = 0;
+std::atomic<uint64_t> g_framebufferCopyPixels = 0;
+std::atomic<uint64_t> g_framebufferCopyFirstEye = 0;
+std::atomic<uint64_t> g_framebufferCopyReplayEye = 0;
+std::atomic<uint64_t> g_framebufferCopyCrossEyeReuses = 0;
+std::atomic<uint64_t> g_framebufferCopyTextureReadFailures = 0;
+std::atomic<uint64_t> g_framebufferCopyStateOverflows = 0;
+
+void APIENTRY HookGlBeginQuery(GLenum target, GLuint query);
+void APIENTRY HookGlEndQuery(GLenum target);
+void APIENTRY HookGlGetQueryObjectiv(GLuint query, GLenum pname, GLint* value);
+void APIENTRY HookGlGetQueryObjectuiv(GLuint query, GLenum pname, GLuint* value);
+void APIENTRY HookGlGetQueryObjectui64v(GLuint query, GLenum pname, uint64_t* value);
+void APIENTRY HookGlCopyTexSubImage2D(
+    GLenum target,
+    GLint level,
+    GLint xOffset,
+    GLint yOffset,
+    GLint x,
+    GLint y,
+    GLsizei width,
+    GLsizei height);
 
 std::atomic<uint64_t> g_frameIndex = 0;
 std::atomic<uint64_t> g_swapCount = 0;
@@ -1630,6 +1703,30 @@ void MaybeInstallExtensionHook(const char* name, PROC proc)
         }
         detour = reinterpret_cast<void*>(&HookGlBindFramebuffer);
         original = reinterpret_cast<void**>(&g_originalGlBindFramebuffer);
+    } else if (g_occlusionQueryTelemetryEnabled
+        && (NameEquals(name, "glBeginQuery") || NameEquals(name, "glBeginQueryARB"))) {
+        if (g_originalGlBeginQuery != nullptr) return;
+        detour = reinterpret_cast<void*>(&HookGlBeginQuery);
+        original = reinterpret_cast<void**>(&g_originalGlBeginQuery);
+    } else if (g_occlusionQueryTelemetryEnabled
+        && (NameEquals(name, "glEndQuery") || NameEquals(name, "glEndQueryARB"))) {
+        if (g_originalGlEndQuery != nullptr) return;
+        detour = reinterpret_cast<void*>(&HookGlEndQuery);
+        original = reinterpret_cast<void**>(&g_originalGlEndQuery);
+    } else if (g_occlusionQueryTelemetryEnabled
+        && (NameEquals(name, "glGetQueryObjectiv") || NameEquals(name, "glGetQueryObjectivARB"))) {
+        if (g_originalGlGetQueryObjectiv != nullptr) return;
+        detour = reinterpret_cast<void*>(&HookGlGetQueryObjectiv);
+        original = reinterpret_cast<void**>(&g_originalGlGetQueryObjectiv);
+    } else if (g_occlusionQueryTelemetryEnabled
+        && (NameEquals(name, "glGetQueryObjectuiv") || NameEquals(name, "glGetQueryObjectuivARB"))) {
+        if (g_originalGlGetQueryObjectuiv != nullptr) return;
+        detour = reinterpret_cast<void*>(&HookGlGetQueryObjectuiv);
+        original = reinterpret_cast<void**>(&g_originalGlGetQueryObjectuiv);
+    } else if (g_occlusionQueryTelemetryEnabled && NameEquals(name, "glGetQueryObjectui64v")) {
+        if (g_originalGlGetQueryObjectui64v != nullptr) return;
+        detour = reinterpret_cast<void*>(&HookGlGetQueryObjectui64v);
+        original = reinterpret_cast<void**>(&g_originalGlGetQueryObjectui64v);
     } else if (NameEquals(name, "wglSwapIntervalEXT")) {
         if (g_originalWglSwapIntervalEXT != nullptr) {
             return;
@@ -1720,6 +1817,15 @@ void InstallKnownExtensionHooks()
         "glUseProgramObjectARB",
         "glBindFramebuffer",
         "glBindFramebufferEXT",
+        "glBeginQuery",
+        "glBeginQueryARB",
+        "glEndQuery",
+        "glEndQueryARB",
+        "glGetQueryObjectiv",
+        "glGetQueryObjectivARB",
+        "glGetQueryObjectuiv",
+        "glGetQueryObjectuivARB",
+        "glGetQueryObjectui64v",
         "wglSwapIntervalEXT",
     };
 
@@ -1901,6 +2007,220 @@ PROC WINAPI HookWglGetProcAddress(LPCSTR name)
     PROC proc = g_originalWglGetProcAddress(name);
     MaybeInstallExtensionHook(name, proc);
     return proc;
+}
+
+void APIENTRY HookGlBeginQuery(GLenum target, GLuint query)
+{
+    if (g_originalGlBeginQuery == nullptr) return;
+    g_originalGlBeginQuery(target, query);
+    if (!g_occlusionQueryTelemetryEnabled || IsOwnOpenGLWork() || query == 0) return;
+
+    const uint64_t frame = GetOpenGLRenderFrameHint();
+    const HPLDualRenderPass pass = GetActiveHPLDualRenderPass();
+    bool sameFrameReuse = false;
+    bool targetConflict = false;
+    {
+        std::lock_guard lock(g_occlusionQueryMutex);
+        const auto active = g_activeOcclusionQueries.find(target);
+        targetConflict = active != g_activeOcclusionQueries.end() && active->second != query;
+        g_activeOcclusionQueries[target] = query;
+
+        auto state = g_occlusionQueryStates.find(query);
+        if (state == g_occlusionQueryStates.end()) {
+            if (g_occlusionQueryStates.size() >= kMaxOcclusionQueryStates) {
+                g_occlusionQueryStateOverflows.fetch_add(1, std::memory_order_relaxed);
+                return;
+            }
+            state = g_occlusionQueryStates.emplace(query, OcclusionQueryState{}).first;
+        }
+        OcclusionQueryState& queryState = state->second;
+        if (pass == HPLDualRenderPass::FirstEye) {
+            queryState.firstEyeFrame = frame;
+        } else if (pass == HPLDualRenderPass::ReplayEye) {
+            queryState.replayEyeFrame = frame;
+            sameFrameReuse = queryState.firstEyeFrame == frame;
+        }
+        queryState.target = target;
+        queryState.active = true;
+        queryState.lastBeginFrame = frame;
+        queryState.lastPass = pass;
+        ++queryState.begins;
+    }
+
+    const uint64_t begins = g_occlusionQueryBegins.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (pass == HPLDualRenderPass::FirstEye) {
+        g_occlusionQueryFirstEyeBegins.fetch_add(1, std::memory_order_relaxed);
+    } else if (pass == HPLDualRenderPass::ReplayEye) {
+        g_occlusionQueryReplayEyeBegins.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (targetConflict) {
+        g_occlusionQueryTargetConflicts.fetch_add(1, std::memory_order_relaxed);
+    }
+    uint64_t sameFrameReuses = 0;
+    if (sameFrameReuse) {
+        sameFrameReuses = g_occlusionQuerySameFrameReuses.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+    const uint64_t interval = static_cast<uint64_t>(
+        std::max(g_config.hplCompatibilityLogInterval, 1));
+    if (targetConflict || (sameFrameReuse && (sameFrameReuses <= 8 || sameFrameReuses % interval == 0))) {
+        Logger::Instance().Write(
+            targetConflict ? LogLevel::Warn : LogLevel::Info,
+            "hpl_occlusion_query begin=%llu frame=%llu query=%u target=0x%x stage=%s pass=%s sameFrameReuse=%d sameFrameReuses=%llu targetConflict=%d",
+            static_cast<unsigned long long>(begins),
+            static_cast<unsigned long long>(frame),
+            query,
+            target,
+            GetHPLRenderStageName(GetActiveHPLRenderStage()),
+            GetHPLDualRenderPassName(pass),
+            sameFrameReuse ? 1 : 0,
+            static_cast<unsigned long long>(sameFrameReuses),
+            targetConflict ? 1 : 0);
+    }
+}
+
+void APIENTRY HookGlEndQuery(GLenum target)
+{
+    if (g_originalGlEndQuery == nullptr) return;
+    if (g_occlusionQueryTelemetryEnabled && !IsOwnOpenGLWork()) {
+        bool matched = false;
+        {
+            std::lock_guard lock(g_occlusionQueryMutex);
+            const auto active = g_activeOcclusionQueries.find(target);
+            if (active != g_activeOcclusionQueries.end()) {
+                const auto state = g_occlusionQueryStates.find(active->second);
+                if (state != g_occlusionQueryStates.end()) {
+                    state->second.active = false;
+                    matched = true;
+                }
+                g_activeOcclusionQueries.erase(active);
+            }
+        }
+        g_occlusionQueryEnds.fetch_add(1, std::memory_order_relaxed);
+        if (!matched) {
+            g_occlusionQueryUnmatchedEnds.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+    g_originalGlEndQuery(target);
+}
+
+void ObserveQueryResult(GLuint query, GLenum pname)
+{
+    if (!g_occlusionQueryTelemetryEnabled || IsOwnOpenGLWork() || query == 0) return;
+    g_occlusionQueryResults.fetch_add(1, std::memory_order_relaxed);
+    if (pname == kGLQueryResultAvailable) {
+        g_occlusionQueryAvailabilityChecks.fetch_add(1, std::memory_order_relaxed);
+    }
+    std::lock_guard lock(g_occlusionQueryMutex);
+    const auto state = g_occlusionQueryStates.find(query);
+    if (state != g_occlusionQueryStates.end()) {
+        ++state->second.results;
+    }
+}
+
+void APIENTRY HookGlGetQueryObjectiv(GLuint query, GLenum pname, GLint* value)
+{
+    if (g_originalGlGetQueryObjectiv == nullptr) return;
+    g_originalGlGetQueryObjectiv(query, pname, value);
+    ObserveQueryResult(query, pname);
+}
+
+void APIENTRY HookGlGetQueryObjectuiv(GLuint query, GLenum pname, GLuint* value)
+{
+    if (g_originalGlGetQueryObjectuiv == nullptr) return;
+    g_originalGlGetQueryObjectuiv(query, pname, value);
+    ObserveQueryResult(query, pname);
+}
+
+void APIENTRY HookGlGetQueryObjectui64v(GLuint query, GLenum pname, uint64_t* value)
+{
+    if (g_originalGlGetQueryObjectui64v == nullptr) return;
+    g_originalGlGetQueryObjectui64v(query, pname, value);
+    ObserveQueryResult(query, pname);
+}
+
+void APIENTRY HookGlCopyTexSubImage2D(
+    GLenum target,
+    GLint level,
+    GLint xOffset,
+    GLint yOffset,
+    GLint x,
+    GLint y,
+    GLsizei width,
+    GLsizei height)
+{
+    if (g_occlusionQueryTelemetryEnabled && !IsOwnOpenGLWork()) {
+        GLuint texture = 0;
+        if (target == GL_TEXTURE_2D && g_glGetIntegerv != nullptr) {
+            GLint binding = 0;
+            g_glGetIntegerv(kGLTextureBinding2D, &binding);
+            if (binding > 0) texture = static_cast<GLuint>(binding);
+        }
+        if (texture == 0) {
+            g_framebufferCopyTextureReadFailures.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        const uint64_t frame = GetOpenGLRenderFrameHint();
+        const HPLDualRenderPass pass = GetActiveHPLDualRenderPass();
+        bool crossEyeReuse = false;
+        if (texture != 0) {
+            std::lock_guard lock(g_framebufferCopyMutex);
+            auto state = g_framebufferCopyStates.find(texture);
+            if (state == g_framebufferCopyStates.end()) {
+                if (g_framebufferCopyStates.size() < kMaxFramebufferCopyStates) {
+                    state = g_framebufferCopyStates.emplace(
+                        texture, FramebufferCopyState{}).first;
+                } else {
+                    g_framebufferCopyStateOverflows.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+            if (state != g_framebufferCopyStates.end()) {
+                crossEyeReuse =
+                    (pass == HPLDualRenderPass::FirstEye && state->second.replayEyeFrame == frame)
+                    || (pass == HPLDualRenderPass::ReplayEye && state->second.firstEyeFrame == frame);
+                if (pass == HPLDualRenderPass::FirstEye) state->second.firstEyeFrame = frame;
+                if (pass == HPLDualRenderPass::ReplayEye) state->second.replayEyeFrame = frame;
+                ++state->second.copies;
+            }
+        }
+
+        const uint64_t copies = g_framebufferCopies.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (width > 0 && height > 0) {
+            g_framebufferCopyPixels.fetch_add(
+                static_cast<uint64_t>(width) * static_cast<uint64_t>(height),
+                std::memory_order_relaxed);
+        }
+        if (pass == HPLDualRenderPass::FirstEye) {
+            g_framebufferCopyFirstEye.fetch_add(1, std::memory_order_relaxed);
+        } else if (pass == HPLDualRenderPass::ReplayEye) {
+            g_framebufferCopyReplayEye.fetch_add(1, std::memory_order_relaxed);
+        }
+        uint64_t crossEyeReuses = g_framebufferCopyCrossEyeReuses.load(std::memory_order_relaxed);
+        if (crossEyeReuse) {
+            crossEyeReuses = g_framebufferCopyCrossEyeReuses.fetch_add(
+                1, std::memory_order_relaxed) + 1;
+        }
+        if (crossEyeReuse && crossEyeReuses <= 16) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "hpl_framebuffer_copy copy=%llu frame=%llu texture=%u target=0x%x level=%d src=%d,%d,%d,%d dst=%d,%d pass=%s crossEyeReuse=1 crossEyeReuses=%llu policy=observe_shared_scene_color_scratch",
+                static_cast<unsigned long long>(copies),
+                static_cast<unsigned long long>(frame),
+                texture,
+                static_cast<unsigned>(target),
+                level,
+                x,
+                y,
+                width,
+                height,
+                xOffset,
+                yOffset,
+                GetHPLDualRenderPassName(pass),
+                static_cast<unsigned long long>(crossEyeReuses));
+        }
+    }
+
+    g_originalGlCopyTexSubImage2D(
+        target, level, xOffset, yOffset, x, y, width, height);
 }
 
 void APIENTRY HookGlMatrixMode(GLenum mode)
@@ -2093,6 +2413,34 @@ bool InstallOpenGLHooks(const Config& config, OpenXRRuntime* openxr)
 
     g_config = config;
     g_openxr = openxr;
+    g_occlusionQueryTelemetryEnabled = config.hplDualRenderContinuousControl
+        || config.hplDualRenderReplayProbe;
+    g_occlusionQueryBegins.store(0, std::memory_order_relaxed);
+    g_occlusionQueryEnds.store(0, std::memory_order_relaxed);
+    g_occlusionQueryResults.store(0, std::memory_order_relaxed);
+    g_occlusionQueryAvailabilityChecks.store(0, std::memory_order_relaxed);
+    g_occlusionQueryFirstEyeBegins.store(0, std::memory_order_relaxed);
+    g_occlusionQueryReplayEyeBegins.store(0, std::memory_order_relaxed);
+    g_occlusionQuerySameFrameReuses.store(0, std::memory_order_relaxed);
+    g_occlusionQueryTargetConflicts.store(0, std::memory_order_relaxed);
+    g_occlusionQueryUnmatchedEnds.store(0, std::memory_order_relaxed);
+    g_occlusionQueryStateOverflows.store(0, std::memory_order_relaxed);
+    {
+        std::lock_guard queryLock(g_occlusionQueryMutex);
+        g_occlusionQueryStates.clear();
+        g_activeOcclusionQueries.clear();
+    }
+    {
+        std::lock_guard copyLock(g_framebufferCopyMutex);
+        g_framebufferCopyStates.clear();
+    }
+    g_framebufferCopies.store(0, std::memory_order_relaxed);
+    g_framebufferCopyPixels.store(0, std::memory_order_relaxed);
+    g_framebufferCopyFirstEye.store(0, std::memory_order_relaxed);
+    g_framebufferCopyReplayEye.store(0, std::memory_order_relaxed);
+    g_framebufferCopyCrossEyeReuses.store(0, std::memory_order_relaxed);
+    g_framebufferCopyTextureReadFailures.store(0, std::memory_order_relaxed);
+    g_framebufferCopyStateOverflows.store(0, std::memory_order_relaxed);
     g_shadowJitterSuppressed.store(config.hplShadowJitterSuppressedDefault, std::memory_order_relaxed);
     g_reflectionFadeBypassed.store(false, std::memory_order_relaxed);
     g_reflectionFadeF3Down.store(false, std::memory_order_relaxed);
@@ -2148,11 +2496,18 @@ bool InstallOpenGLHooks(const Config& config, OpenXRRuntime* openxr)
     if (config.hplPostEffectResourceProbe || config.hplPerEyeSSAOTemporalControl) {
         anyHook |= HookExport(opengl32, "glBindTexture", reinterpret_cast<void*>(&HookGlBindTexture), reinterpret_cast<void**>(&g_originalGlBindTexture));
     }
+    if (g_occlusionQueryTelemetryEnabled) {
+        anyHook |= HookExport(
+            opengl32,
+            "glCopyTexSubImage2D",
+            reinterpret_cast<void*>(&HookGlCopyTexSubImage2D),
+            reinterpret_cast<void**>(&g_originalGlCopyTexSubImage2D));
+    }
 
     g_hooksInstalled = anyHook;
     Logger::Instance().Write(
         LogLevel::Info,
-        "opengl_hooks install_complete anyHook=%d opengl32=%s gdi32=%s shadowJitterControl=%d shadowJitterSuppressed=%d shadowJitterKey=F7 reflectionFadeControl=%d reflectionFadeKey=F3 renderDiagnostic=%d renderDiagnosticKey=F6 postEffectResourceProbe=%d textureQuery=%d",
+        "opengl_hooks install_complete anyHook=%d opengl32=%s gdi32=%s shadowJitterControl=%d shadowJitterSuppressed=%d shadowJitterKey=F7 reflectionFadeControl=%d reflectionFadeKey=F3 renderDiagnostic=%d renderDiagnosticKey=F6 postEffectResourceProbe=%d textureQuery=%d occlusionQueryTelemetry=%d framebufferCopyTelemetry=%d",
         anyHook ? 1 : 0,
         HexPointer(opengl32).c_str(),
         HexPointer(gdi32).c_str(),
@@ -2161,7 +2516,9 @@ bool InstallOpenGLHooks(const Config& config, OpenXRRuntime* openxr)
         config.hplReflectionFadeControl ? 1 : 0,
         config.renderDiagnosticCapture ? 1 : 0,
         config.hplPostEffectResourceProbe ? 1 : 0,
-        g_glGetTexLevelParameteriv != nullptr ? 1 : 0);
+        g_glGetTexLevelParameteriv != nullptr ? 1 : 0,
+        g_occlusionQueryTelemetryEnabled ? 1 : 0,
+        g_originalGlCopyTexSubImage2D != nullptr ? 1 : 0);
     return anyHook;
 }
 
@@ -2344,6 +2701,29 @@ void RemoveOpenGLHooks()
         std::lock_guard resourceLock(g_postEffectResourceMutex);
         g_postEffectEyeResources.clear();
     }
+    {
+        std::lock_guard queryLock(g_occlusionQueryMutex);
+        g_occlusionQueryStates.clear();
+        g_activeOcclusionQueries.clear();
+    }
+    {
+        std::lock_guard copyLock(g_framebufferCopyMutex);
+        g_framebufferCopyStates.clear();
+    }
+    g_framebufferCopies.store(0, std::memory_order_relaxed);
+    g_framebufferCopyPixels.store(0, std::memory_order_relaxed);
+    g_framebufferCopyFirstEye.store(0, std::memory_order_relaxed);
+    g_framebufferCopyReplayEye.store(0, std::memory_order_relaxed);
+    g_framebufferCopyCrossEyeReuses.store(0, std::memory_order_relaxed);
+    g_framebufferCopyTextureReadFailures.store(0, std::memory_order_relaxed);
+    g_framebufferCopyStateOverflows.store(0, std::memory_order_relaxed);
+    g_occlusionQueryTelemetryEnabled = false;
+    g_originalGlBeginQuery = nullptr;
+    g_originalGlEndQuery = nullptr;
+    g_originalGlGetQueryObjectiv = nullptr;
+    g_originalGlGetQueryObjectuiv = nullptr;
+    g_originalGlGetQueryObjectui64v = nullptr;
+    g_originalGlCopyTexSubImage2D = nullptr;
     g_postEffectResourceCapture = {};
     Logger::Instance().Write(LogLevel::Info, "opengl_hooks removed");
 }
@@ -2352,6 +2732,9 @@ void LogOpenGLProofSummary()
 {
     LastSamples samplesCopy;
     size_t postEffectResourceEffects = 0;
+    size_t occlusionQueryStates = 0;
+    size_t activeOcclusionQueries = 0;
+    size_t framebufferCopyTextures = 0;
     {
         std::lock_guard lock(g_sampleMutex);
         samplesCopy = g_lastSamples;
@@ -2360,6 +2743,54 @@ void LogOpenGLProofSummary()
         std::lock_guard lock(g_postEffectResourceMutex);
         postEffectResourceEffects = g_postEffectEyeResources.size();
     }
+    {
+        std::lock_guard lock(g_occlusionQueryMutex);
+        occlusionQueryStates = g_occlusionQueryStates.size();
+        activeOcclusionQueries = g_activeOcclusionQueries.size();
+    }
+    {
+        std::lock_guard lock(g_framebufferCopyMutex);
+        framebufferCopyTextures = g_framebufferCopyStates.size();
+    }
+
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_occlusion_query_summary enabled=%d hooks={begin=%d end=%d resultIv=%d resultUiv=%d resultUi64v=%d} calls={begin=%llu end=%llu result=%llu availability=%llu} passes={first=%llu replay=%llu sameFrameQueryReuse=%llu} anomalies={targetConflicts=%llu unmatchedEnds=%llu stateOverflows=%llu} states=%llu activeTargets=%llu inference=%s",
+        g_occlusionQueryTelemetryEnabled ? 1 : 0,
+        g_originalGlBeginQuery != nullptr ? 1 : 0,
+        g_originalGlEndQuery != nullptr ? 1 : 0,
+        g_originalGlGetQueryObjectiv != nullptr ? 1 : 0,
+        g_originalGlGetQueryObjectuiv != nullptr ? 1 : 0,
+        g_originalGlGetQueryObjectui64v != nullptr ? 1 : 0,
+        static_cast<unsigned long long>(g_occlusionQueryBegins.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_occlusionQueryEnds.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_occlusionQueryResults.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_occlusionQueryAvailabilityChecks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_occlusionQueryFirstEyeBegins.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_occlusionQueryReplayEyeBegins.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_occlusionQuerySameFrameReuses.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_occlusionQueryTargetConflicts.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_occlusionQueryUnmatchedEnds.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_occlusionQueryStateOverflows.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(occlusionQueryStates),
+        static_cast<unsigned long long>(activeOcclusionQueries),
+        g_occlusionQuerySameFrameReuses.load(std::memory_order_relaxed) != 0
+            ? "shared_query_ids_across_eyes" : "not_yet_observed");
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_framebuffer_copy_summary enabled=%d hook=%d copies=%llu pixels=%llu passes={first=%llu replay=%llu} crossEyeTextureReuses=%llu textureReadFailures=%llu stateOverflows=%llu textures=%llu inference=%s",
+        g_occlusionQueryTelemetryEnabled ? 1 : 0,
+        g_originalGlCopyTexSubImage2D != nullptr ? 1 : 0,
+        static_cast<unsigned long long>(g_framebufferCopies.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_framebufferCopyPixels.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_framebufferCopyFirstEye.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_framebufferCopyReplayEye.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_framebufferCopyCrossEyeReuses.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_framebufferCopyTextureReadFailures.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_framebufferCopyStateOverflows.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(framebufferCopyTextures),
+        g_framebufferCopyCrossEyeReuses.load(std::memory_order_relaxed) != 0
+            ? "shared_scene_color_texture_across_eyes" : "not_yet_observed");
 
     Logger::Instance().Write(
         LogLevel::Info,

@@ -1,5 +1,16 @@
 # Ghidra Synchronization Ledger
 
+## 2026-08-23 Player-Hands Module Owner Sync
+
+| Program/address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| NoSteam `0x140154c40` | `SOMA_iLuxUpdateable_RunMessage` | Decompilation confirms lifecycle-ID dispatch through the active updateable's virtual table; ID `4` calls vtable `+0x28`. Version 0.92 uses an exact-signature, read-only hook here to discover player-hands module ID `18` and its script object, with vtable validation against `0x1401378e0`. |
+
+The selected `Soma_NoSteam.exe` database was renamed and saved through the
+Ghidra MCP. Released `PlayerHandsHandler.hps` independently proves that public
+`SetVisible(true)` owns campaign-correct hand creation; active invocation is
+deferred until a script-safe phase is live-proven.
+
 ## 2026-07-22 Arm Local Restore Correction
 
 | Program/address | Ghidra name | Evidence/use |

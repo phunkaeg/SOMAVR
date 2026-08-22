@@ -65,6 +65,22 @@ native `+0x271b80` / `+0x270230` / `frustum+*` candidates — use those RVAs to 
 Program object names are trace-local and must not become runtime signatures;
 the decoded matrix role and validated native anchors are the authority.
 
+### Native-Stereo Resource Confirmation (2026-08-23)
+
+The baseline trace also proves two renderer-owned resources that must remain
+eye coherent during any second world render:
+
+| GL surface | Baseline evidence | 0.92 observation surface |
+| --- | --- | --- |
+| Occlusion queries | IDs `1..4` are polled for availability/result, then immediately reused by the next frame; `14,828` begin/end pairs total | `glBeginQuery`, `glEndQuery`, and query-result hooks tag first/replay passes and report same-frame ID reuse without altering results |
+| Refraction scene color | `6,684` framebuffer copies; call `964252` copies a `942x888` object clip rectangle into texture 35 just before the refractive translucent draw | `glCopyTexSubImage2D` records destination texture, rectangle, pass, and cross-eye reuse; table capped at 4096 textures |
+| Translucent camera packet | Refraction shader 368 samples `aRefractionMap`/`aSceneDepth`; shaders 368 and 578 consume view/projection/inverse matrices through `cTranslucentTypeArguments` | Native frustum and UBO ownership are required; trace-local program IDs are diagnostic labels only |
+
+These are confirmation hooks, not a new stereo implementation. The current
+continuous replay can now supply the evidence; any future world-only render
+path must keep each eye's query, copied scene color, translucent draws, temporal
+packet, and cache fill in one sequential transaction.
+
 ## Native Physics And Input Candidates
 
 | Candidate | Confidence | Purpose | Evidence |

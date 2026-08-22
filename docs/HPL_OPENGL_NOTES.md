@@ -76,3 +76,40 @@ at the driver layer, and that HPL3 uploads projection as a GLSL uniform (not fix
 `glUniformMatrix4fv(program=822, location=1)` (`camera_moves=true`). Full detail: `future-hook-map.md`.
 The numeric GL program names belong to this trace and may change between runs;
 matrix semantics and the native frustum packet are the stable anchors.
+
+## apitrace Native-Stereo Resource Evidence (2026-08-23)
+
+The same vanilla trace supplies two constraints that are invisible at the
+camera-uniform surface:
+
+- It contains `14,828` `glBeginQuery` calls, the same number of `glEndQuery`
+  calls, and `29,609` query-result reads. In frame 576 HPL uses query IDs
+  `1..4`; frame 577 first polls availability/result for those IDs, then begins
+  new queries with the same IDs in reverse order. This is an immediate reusable
+  query pool, not an eye-local history. A second world render in the same game
+  frame must prove query isolation or accept that replay-eye work may replace
+  first-eye visibility state.
+
+- It contains `6,684` `glCopyTexSubImage2D` calls. A gameplay example at call
+  `964252` copies a partial `942x888` rectangle from `(978,0)` into texture 35,
+  immediately before translucent program 949 draws. Released HPL2 source
+  independently shows this exact shape: each refractive object's screen clip
+  rectangle is copied into a shared refraction texture immediately before the
+  object draw. Full-screen copies also exist for post/edge-smoothing work, so
+  copy dimensions and render-stage ownership must be retained in diagnostics.
+
+Trace-local program 949 links fragment shader 368. Its generated source names
+`aRefractionMap` at binding 2, `aSceneDepth` at binding 7, and the
+`cTranslucentTypeArguments` UBO containing view-projection, projection, view,
+and all three inverses. Program 948's adjacent fragment shader 578 is a
+non-refractive translucent variant but uses the same camera UBO. This confirms
+that `glUniformMatrix4fv` interception alone cannot cover translucent HPL3
+camera state; the native frustum/renderer packet or the UBO upload must own
+stereo.
+
+`0.92.0-native-stereo-evidence` adds bounded observation for both risks while
+the existing continuous replay/control lane is active.
+`hpl_occlusion_query_summary` reports query IDs reused across first and
+replay eyes; `hpl_framebuffer_copy_summary` reports shared destination textures
+written by both eyes. The hooks activate only with the existing dual-render
+continuous/replay controls and ignore SOMAVR's private GL work.

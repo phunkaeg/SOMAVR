@@ -1,6 +1,6 @@
 # Current State
 
-Date: 2026-08-22
+Date: 2026-08-23
 
 ## Objective
 
@@ -22,10 +22,45 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 ## Active Baseline
 
 The active engineering and gameplay test build is
-`0.91.0-review-hardening`, layered on the
+`0.92.0-native-stereo-evidence`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Version 0.92 adds the evidence needed to evaluate the existing same-frame
+  viewport replay and a future world-only native stereo path without changing
+  either lane's ownership. While continuous replay is active, OpenGL hooks
+  classify first-eye/replay-eye occlusion
+  query reuse and `glCopyTexSubImage2D` scene-color scratch reuse. Both trackers
+  are read-only, own-GL aware, bounded to 4096 identities, and fail closed.
+
+- The vanilla apitrace baseline proves why those resources matter. HPL polls
+  query availability/results and immediately recycles IDs `1..4` on the next
+  frame; gameplay performs 6684 framebuffer copies, including per-object
+  partial rectangles immediately before translucent refraction draws. The
+  refractive shader consumes `aRefractionMap`, `aSceneDepth`, and six camera
+  matrices through `cTranslucentTypeArguments`, so a `glUniform*`-only stereo
+  lane cannot make that material family eye-correct.
+
+- OpenXR GL handoff telemetry now includes nonblocking GPU timestamp pairs for
+  cache capture and swapchain submission, with an eight-slot ring per eye and
+  no result waits. CPU acquire/wait/copy/flush/release timing remains intact.
+  XR frame-lock wait/hold and snapshot-accessor contention are also measured so
+  the remaining single-mutex architecture can be split only if live evidence
+  shows render-thread blocking.
+
+- Native camera packet access now validates every page with `VirtualQuery` and
+  protects each copy with SEH. Invalid or stale camera/frustum pointers disable
+  the affected operation and increment bounded summary counters instead of
+  faulting the process. Deterministic tests cover read/write protection,
+  cross-page ranges, nulls, and pointer-offset overflow.
+
+- Startup configuration is emitted as nine ownership-scoped rows instead of
+  two oversized variadic records. The optional hands probe now also discovers
+  the live player-hands module (`mlId=18`) and script object at the native
+  update dispatcher. This is read-only: released scripts prove public
+  `PlayerHands_SetVisible(true)` creates the campaign-selected model, but an
+  active call remains gated on proving a script-owned invocation phase.
 
 - Version 0.91 hardens the current AFR path before any native dual-render
   experiment is promoted. A transient per-eye projection-apply failure now
@@ -47,8 +82,8 @@ compatibility probes:
   feature. Static and source-backed RE identifies the second world-render call,
   culling traversal, occlusion-query lifecycle, temporal owner and presentation
   boundary, but the 0.91 binary still uses the established AFR/optional replay
-  paths. The next implementation gate is default-off occlusion-query
-  instrumentation followed by a budgeted headset experiment.
+  paths. Version 0.92 supplies the previously planned occlusion/refraction
+  instrumentation; headset acceptance remains the promotion gate.
 
 - Version 0.90 prices the native OpenGL OpenXR handoff before SOMAVR adopts the
   D3D11 interop architecture proven by TheDarkModVR. Per-eye acquire, wait,

@@ -1,5 +1,38 @@
 # Test Checklists
 
+## 0.92.0 Native-Stereo Evidence
+
+1. Launch `out\SOMAVR-latest`, load the apartment save, and press F10 once.
+   Require `version=0.92.0-native-stereo-evidence`, package-local runtime/config
+   paths, zero unknown config keys/sections, and nine ownership-scoped startup
+   config rows with no truncation marker.
+2. Run ordinary AFR for 30 seconds while standing, turning, and walking. Confirm
+   the 0.91 world rigidity, stereo, hands/IK, locomotion, interactions, terminal,
+   HUD/menu, reticles, guides, and desktop mirror have no visible regression.
+3. Reload the save once, use the laptop, open/close pause, and exit normally.
+   Require periodic `openxr_gl_transfer` rows with nonzero GPU timestamp samples
+   when the GL API is available, zero invalid samples, and no sustained ring
+   drops. Interpret GPU order as `capture/submit` independently of CPU phases.
+4. Require `nativeMemoryReadFailures=0` and `nativeMemoryWriteFailures=0` in the
+   camera summary. Any failure must disable only the affected operation and must
+   not crash SOMA.
+5. Record frame-lock wait/hold maximums and snapshot-lock waits. Repeated
+   `openxrSnapshotLockWaitOver100Us` or material frame-lock contention is the
+   gate for splitting XR state/submit locking; do not infer contention from a
+   single startup outlier.
+6. With release defaults, require bounded `hpl_occlusion_query_summary` and
+   `hpl_framebuffer_copy_summary` rows after continuous replay. Record
+   same-frame reuse counts; require zero target conflicts, unmatched ends,
+   texture-read failures, and state overflows, with no visual behavior change.
+7. Optional hands-owner pass: set only `HandTrackingProbe=1`, load gameplay,
+   and require `owner_acquired ... moduleId=18 ... callback=4` plus matching
+   summary counters. No script call, hand creation, or visibility change should
+   occur.
+8. Optional comparison after ordinary acceptance: toggle same-frame stereo off
+   and on once through the F1 panel. Preserve query/copy summaries, CPU/GPU
+   timings, and visual observations so replay-owned events can be separated
+   from ordinary AFR traffic.
+
 ## 0.91.0 Review Hardening
 
 1. Launch `out\SOMAVR-latest`, load the apartment save, and press F10 once.

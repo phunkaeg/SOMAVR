@@ -3,6 +3,7 @@
 #include "HPLCameraMath.h"
 #include "HPLPlayerState.h"
 #include "Logger.h"
+#include "NativeMemoryAccess.h"
 
 #include <Windows.h>
 
@@ -187,6 +188,9 @@ std::atomic<uint64_t> g_nativeRollObservedCalls = 0;
 std::atomic<uint64_t> g_nativeRollSuppressedCalls = 0;
 std::atomic<uint64_t> g_nativePitchObservedCalls = 0;
 std::atomic<uint64_t> g_nativePitchSuppressedCalls = 0;
+std::atomic<uint64_t> g_nativeMemoryReadFailures = 0;
+std::atomic<uint64_t> g_nativeMemoryWriteFailures = 0;
+std::atomic<uint32_t> g_nativeMemoryWarningLogs = 0;
 std::atomic<uint64_t> g_roomscaleSafetySamples = 0;
 std::atomic<uint64_t> g_roomscaleSafetyQueries = 0;
 std::atomic<uint64_t> g_roomscaleSafetyProbes = 0;
@@ -470,26 +474,111 @@ Vector3 ResolveSafeTrackedOffset(
 }
 
 template <typename T>
-T ReadField(const void* object, size_t offset)
+bool ReadField(const void* object, size_t offset, T& value)
 {
-    T value{};
-    std::memcpy(&value, static_cast<const std::byte*>(object) + offset, sizeof(value));
-    return value;
+    if (native_memory::TryReadField(object, offset, value)) {
+        return true;
+    }
+    value = T{};
+    g_nativeMemoryReadFailures.fetch_add(1, std::memory_order_relaxed);
+    return false;
 }
 
 template <typename T>
-void WriteField(void* object, size_t offset, const T& value)
+bool WriteField(void* object, size_t offset, const T& value)
 {
-    std::memcpy(static_cast<std::byte*>(object) + offset, &value, sizeof(value));
+    if (native_memory::TryWriteField(object, offset, value)) {
+        return true;
+    }
+    g_nativeMemoryWriteFailures.fetch_add(1, std::memory_order_relaxed);
+    return false;
 }
 
-void MarkCameraRotationDirty(void* camera)
+bool ReadBytes(const void* source, void* destination, size_t size)
+{
+    if (native_memory::TryReadBytes(source, destination, size)) {
+        return true;
+    }
+    g_nativeMemoryReadFailures.fetch_add(1, std::memory_order_relaxed);
+    return false;
+}
+
+bool ReadFieldBytes(
+    const void* object, size_t offset, void* destination, size_t size)
+{
+    if (native_memory::TryReadFieldBytes(object, offset, destination, size)) {
+        return true;
+    }
+    g_nativeMemoryReadFailures.fetch_add(1, std::memory_order_relaxed);
+    return false;
+}
+
+bool MarkCameraRotationDirty(void* camera)
 {
     constexpr uint8_t dirty = 1;
-    WriteField(camera, kCameraViewDirtyOffset, dirty);
-    WriteField(camera, kCameraProjectionDirtyOffset, dirty);
-    WriteField(camera, kCameraBaseFrustumDirtyOffset, dirty);
-    WriteField(camera, kCameraSecondaryFrustumDirtyOffset, dirty);
+    bool success = WriteField(camera, kCameraViewDirtyOffset, dirty);
+    success = WriteField(camera, kCameraProjectionDirtyOffset, dirty) && success;
+    success = WriteField(camera, kCameraBaseFrustumDirtyOffset, dirty) && success;
+    success = WriteField(camera, kCameraSecondaryFrustumDirtyOffset, dirty) && success;
+    return success;
+}
+
+bool CanWriteCameraRotation(void* camera, bool writePitch, bool writeRoll)
+{
+    if (camera == nullptr) {
+        return false;
+    }
+    const bool pitchWritable = !writePitch
+        || (native_memory::IsWritableFieldRange(
+                camera, kCameraBasePitchOffset, sizeof(float))
+            && native_memory::IsWritableFieldRange(
+                camera, kCameraSecondaryRotationXOffset, sizeof(float)));
+    const bool rollWritable = !writeRoll
+        || (native_memory::IsWritableFieldRange(
+                camera, kCameraBaseRollOffset, sizeof(float))
+            && native_memory::IsWritableFieldRange(
+                camera, kCameraSecondaryRotationZOffset, sizeof(float)));
+    return pitchWritable
+        && rollWritable
+        && native_memory::IsWritableFieldRange(
+            camera,
+            kCameraViewDirtyOffset,
+            kCameraSecondaryFrustumDirtyOffset - kCameraViewDirtyOffset + 1);
+}
+
+bool WriteCameraRotation(
+    void* camera,
+    bool writePitch,
+    float basePitch,
+    float secondaryPitch,
+    bool writeRoll,
+    float baseRoll,
+    float secondaryRoll)
+{
+    bool success = true;
+    if (writePitch) {
+        success = WriteField(camera, kCameraBasePitchOffset, basePitch) && success;
+        success = WriteField(camera, kCameraSecondaryRotationXOffset, secondaryPitch) && success;
+    }
+    if (writeRoll) {
+        success = WriteField(camera, kCameraBaseRollOffset, baseRoll) && success;
+        success = WriteField(camera, kCameraSecondaryRotationZOffset, secondaryRoll) && success;
+    }
+    success = MarkCameraRotationDirty(camera) && success;
+    return success;
+}
+
+void LogNativeMemoryWarning(const char* operation, void* object)
+{
+    const uint32_t sample = g_nativeMemoryWarningLogs.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (sample <= 4) {
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_camera native_memory_failed operation=%s object=%p sample=%u action=skip_vr_mutation",
+            operation,
+            object,
+            sample);
+    }
 }
 
 bool MatchBytes(const void* address, const uint8_t* expected, size_t size)
@@ -518,20 +607,27 @@ bool IsInsideImage(HMODULE module, uintptr_t rva, size_t bytes)
     return rva < imageSize && bytes <= imageSize - rva;
 }
 
-FrustumParameters ReadFrustumParameters(const void* frustum)
+bool ReadFrustumParameters(const void* frustum, FrustumParameters& parameters)
 {
-    FrustumParameters parameters;
-    parameters.farPlane = ReadField<float>(frustum, kFrustumFarOffset);
-    parameters.nearPlane = ReadField<float>(frustum, kFrustumNearOffset);
-    parameters.aspect = ReadField<float>(frustum, kFrustumAspectOffset);
-    parameters.fov = ReadField<float>(frustum, kFrustumFovOffset);
-    parameters.infiniteFar = ReadField<uint8_t>(frustum, kFrustumInfiniteFarOffset) != 0;
-    parameters.projectionType = ReadField<int>(frustum, kFrustumProjectionTypeOffset);
-    std::memcpy(
-        parameters.origin.data(),
-        static_cast<const std::byte*>(frustum) + kFrustumOriginOffset,
-        sizeof(parameters.origin));
-    return parameters;
+    FrustumParameters candidate;
+    uint8_t infiniteFar = 0;
+    const bool success = ReadField(frustum, kFrustumFarOffset, candidate.farPlane)
+        && ReadField(frustum, kFrustumNearOffset, candidate.nearPlane)
+        && ReadField(frustum, kFrustumAspectOffset, candidate.aspect)
+        && ReadField(frustum, kFrustumFovOffset, candidate.fov)
+        && ReadField(frustum, kFrustumInfiniteFarOffset, infiniteFar)
+        && ReadField(frustum, kFrustumProjectionTypeOffset, candidate.projectionType)
+        && ReadFieldBytes(
+            frustum,
+            kFrustumOriginOffset,
+            candidate.origin.data(),
+            sizeof(candidate.origin));
+    if (!success) {
+        return false;
+    }
+    candidate.infiniteFar = infiniteFar != 0;
+    parameters = candidate;
+    return true;
 }
 
 bool IsCameraPerspective(const FrustumParameters& parameters)
@@ -550,15 +646,28 @@ bool IsCameraPerspective(const FrustumParameters& parameters)
         && parameters.aspect < 4.0f;
 }
 
-bool WasFrustumDirty(const void* camera)
+bool WasFrustumDirty(const void* camera, bool& wasDirty)
 {
-    const float secondaryX = ReadField<float>(camera, kCameraSecondaryRotationXOffset);
-    const float secondaryY = ReadField<float>(camera, kCameraSecondaryRotationYOffset);
-    const float secondaryZ = ReadField<float>(camera, kCameraSecondaryRotationZOffset);
+    float secondaryX = 0.0f;
+    float secondaryY = 0.0f;
+    float secondaryZ = 0.0f;
+    if (!ReadField(camera, kCameraSecondaryRotationXOffset, secondaryX)
+        || !ReadField(camera, kCameraSecondaryRotationYOffset, secondaryY)
+        || !ReadField(camera, kCameraSecondaryRotationZOffset, secondaryZ)) {
+        wasDirty = false;
+        return false;
+    }
     const bool usesSecondaryFrustum = secondaryX != 0.0f || secondaryY != 0.0f || secondaryZ != 0.0f;
-    return ReadField<uint8_t>(
+    uint8_t dirty = 0;
+    if (!ReadField(
         camera,
-        usesSecondaryFrustum ? kCameraSecondaryFrustumDirtyOffset : kCameraBaseFrustumDirtyOffset) != 0;
+        usesSecondaryFrustum ? kCameraSecondaryFrustumDirtyOffset : kCameraBaseFrustumDirtyOffset,
+        dirty)) {
+        wasDirty = false;
+        return false;
+    }
+    wasDirty = dirty != 0;
+    return true;
 }
 
 bool ReadHeadPose(
@@ -598,20 +707,31 @@ bool ReadStereoViews(OpenXRStereoViewSnapshot& views)
     return g_openxr != nullptr && g_openxr->GetLatestStereoViews(views);
 }
 
-void RefreshBaseMatrices(void* frustum, const FrustumParameters& parameters)
+bool RefreshBaseMatrices(void* frustum, const FrustumParameters& parameters)
 {
-    std::memcpy(
-        g_state.baseProjection.data(),
-        static_cast<const std::byte*>(frustum) + kFrustumProjectionMatrixOffset,
-        sizeof(g_state.baseProjection));
-    std::memcpy(
-        g_state.baseView.data(),
-        static_cast<const std::byte*>(frustum) + kFrustumViewMatrixOffset,
-        sizeof(g_state.baseView));
+    std::array<float, 16> projection{};
+    std::array<float, 16> view{};
+    const bool success = ReadFieldBytes(
+        frustum,
+        kFrustumProjectionMatrixOffset,
+        projection.data(),
+        sizeof(projection))
+        && ReadFieldBytes(
+        frustum,
+        kFrustumViewMatrixOffset,
+        view.data(),
+        sizeof(view));
+    if (!success) {
+        g_state.baseMatricesValid = false;
+        return false;
+    }
+    g_state.baseProjection = projection;
+    g_state.baseView = view;
     g_state.parameters = parameters;
     g_state.activeFrustum = frustum;
     g_state.baseMatricesValid = true;
     g_baseRefreshes.fetch_add(1, std::memory_order_relaxed);
+    return true;
 }
 
 void SetupFrustum(
@@ -797,50 +917,86 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
         return nullptr;
     }
 
-    const bool wasDirty = camera != nullptr && WasFrustumDirty(camera);
-    const float nativeBasePitch = camera != nullptr ? ReadField<float>(camera, kCameraBasePitchOffset) : 0.0f;
-    const float nativeSecondaryPitch = camera != nullptr ? ReadField<float>(camera, kCameraSecondaryRotationXOffset) : 0.0f;
-    const float nativeBaseRoll = camera != nullptr ? ReadField<float>(camera, kCameraBaseRollOffset) : 0.0f;
-    const float nativeSecondaryRoll = camera != nullptr ? ReadField<float>(camera, kCameraSecondaryRotationZOffset) : 0.0f;
-    const bool nativeRollActive = std::isfinite(nativeBaseRoll) && std::isfinite(nativeSecondaryRoll)
+    bool wasDirty = false;
+    float nativeBasePitch = 0.0f;
+    float nativeSecondaryPitch = 0.0f;
+    float nativeBaseRoll = 0.0f;
+    float nativeSecondaryRoll = 0.0f;
+    bool cameraFieldsReadable = camera != nullptr;
+    if (camera != nullptr) {
+        cameraFieldsReadable = WasFrustumDirty(camera, wasDirty) && cameraFieldsReadable;
+        cameraFieldsReadable = ReadField(camera, kCameraBasePitchOffset, nativeBasePitch)
+            && cameraFieldsReadable;
+        cameraFieldsReadable = ReadField(camera, kCameraSecondaryRotationXOffset, nativeSecondaryPitch)
+            && cameraFieldsReadable;
+        cameraFieldsReadable = ReadField(camera, kCameraBaseRollOffset, nativeBaseRoll)
+            && cameraFieldsReadable;
+        cameraFieldsReadable = ReadField(camera, kCameraSecondaryRotationZOffset, nativeSecondaryRoll)
+            && cameraFieldsReadable;
+    }
+    const bool nativeRollActive = cameraFieldsReadable
+        && std::isfinite(nativeBaseRoll) && std::isfinite(nativeSecondaryRoll)
         && (nativeBaseRoll != 0.0f || nativeSecondaryRoll != 0.0f);
-    bool suppressNativeRoll = false;
-    const bool nativePitchActive = std::isfinite(nativeBasePitch) && std::isfinite(nativeSecondaryPitch)
+    const bool nativePitchActive = cameraFieldsReadable
+        && std::isfinite(nativeBasePitch) && std::isfinite(nativeSecondaryPitch)
         && (nativeBasePitch != 0.0f || nativeSecondaryPitch != 0.0f);
-    bool suppressNativePitch = false;
     bool trackingOwnsCamera = false;
     if (camera != nullptr && (nativeRollActive || nativePitchActive)) {
         std::lock_guard lock(g_stateMutex);
         trackingOwnsCamera = g_state.trackingEnabled && g_state.activeCamera == camera;
     }
-    suppressNativeRoll = trackingOwnsCamera && nativeRollActive
+    const bool suppressNativeRollRequested = trackingOwnsCamera && nativeRollActive
         && g_config.hplNativeCameraRollSuppression;
-    suppressNativePitch = trackingOwnsCamera && nativePitchActive
+    const bool suppressNativePitchRequested = trackingOwnsCamera && nativePitchActive
         && g_config.hplNativeCameraPitchSuppression;
-    if (suppressNativePitch) {
+    bool suppressNativePitch = false;
+    bool suppressNativeRoll = false;
+    if (suppressNativePitchRequested || suppressNativeRollRequested) {
         constexpr float zero = 0.0f;
-        WriteField(camera, kCameraBasePitchOffset, zero);
-        WriteField(camera, kCameraSecondaryRotationXOffset, zero);
-        MarkCameraRotationDirty(camera);
-    }
-    if (suppressNativeRoll) {
-        constexpr float zero = 0.0f;
-        WriteField(camera, kCameraBaseRollOffset, zero);
-        WriteField(camera, kCameraSecondaryRotationZOffset, zero);
-        MarkCameraRotationDirty(camera);
+        if (!CanWriteCameraRotation(camera, suppressNativePitchRequested, suppressNativeRollRequested)) {
+            g_nativeMemoryWriteFailures.fetch_add(1, std::memory_order_relaxed);
+            LogNativeMemoryWarning("preflight_camera_suppression", camera);
+        } else if (WriteCameraRotation(
+                       camera,
+                       suppressNativePitchRequested,
+                       zero,
+                       zero,
+                       suppressNativeRollRequested,
+                       zero,
+                       zero)) {
+            suppressNativePitch = suppressNativePitchRequested;
+            suppressNativeRoll = suppressNativeRollRequested;
+        } else {
+            WriteCameraRotation(
+                camera,
+                suppressNativePitchRequested,
+                nativeBasePitch,
+                nativeSecondaryPitch,
+                suppressNativeRollRequested,
+                nativeBaseRoll,
+                nativeSecondaryRoll);
+            LogNativeMemoryWarning("apply_camera_suppression", camera);
+        }
     }
     void* frustum = g_originalCameraGetFrustum(camera, projectionFlag);
-    if (suppressNativePitch) {
-        WriteField(camera, kCameraBasePitchOffset, nativeBasePitch);
-        WriteField(camera, kCameraSecondaryRotationXOffset, nativeSecondaryPitch);
-        MarkCameraRotationDirty(camera);
-        g_nativePitchSuppressedCalls.fetch_add(1, std::memory_order_relaxed);
-    }
-    if (suppressNativeRoll) {
-        WriteField(camera, kCameraBaseRollOffset, nativeBaseRoll);
-        WriteField(camera, kCameraSecondaryRotationZOffset, nativeSecondaryRoll);
-        MarkCameraRotationDirty(camera);
-        g_nativeRollSuppressedCalls.fetch_add(1, std::memory_order_relaxed);
+    if (suppressNativePitch || suppressNativeRoll) {
+        if (WriteCameraRotation(
+                camera,
+                suppressNativePitch,
+                nativeBasePitch,
+                nativeSecondaryPitch,
+                suppressNativeRoll,
+                nativeBaseRoll,
+                nativeSecondaryRoll)) {
+            if (suppressNativePitch) {
+                g_nativePitchSuppressedCalls.fetch_add(1, std::memory_order_relaxed);
+            }
+            if (suppressNativeRoll) {
+                g_nativeRollSuppressedCalls.fetch_add(1, std::memory_order_relaxed);
+            }
+        } else {
+            LogNativeMemoryWarning("restore_camera_rotation", camera);
+        }
     }
     if (camera == nullptr || frustum == nullptr || g_setupPerspectiveFrustum == nullptr) {
         return frustum;
@@ -849,7 +1005,11 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
         return frustum;
     }
 
-    const FrustumParameters parameters = ReadFrustumParameters(frustum);
+    FrustumParameters parameters;
+    if (!ReadFrustumParameters(frustum, parameters)) {
+        LogNativeMemoryWarning("read_frustum_parameters", frustum);
+        return frustum;
+    }
     if (!IsCameraPerspective(parameters)) {
         return frustum;
     }
@@ -1213,7 +1373,10 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
     }
 
     if (wasDirty || !g_state.baseMatricesValid || g_state.activeFrustum != frustum) {
-        RefreshBaseMatrices(frustum, parameters);
+        if (!RefreshBaseMatrices(frustum, parameters)) {
+            LogNativeMemoryWarning("refresh_base_matrices", frustum);
+            return frustum;
+        }
     }
 
     if (g_state.recenterPending) {
@@ -1543,6 +1706,9 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
     g_nativeRollSuppressedCalls.store(0, std::memory_order_relaxed);
     g_nativePitchObservedCalls.store(0, std::memory_order_relaxed);
     g_nativePitchSuppressedCalls.store(0, std::memory_order_relaxed);
+    g_nativeMemoryReadFailures.store(0, std::memory_order_relaxed);
+    g_nativeMemoryWriteFailures.store(0, std::memory_order_relaxed);
+    g_nativeMemoryWarningLogs.store(0, std::memory_order_relaxed);
     g_roomscaleSafetySamples.store(0, std::memory_order_relaxed);
     g_roomscaleSafetyQueries.store(0, std::memory_order_relaxed);
     g_roomscaleSafetyProbes.store(0, std::memory_order_relaxed);
@@ -1617,7 +1783,7 @@ void LogHPLCameraBridgeSummary()
     std::lock_guard lock(g_stateMutex);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu secondaryCameraCandidates=%llu secondaryCameraControlSkips=%llu authoredCameraOwnershipChanges=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu fillCommits=%llu fillRejects=%llu pairRotationLatches=%llu pairRotationReuses=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativePitchObserved=%llu nativePitchSuppressed=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyProbes=%llu roomscaleSafetySkippedProbes=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu roomscaleBodyShiftProbes=%llu roomscaleBodyShiftBlocks=%llu roomscaleBodyShiftCommits=%llu",
+        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu secondaryCameraCandidates=%llu secondaryCameraControlSkips=%llu authoredCameraOwnershipChanges=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu fillCommits=%llu fillRejects=%llu pairRotationLatches=%llu pairRotationReuses=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativePitchObserved=%llu nativePitchSuppressed=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu nativeMemoryReadFailures=%llu nativeMemoryWriteFailures=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyProbes=%llu roomscaleSafetySkippedProbes=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu roomscaleBodyShiftProbes=%llu roomscaleBodyShiftBlocks=%llu roomscaleBodyShiftCommits=%llu",
         static_cast<unsigned long long>(g_getFrustumCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_candidateCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_secondaryCameraCandidates.load(std::memory_order_relaxed)),
@@ -1646,6 +1812,8 @@ void LogHPLCameraBridgeSummary()
         static_cast<unsigned long long>(g_nativePitchSuppressedCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_nativeRollObservedCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_nativeRollSuppressedCalls.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_nativeMemoryReadFailures.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_nativeMemoryWriteFailures.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_roomscaleSafetySamples.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_roomscaleSafetyQueries.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_roomscaleSafetyProbes.load(std::memory_order_relaxed)),

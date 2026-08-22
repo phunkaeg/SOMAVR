@@ -58,7 +58,7 @@ multiple matches.
 | `0x14022f7d0` | Confirmed by HPL2 match | Viewport pre/post-world callback dispatcher. Phase `0` invokes callback vtable `+0x08`; phase `1` invokes `+0x10`. Ghidra: `HPL3_Viewport_RunWorldDrawCallbacks`. |
 | `0x1402332b0` | Confirmed | Main engine run loop. Dispatches script `OnDraw`, renders viewports through `0x140298850`, dispatches `OnPostRender`, then presents. |
 | `0x1402328f0` | Confirmed | Script object/module lifecycle dispatcher. Callback id `2` is `_OnDraw`, `3` is post-render, `4/5/6` are update/post-update/variable-update. |
-| `0x140154c40` | Confirmed | Dispatches a lifecycle id to the corresponding virtual method on an active player/module object. |
+| `0x140154c40` | Confirmed, guarded read-only probe built | Generic active-updateable message dispatcher. Callback ID `4` reaches the native update virtual at vtable `+0x28`. Version 0.92 observes candidates only when module ID at `+0x158` is `18`, the vtable contains confirmed `SOMA_cLuxUserModule_OnAction`, and the script object at `+0x90` is safely readable. No script call or state mutation. Ghidra: `SOMA_iLuxUpdateable_RunMessage`. |
 | `0x140298850` | Confirmed | Enumerates active viewports and calls `0x140298630` for each one. `0.45.0` deliberately remains below this boundary and never replays the enumerator. |
 | `0x140298850` globals | Confirmed | Increments the renderer frame counter and resets render statistics once before active viewport enumeration; this boundary executes once per game frame in the continuous dual-render prototype. |
 | `0x140297f20` | Confirmed | `HPL3_Scene_CreateViewport`; allocates `0xb0`, stores camera/world/renderer/post ownership and default `-1,-1` size, then inserts the viewport into the scene list. |

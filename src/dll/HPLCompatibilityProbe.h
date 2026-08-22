@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Config.h"
+#include "HPLDualRenderDiagnostics.h"
 #include "OpenXRRuntime.h"
 
 #include <cstdint>
@@ -22,5 +23,7 @@ void LogHPLCompatibilityProbeSummary();
 void RemoveHPLCompatibilityProbe();
 HPLRenderStage GetActiveHPLRenderStage();
 const char* GetHPLRenderStageName(HPLRenderStage stage);
+HPLDualRenderPass GetActiveHPLDualRenderPass();
+const char* GetHPLDualRenderPassName(HPLDualRenderPass pass);
 
 } // namespace somavr

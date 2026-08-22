@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -91,6 +92,64 @@ uint64_t QpcDeltaMicroseconds(int64_t start, int64_t end)
         static_cast<long double>(end - start) * 1000000.0L
         / static_cast<long double>(frequency));
 }
+
+void RecordDuration(
+    uint64_t durationUs,
+    std::atomic<uint64_t>& latest,
+    std::atomic<uint64_t>& total,
+    std::atomic<uint64_t>& maximum,
+    std::atomic<uint64_t>& samples,
+    std::atomic<uint64_t>* overThreshold = nullptr,
+    uint64_t thresholdUs = 0)
+{
+    latest.store(durationUs, std::memory_order_relaxed);
+    total.fetch_add(durationUs, std::memory_order_relaxed);
+    samples.fetch_add(1, std::memory_order_relaxed);
+    uint64_t previous = maximum.load(std::memory_order_relaxed);
+    while (durationUs > previous
+        && !maximum.compare_exchange_weak(
+            previous,
+            durationUs,
+            std::memory_order_relaxed,
+            std::memory_order_relaxed)) {
+    }
+    if (overThreshold != nullptr && durationUs >= thresholdUs) {
+        overThreshold->fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+class ScopedDurationSample {
+public:
+    ScopedDurationSample(
+        std::atomic<uint64_t>& latest,
+        std::atomic<uint64_t>& total,
+        std::atomic<uint64_t>& maximum,
+        std::atomic<uint64_t>& samples)
+        : start_(QpcNow())
+        , latest_(latest)
+        , total_(total)
+        , maximum_(maximum)
+        , samples_(samples)
+    {
+    }
+
+    ~ScopedDurationSample()
+    {
+        RecordDuration(
+            QpcDeltaMicroseconds(start_, QpcNow()),
+            latest_,
+            total_,
+            maximum_,
+            samples_);
+    }
+
+private:
+    int64_t start_ = 0;
+    std::atomic<uint64_t>& latest_;
+    std::atomic<uint64_t>& total_;
+    std::atomic<uint64_t>& maximum_;
+    std::atomic<uint64_t>& samples_;
+};
 
 std::wstring Win32ErrorMessage(DWORD error)
 {
@@ -398,7 +457,19 @@ struct OpenXRRuntime::Impl {
     void OnFrameBoundary(HDC deviceContext, HGLRC glContext, uint64_t frameIndex)
     {
         const HPLCameraBridgeStatus cameraStatus = GetHPLCameraBridgeStatus();
-        std::lock_guard lock(mutex_);
+        const int64_t lockWaitStart = QpcNow();
+        std::unique_lock lock(mutex_);
+        RecordDuration(
+            QpcDeltaMicroseconds(lockWaitStart, QpcNow()),
+            frameLockWaitUsLatest_,
+            frameLockWaitUsTotal_,
+            frameLockWaitUsMax_,
+            frameLockWaitSamples_);
+        ScopedDurationSample lockHold(
+            frameLockHoldUsLatest_,
+            frameLockHoldUsTotal_,
+            frameLockHoldUsMax_,
+            frameLockHoldSamples_);
         currentGameFrame_ = frameIndex;
         latestHdc_ = deviceContext;
         latestGlContext_ = glContext;
@@ -657,6 +728,35 @@ struct OpenXRRuntime::Impl {
             << " openxrWaitLastUs=" << static_cast<unsigned long long>(xrWaitLastUs_)
             << " openxrWaitMaxUs=" << static_cast<unsigned long long>(xrWaitMaxUs_)
             << " openxrWaitLongCount=" << static_cast<unsigned long long>(xrWaitLongCount_)
+            << " openxrFrameLockWaitLastUs=" << static_cast<unsigned long long>(
+                frameLockWaitUsLatest_.load(std::memory_order_relaxed))
+            << " openxrFrameLockWaitAvgUs=" << static_cast<unsigned long long>(
+                frameLockWaitSamples_.load(std::memory_order_relaxed) > 0
+                    ? frameLockWaitUsTotal_.load(std::memory_order_relaxed)
+                        / frameLockWaitSamples_.load(std::memory_order_relaxed)
+                    : 0)
+            << " openxrFrameLockWaitMaxUs=" << static_cast<unsigned long long>(
+                frameLockWaitUsMax_.load(std::memory_order_relaxed))
+            << " openxrFrameLockHoldLastUs=" << static_cast<unsigned long long>(
+                frameLockHoldUsLatest_.load(std::memory_order_relaxed))
+            << " openxrFrameLockHoldAvgUs=" << static_cast<unsigned long long>(
+                frameLockHoldSamples_.load(std::memory_order_relaxed) > 0
+                    ? frameLockHoldUsTotal_.load(std::memory_order_relaxed)
+                        / frameLockHoldSamples_.load(std::memory_order_relaxed)
+                    : 0)
+            << " openxrFrameLockHoldMaxUs=" << static_cast<unsigned long long>(
+                frameLockHoldUsMax_.load(std::memory_order_relaxed))
+            << " openxrSnapshotLockWaitLastUs=" << static_cast<unsigned long long>(
+                snapshotLockWaitUsLatest_.load(std::memory_order_relaxed))
+            << " openxrSnapshotLockWaitAvgUs=" << static_cast<unsigned long long>(
+                snapshotLockWaitSamples_.load(std::memory_order_relaxed) > 0
+                    ? snapshotLockWaitUsTotal_.load(std::memory_order_relaxed)
+                        / snapshotLockWaitSamples_.load(std::memory_order_relaxed)
+                    : 0)
+            << " openxrSnapshotLockWaitMaxUs=" << static_cast<unsigned long long>(
+                snapshotLockWaitUsMax_.load(std::memory_order_relaxed))
+            << " openxrSnapshotLockWaitOver100Us=" << static_cast<unsigned long long>(
+                snapshotLockWaitOverThreshold_.load(std::memory_order_relaxed))
             << " openxrGlProjectionTransferLastUs="
                 << static_cast<unsigned long long>(projectionTransferUsLatest_)
             << " openxrGlProjectionTransferAvgUs="
@@ -677,6 +777,21 @@ struct OpenXRRuntime::Impl {
                     ? leftTransfer.total.totalUs / leftTransfer.attempts : 0)
             << " openxrGlLeftTransferMaxUs="
                 << static_cast<unsigned long long>(leftTransfer.total.maxUs)
+            << " openxrGlLeftGpuTimingAvailable=" << (leftTransfer.gpuTimingAvailable ? 1 : 0)
+            << " openxrGlLeftGpuCaptureAvgUs=" << static_cast<unsigned long long>(
+                leftTransfer.gpuCaptureSamples > 0
+                    ? leftTransfer.gpuCapture.totalUs / leftTransfer.gpuCaptureSamples : 0)
+            << " openxrGlLeftGpuCaptureMaxUs="
+                << static_cast<unsigned long long>(leftTransfer.gpuCapture.maxUs)
+            << " openxrGlLeftGpuSubmitAvgUs=" << static_cast<unsigned long long>(
+                leftTransfer.gpuSubmitSamples > 0
+                    ? leftTransfer.gpuSubmit.totalUs / leftTransfer.gpuSubmitSamples : 0)
+            << " openxrGlLeftGpuSubmitMaxUs="
+                << static_cast<unsigned long long>(leftTransfer.gpuSubmit.maxUs)
+            << " openxrGlLeftGpuQueryDrops="
+                << static_cast<unsigned long long>(leftTransfer.gpuQueryDrops)
+            << " openxrGlLeftGpuInvalidSamples="
+                << static_cast<unsigned long long>(leftTransfer.gpuInvalidSamples)
             << " openxrGlRightTransferAttempts="
                 << static_cast<unsigned long long>(rightTransfer.attempts)
             << " openxrGlRightTransferFailures="
@@ -686,6 +801,21 @@ struct OpenXRRuntime::Impl {
                     ? rightTransfer.total.totalUs / rightTransfer.attempts : 0)
             << " openxrGlRightTransferMaxUs="
                 << static_cast<unsigned long long>(rightTransfer.total.maxUs)
+            << " openxrGlRightGpuTimingAvailable=" << (rightTransfer.gpuTimingAvailable ? 1 : 0)
+            << " openxrGlRightGpuCaptureAvgUs=" << static_cast<unsigned long long>(
+                rightTransfer.gpuCaptureSamples > 0
+                    ? rightTransfer.gpuCapture.totalUs / rightTransfer.gpuCaptureSamples : 0)
+            << " openxrGlRightGpuCaptureMaxUs="
+                << static_cast<unsigned long long>(rightTransfer.gpuCapture.maxUs)
+            << " openxrGlRightGpuSubmitAvgUs=" << static_cast<unsigned long long>(
+                rightTransfer.gpuSubmitSamples > 0
+                    ? rightTransfer.gpuSubmit.totalUs / rightTransfer.gpuSubmitSamples : 0)
+            << " openxrGlRightGpuSubmitMaxUs="
+                << static_cast<unsigned long long>(rightTransfer.gpuSubmit.maxUs)
+            << " openxrGlRightGpuQueryDrops="
+                << static_cast<unsigned long long>(rightTransfer.gpuQueryDrops)
+            << " openxrGlRightGpuInvalidSamples="
+                << static_cast<unsigned long long>(rightTransfer.gpuInvalidSamples)
             << " openxrFrameOpen=" << (frameOpen_ ? 1 : 0)
             << " openxrFrameOpenRecoveries=" << static_cast<unsigned long long>(frameOpenRecoveries_)
             << " openxrStereoSubmission=" << (stereoSubmissionEnabled_ ? 1 : 0)
@@ -798,7 +928,9 @@ struct OpenXRRuntime::Impl {
 
     bool GetLatestHeadPose(OpenXRHeadPose& pose) const
     {
+        const int64_t lockWaitStart = QpcNow();
         std::lock_guard lock(mutex_);
+        RecordSnapshotLockWait(QpcDeltaMicroseconds(lockWaitStart, QpcNow()));
         pose = {};
         pose.valid = PoseUsableLocked();
         pose.orientationTracked = !trackingDegraded_
@@ -821,7 +953,9 @@ struct OpenXRRuntime::Impl {
 
     bool GetLatestStereoViews(OpenXRStereoViewSnapshot& views) const
     {
+        const int64_t lockWaitStart = QpcNow();
         std::lock_guard lock(mutex_);
+        RecordSnapshotLockWait(QpcDeltaMicroseconds(lockWaitStart, QpcNow()));
         views = {};
         if (!PoseUsableLocked() || locatedViews_.size() < 2) {
             return false;
@@ -852,7 +986,9 @@ struct OpenXRRuntime::Impl {
 
     bool GetLatestInput(OpenXRInputSnapshot& input) const
     {
+        const int64_t lockWaitStart = QpcNow();
         std::lock_guard lock(mutex_);
+        RecordSnapshotLockWait(QpcDeltaMicroseconds(lockWaitStart, QpcNow()));
         input = input_.Snapshot();
         return input.available;
     }
@@ -1353,6 +1489,19 @@ struct OpenXRRuntime::Impl {
     }
 
 private:
+    void RecordSnapshotLockWait(uint64_t durationUs) const
+    {
+        constexpr uint64_t kContentionThresholdUs = 100;
+        RecordDuration(
+            durationUs,
+            snapshotLockWaitUsLatest_,
+            snapshotLockWaitUsTotal_,
+            snapshotLockWaitUsMax_,
+            snapshotLockWaitSamples_,
+            &snapshotLockWaitOverThreshold_,
+            kContentionThresholdUs);
+    }
+
     void LogDeferredBootstrapLocked(uint64_t frameIndex)
     {
         if (bootstrapDeferredLogged_) {
@@ -4013,7 +4162,7 @@ private:
                 : 0;
             Logger::Instance().Write(
                 LogLevel::Info,
-                "openxr_gl_transfer frame=%llu backend=OpenGL projectionUs=%llu projectionAvgUs=%llu projectionMaxUs=%llu projectionSamples=%llu budgetPressureFrames=%llu leftSource=%s leftAttempts=%llu leftSuccess=%llu leftFailures=%llu leftUs=%llu/%llu/%llu/%llu/%llu/%llu rightSource=%s rightAttempts=%llu rightSuccess=%llu rightFailures=%llu rightUs=%llu/%llu/%llu/%llu/%llu/%llu phaseOrder=total/acquire/wait/copyCpu/flush/release gpuTiming=excluded",
+                "openxr_gl_transfer frame=%llu backend=OpenGL projectionUs=%llu projectionAvgUs=%llu projectionMaxUs=%llu projectionSamples=%llu budgetPressureFrames=%llu leftSource=%s leftAttempts=%llu leftSuccess=%llu leftFailures=%llu leftUs=%llu/%llu/%llu/%llu/%llu/%llu leftGpuUs=%llu/%llu leftGpuSamples=%llu/%llu leftGpuDrops=%llu leftGpuInvalid=%llu rightSource=%s rightAttempts=%llu rightSuccess=%llu rightFailures=%llu rightUs=%llu/%llu/%llu/%llu/%llu/%llu rightGpuUs=%llu/%llu rightGpuSamples=%llu/%llu rightGpuDrops=%llu rightGpuInvalid=%llu phaseOrder=total/acquire/wait/copyCpu/flush/release gpuOrder=capture/submit gpuTiming=%s",
                 static_cast<unsigned long long>(frameIndex),
                 static_cast<unsigned long long>(projectionTransferUsLatest_),
                 static_cast<unsigned long long>(projectionAverageUs),
@@ -4030,6 +4179,12 @@ private:
                 static_cast<unsigned long long>(leftTransfer.copy.latestUs),
                 static_cast<unsigned long long>(leftTransfer.flush.latestUs),
                 static_cast<unsigned long long>(leftTransfer.release.latestUs),
+                static_cast<unsigned long long>(leftTransfer.gpuCapture.latestUs),
+                static_cast<unsigned long long>(leftTransfer.gpuSubmit.latestUs),
+                static_cast<unsigned long long>(leftTransfer.gpuCaptureSamples),
+                static_cast<unsigned long long>(leftTransfer.gpuSubmitSamples),
+                static_cast<unsigned long long>(leftTransfer.gpuQueryDrops),
+                static_cast<unsigned long long>(leftTransfer.gpuInvalidSamples),
                 OpenXRGLBridge::ColorTransferSourceName(rightTransfer.latestSource),
                 static_cast<unsigned long long>(rightTransfer.attempts),
                 static_cast<unsigned long long>(rightTransfer.successes),
@@ -4039,7 +4194,15 @@ private:
                 static_cast<unsigned long long>(rightTransfer.wait.latestUs),
                 static_cast<unsigned long long>(rightTransfer.copy.latestUs),
                 static_cast<unsigned long long>(rightTransfer.flush.latestUs),
-                static_cast<unsigned long long>(rightTransfer.release.latestUs));
+                static_cast<unsigned long long>(rightTransfer.release.latestUs),
+                static_cast<unsigned long long>(rightTransfer.gpuCapture.latestUs),
+                static_cast<unsigned long long>(rightTransfer.gpuSubmit.latestUs),
+                static_cast<unsigned long long>(rightTransfer.gpuCaptureSamples),
+                static_cast<unsigned long long>(rightTransfer.gpuSubmitSamples),
+                static_cast<unsigned long long>(rightTransfer.gpuQueryDrops),
+                static_cast<unsigned long long>(rightTransfer.gpuInvalidSamples),
+                leftTransfer.gpuTimingAvailable && rightTransfer.gpuTimingAvailable
+                    ? "nonblocking_timestamp" : "unavailable");
         }
     }
 
@@ -4290,6 +4453,19 @@ private:
     }
 
     mutable std::mutex mutex_;
+    mutable std::atomic<uint64_t> frameLockWaitUsLatest_ = 0;
+    mutable std::atomic<uint64_t> frameLockWaitUsTotal_ = 0;
+    mutable std::atomic<uint64_t> frameLockWaitUsMax_ = 0;
+    mutable std::atomic<uint64_t> frameLockWaitSamples_ = 0;
+    mutable std::atomic<uint64_t> frameLockHoldUsLatest_ = 0;
+    mutable std::atomic<uint64_t> frameLockHoldUsTotal_ = 0;
+    mutable std::atomic<uint64_t> frameLockHoldUsMax_ = 0;
+    mutable std::atomic<uint64_t> frameLockHoldSamples_ = 0;
+    mutable std::atomic<uint64_t> snapshotLockWaitUsLatest_ = 0;
+    mutable std::atomic<uint64_t> snapshotLockWaitUsTotal_ = 0;
+    mutable std::atomic<uint64_t> snapshotLockWaitUsMax_ = 0;
+    mutable std::atomic<uint64_t> snapshotLockWaitSamples_ = 0;
+    mutable std::atomic<uint64_t> snapshotLockWaitOverThreshold_ = 0;
     bool enabled_ = false;
     bool sessionProbeEnabled_ = true;
     bool releaseAfterProbeEnabled_ = true;

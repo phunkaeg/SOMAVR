@@ -135,10 +135,23 @@ void Logger::WriteV(LogLevel level, const char* fmt, va_list args)
     }
 
     char message[4096] = {};
-    vsnprintf_s(message, sizeof(message), _TRUNCATE, fmt, args);
+    // _TRUNCATE returns -1 when the line did not fit. Dropping the tail in
+    // silence is the worst outcome for a config or identity dump, where the
+    // truncated part is exactly the evidence the line is being read for.
+    const int formatted = vsnprintf_s(message, sizeof(message), _TRUNCATE, fmt, args);
+    const bool truncated = formatted < 0;
+    if (truncated) {
+        truncatedLines_.fetch_add(1, std::memory_order_relaxed);
+    }
 
     std::ostringstream line;
-    line << NowString() << " [" << LevelName(level) << "] " << message << "\n";
+    line << NowString() << " [" << LevelName(level) << "] " << message;
+    if (truncated) {
+        line << " [log_truncated bufferBytes=" << sizeof(message)
+             << " totalTruncated="
+             << truncatedLines_.load(std::memory_order_relaxed) << "]";
+    }
+    line << "\n";
     const std::string text = line.str();
 
     {
@@ -170,6 +183,11 @@ std::filesystem::path Logger::Path() const
 {
     std::lock_guard lock(mutex_);
     return logPath_;
+}
+
+uint64_t Logger::TruncatedLineCount() const
+{
+    return truncatedLines_.load(std::memory_order_relaxed);
 }
 
 LogLevel Logger::ParseLevel(const std::string& value, LogLevel fallback)

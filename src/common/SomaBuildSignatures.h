@@ -59,4 +59,19 @@ static_assert(
     && kGetClosestEntityRaycast[kRaycastGameContextDisplacementOffset - 2] == 0x8b
     && kGetClosestEntityRaycast[kRaycastGameContextDisplacementOffset - 1] == 0x05);
 
+
+// The same RIP-relative extraction pattern used by the raycast anchor above,
+// for the two other sites that decode `48 8b 05 <disp32>` at a fixed RVA.
+// `mov rax, [rip+disp32]` is seven bytes: three opcode, four displacement. The
+// asserts below are what make that a compile error rather than a silent
+// mis-decode if a future SOMA build changes the instruction form and somebody
+// updates only the signature bytes - which is exactly how the raycast incident
+// happened.
+inline constexpr size_t kRipRelativeLoadDisplacementOffset = 3;
+inline constexpr size_t kRipRelativeLoadNextInstructionOffset = 7;
+
+static_assert(
+    kRipRelativeLoadNextInstructionOffset
+        == kRipRelativeLoadDisplacementOffset + sizeof(int32_t));
+
 } // namespace somavr::soma_signatures

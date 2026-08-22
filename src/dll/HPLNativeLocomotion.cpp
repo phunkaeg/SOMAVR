@@ -2,6 +2,7 @@
 
 #include "HPLRoomscaleReconciliationMath.h"
 #include "Logger.h"
+#include "SomaBuildSignatures.h"
 
 #include <Windows.h>
 
@@ -172,6 +173,17 @@ bool InstallHPLNativeLocomotion(const Config& config)
         0x48, 0x8b, 0x88, 0xc8, 0x00, 0x00, 0x00,
         0x0f, 0xb6, 0x81, 0xd4, 0x02, 0x00, 0x00, 0xc3,
     };
+    // The game-context pointer is decoded from the RIP-relative load that opens
+    // this function. These asserts pin that decode to the signature: if a future
+    // build changes the instruction form and only the bytes are updated, this
+    // stops compiling instead of silently resolving a garbage pointer.
+    static_assert(
+        soma_signatures::kRipRelativeLoadNextInstructionOffset
+            <= sizeof(kGetGamePausedSignature));
+    static_assert(
+        kGetGamePausedSignature[0] == 0x48
+        && kGetGamePausedSignature[1] == 0x8b
+        && kGetGamePausedSignature[2] == 0x05);
     static constexpr uint8_t kSetFeetPositionSignature[] = {
         0x48, 0x83, 0xec, 0x38, 0xf3, 0x0f, 0x10, 0x02,
         0xf3, 0x0f, 0x10, 0x89, 0x38, 0x01, 0x00, 0x00,
@@ -214,10 +226,12 @@ bool InstallHPLNativeLocomotion(const Config& config)
         int32_t gameContextDisplacement = 0;
         std::memcpy(
             &gameContextDisplacement,
-            base + kGetGamePausedRva + 3,
+            base + kGetGamePausedRva
+                + soma_signatures::kRipRelativeLoadDisplacementOffset,
             sizeof(gameContextDisplacement));
         g_gameContextSlot = reinterpret_cast<void**>(
-            const_cast<uint8_t*>(base + kGetGamePausedRva + 7)
+            const_cast<uint8_t*>(base + kGetGamePausedRva
+                + soma_signatures::kRipRelativeLoadNextInstructionOffset)
             + gameContextDisplacement);
         if (!IsReadable(g_gameContextSlot, sizeof(*g_gameContextSlot)))
             g_gameContextSlot = nullptr;

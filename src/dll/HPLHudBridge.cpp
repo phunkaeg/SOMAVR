@@ -6,6 +6,7 @@
 #include "HPLPresentationBridge.h"
 #include "HPLTerminalMath.h"
 #include "Logger.h"
+#include "SomaBuildSignatures.h"
 #include "OpenGLHooks.h"
 #include "OpenXRRuntime.h"
 
@@ -166,10 +167,16 @@ bool ResolveGameHudIdentity(HMODULE executable)
         || std::memcmp(target + 7, kSuffix, sizeof(kSuffix)) != 0) {
         return false;
     }
+    static_assert(sizeof(kPrefix) == soma_signatures::kRipRelativeLoadDisplacementOffset);
     int32_t displacement = 0;
-    std::memcpy(&displacement, target + 3, sizeof(displacement));
+    std::memcpy(
+        &displacement,
+        target + soma_signatures::kRipRelativeLoadDisplacementOffset,
+        sizeof(displacement));
     g_gameContextSlot = reinterpret_cast<void**>(
-        reinterpret_cast<uintptr_t>(target + 7) + displacement);
+        reinterpret_cast<uintptr_t>(
+            target + soma_signatures::kRipRelativeLoadNextInstructionOffset)
+        + displacement);
     return IsReadable(g_gameContextSlot, sizeof(void*));
 }
 

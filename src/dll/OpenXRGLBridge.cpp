@@ -191,6 +191,58 @@ private:
     bool succeeded_ = false;
 };
 
+// The OpenXR runtime issues its own GL work inside xrAcquireSwapchainImage,
+// xrWaitSwapchainImage and xrReleaseSwapchainImage. TheDarkModVR carries four
+// separate workarounds for a runtime that "does not properly reset the GL
+// context after certain calls" and one for a runtime that "does not properly
+// set viewport and scissor before copying render textures", so this is observed
+// behaviour, not a theoretical concern.
+//
+// The per-blit save/restore inside the copy helpers sits *between* acquire and
+// release, so it cannot see either. This guard brackets the whole transaction:
+// anything the runtime clobbers on the way in is what we capture, and anything
+// it clobbers on release is undone before the game's next draw.
+class ScopedRuntimeGlState final {
+public:
+    using BindFramebufferFn = void(APIENTRY*)(uint32_t, uint32_t);
+
+    explicit ScopedRuntimeGlState(BindFramebufferFn bindFramebuffer)
+        : bindFramebuffer_(bindFramebuffer)
+    {
+        glGetIntegerv(kGlReadFramebufferBinding, &readFramebuffer_);
+        glGetIntegerv(kGlDrawFramebufferBinding, &drawFramebuffer_);
+        glGetIntegerv(kGlViewport, viewport_);
+        glGetIntegerv(kGlScissorBox, scissorBox_);
+        scissorEnabled_ = glIsEnabled(kGlScissorTest) == GL_TRUE;
+    }
+
+    ~ScopedRuntimeGlState()
+    {
+        if (bindFramebuffer_ != nullptr) {
+            bindFramebuffer_(kGlReadFramebuffer, static_cast<uint32_t>(readFramebuffer_));
+            bindFramebuffer_(kGlDrawFramebuffer, static_cast<uint32_t>(drawFramebuffer_));
+        }
+        glViewport(viewport_[0], viewport_[1], viewport_[2], viewport_[3]);
+        glScissor(scissorBox_[0], scissorBox_[1], scissorBox_[2], scissorBox_[3]);
+        if (scissorEnabled_) {
+            glEnable(kGlScissorTest);
+        } else {
+            glDisable(kGlScissorTest);
+        }
+    }
+
+    ScopedRuntimeGlState(const ScopedRuntimeGlState&) = delete;
+    ScopedRuntimeGlState& operator=(const ScopedRuntimeGlState&) = delete;
+
+private:
+    BindFramebufferFn bindFramebuffer_ = nullptr;
+    int32_t readFramebuffer_ = 0;
+    int32_t drawFramebuffer_ = 0;
+    int32_t viewport_[4] = {};
+    int32_t scissorBox_[4] = {};
+    bool scissorEnabled_ = false;
+};
+
 bool IsInvalidWglProc(PROC proc)
 {
     const uintptr_t value = reinterpret_cast<uintptr_t>(proc);
@@ -591,6 +643,9 @@ void OpenXRGLBridge::Shutdown(bool deleteGlResources)
 bool OpenXRGLBridge::CopyBackbufferToEye(uint32_t eyeIndex)
 {
     ScopedOwnOpenGLWork ownGl;
+    // Brackets the whole acquire/wait/copy/release transaction, so GL
+    // state the runtime clobbers on either side is restored.
+    ScopedRuntimeGlState runtimeGlState(glBindFramebuffer_);
     if (!Ready() || eyeIndex >= eyes_.size()) {
         return false;
     }
@@ -782,6 +837,9 @@ bool OpenXRGLBridge::CaptureBackbufferToCache(uint32_t eyeIndex)
 bool OpenXRGLBridge::CopyCacheToEye(uint32_t eyeIndex)
 {
     ScopedOwnOpenGLWork ownGl;
+    // Brackets the whole acquire/wait/copy/release transaction, so GL
+    // state the runtime clobbers on either side is restored.
+    ScopedRuntimeGlState runtimeGlState(glBindFramebuffer_);
     if (!Ready() || eyeIndex >= eyes_.size() || !eyes_[eyeIndex].cacheValid) {
         return false;
     }
@@ -850,6 +908,9 @@ bool OpenXRGLBridge::CopyCacheToEye(uint32_t eyeIndex)
 bool OpenXRGLBridge::ClearEyeToBlack(uint32_t eyeIndex)
 {
     ScopedOwnOpenGLWork ownGl;
+    // Brackets the whole acquire/wait/copy/release transaction, so GL
+    // state the runtime clobbers on either side is restored.
+    ScopedRuntimeGlState runtimeGlState(glBindFramebuffer_);
     if (!Ready() || eyeIndex >= eyes_.size()) return false;
 
     EyeSwapchain& eye = eyes_[eyeIndex];
@@ -944,6 +1005,9 @@ bool OpenXRGLBridge::ClearEyeToBlack(uint32_t eyeIndex)
 bool OpenXRGLBridge::CopyDepthCacheToEye(uint32_t eyeIndex)
 {
     ScopedOwnOpenGLWork ownGl;
+    // Brackets the whole acquire/wait/copy/release transaction, so GL
+    // state the runtime clobbers on either side is restored.
+    ScopedRuntimeGlState runtimeGlState(glBindFramebuffer_);
     if (!DepthSwapchainsReady()
         || eyeIndex >= eyes_.size()
         || !eyes_[eyeIndex].depthCacheValid) {

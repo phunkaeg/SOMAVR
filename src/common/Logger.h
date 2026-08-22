@@ -33,6 +33,7 @@ public:
     void WriteV(LogLevel level, const char* fmt, va_list args);
 
     std::filesystem::path Path() const;
+    uint64_t TruncatedLineCount() const;
 
     static LogLevel ParseLevel(const std::string& value, LogLevel fallback);
     static const char* LevelName(LogLevel level);
@@ -44,6 +45,7 @@ private:
     LogLevel level_ = LogLevel::Info;
     std::atomic<int> fastLevel_ = static_cast<int>(LogLevel::Info);
     uint32_t pendingBufferedLines_ = 0;
+    std::atomic<uint64_t> truncatedLines_ = 0;
     bool initialized_ = false;
 };
 

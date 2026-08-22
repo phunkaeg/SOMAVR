@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "HPLSSAOTemporalMath.h"
 #include "Logger.h"
+#include "OpenGLOwnership.h"
 
 #include <Windows.h>
 #include <gl/GL.h>
@@ -125,6 +126,9 @@ bool Copy(GLuint source, GLuint destination, const TextureIdentity& identity)
 
 bool CreateHistories(RendererState& state)
 {
+    // Our own texture binds must not re-enter the glBindTexture detour, which
+    // would feed them back into this very subsystem as native observations.
+    ScopedOwnOpenGLWork ownGl;
     const TextureIdentity& identity = state.identity;
     if (identity.name == 0 || identity.target != kGLTexture2D
         || identity.width <= 0 || identity.height <= 0 || identity.internalFormat == 0

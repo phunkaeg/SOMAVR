@@ -349,6 +349,41 @@ int RunDoctor(
         DoctorResult(summary, "PASS", L"active OpenXR runtime: " + runtimePath.wstring());
     }
 
+    const auto apiLayers = somavr::injector::EnumerateRegisteredOpenXRApiLayers();
+    size_t enabledImplicitLayers = 0;
+    size_t disabledImplicitLayers = 0;
+    size_t enabledExplicitLayers = 0;
+    size_t missingEnabledManifests = 0;
+    for (const auto& layer : apiLayers) {
+        const bool manifestExists = std::filesystem::exists(layer.manifestPath);
+        if (layer.implicit) {
+            if (layer.registryEnabled) ++enabledImplicitLayers;
+            else ++disabledImplicitLayers;
+        } else if (layer.registryEnabled) {
+            ++enabledExplicitLayers;
+        }
+        if (layer.registryEnabled && !manifestExists) ++missingEnabledManifests;
+        std::wcout
+            << L"INFO: OpenXR API layer scope=" << layer.scope
+            << L" kind=" << (layer.implicit ? L"implicit" : L"explicit")
+            << L" registry=" << (layer.registryEnabled ? L"enabled" : L"disabled")
+            << L" manifestExists=" << (manifestExists ? 1 : 0)
+            << L" path=" << layer.manifestPath.wstring() << L"\n";
+    }
+    std::wstring layerSummary =
+        L"OpenXR API layer registry census: implicitEnabled="
+        + std::to_wstring(enabledImplicitLayers)
+        + L" implicitDisabled=" + std::to_wstring(disabledImplicitLayers)
+        + L" explicitEnabled=" + std::to_wstring(enabledExplicitLayers)
+        + L" total=" + std::to_wstring(apiLayers.size());
+    if (missingEnabledManifests != 0) {
+        layerSummary += L" missingEnabledManifests="
+            + std::to_wstring(missingEnabledManifests);
+        DoctorResult(summary, "WARN", layerSummary);
+    } else {
+        DoctorResult(summary, "PASS", layerSummary);
+    }
+
     if (gamePath.empty()) {
         DoctorResult(summary, "WARN", L"game path not supplied; SOMA executable and proxy scan skipped");
     } else {

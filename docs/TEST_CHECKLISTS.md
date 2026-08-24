@@ -1,5 +1,24 @@
 # Test Checklists
 
+## 0.93.0 Playbook Hardening
+
+1. Run packaged `somavr_injector.exe --doctor` before launch. Preserve every
+   `INFO: OpenXR API layer` row and require no missing enabled manifest. A
+   registered layer is informational; do not disable one unless a controlled
+   comparison implicates it.
+2. Launch, load the apartment save, press F10 once, and perform the complete
+   0.92 normal regression route. Require identical stereo, tracking, hands/IK,
+   locomotion, interactions, terminal, HUD/menu, reticles, and desktop mirror.
+3. Open and close the pause menu, use the laptop, reload the save once, remove
+   and restore headset/controller focus if convenient, then exit normally.
+   Preserve API-layer rows and all new lifecycle counters.
+4. Require `openxrReferenceSpaceCreateFailures=0`, occlusion/copy
+   `stateOverflows=0`, and no compositor freeze. Nonzero state/focus/profile
+   counts prove those trigger opportunities ran; zero means the path was not
+   exercised, not that its recovery logic passed.
+5. Continue with the 0.92 resource-evidence checks below. This build changes
+   their storage only, not the query/copy observation policy.
+
 ## 0.92.0 Native-Stereo Evidence
 
 1. Launch `out\SOMAVR-latest`, load the apartment save, and press F10 once.

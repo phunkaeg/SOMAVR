@@ -34,7 +34,9 @@ Run this before launching a new package:
 Proceed when the summary has `fail=0` and reports that SOMA's interaction hook
 signatures match the supported build. Warnings name optional hook conflicts or
 developer-layout fallbacks. Fix missing DLL, loader, config, runtime JSON, x64
-game, or hook-signature failures before injection.
+game, hook-signature failures, or an enabled API-layer registration whose JSON
+manifest is missing before injection. API-layer registrations with present
+manifests are reported for diagnosis and are not failures by themselves.
 
 ## Launch
 

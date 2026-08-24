@@ -84,6 +84,72 @@ void AddModuleFindings(DWORD processId, std::vector<CompatibilityFinding>& findi
     CloseHandle(snapshot);
 }
 
+void AddRegisteredOpenXRApiLayers(
+    HKEY root,
+    std::wstring_view scope,
+    bool implicit,
+    std::vector<OpenXRApiLayerRegistration>& registrations)
+{
+    const wchar_t* keyPath = implicit
+        ? L"SOFTWARE\\Khronos\\OpenXR\\1\\ApiLayers\\Implicit"
+        : L"SOFTWARE\\Khronos\\OpenXR\\1\\ApiLayers\\Explicit";
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(
+            root,
+            keyPath,
+            0,
+            KEY_READ | KEY_WOW64_64KEY,
+            &key) != ERROR_SUCCESS) {
+        return;
+    }
+
+    DWORD maxValueNameChars = 0;
+    if (RegQueryInfoKeyW(
+            key,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            &maxValueNameChars,
+            nullptr,
+            nullptr,
+            nullptr) != ERROR_SUCCESS) {
+        RegCloseKey(key);
+        return;
+    }
+
+    std::vector<wchar_t> valueName(static_cast<size_t>(maxValueNameChars) + 1, L'\0');
+    for (DWORD index = 0;; ++index) {
+        DWORD valueNameChars = static_cast<DWORD>(valueName.size());
+        DWORD valueType = 0;
+        DWORD registryState = 0;
+        DWORD dataBytes = sizeof(registryState);
+        const LSTATUS result = RegEnumValueW(
+            key,
+            index,
+            valueName.data(),
+            &valueNameChars,
+            nullptr,
+            &valueType,
+            reinterpret_cast<BYTE*>(&registryState),
+            &dataBytes);
+        if (result == ERROR_NO_MORE_ITEMS) break;
+        if (result != ERROR_SUCCESS) continue;
+        if (valueType != REG_DWORD || dataBytes != sizeof(registryState)) continue;
+
+        OpenXRApiLayerRegistration registration;
+        registration.scope = scope;
+        registration.manifestPath = std::wstring(valueName.data(), valueNameChars);
+        registration.implicit = implicit;
+        registration.registryEnabled = registryState == 0;
+        registrations.push_back(std::move(registration));
+    }
+    RegCloseKey(key);
+}
+
 template <typename T>
 bool ReadFileValue(const std::vector<uint8_t>& file, size_t offset, T& value)
 {
@@ -328,6 +394,25 @@ std::vector<CompatibilityFinding> ScanCompatibilityDirectory(
         return left.path.wstring() < right.path.wstring();
     });
     return findings;
+}
+
+std::vector<OpenXRApiLayerRegistration> EnumerateRegisteredOpenXRApiLayers()
+{
+    std::vector<OpenXRApiLayerRegistration> registrations;
+    AddRegisteredOpenXRApiLayers(
+        HKEY_LOCAL_MACHINE, L"HKLM64", true, registrations);
+    AddRegisteredOpenXRApiLayers(
+        HKEY_LOCAL_MACHINE, L"HKLM64", false, registrations);
+    AddRegisteredOpenXRApiLayers(
+        HKEY_CURRENT_USER, L"HKCU64", true, registrations);
+    AddRegisteredOpenXRApiLayers(
+        HKEY_CURRENT_USER, L"HKCU64", false, registrations);
+    std::sort(registrations.begin(), registrations.end(), [](const auto& left, const auto& right) {
+        if (left.scope != right.scope) return left.scope < right.scope;
+        if (left.implicit != right.implicit) return left.implicit > right.implicit;
+        return Lower(left.manifestPath.wstring()) < Lower(right.manifestPath.wstring());
+    });
+    return registrations;
 }
 
 bool PrintCompatibilityFindings(const std::vector<CompatibilityFinding>& findings)

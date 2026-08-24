@@ -1,6 +1,6 @@
 # Current State
 
-Date: 2026-08-23
+Date: 2026-08-24
 
 ## Objective
 
@@ -22,10 +22,18 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 ## Active Baseline
 
 The active engineering and gameplay test build is
-`0.92.0-native-stereo-evidence`, layered on the
+`0.93.0-playbook-hardening`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Version 0.93 applies three concrete cross-engine playbook lessons without
+  changing rendering or gameplay ownership. The default-active occlusion-query
+  and framebuffer-copy observers now use fixed-capacity, allocation-free
+  identity tables. OpenXR records session/focus/profile/instance-loss and
+  reference-space trigger opportunities. Startup and `--doctor` census API
+  layers, while treating registration as evidence rather than an automatic
+  incompatibility.
 
 - Version 0.92 adds the evidence needed to evaluate the existing same-frame
   viewport replay and a future world-only native stereo path without changing

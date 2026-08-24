@@ -1,6 +1,6 @@
 # OpenXR OpenGL Transfer Audit
 
-Date: 2026-08-23
+Date: 2026-08-24
 
 ## Decision
 
@@ -54,6 +54,11 @@ dropped busy slots, invalid timestamp pairs, and API availability.
 The GPU ring uses GL query IDs allocated by SOMAVR inside the own-GL scope, so
 the HPL occlusion-query observer ignores them. It is telemetry only and does not
 alter acquire, copy, flush, release, or swapchain ownership.
+
+Version `0.93.0-playbook-hardening` also removes dynamic container growth from
+the default-active query and framebuffer-copy observers. Both use fixed 4096-
+identity tables and report saturation through their existing overflow counters;
+no identity insertion can allocate from a GL hook.
 
 ## Runtime A/B Gate
 

@@ -1,11 +1,11 @@
 # Next Live Evidence
 
-Date: 2026-08-23
+Date: 2026-08-24
 
 Use `out\SOMAVR-latest`
-(`0.92.0-native-stereo-evidence`) for the next run.
+(`0.93.0-playbook-hardening`) for the next run.
 
-The first priority is a normal/default regression pass. Version 0.92 does not
+The first priority is a normal/default regression pass. Version 0.93 does not
 enable native same-frame stereo or the hands-owner probe in the release profile;
 ordinary visuals and controls must match 0.91.
 
@@ -18,9 +18,11 @@ ordinary visuals and controls must match 0.91.
 3. Exit normally and attach the complete log. Preserve these rows when present:
 
 ```text
-build_identity identity=0.92.0-native-stereo-evidence+...
+build_identity identity=0.93.0-playbook-hardening+...
 runtime_paths ... source=module
 config_applied ... mtime=... bytes=... parsedKeyHash=... accepted=... unknownKeys=0 unknownSections=0
+openxr_api_layers available=... policy=report_only
+openxr_api_layer name="..." ...
 hook_config_diagnostics ...
 hook_config_camera ...
 hook_config_render ...
@@ -35,6 +37,9 @@ proof_summary ... openxrFrameLockWaitMaxUs=... openxrFrameLockHoldMaxUs=...
 proof_summary ... openxrSnapshotLockWaitMaxUs=... openxrSnapshotLockWaitOver100Us=...
 proof_summary ... openxrGlLeftGpuCaptureAvgUs=... openxrGlLeftGpuSubmitAvgUs=...
 proof_summary ... openxrGlRightGpuCaptureAvgUs=... openxrGlRightGpuSubmitAvgUs=...
+proof_summary ... openxrSessionStateTransitions=... openxrFocusGainEvents=... openxrFocusLossEvents=...
+proof_summary ... openxrInteractionProfileEvents=... openxrInstanceLossEvents=...
+proof_summary ... openxrReferenceSpaceCreateAttempts=... openxrReferenceSpaceCreateSuccesses=... openxrReferenceSpaceCreateFailures=0
 hpl_camera_bridge summary ... nativeMemoryReadFailures=0 nativeMemoryWriteFailures=0
 proof_summary ... ownGlBypasses=...
 ```
@@ -58,7 +63,7 @@ No visual or hand behavior should change. Missing owner acquisition after a
 loaded gameplay map means the next RE rung is dispatcher/lifetime attribution;
 it does not authorize a direct script call.
 
-The packaged continuous replay already activates the new read-only resource
+The packaged continuous replay still activates the 0.92 read-only resource
 observers. The ordinary pass should therefore end with:
 
 ```text

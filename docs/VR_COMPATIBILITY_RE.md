@@ -1,5 +1,15 @@
 # VR Compatibility Reverse-Engineering Map
 
+## 0.93.0 Playbook Hardening
+
+The render-thread occlusion-query and framebuffer-copy observers use fixed-
+capacity identity tables. New identities cannot allocate inside a GL hook;
+overflow disables only additional evidence and remains counted. OpenXR now
+counts lifecycle trigger opportunities and logs loader-visible API layers,
+while packaged readiness diagnostics inventory 64-bit registry registrations.
+Presence is report-only: only missing enabled manifests are warned, and an API
+layer requires controlled evidence before it is treated as incompatible.
+
 ## 0.92.0 Native-Stereo Evidence Gate
 
 The established same-frame viewport replay remains configured as before;

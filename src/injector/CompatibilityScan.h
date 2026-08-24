@@ -21,6 +21,13 @@ struct CompatibilityFinding {
     std::wstring reason;
 };
 
+struct OpenXRApiLayerRegistration {
+    std::wstring scope;
+    std::filesystem::path manifestPath;
+    bool implicit = false;
+    bool registryEnabled = false;
+};
+
 bool ClassifyCompatibilityName(
     std::wstring_view name,
     bool loadedModule,
@@ -33,6 +40,7 @@ bool ValidateSomaInteractionSignatures(
 std::vector<CompatibilityFinding> ScanCompatibility(DWORD processId);
 std::vector<CompatibilityFinding> ScanCompatibilityDirectory(
     const std::filesystem::path& directory);
+std::vector<OpenXRApiLayerRegistration> EnumerateRegisteredOpenXRApiLayers();
 bool PrintCompatibilityFindings(const std::vector<CompatibilityFinding>& findings);
 
 } // namespace somavr::injector

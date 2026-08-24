@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.92.0-native-stereo-evidence")
+set(SOMAVR_BUILD_VERSION "0.93.0-playbook-hardening")
 
 include(FetchContent)
 
@@ -232,6 +232,10 @@ if(BUILD_TESTING)
     add_executable(somavr_native_memory_tests tests/NativeMemoryAccessTests.cpp)
     target_link_libraries(somavr_native_memory_tests PRIVATE somavr_common)
     add_test(NAME somavr_native_memory COMMAND somavr_native_memory_tests)
+
+    add_executable(somavr_fixed_identity_table_tests tests/FixedIdentityTableTests.cpp)
+    target_link_libraries(somavr_fixed_identity_table_tests PRIVATE somavr_common)
+    add_test(NAME somavr_fixed_identity_table COMMAND somavr_fixed_identity_table_tests)
 
     add_executable(somavr_crash_handler_tests
         tests/CrashHandlerIntegrationTests.cpp

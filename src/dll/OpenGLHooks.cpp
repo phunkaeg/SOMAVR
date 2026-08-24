@@ -1,5 +1,6 @@
 #include "OpenGLHooks.h"
 
+#include "FixedIdentityTable.h"
 #include "HPLCameraBridge.h"
 #include "HPLCompatibilityProbe.h"
 #include "HPLInputBridge.h"
@@ -269,8 +270,13 @@ GlGetQueryObjectuivFn g_originalGlGetQueryObjectuiv = nullptr;
 GlGetQueryObjectui64vFn g_originalGlGetQueryObjectui64v = nullptr;
 
 bool g_occlusionQueryTelemetryEnabled = false;
-std::unordered_map<GLuint, OcclusionQueryState> g_occlusionQueryStates;
-std::unordered_map<GLenum, GLuint> g_activeOcclusionQueries;
+FixedIdentityTable<GLuint, OcclusionQueryState, kMaxOcclusionQueryStates> g_occlusionQueryStates;
+struct ActiveOcclusionQuery {
+    GLenum target = 0;
+    GLuint query = 0;
+    bool occupied = false;
+};
+std::array<ActiveOcclusionQuery, 16> g_activeOcclusionQueries{};
 std::atomic<uint64_t> g_occlusionQueryBegins = 0;
 std::atomic<uint64_t> g_occlusionQueryEnds = 0;
 std::atomic<uint64_t> g_occlusionQueryResults = 0;
@@ -281,7 +287,7 @@ std::atomic<uint64_t> g_occlusionQuerySameFrameReuses = 0;
 std::atomic<uint64_t> g_occlusionQueryTargetConflicts = 0;
 std::atomic<uint64_t> g_occlusionQueryUnmatchedEnds = 0;
 std::atomic<uint64_t> g_occlusionQueryStateOverflows = 0;
-std::unordered_map<GLuint, FramebufferCopyState> g_framebufferCopyStates;
+FixedIdentityTable<GLuint, FramebufferCopyState, kMaxFramebufferCopyStates> g_framebufferCopyStates;
 std::atomic<uint64_t> g_framebufferCopies = 0;
 std::atomic<uint64_t> g_framebufferCopyPixels = 0;
 std::atomic<uint64_t> g_framebufferCopyFirstEye = 0;
@@ -304,6 +310,52 @@ void APIENTRY HookGlCopyTexSubImage2D(
     GLint y,
     GLsizei width,
     GLsizei height);
+
+ActiveOcclusionQuery* FindActiveOcclusionQuery(GLenum target)
+{
+    for (ActiveOcclusionQuery& active : g_activeOcclusionQueries) {
+        if (active.occupied && active.target == target) return &active;
+    }
+    return nullptr;
+}
+
+bool SetActiveOcclusionQuery(GLenum target, GLuint query, bool& targetConflict)
+{
+    if (ActiveOcclusionQuery* active = FindActiveOcclusionQuery(target)) {
+        targetConflict = active->query != query;
+        active->query = query;
+        return true;
+    }
+    for (ActiveOcclusionQuery& active : g_activeOcclusionQueries) {
+        if (active.occupied) continue;
+        active = {target, query, true};
+        return true;
+    }
+    return false;
+}
+
+bool TakeActiveOcclusionQuery(GLenum target, GLuint& query)
+{
+    ActiveOcclusionQuery* active = FindActiveOcclusionQuery(target);
+    if (active == nullptr) return false;
+    query = active->query;
+    *active = {};
+    return true;
+}
+
+void ClearActiveOcclusionQueries()
+{
+    for (ActiveOcclusionQuery& active : g_activeOcclusionQueries) active = {};
+}
+
+size_t ActiveOcclusionQueryCount()
+{
+    size_t count = 0;
+    for (const ActiveOcclusionQuery& active : g_activeOcclusionQueries) {
+        if (active.occupied) ++count;
+    }
+    return count;
+}
 
 std::atomic<uint64_t> g_frameIndex = 0;
 std::atomic<uint64_t> g_swapCount = 0;
@@ -2021,19 +2073,13 @@ void APIENTRY HookGlBeginQuery(GLenum target, GLuint query)
     bool targetConflict = false;
     {
         std::lock_guard lock(g_occlusionQueryMutex);
-        const auto active = g_activeOcclusionQueries.find(target);
-        targetConflict = active != g_activeOcclusionQueries.end() && active->second != query;
-        g_activeOcclusionQueries[target] = query;
-
-        auto state = g_occlusionQueryStates.find(query);
-        if (state == g_occlusionQueryStates.end()) {
-            if (g_occlusionQueryStates.size() >= kMaxOcclusionQueryStates) {
-                g_occlusionQueryStateOverflows.fetch_add(1, std::memory_order_relaxed);
-                return;
-            }
-            state = g_occlusionQueryStates.emplace(query, OcclusionQueryState{}).first;
+        auto state = g_occlusionQueryStates.FindOrInsert(query);
+        if (state.value == nullptr
+            || !SetActiveOcclusionQuery(target, query, targetConflict)) {
+            g_occlusionQueryStateOverflows.fetch_add(1, std::memory_order_relaxed);
+            return;
         }
-        OcclusionQueryState& queryState = state->second;
+        OcclusionQueryState& queryState = *state.value;
         if (pass == HPLDualRenderPass::FirstEye) {
             queryState.firstEyeFrame = frame;
         } else if (pass == HPLDualRenderPass::ReplayEye) {
@@ -2085,14 +2131,12 @@ void APIENTRY HookGlEndQuery(GLenum target)
         bool matched = false;
         {
             std::lock_guard lock(g_occlusionQueryMutex);
-            const auto active = g_activeOcclusionQueries.find(target);
-            if (active != g_activeOcclusionQueries.end()) {
-                const auto state = g_occlusionQueryStates.find(active->second);
-                if (state != g_occlusionQueryStates.end()) {
-                    state->second.active = false;
+            GLuint query = 0;
+            if (TakeActiveOcclusionQuery(target, query)) {
+                if (OcclusionQueryState* state = g_occlusionQueryStates.Find(query)) {
+                    state->active = false;
                     matched = true;
                 }
-                g_activeOcclusionQueries.erase(active);
             }
         }
         g_occlusionQueryEnds.fetch_add(1, std::memory_order_relaxed);
@@ -2111,9 +2155,8 @@ void ObserveQueryResult(GLuint query, GLenum pname)
         g_occlusionQueryAvailabilityChecks.fetch_add(1, std::memory_order_relaxed);
     }
     std::lock_guard lock(g_occlusionQueryMutex);
-    const auto state = g_occlusionQueryStates.find(query);
-    if (state != g_occlusionQueryStates.end()) {
-        ++state->second.results;
+    if (OcclusionQueryState* state = g_occlusionQueryStates.Find(query)) {
+        ++state->results;
     }
 }
 
@@ -2164,22 +2207,17 @@ void APIENTRY HookGlCopyTexSubImage2D(
         bool crossEyeReuse = false;
         if (texture != 0) {
             std::lock_guard lock(g_framebufferCopyMutex);
-            auto state = g_framebufferCopyStates.find(texture);
-            if (state == g_framebufferCopyStates.end()) {
-                if (g_framebufferCopyStates.size() < kMaxFramebufferCopyStates) {
-                    state = g_framebufferCopyStates.emplace(
-                        texture, FramebufferCopyState{}).first;
-                } else {
-                    g_framebufferCopyStateOverflows.fetch_add(1, std::memory_order_relaxed);
-                }
-            }
-            if (state != g_framebufferCopyStates.end()) {
+            auto state = g_framebufferCopyStates.FindOrInsert(texture);
+            if (state.value == nullptr) {
+                g_framebufferCopyStateOverflows.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                FramebufferCopyState& copyState = *state.value;
                 crossEyeReuse =
-                    (pass == HPLDualRenderPass::FirstEye && state->second.replayEyeFrame == frame)
-                    || (pass == HPLDualRenderPass::ReplayEye && state->second.firstEyeFrame == frame);
-                if (pass == HPLDualRenderPass::FirstEye) state->second.firstEyeFrame = frame;
-                if (pass == HPLDualRenderPass::ReplayEye) state->second.replayEyeFrame = frame;
-                ++state->second.copies;
+                    (pass == HPLDualRenderPass::FirstEye && copyState.replayEyeFrame == frame)
+                    || (pass == HPLDualRenderPass::ReplayEye && copyState.firstEyeFrame == frame);
+                if (pass == HPLDualRenderPass::FirstEye) copyState.firstEyeFrame = frame;
+                if (pass == HPLDualRenderPass::ReplayEye) copyState.replayEyeFrame = frame;
+                ++copyState.copies;
             }
         }
 
@@ -2427,12 +2465,12 @@ bool InstallOpenGLHooks(const Config& config, OpenXRRuntime* openxr)
     g_occlusionQueryStateOverflows.store(0, std::memory_order_relaxed);
     {
         std::lock_guard queryLock(g_occlusionQueryMutex);
-        g_occlusionQueryStates.clear();
-        g_activeOcclusionQueries.clear();
+        g_occlusionQueryStates.Clear();
+        ClearActiveOcclusionQueries();
     }
     {
         std::lock_guard copyLock(g_framebufferCopyMutex);
-        g_framebufferCopyStates.clear();
+        g_framebufferCopyStates.Clear();
     }
     g_framebufferCopies.store(0, std::memory_order_relaxed);
     g_framebufferCopyPixels.store(0, std::memory_order_relaxed);
@@ -2703,12 +2741,12 @@ void RemoveOpenGLHooks()
     }
     {
         std::lock_guard queryLock(g_occlusionQueryMutex);
-        g_occlusionQueryStates.clear();
-        g_activeOcclusionQueries.clear();
+        g_occlusionQueryStates.Clear();
+        ClearActiveOcclusionQueries();
     }
     {
         std::lock_guard copyLock(g_framebufferCopyMutex);
-        g_framebufferCopyStates.clear();
+        g_framebufferCopyStates.Clear();
     }
     g_framebufferCopies.store(0, std::memory_order_relaxed);
     g_framebufferCopyPixels.store(0, std::memory_order_relaxed);
@@ -2745,12 +2783,12 @@ void LogOpenGLProofSummary()
     }
     {
         std::lock_guard lock(g_occlusionQueryMutex);
-        occlusionQueryStates = g_occlusionQueryStates.size();
-        activeOcclusionQueries = g_activeOcclusionQueries.size();
+        occlusionQueryStates = g_occlusionQueryStates.Size();
+        activeOcclusionQueries = ActiveOcclusionQueryCount();
     }
     {
         std::lock_guard lock(g_framebufferCopyMutex);
-        framebufferCopyTextures = g_framebufferCopyStates.size();
+        framebufferCopyTextures = g_framebufferCopyStates.Size();
     }
 
     Logger::Instance().Write(

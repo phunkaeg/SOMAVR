@@ -690,6 +690,16 @@ struct OpenXRRuntime::Impl {
             << " openxrGlContextChanges=" << static_cast<unsigned long long>(glContextChangeEvents_)
             << " openxrViewResourceChecks=" << static_cast<unsigned long long>(viewResourceChecks_)
             << " openxrViewResourceRebuilds=" << static_cast<unsigned long long>(viewResourceRebuilds_)
+            << " openxrApiLayerEnumerations=" << static_cast<unsigned long long>(apiLayerEnumerations_)
+            << " openxrAvailableApiLayers=" << availableApiLayerCount_
+            << " openxrSessionStateTransitions=" << static_cast<unsigned long long>(sessionStateTransitions_)
+            << " openxrFocusGainEvents=" << static_cast<unsigned long long>(focusGainEvents_)
+            << " openxrFocusLossEvents=" << static_cast<unsigned long long>(focusLossEvents_)
+            << " openxrInteractionProfileEvents=" << static_cast<unsigned long long>(interactionProfileChangeEvents_)
+            << " openxrInstanceLossEvents=" << static_cast<unsigned long long>(instanceLossEvents_)
+            << " openxrReferenceSpaceCreateAttempts=" << static_cast<unsigned long long>(referenceSpaceCreateAttempts_)
+            << " openxrReferenceSpaceCreateSuccesses=" << static_cast<unsigned long long>(referenceSpaceCreateSuccesses_)
+            << " openxrReferenceSpaceCreateFailures=" << static_cast<unsigned long long>(referenceSpaceCreateFailures_)
             << " openxrTrackingHoldFrames=" << trackingHoldFrames_
             << " openxrTrackingRecoveryBlackoutFrames=" << trackingRecoveryBlackoutFrames_
             << " openxrTrackingDegraded=" << (trackingDegraded_ ? 1 : 0)
@@ -1580,6 +1590,8 @@ private:
             return;
         }
 
+        LogApiLayersLocked();
+
         if (!CheckInstanceExtensionsLocked()) {
             failed_ = true;
             return;
@@ -1966,6 +1978,52 @@ private:
             Logger::Instance().Write(LogLevel::Warn, "openxr_bootstrap missing_required_extension name=%s", XR_KHR_OPENGL_ENABLE_EXTENSION_NAME);
         }
         return hasOpenGL;
+    }
+
+    void LogApiLayersLocked()
+    {
+        uint32_t layerCount = 0;
+        XrResult result = xrEnumerateApiLayerProperties(0, &layerCount, nullptr);
+        if (XR_FAILED(result)) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_api_layers enumerate_count_failed result=%s",
+                XrResultString(result).c_str());
+            return;
+        }
+
+        std::vector<XrApiLayerProperties> layers(layerCount);
+        for (XrApiLayerProperties& layer : layers) {
+            layer.type = XR_TYPE_API_LAYER_PROPERTIES;
+        }
+        result = xrEnumerateApiLayerProperties(
+            layerCount,
+            &layerCount,
+            layers.empty() ? nullptr : layers.data());
+        if (XR_FAILED(result)) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "openxr_api_layers enumerate_failed result=%s",
+                XrResultString(result).c_str());
+            return;
+        }
+        layers.resize(layerCount);
+        ++apiLayerEnumerations_;
+        availableApiLayerCount_ = layerCount;
+
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "openxr_api_layers available=%u policy=report_only",
+            layerCount);
+        for (const XrApiLayerProperties& layer : layers) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "openxr_api_layer name=\"%s\" layerVersion=%u specVersion=%llu description=\"%s\"",
+                layer.layerName,
+                layer.layerVersion,
+                static_cast<unsigned long long>(layer.specVersion),
+                layer.description);
+        }
     }
 
     void LogDepthCapabilityLocked(
@@ -2422,8 +2480,10 @@ private:
         XrReferenceSpaceCreateInfo spaceInfo{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
         spaceInfo.referenceSpaceType = selectedReferenceSpace_;
         spaceInfo.poseInReferenceSpace.orientation.w = 1.0f;
+        ++referenceSpaceCreateAttempts_;
         XrResult result = xrCreateReferenceSpace(session_, &spaceInfo, &appSpace_);
         if (XR_FAILED(result)) {
+            ++referenceSpaceCreateFailures_;
             Logger::Instance().Write(
                 LogLevel::Warn,
                 "openxr_reference_space create_failed requested=%s selected=%s result=%s",
@@ -2432,6 +2492,7 @@ private:
                 XrResultString(result).c_str());
             return false;
         }
+        ++referenceSpaceCreateSuccesses_;
 
         bool createHudResources = hudLayerEnabled_;
         bool createStatusPanelResources = statusPanelEnabled_;
@@ -2440,8 +2501,10 @@ private:
             XrReferenceSpaceCreateInfo viewSpaceInfo{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
             viewSpaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
             viewSpaceInfo.poseInReferenceSpace.orientation.w = 1.0f;
+            ++referenceSpaceCreateAttempts_;
             result = xrCreateReferenceSpace(session_, &viewSpaceInfo, &viewSpace_);
             if (XR_FAILED(result)) {
+                ++referenceSpaceCreateFailures_;
                 const bool hudRequested = createHudResources;
                 const bool panelRequested = createStatusPanelResources;
                 const bool vignetteRequested = createComfortVignetteResources;
@@ -2456,6 +2519,8 @@ private:
                     panelRequested ? 1 : 0,
                     vignetteRequested ? 1 : 0,
                     XrResultString(result).c_str());
+            } else {
+                ++referenceSpaceCreateSuccesses_;
             }
         }
 
@@ -4232,7 +4297,13 @@ private:
 
             if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
                 const auto* state = reinterpret_cast<const XrEventDataSessionStateChanged*>(&event);
+                const XrSessionState previousState = sessionState_;
                 sessionState_ = state->state;
+                if (state->session == session_ && previousState != state->state) {
+                    ++sessionStateTransitions_;
+                    if (previousState == XR_SESSION_STATE_FOCUSED) ++focusLossEvents_;
+                    if (state->state == XR_SESSION_STATE_FOCUSED) ++focusGainEvents_;
+                }
                 if (eventLogCount_ < 64) {
                     Logger::Instance().Write(
                         LogLevel::Info,
@@ -4278,8 +4349,10 @@ private:
                     }
                 }
             } else if (event.type == XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED) {
+                ++interactionProfileChangeEvents_;
                 input_.LogInteractionProfiles(session_, frameIndex, "runtime_event");
             } else if (event.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) {
+                ++instanceLossEvents_;
                 frameSubmitFailed_ = true;
                 sessionRunning_ = false;
                 ResetFocusPacingLocked("instance_loss", frameIndex);
@@ -4651,6 +4724,16 @@ private:
     uint64_t glContextChangeEvents_ = 0;
     uint64_t viewResourceChecks_ = 0;
     uint64_t viewResourceRebuilds_ = 0;
+    uint64_t apiLayerEnumerations_ = 0;
+    uint32_t availableApiLayerCount_ = 0;
+    uint64_t sessionStateTransitions_ = 0;
+    uint64_t focusGainEvents_ = 0;
+    uint64_t focusLossEvents_ = 0;
+    uint64_t interactionProfileChangeEvents_ = 0;
+    uint64_t instanceLossEvents_ = 0;
+    uint64_t referenceSpaceCreateAttempts_ = 0;
+    uint64_t referenceSpaceCreateSuccesses_ = 0;
+    uint64_t referenceSpaceCreateFailures_ = 0;
     uint64_t nextViewConfigurationCheckFrame_ = 0;
     uint64_t trackingInvalidFrames_ = 0;
     uint64_t trackingLossEvents_ = 0;

@@ -1,5 +1,26 @@
 # Build History
 
+## 2026-08-24
+
+### 0.93.0-playbook-hardening
+
+- Replaced heap-growing identity maps in the default-active occlusion-query
+  and framebuffer-copy GL hooks with fixed-capacity open-addressing tables.
+  The render hook performs no container allocation; saturation remains bounded,
+  fail-closed, and visible in the existing overflow counters.
+- Added OpenXR trigger-opportunity telemetry for session-state transitions,
+  focus gains/losses, interaction-profile changes, instance loss, and reference-
+  space creation success/failure. This separates an unexercised recovery path
+  from one that ran and failed.
+- Added report-only OpenXR API-layer discovery. The DLL logs loader-visible
+  layer properties before instance creation; injector `--doctor` inventories
+  64-bit HKLM/HKCU implicit and explicit registrations, their enabled state,
+  and missing manifests without blocking merely because a layer is present.
+- Added deterministic fixed-table collision, saturation, clear, and reuse
+  coverage. Verification: OpenXR Release/Ninja build, CTest `9/9`, packaged
+  readiness doctor `pass=9 warn=0 fail=0` against `Soma_NoSteam.exe`, and all
+  four registered API-layer manifests present.
+
 ## 2026-08-23
 
 ### 0.92.0-native-stereo-evidence

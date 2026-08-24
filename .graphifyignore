@@ -1,6 +1,7 @@
 # Generated build trees and third-party dependencies
 build*/
 out/
+out-pending/
 
 # Runtime/generated artifacts
 graphify-out/

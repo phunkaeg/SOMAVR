@@ -254,3 +254,33 @@ passing a different one **is** the override.
 None of this argues for removing AFR. It argues that native stereo, *if the budget allows it*,
 retires a category of defect rather than trading one for another — and that the defects it retires
 are ones this project has already been bitten by. Worth weighing when the budget number arrives.
+
+
+## How to argue for this when it gets scheduled
+
+Playbook `08-project-process.md` now carries a completeness ladder, T0 (flat in a headset) to T4
+(the game's own systems adapted for VR), and places SOMAVR at **T3** — AFR stereo, native hands and
+interaction, comfort options as first-class settings. It also separates three orthogonal axes:
+**mode** (how you build it), **stereo rung** (how the second eye is produced), and **completeness
+tier** (how much of the game becomes VR).
+
+**Native stereo is entirely rung movement. It does not raise the tier at all.** Nothing in this
+document makes more of the game into VR; hands, interaction, comfort and HUD are unchanged by it.
+That is worth stating plainly, because the obvious pitch — "native stereo is more VR" — is false,
+and a proposal resting on it deserves to lose to work that actually moves the tier.
+
+The real case is the one the parameter/global finding exposed, and it is a **maintenance** argument:
+
+- SOMAVR's AFR path borrows and mutates shared camera state, which is the column the whole
+  FarCry2-VR defect family lives in.
+- This project has already paid for that twice in one week — **F-19** (a transient fault clearing
+  persistent stereo mode) and **F-20** (a held pair carrying the wrong pose) are both that family,
+  found independently, same root cause.
+- Because HPL passes the frustum as a parameter, rung 1 does not *defend against* that class, it
+  *removes* it: construct a second frustum, pass it, own nothing shared.
+
+So the honest framing when this is scheduled: it buys **correct per-eye culling, LOD, sky and fog**,
+and it **retires a defect class already paid for twice** — at the cost of a second world render whose
+budget is still unmeasured, and three shared-resource hazards (occlusion queries, refraction scratch,
+temporal passes) of which only the third already has machinery. It is not a features item and should
+not be scheduled as one.

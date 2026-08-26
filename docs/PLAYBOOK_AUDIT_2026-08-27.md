@@ -1,6 +1,7 @@
 # VR Modding Playbook Audit - 2026-08-27
 
-Status: audit complete; no runtime behavior changed.
+Status: audit complete; all three P1 findings implemented in
+`0.95.0-freshness-elbow`. P2/P3 remain evidence-gated research.
 
 ## Scope
 
@@ -19,7 +20,7 @@ packaging are not the current bottleneck.
 
 ## Actionable Findings
 
-### P1 - Replace the projected fixed-direction elbow pole
+### P1 - Replace the projected fixed-direction elbow pole - IMPLEMENTED
 
 Evidence: `[STATIC]`.
 
@@ -45,7 +46,13 @@ Next implementation should:
 This is high-confidence math work, but final elbow feel and handedness still
 need headset acceptance.
 
-### P1 - Publish a fresh-frame ledger, not only timing averages
+Implementation: `HPLArmIKMath` now uses the arm-axis/torso-side cross product,
+orients it toward the existing anatomical preference, and uses cross magnitude
+to fade continuously into torso-local history/native fallback near lateral
+alignment. Pure tests cover vertical, old-antipode, lateral-degeneracy, and
+continuity-sweep cases. Live feel remains the acceptance gate.
+
+### P1 - Publish a fresh-frame ledger, not only timing averages - IMPLEMENTED
 
 Evidence: `[STATIC]`.
 
@@ -69,7 +76,13 @@ Add one `openxr_freshness_summary` row with explicit counts and ratios for:
 The row must label unavailable measurements rather than printing a plausible
 zero. It should complement, not replace, the existing detailed timing rows.
 
-### P1 - Attribute pacing to Wait, Begin, or End before moving threads
+Implementation: periodic `openxr_freshness` and final proof-summary fields now
+report successful completed frames, `shouldRender`, pair completions,
+fresh/held/black/fallback/retained submissions, incomplete stereo, failures,
+held-pair age, fresh-pair Hz, and fresh-submit percentage. Invalid rates are
+the literal token `unavailable`.
+
+### P1 - Attribute pacing to Wait, Begin, or End before moving threads - IMPLEMENTED
 
 Evidence: `[STATIC]` plus cross-project `[LIVE]` corroboration.
 
@@ -83,6 +96,10 @@ Instrument all three calls independently before designing a wait-ahead worker.
 Only adopt the worker/permit ordering if a matched headset run shows the
 dominant delay and proves the new ordering moves it into Wait without reducing
 fresh application cadence. The current direct-wait risk remains open.
+
+Implementation: Wait, Begin, and End now have independent last/average/maximum,
+sample, and long-call counters. Recovery End calls are attributed separately.
+No call changed thread or ordering.
 
 ### P2 - Consider a substitute runtime as a development instrument
 
@@ -149,12 +166,10 @@ known-positive search control. It does not block the cross-product correction.
 
 ## Recommended Order
 
-1. Add Begin/End timing and the fresh-frame ledger without changing rendering.
-2. Implement and unit-test the cross-product elbow pole as a separate bounded
-   behavior change.
-3. Run the existing matched headset scene and collect pair, stage, GL transfer,
+1. Run the existing matched headset scene and collect pair, stage, GL transfer,
    query/refraction, and freshness evidence.
-4. Move `xrWaitFrame` only if the call-duration evidence justifies the exact
+2. Accept or tune the cross-product elbow pole from the isolated pose sweep.
+3. Move `xrWaitFrame` only if the call-duration evidence justifies the exact
    wait-ahead permit design.
-5. Promote native stereo only if draw/GPU cost and sequential per-eye resource
+4. Promote native stereo only if draw/GPU cost and sequential per-eye resource
    ownership both pass.

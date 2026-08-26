@@ -229,23 +229,54 @@ bool ComputeErgonomicElbowPole(
         Add(Scale(basis.up, -downwardWeight), Scale(outward, outwardWeight)),
         Scale(basis.forward, -backwardWeight));
 
-    camera_math::Vector3 desiredDirection{};
-    if (!ProjectDirection(preferred, axis, desiredDirection)) {
+    camera_math::Vector3 previousDirection{};
+    const bool previousDirectionValid = previousDirectionLocal != nullptr
+        && ProjectDirection(
+            ToWorld(basis, *previousDirectionLocal), axis, previousDirection);
+
+    camera_math::Vector3 anatomicalDirection{};
+    if (!ProjectDirection(preferred, axis, anatomicalDirection)) {
         if (!ProjectDirection(
-                Subtract(nativeElbow, shoulder), axis, desiredDirection)) {
-            return false;
+                Subtract(nativeElbow, shoulder), axis, anatomicalDirection)) {
+            const camera_math::Vector3 alternateAxis =
+                std::fabs(Dot(axis, basis.up)) < 0.85f
+                ? basis.up : basis.forward;
+            anatomicalDirection = Cross(axis, alternateAxis);
+            if (!Normalize(anatomicalDirection)) return false;
+        } else {
+            solution.nativeFallbackUsed = true;
         }
-        solution.nativeFallbackUsed = true;
     }
 
-    solution.singularityBlend = Smoothstep(
-        0.82f, 0.98f, std::fabs(Dot(axis, basis.up)));
-    camera_math::Vector3 previousDirection{};
-    if (previousDirectionLocal != nullptr
-        && ProjectDirection(
-            ToWorld(basis, *previousDirectionLocal), axis, previousDirection)) {
+    // A cross-product pole has one measurable singularity (arm parallel to the
+    // torso side axis), instead of the two antipodes of a projected fixed pole.
+    camera_math::Vector3 crossDirection = Cross(axis, basis.right);
+    solution.crossMagnitude = Length(crossDirection);
+    const bool crossDirectionValid = Normalize(crossDirection);
+    if (crossDirectionValid && Dot(crossDirection, anatomicalDirection) < 0.0f) {
+        crossDirection = Scale(crossDirection, -1.0f);
+    }
+
+    const float crossWeight = crossDirectionValid
+        ? Smoothstep(0.08f, 0.32f, solution.crossMagnitude) : 0.0f;
+    solution.singularityBlend = 1.0f - crossWeight;
+    solution.crossFallbackUsed = crossWeight < 1.0f;
+
+    camera_math::Vector3 stableCross = anatomicalDirection;
+    if (crossDirectionValid) {
+        stableCross = Lerp(crossDirection, anatomicalDirection, 0.30f);
+        if (!Normalize(stableCross)) stableCross = crossDirection;
+    }
+
+    const camera_math::Vector3& singularityDirection = previousDirectionValid
+        ? previousDirection : anatomicalDirection;
+    camera_math::Vector3 desiredDirection = Lerp(
+        singularityDirection, stableCross, crossWeight);
+    if (!Normalize(desiredDirection)) return false;
+
+    if (previousDirectionValid) {
         solution.historyUsed = true;
-        const float historyWeight = 0.35f + 0.60f * solution.singularityBlend;
+        const float historyWeight = 0.25f + 0.70f * solution.singularityBlend;
         camera_math::Vector3 blended = Lerp(
             desiredDirection, previousDirection, historyWeight);
         if (Normalize(blended)) desiredDirection = blended;

@@ -27,8 +27,10 @@ struct ElbowPoleSolution {
     camera_math::Vector3 pole{};
     camera_math::Vector3 directionWorld{};
     camera_math::Vector3 directionLocal{};
+    float crossMagnitude = 0.0f;
     float singularityBlend = 0.0f;
     bool historyUsed = false;
+    bool crossFallbackUsed = false;
     bool nativeFallbackUsed = false;
     bool swivelLimited = false;
 };

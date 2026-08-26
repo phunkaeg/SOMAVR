@@ -175,17 +175,67 @@ int main()
             && elbowPole.directionWorld.x > 0.0f
             && elbowPole.directionWorld.y < 0.0f,
         "right ergonomic elbow remains independently down-and-out");
-    const camera_math::Vector3 previousElbowLocal{1.0f, 0.0f, 0.0f};
+    const camera_math::Vector3 previousElbowLocal{0.0f, -1.0f, 0.0f};
     failures += Check(
         arm_ik_math::ComputeErgonomicElbowPole(
-            {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.01f},
-            {0.4f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f},
+            {0.0f, 0.0f, 0.0f}, {1.0f, 0.01f, 0.0f},
+            {0.4f, -0.2f, 0.0f}, {0.0f, 0.0f, -1.0f},
             {0.0f, 1.0f, 0.0f}, false, 1.0f, 1.0f, 5.0f,
             &previousElbowLocal, elbowPole)
             && elbowPole.historyUsed
             && elbowPole.singularityBlend > 0.9f
-            && elbowPole.directionLocal.x > 0.9f,
-        "elbow pole preserves torso-local history near vertical singularity");
+            && elbowPole.crossMagnitude < 0.02f
+            && elbowPole.crossFallbackUsed
+            && elbowPole.directionLocal.y < -0.9f,
+        "elbow pole fades into torso-local history near its lateral singularity");
+    arm_ik_math::ElbowPoleSolution verticalElbowPole;
+    failures += Check(
+        arm_ik_math::ComputeErgonomicElbowPole(
+            {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.001f},
+            {0.4f, -0.2f, 0.0f}, {0.0f, 0.0f, -1.0f},
+            {0.0f, 1.0f, 0.0f}, false, 1.0f, 1.0f, 10.0f,
+            nullptr, verticalElbowPole)
+            && verticalElbowPole.crossMagnitude > 0.99f
+            && verticalElbowPole.singularityBlend < 0.01f
+            && std::isfinite(verticalElbowPole.directionWorld.x)
+            && std::isfinite(verticalElbowPole.directionWorld.y)
+            && std::isfinite(verticalElbowPole.directionWorld.z),
+        "cross-product elbow pole remains well-defined for a vertical arm");
+    arm_ik_math::ElbowPoleSolution antipodeElbowPole;
+    failures += Check(
+        arm_ik_math::ComputeErgonomicElbowPole(
+            {0.0f, 0.0f, 0.0f}, {0.22f, -1.0f, 0.2f},
+            {0.4f, -0.2f, 0.0f}, {0.0f, 0.0f, -1.0f},
+            {0.0f, 1.0f, 0.0f}, false, 1.0f, 1.0f, 10.0f,
+            nullptr, antipodeElbowPole)
+            && antipodeElbowPole.crossMagnitude > 0.9f
+            && std::isfinite(antipodeElbowPole.directionWorld.x)
+            && std::isfinite(antipodeElbowPole.directionWorld.y)
+            && std::isfinite(antipodeElbowPole.directionWorld.z),
+        "cross-product elbow pole survives the projected-pole antipode");
+    camera_math::Vector3 sweptPrevious{0.0f, -1.0f, 0.0f};
+    float worstSweepDot = 1.0f;
+    bool sweepValid = true;
+    for (int step = -12; step <= 12; ++step) {
+        const float lateral = static_cast<float>(step) * 0.01f;
+        camera_math::Vector3 wrist{1.0f, lateral, 0.08f};
+        arm_ik_math::ElbowPoleSolution sweptPole;
+        if (!arm_ik_math::ComputeErgonomicElbowPole(
+                {0.0f, 0.0f, 0.0f}, wrist, {0.4f, -0.2f, 0.0f},
+                {0.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, false,
+                1.0f, 1.0f, 12.0f, &sweptPrevious, sweptPole)) {
+            sweepValid = false;
+            break;
+        }
+        const float continuityDot = sweptPrevious.x * sweptPole.directionLocal.x
+            + sweptPrevious.y * sweptPole.directionLocal.y
+            + sweptPrevious.z * sweptPole.directionLocal.z;
+        worstSweepDot = (std::min)(worstSweepDot, continuityDot);
+        sweptPrevious = sweptPole.directionLocal;
+    }
+    failures += Check(
+        sweepValid && worstSweepDot > 0.95f,
+        "elbow pole remains continuous through a lateral singularity sweep");
     const camera_math::Vector3 oppositeElbowLocal{-1.0f, 0.0f, 0.0f};
     failures += Check(
         arm_ik_math::ComputeErgonomicElbowPole(

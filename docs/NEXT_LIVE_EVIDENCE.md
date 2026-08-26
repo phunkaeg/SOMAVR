@@ -1,18 +1,22 @@
 # Next Live Evidence
 
-Date: 2026-08-26
+Date: 2026-08-27
 
 Use `out\SOMAVR-latest`
-(`0.94.0-afr-pair-coherence`) for the next run.
+(`0.95.0-freshness-elbow`) for the next run.
 
-The first priority is pair rigidity plus symmetric F10 stop/restart. Version
-0.94 does not promote the future native world-stereo path or the hands-owner
-probe; ordinary visuals and controls must match the accepted baseline.
+The first priority is cross-product elbow continuity plus an attributable XR
+freshness/pacing record. Version 0.95 does not move XR calls between threads,
+promote native world stereo, or invoke the hands-owner probe; ordinary visuals
+and controls must match the accepted baseline.
 
 1. Launch the rolling package, load the apartment save, press F10 once, and
    verify the established world, hands/IK, locomotion, interactions, terminal,
    HUD/menu and desktop-mirror behavior.
-2. Stand still for ten seconds, then walk and turn for at least 30 seconds while
+2. Move each hand forward, overhead, across the chest, behind the shoulder, and
+   slowly through an almost-directly-sideways pose. Require natural downward
+   elbow bias and no bend-plane flip. Then stand still for ten seconds and walk
+   and turn for at least 30 seconds while
    deliberately yawing and pitching the HMD. Watch for motion-only shear,
    vertical disparity, eye delay, or world softness that disappears when still.
 3. Press F10 again. Confirm the flat game remains fully responsive for five
@@ -21,7 +25,7 @@ probe; ordinary visuals and controls must match the accepted baseline.
    normally and attach the complete log.
 
 ```text
-build_identity identity=0.94.0-afr-pair-coherence+...
+build_identity identity=0.95.0-freshness-elbow+...
 runtime_paths ... source=module
 config_applied ... mtime=... bytes=... parsedKeyHash=... accepted=... unknownKeys=0 unknownSections=0
 openxr_api_layers available=... policy=report_only
@@ -36,10 +40,15 @@ controller_config_interaction ...
 controller_config_hands ...
 controller_config_presentation ...
 openxr_gl_transfer ... phaseOrder=total/acquire/wait/copyCpu/flush/release gpuOrder=capture/submit ...
+openxr_pacing ... waitUs=last/avg/max beginUs=last/avg/max endUs=last/avg/max ...
+openxr_freshness ... pairCompletions=... freshStereo=... heldStereo=... blackProjection=... fallbackProjection=... incompleteStereo=... freshPairRateHz=... freshSubmitPercent=...
+openxr_freshness_summary reason=shutdown ... focusSkips=... failures=... heldAgeFrames=latest/max ...
 openxr_frame ok ... locateCalls=1 locateMaxPerFrame=1 ... stereoPoseGap=0 ...
+hpl_arm_ik ... crossMagnitude=... singularityBlend=... crossFallback=... policy=...cross_product_elbow...
 openxr_runtime suspended reason=f10_vr_mode_disabled ...
 hpl_vr_mode disabled ... runtimeSuspended=1
 proof_summary ... openxrFrameLockWaitMaxUs=... openxrFrameLockHoldMaxUs=...
+proof_summary ... openxrWaitAvgUs=... openxrBeginAvgUs=... openxrEndAvgUs=... openxrFreshPairRateHz=... openxrFreshSubmitPercent=...
 proof_summary ... openxrSnapshotLockWaitMaxUs=... openxrSnapshotLockWaitOver100Us=...
 proof_summary ... openxrGlLeftGpuCaptureAvgUs=... openxrGlLeftGpuSubmitAvgUs=...
 proof_summary ... openxrGlRightGpuCaptureAvgUs=... openxrGlRightGpuSubmitAvgUs=...
@@ -56,8 +65,8 @@ query ring, zero-layer submit, pair rejection outside a real boundary,
 `locateMaxPerFrame` above one, nonzero pose gap, persistent eye skew, or failed
 second-F10 recovery is a specific follow-up target rather than a reason to
 guess at architecture. `xrWaitFrame` still runs on the `SwapBuffers` thread;
-its timing remains an open active-VR pacing question even when this pass is
-otherwise clean.
+compare Wait, Begin, End, GL transfer, lock, and fresh-submit evidence before
+changing its ownership. A thread move remains unapproved by this build.
 
 The second pass is optional and explicitly diagnostic. In a package-local copy
 of `somavr.ini`, change only `HandTrackingProbe=1`, leave the packaged

@@ -1772,7 +1772,7 @@ void ApplyPlayerHandsArmIK(void* entity, const WristTrackingFrame& tracking)
         if (application <= 12 || application % interval == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "hpl_arm_ik application=%llu frameAttempt=%llu frame=%llu hand=%s entity=%p mesh=%p clavicle=%p shoulder=%p elbow=%p wrist=%p lengths=%.4f,%.4f requestedReach=%.4f solvedReach=%.4f reachClamped=%d target=%.4f,%.4f,%.4f neutralShoulder=%.4f,%.4f,%.4f solvedShoulder=%.4f,%.4f,%.4f shoulderReach={valid=%d applied=%d ratio=%.4f blend=%.4f offset=%.4f,%.4f,%.4f} solvedElbow=%.4f,%.4f,%.4f elbowErgonomics={enabled=%d valid=%d direction=%.4f,%.4f,%.4f history=%d singularityBlend=%.4f swivelLimited=%d nativeFallback=%d maxDegreesPerFrame=%.2f} elbowDownMeters=%.3f blend=%.3f policy=body_yaw_reach_gated_clavicle_torso_local_continuous_elbow_two_bone_post",
+                "hpl_arm_ik application=%llu frameAttempt=%llu frame=%llu hand=%s entity=%p mesh=%p clavicle=%p shoulder=%p elbow=%p wrist=%p lengths=%.4f,%.4f requestedReach=%.4f solvedReach=%.4f reachClamped=%d target=%.4f,%.4f,%.4f neutralShoulder=%.4f,%.4f,%.4f solvedShoulder=%.4f,%.4f,%.4f shoulderReach={valid=%d applied=%d ratio=%.4f blend=%.4f offset=%.4f,%.4f,%.4f} solvedElbow=%.4f,%.4f,%.4f elbowErgonomics={enabled=%d valid=%d direction=%.4f,%.4f,%.4f history=%d crossMagnitude=%.4f singularityBlend=%.4f crossFallback=%d swivelLimited=%d nativeFallback=%d maxDegreesPerFrame=%.2f} elbowDownMeters=%.3f blend=%.3f policy=body_yaw_reach_gated_clavicle_torso_local_cross_product_elbow_two_bone_post",
                 static_cast<unsigned long long>(application),
                 static_cast<unsigned long long>(frameAttempt),
                 static_cast<unsigned long long>(tracking.playerFrame),
@@ -1797,7 +1797,9 @@ void ApplyPlayerHandsArmIK(void* entity, const WristTrackingFrame& tracking)
                 ergonomicPole.directionWorld.y,
                 ergonomicPole.directionWorld.z,
                 ergonomicPole.historyUsed ? 1 : 0,
+                ergonomicPole.crossMagnitude,
                 ergonomicPole.singularityBlend,
+                ergonomicPole.crossFallbackUsed ? 1 : 0,
                 ergonomicPole.swivelLimited ? 1 : 0,
                 ergonomicPole.nativeFallbackUsed ? 1 : 0,
                 g_config.hplHandArmIKMaxSwivelDegreesPerFrame,

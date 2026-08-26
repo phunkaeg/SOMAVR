@@ -1,5 +1,28 @@
 # Build History
 
+## 2026-08-27
+
+### 0.95.0-freshness-elbow
+
+- Replaced the custom arm solver's projected fixed-direction elbow pole with
+  an arm-axis/torso-side cross product. Cross magnitude drives a continuous
+  blend through the remaining lateral singularity; anatomical down/out/back
+  bias, torso-local history, native fallback, and swivel limiting remain.
+- Added pure-math coverage for ordinary left/right poses, vertical reach, the
+  retired projection antipode, lateral singularity fallback, and a continuity
+  sweep through that singularity.
+- Timed `xrWaitFrame`, `xrBeginFrame`, and `xrEndFrame` independently, with
+  last/average/maximum/sample/long-call counters and recovery-End attribution.
+- Added a successful-frame freshness ledger for completed stereo pairs, fresh
+  submissions, coherent holds, black/fallback/retained projections,
+  `shouldRender=false`, incomplete stereo, failures, pair age, fresh-pair rate,
+  and fresh-submit percentage. Invalid rate bases are explicitly unavailable.
+- Kept XR call ownership and rendering behavior unchanged. The telemetry is the
+  evidence gate for any later wait-ahead worker or runtime handoff change.
+- Verification: OpenXR Release build, CTest `9/9`, packaged readiness doctor
+  `pass=9 warn=0 fail=0`, and canonical archive SHA-256
+  `A054C8BA8FE611D519A5F4A31AB8220C3FD3180F8F8776312FED093E8B67C804`.
+
 ## 2026-08-26
 
 ### 0.94.0-afr-pair-coherence

@@ -1,5 +1,37 @@
 # Test Checklists
 
+## 0.95.0 Freshness Ledger And Cross-Product Elbows
+
+1. Launch `out\SOMAVR-latest`, load the apartment save, and press F10 once.
+   Require `version=0.95.0-freshness-elbow`, accepted height/scale, and no
+   regression in world rigidity, hands, locomotion, interactions, laptop, HUD,
+   mirror, or F10 stop/restart.
+2. Hold each arm forward, overhead, down, across the chest, behind the shoulder,
+   and almost directly sideways. Move slowly through the sideways pose and
+   back. Elbows must remain down/natural and continuous, without flipping,
+   locking, crossing the torso, or snapping to the opposite bend plane.
+3. Repeat the sweep while turning the body and moving the HMD independently.
+   Logs should show finite `crossMagnitude`; `crossFallback=1` and high
+   `singularityBlend` are expected only near a lateral arm axis. Ordinary poses
+   should remain dominated by the cross-product lane.
+4. Stand still for ten seconds, then walk and turn while yawing/pitching the HMD
+   for at least 30 seconds. Exercise the laptop, pause menu, one loading/reload
+   boundary, and one brief headset focus loss if convenient.
+5. Require periodic `openxr_pacing` and `openxr_freshness` rows. Record
+   Wait/Begin/End last-average-maximum values, `freshPairRateHz`,
+   `freshSubmitPercent`, held/black/fallback counts, incomplete stereo, maximum
+   held-pair age, and failures. Once samples exist, rates must not remain
+   `unavailable`; `locateMaxPerFrame` and stereo pose gap must remain one and
+   zero respectively.
+6. A small bounded hold or black count at a real load/tracking boundary is
+   acceptable. Persistent holds, fallback growth during ordinary movement,
+   incomplete stereo, nonzero frame failures, motion-only shear, or a dominant
+   Begin/End stall is a targeted failure. Do not move `xrWaitFrame` from this
+   evidence alone; compare the complete call and fresh-frame ledger first.
+
+Rollback only the elbow policy with `HandArmIKErgonomics=0`. XR telemetry is
+observational and has no runtime toggle.
+
 ## 0.94.0 AFR Pair Coherence
 
 1. Launch `out\SOMAVR-latest`, load the apartment save, and press F10 once.

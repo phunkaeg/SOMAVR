@@ -22,21 +22,26 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 ## Active Baseline
 
 The active engineering and gameplay test build is
-`0.94.0-afr-pair-coherence`, layered on the
+`0.95.0-freshness-elbow`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
 
-- The 2026-08-27 cross-engine playbook audit is recorded in
-  `PLAYBOOK_AUDIT_2026-08-27.md`. It found two high-confidence implementation
-  follow-ups without changing this build: replace the arm solver's projected
-  fixed-direction elbow pole with a cross-product construction, and add
-  independent `xrBeginFrame`/`xrEndFrame` timing plus a consolidated
-  fresh-pair/held-pair/black-fallback ledger. Moving `xrWaitFrame` to a worker
-  remains evidence-gated; a thread move that prevents a wedge can still pace
-  the game through its handoff.
+- Version 0.95 replaces the arm solver's projected fixed-direction elbow pole
+  with a cross-product construction. Cross magnitude continuously fades the
+  one remaining lateral-arm singularity into torso-local history/native
+  fallback before the existing swivel-rate cap. The tuned down/out/back bias
+  remains, and deterministic tests cover ordinary, vertical, old-antipode,
+  lateral-degeneracy, and continuity-sweep poses.
 
-- Version 0.94 makes an AFR pair one camera transaction. The first eye latches
+- OpenXR now times `xrWaitFrame`, `xrBeginFrame`, and `xrEndFrame`
+  independently, including recovery End calls. Periodic `openxr_pacing` and
+  `openxr_freshness` rows plus the final summary distinguish completed pairs,
+  fresh stereo, coherent holds, black/fallback/retained projection, incomplete
+  stereo, pair age, and cumulative failures. Rates print `unavailable` until
+  they have a valid time/sample basis. No XR call moved threads in this build.
+
+- Version 0.94 made an AFR pair one camera transaction. The first eye latches
   the complete native projection/view/frustum-parameter packet and the complete
   located OpenXR stereo snapshot. The second eye replays both absolutely; it
   never re-reads a dirty HPL frustum or consumes the next game tick's pose.

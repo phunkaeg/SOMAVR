@@ -68,6 +68,7 @@ using xr_helpers::XrVersionString;
 
 constexpr uint64_t kViewConfigurationCheckIntervalFrames = 300;
 constexpr uint64_t kLongXrWaitThresholdUs = 100000;
+constexpr uint64_t kLongXrBoundaryThresholdUs = 5000;
 // Frames a stale-but-coherent stereo pair may be re-submitted before the eyes
 // are blacked instead. The pair reprojects correctly because it carries its own
 // render poses, so a short hold is safer than a black flash - but an unbounded
@@ -91,6 +92,14 @@ uint64_t QpcDeltaMicroseconds(int64_t start, int64_t end)
     return static_cast<uint64_t>(
         static_cast<long double>(end - start) * 1000000.0L
         / static_cast<long double>(frequency));
+}
+
+std::string OptionalMetric(bool available, double value)
+{
+    if (!available || !std::isfinite(value)) return "unavailable";
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(2) << value;
+    return oss.str();
 }
 
 void RecordDuration(
@@ -650,6 +659,7 @@ struct OpenXRRuntime::Impl {
     void Shutdown()
     {
         std::lock_guard lock(mutex_);
+        LogFreshnessSummaryLocked("shutdown");
         StopRuntimeLocked("shutdown", false);
     }
 
@@ -660,6 +670,22 @@ struct OpenXRRuntime::Impl {
             glBridge_.ColorTransferTiming(0);
         const OpenXRGLBridge::SwapchainTransferTiming& rightTransfer =
             glBridge_.ColorTransferTiming(1);
+        const uint64_t freshnessElapsedUs = QpcDeltaMicroseconds(
+            freshnessWindowStartQpc_, freshnessWindowLastQpc_);
+        const bool freshnessRateAvailable = freshnessElapsedUs > 0
+            && completedXrFrameCount_ > 1;
+        const std::string freshPairRate = OptionalMetric(
+            freshnessRateAvailable,
+            freshnessElapsedUs > 0
+                ? static_cast<double>(stereoCompletedPairCount_) * 1.0e6
+                    / static_cast<double>(freshnessElapsedUs)
+                : 0.0);
+        const std::string freshSubmitPercent = OptionalMetric(
+            shouldRenderFrameCount_ > 0,
+            shouldRenderFrameCount_ > 0
+                ? 100.0 * static_cast<double>(freshStereoSubmissionCount_)
+                    / static_cast<double>(shouldRenderFrameCount_)
+                : 0.0);
         std::ostringstream oss;
         oss << "openxrEnabled=" << (enabled_ ? 1 : 0)
             << " openxrBuild=1"
@@ -780,8 +806,24 @@ struct OpenXRRuntime::Impl {
             << " openxrFocusPacingSkippedFrames=" << static_cast<unsigned long long>(focusPacingSkippedFrames_)
             << " openxrFocusPacingLongestEpisodeMs=" << static_cast<unsigned long long>(focusPacingLongestEpisodeMs_)
             << " openxrWaitLastUs=" << static_cast<unsigned long long>(xrWaitLastUs_)
+            << " openxrWaitAvgUs=" << static_cast<unsigned long long>(
+                xrWaitSamples_ > 0 ? xrWaitTotalUs_ / xrWaitSamples_ : 0)
             << " openxrWaitMaxUs=" << static_cast<unsigned long long>(xrWaitMaxUs_)
+            << " openxrWaitSamples=" << static_cast<unsigned long long>(xrWaitSamples_)
             << " openxrWaitLongCount=" << static_cast<unsigned long long>(xrWaitLongCount_)
+            << " openxrBeginLastUs=" << static_cast<unsigned long long>(xrBeginLastUs_)
+            << " openxrBeginAvgUs=" << static_cast<unsigned long long>(
+                xrBeginSamples_ > 0 ? xrBeginTotalUs_ / xrBeginSamples_ : 0)
+            << " openxrBeginMaxUs=" << static_cast<unsigned long long>(xrBeginMaxUs_)
+            << " openxrBeginSamples=" << static_cast<unsigned long long>(xrBeginSamples_)
+            << " openxrBeginLongCount=" << static_cast<unsigned long long>(xrBeginLongCount_)
+            << " openxrEndLastUs=" << static_cast<unsigned long long>(xrEndLastUs_)
+            << " openxrEndAvgUs=" << static_cast<unsigned long long>(
+                xrEndSamples_ > 0 ? xrEndTotalUs_ / xrEndSamples_ : 0)
+            << " openxrEndMaxUs=" << static_cast<unsigned long long>(xrEndMaxUs_)
+            << " openxrEndSamples=" << static_cast<unsigned long long>(xrEndSamples_)
+            << " openxrEndLongCount=" << static_cast<unsigned long long>(xrEndLongCount_)
+            << " openxrEndRecoverySamples=" << static_cast<unsigned long long>(xrEndRecoverySamples_)
             << " openxrFrameLockWaitLastUs=" << static_cast<unsigned long long>(
                 frameLockWaitUsLatest_.load(std::memory_order_relaxed))
             << " openxrFrameLockWaitAvgUs=" << static_cast<unsigned long long>(
@@ -874,7 +916,23 @@ struct OpenXRRuntime::Impl {
             << " openxrFrameOpenRecoveries=" << static_cast<unsigned long long>(frameOpenRecoveries_)
             << " openxrStereoSubmission=" << (stereoSubmissionEnabled_ ? 1 : 0)
             << " openxrStereoCapturedEyes=" << static_cast<unsigned long long>(stereoCapturedEyeCount_)
+            << " openxrStereoCompletedPairs=" << static_cast<unsigned long long>(stereoCompletedPairCount_)
             << " openxrStereoSubmittedFrames=" << static_cast<unsigned long long>(stereoSubmittedFrameCount_)
+            << " openxrShouldRenderFrames=" << static_cast<unsigned long long>(shouldRenderFrameCount_)
+            << " openxrShouldRenderFalseFrames=" << static_cast<unsigned long long>(shouldRenderFalseFrameCount_)
+            << " openxrFreshStereoSubmissions=" << static_cast<unsigned long long>(freshStereoSubmissionCount_)
+            << " openxrHeldStereoSubmissions=" << static_cast<unsigned long long>(heldStereoSubmissionCount_)
+            << " openxrBlackProjectionSubmissions=" << static_cast<unsigned long long>(blackProjectionSubmissionCount_)
+            << " openxrFallbackProjectionSubmissions=" << static_cast<unsigned long long>(fallbackProjectionSubmissionCount_)
+            << " openxrRetainedProjectionSubmissions=" << static_cast<unsigned long long>(retainedProjectionSubmissionCount_)
+            << " openxrIncompleteStereoFrames=" << static_cast<unsigned long long>(incompleteStereoFrameCount_)
+            << " openxrTotalFrameFailures=" << static_cast<unsigned long long>(totalFrameFailures_)
+            << " openxrHeldPairAgeFramesLatest=" << static_cast<unsigned long long>(heldPairAgeFramesLatest_)
+            << " openxrHeldPairAgeFramesMax=" << static_cast<unsigned long long>(heldPairAgeFramesMax_)
+            << " openxrFreshPairRateHz=" << freshPairRate
+            << " openxrFreshSubmitPercent=" << freshSubmitPercent
+            << " openxrFreshnessAvailability="
+                << (freshnessRateAvailable ? "available" : "unavailable")
             << " openxrStereoPoseFrameGapLatest=" << static_cast<unsigned long long>(stereoPoseFrameGapLatest_)
             << " openxrStereoPoseFrameGapMax=" << static_cast<unsigned long long>(stereoPoseFrameGapMax_)
             << " openxrStereoPoseFrameGapNonzero=" << static_cast<unsigned long long>(stereoPoseFrameGapNonzero_)
@@ -1543,6 +1601,46 @@ struct OpenXRRuntime::Impl {
     }
 
 private:
+    void LogFreshnessSummaryLocked(const char* reason) const
+    {
+        const uint64_t elapsedUs = QpcDeltaMicroseconds(
+            freshnessWindowStartQpc_, freshnessWindowLastQpc_);
+        const bool rateAvailable = elapsedUs > 0 && completedXrFrameCount_ > 1;
+        const std::string pairRate = OptionalMetric(
+            rateAvailable,
+            elapsedUs > 0
+                ? static_cast<double>(stereoCompletedPairCount_) * 1.0e6
+                    / static_cast<double>(elapsedUs)
+                : 0.0);
+        const std::string submitPercent = OptionalMetric(
+            shouldRenderFrameCount_ > 0,
+            shouldRenderFrameCount_ > 0
+                ? 100.0 * static_cast<double>(freshStereoSubmissionCount_)
+                    / static_cast<double>(shouldRenderFrameCount_)
+                : 0.0);
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "openxr_freshness_summary reason=%s completed=%llu shouldRender=%llu shouldRenderFalse=%llu pairCompletions=%llu freshStereo=%llu heldStereo=%llu blackProjection=%llu fallbackProjection=%llu retainedProjection=%llu incompleteStereo=%llu focusSkips=%llu failures=%llu heldAgeFrames=%llu/%llu freshPairRateHz=%s freshSubmitPercent=%s rateAvailability=%s",
+            reason != nullptr ? reason : "unspecified",
+            static_cast<unsigned long long>(completedXrFrameCount_),
+            static_cast<unsigned long long>(shouldRenderFrameCount_),
+            static_cast<unsigned long long>(shouldRenderFalseFrameCount_),
+            static_cast<unsigned long long>(stereoCompletedPairCount_),
+            static_cast<unsigned long long>(freshStereoSubmissionCount_),
+            static_cast<unsigned long long>(heldStereoSubmissionCount_),
+            static_cast<unsigned long long>(blackProjectionSubmissionCount_),
+            static_cast<unsigned long long>(fallbackProjectionSubmissionCount_),
+            static_cast<unsigned long long>(retainedProjectionSubmissionCount_),
+            static_cast<unsigned long long>(incompleteStereoFrameCount_),
+            static_cast<unsigned long long>(focusPacingSkippedFrames_),
+            static_cast<unsigned long long>(totalFrameFailures_),
+            static_cast<unsigned long long>(heldPairAgeFramesLatest_),
+            static_cast<unsigned long long>(heldPairAgeFramesMax_),
+            pairRate.c_str(),
+            submitPercent.c_str(),
+            rateAvailable ? "available" : "unavailable");
+    }
+
     void RecordSnapshotLockWait(uint64_t durationUs) const
     {
         constexpr uint64_t kContentionThresholdUs = 100;
@@ -2784,6 +2882,7 @@ private:
 
     void RecordFrameFailureLocked(const char* operation, XrResult result, uint64_t frameIndex)
     {
+        ++totalFrameFailures_;
         ++consecutiveFrameFailures_;
         if (frameErrorLogCount_ < 16) {
             Logger::Instance().Write(
@@ -2923,6 +3022,10 @@ private:
             }
             lastCapturedStereoEye_ = eyeIndex;
             ++stereoCapturedEyeCount_;
+            if (eyeIndex == 1 && renderedStereoViewValid_[otherEye]
+                && glBridge_.StereoCachesReady()) {
+                ++stereoCompletedPairCount_;
+            }
             stereoCaptureFailures_ = 0;
             CommitHPLStereoEyeFill(eyeIndex, renderedView.gameFrame, captureSource);
             if (stereoCapturedEyeCount_ <= 4
@@ -2998,6 +3101,8 @@ private:
         const int64_t waitStartQpc = QpcNow();
         XrResult result = xrWaitFrame(session_, &waitInfo, &frameState);
         xrWaitLastUs_ = QpcDeltaMicroseconds(waitStartQpc, QpcNow());
+        xrWaitTotalUs_ += xrWaitLastUs_;
+        ++xrWaitSamples_;
         const bool newWaitMaximum = xrWaitLastUs_ > xrWaitMaxUs_;
         xrWaitMaxUs_ = std::max(xrWaitMaxUs_, xrWaitLastUs_);
         if (xrWaitLastUs_ >= kLongXrWaitThresholdUs) {
@@ -3019,7 +3124,26 @@ private:
         }
 
         XrFrameBeginInfo beginInfo{XR_TYPE_FRAME_BEGIN_INFO};
+        const int64_t beginStartQpc = QpcNow();
         result = xrBeginFrame(session_, &beginInfo);
+        xrBeginLastUs_ = QpcDeltaMicroseconds(beginStartQpc, QpcNow());
+        xrBeginTotalUs_ += xrBeginLastUs_;
+        ++xrBeginSamples_;
+        const bool newBeginMaximum = xrBeginLastUs_ > xrBeginMaxUs_;
+        xrBeginMaxUs_ = std::max(xrBeginMaxUs_, xrBeginLastUs_);
+        if (xrBeginLastUs_ >= kLongXrBoundaryThresholdUs) {
+            ++xrBeginLongCount_;
+            if (xrBeginLongCount_ <= 4 || newBeginMaximum) {
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "openxr_frame begin_long gameFrame=%llu state=%s beginUs=%llu maxUs=%llu count=%llu",
+                    static_cast<unsigned long long>(frameIndex),
+                    SessionStateName(sessionState_),
+                    static_cast<unsigned long long>(xrBeginLastUs_),
+                    static_cast<unsigned long long>(xrBeginMaxUs_),
+                    static_cast<unsigned long long>(xrBeginLongCount_));
+            }
+        }
         if (XR_FAILED(result)) {
             RecordFrameFailureLocked("xrBeginFrame", result, frameIndex);
             return;
@@ -3115,6 +3239,9 @@ private:
         bool copyAttemptFailed = false;
         bool stereoReady = false;
         bool projectionLayerAppended = false;
+        bool holdActiveForFrame = false;
+        bool blackProjectionUsed = false;
+        bool fallbackProjectionUsed = false;
         uint32_t locateCallsThisFrame = 0;
         std::vector<XrView> frameLocatedViews(glBridge_.EyeCount());
         for (XrView& view : frameLocatedViews) {
@@ -3362,8 +3489,9 @@ private:
                 && !copyAttemptFailed
                 && projectionContentValid_
                 && heldPair_.valid;
-            const bool holdActive = holdCandidate && stereoHoldFrames_ < kStereoHoldLimitFrames;
-            if (holdActive) {
+            holdActiveForFrame = holdCandidate
+                && stereoHoldFrames_ < kStereoHoldLimitFrames;
+            if (holdActiveForFrame) {
                 if (stereoHoldFrames_ == 0) ++stereoHoldEpisodes_;
                 ++stereoHoldFrames_;
                 ++stereoHoldTotalFrames_;
@@ -3392,13 +3520,14 @@ private:
 
             const bool requireBlackContent = comfortBlackout || presentationBlackout
                 || copyAttemptFailed || !projectionContentValid_
-                || (holdCandidate && !holdActive);
+                || (holdCandidate && !holdActiveForFrame);
             if (requireBlackContent) {
                 bool cleared = true;
                 for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
                     cleared = glBridge_.ClearEyeToBlack(eyeIndex) && cleared;
                 }
                 if (cleared) {
+                    blackProjectionUsed = true;
                     projectionContentValid_ = true;
                     submittedDepth = false;
                     for (XrCompositionLayerProjectionView& view : projectionViews) {
@@ -3413,7 +3542,7 @@ private:
                     const OpenXRGLBridge::EyeSwapchain& eye = glBridge_.Eye(eyeIndex);
                     XrCompositionLayerProjectionView& projectionView = projectionViews[eyeIndex];
                     projectionView = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
-                    if (holdActive && eyeIndex < heldPair_.pose.size()) {
+                    if (holdActiveForFrame && eyeIndex < heldPair_.pose.size()) {
                         // Held imagery must carry the poses it was rendered
                         // from, so the compositor still reprojects it.
                         projectionView.pose = heldPair_.pose[eyeIndex];
@@ -3449,6 +3578,7 @@ private:
 
         if (openxr_frame_pacing_math::RequiresFallbackProjection(
                 frameOpen_, projectionLayerAppended ? 1u : 0u)) {
+            fallbackProjectionUsed = true;
             const bool blackRequested = comfortBlackout || presentationBlackout
                 || copyAttemptFailed || !projectionContentValid_;
             bool blackCleared = !blackRequested;
@@ -3458,6 +3588,7 @@ private:
                     blackCleared = glBridge_.ClearEyeToBlack(eyeIndex) && blackCleared;
                 }
                 projectionContentValid_ = projectionContentValid_ || blackCleared;
+                blackProjectionUsed = blackProjectionUsed || blackCleared;
             }
             submittedDepth = false;
             for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
@@ -4121,7 +4252,26 @@ private:
         }
         endInfo.layerCount = layerCount;
         endInfo.layers = layers.data();
+        const int64_t endStartQpc = QpcNow();
         result = xrEndFrame(session_, &endInfo);
+        xrEndLastUs_ = QpcDeltaMicroseconds(endStartQpc, QpcNow());
+        xrEndTotalUs_ += xrEndLastUs_;
+        ++xrEndSamples_;
+        const bool newEndMaximum = xrEndLastUs_ > xrEndMaxUs_;
+        xrEndMaxUs_ = std::max(xrEndMaxUs_, xrEndLastUs_);
+        if (xrEndLastUs_ >= kLongXrBoundaryThresholdUs) {
+            ++xrEndLongCount_;
+            if (xrEndLongCount_ <= 4 || newEndMaximum) {
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "openxr_frame end_long gameFrame=%llu state=%s endUs=%llu maxUs=%llu count=%llu recovery=0",
+                    static_cast<unsigned long long>(frameIndex),
+                    SessionStateName(sessionState_),
+                    static_cast<unsigned long long>(xrEndLastUs_),
+                    static_cast<unsigned long long>(xrEndMaxUs_),
+                    static_cast<unsigned long long>(xrEndLongCount_));
+            }
+        }
         frameOpen_ = false;
         frameOpenDisplayTime_ = 0;
         if (XR_FAILED(result)) {
@@ -4175,6 +4325,37 @@ private:
 
         consecutiveFrameFailures_ = 0;
         ++completedXrFrameCount_;
+        const int64_t completedQpc = QpcNow();
+        if (freshnessWindowStartQpc_ == 0) freshnessWindowStartQpc_ = completedQpc;
+        freshnessWindowLastQpc_ = completedQpc;
+        const bool freshCompletedPair = frameState.shouldRender == XR_TRUE
+            && submittedStereo
+            && stereoCompletedPairCount_ > lastFreshSubmittedPairCount_;
+        if (freshCompletedPair) {
+            ++freshStereoSubmissionCount_;
+            lastFreshSubmittedPairCount_ = stereoCompletedPairCount_;
+        }
+        if (holdActiveForFrame) {
+            ++heldStereoSubmissionCount_;
+            heldPairAgeFramesLatest_ = frameIndex >= heldPair_.gameFrame
+                ? frameIndex - heldPair_.gameFrame : 0;
+            heldPairAgeFramesMax_ = std::max(
+                heldPairAgeFramesMax_, heldPairAgeFramesLatest_);
+        }
+        if (blackProjectionUsed) ++blackProjectionSubmissionCount_;
+        if (fallbackProjectionUsed) ++fallbackProjectionSubmissionCount_;
+        if (!freshCompletedPair && !holdActiveForFrame
+            && !blackProjectionUsed && !fallbackProjectionUsed) {
+            ++retainedProjectionSubmissionCount_;
+        }
+        if (frameState.shouldRender == XR_TRUE) {
+            ++shouldRenderFrameCount_;
+            if (stereoSubmissionEnabled_ && !submittedStereo) {
+                ++incompleteStereoFrameCount_;
+            }
+        } else {
+            ++shouldRenderFalseFrameCount_;
+        }
         if (layerCount > 0) {
             ++submittedFrameCount_;
             lastSubmittedGameFrame_ = frameIndex;
@@ -4284,6 +4465,67 @@ private:
                 static_cast<unsigned long long>(rightTransfer.gpuInvalidSamples),
                 leftTransfer.gpuTimingAvailable && rightTransfer.gpuTimingAvailable
                     ? "nonblocking_timestamp" : "unavailable");
+
+            const uint64_t freshnessElapsedUs = QpcDeltaMicroseconds(
+                freshnessWindowStartQpc_, freshnessWindowLastQpc_);
+            const bool freshnessRateAvailable = freshnessElapsedUs > 0
+                && completedXrFrameCount_ > 1;
+            const std::string freshPairRate = OptionalMetric(
+                freshnessRateAvailable,
+                freshnessElapsedUs > 0
+                    ? static_cast<double>(stereoCompletedPairCount_) * 1.0e6
+                        / static_cast<double>(freshnessElapsedUs)
+                    : 0.0);
+            const std::string freshSubmitPercent = OptionalMetric(
+                shouldRenderFrameCount_ > 0,
+                shouldRenderFrameCount_ > 0
+                    ? 100.0 * static_cast<double>(freshStereoSubmissionCount_)
+                        / static_cast<double>(shouldRenderFrameCount_)
+                    : 0.0);
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "openxr_pacing frame=%llu waitUs=%llu/%llu/%llu beginUs=%llu/%llu/%llu endUs=%llu/%llu/%llu samples=%llu/%llu/%llu long=%llu/%llu/%llu thresholdsUs=%llu/%llu order=wait/begin/end",
+                static_cast<unsigned long long>(frameIndex),
+                static_cast<unsigned long long>(xrWaitLastUs_),
+                static_cast<unsigned long long>(xrWaitSamples_ > 0
+                    ? xrWaitTotalUs_ / xrWaitSamples_ : 0),
+                static_cast<unsigned long long>(xrWaitMaxUs_),
+                static_cast<unsigned long long>(xrBeginLastUs_),
+                static_cast<unsigned long long>(xrBeginSamples_ > 0
+                    ? xrBeginTotalUs_ / xrBeginSamples_ : 0),
+                static_cast<unsigned long long>(xrBeginMaxUs_),
+                static_cast<unsigned long long>(xrEndLastUs_),
+                static_cast<unsigned long long>(xrEndSamples_ > 0
+                    ? xrEndTotalUs_ / xrEndSamples_ : 0),
+                static_cast<unsigned long long>(xrEndMaxUs_),
+                static_cast<unsigned long long>(xrWaitSamples_),
+                static_cast<unsigned long long>(xrBeginSamples_),
+                static_cast<unsigned long long>(xrEndSamples_),
+                static_cast<unsigned long long>(xrWaitLongCount_),
+                static_cast<unsigned long long>(xrBeginLongCount_),
+                static_cast<unsigned long long>(xrEndLongCount_),
+                static_cast<unsigned long long>(kLongXrWaitThresholdUs),
+                static_cast<unsigned long long>(kLongXrBoundaryThresholdUs));
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "openxr_freshness frame=%llu completed=%llu shouldRender=%llu shouldRenderFalse=%llu pairCompletions=%llu freshStereo=%llu heldStereo=%llu blackProjection=%llu fallbackProjection=%llu retainedProjection=%llu incompleteStereo=%llu failures=%llu heldAgeFrames=%llu/%llu freshPairRateHz=%s freshSubmitPercent=%s rateAvailability=%s",
+                static_cast<unsigned long long>(frameIndex),
+                static_cast<unsigned long long>(completedXrFrameCount_),
+                static_cast<unsigned long long>(shouldRenderFrameCount_),
+                static_cast<unsigned long long>(shouldRenderFalseFrameCount_),
+                static_cast<unsigned long long>(stereoCompletedPairCount_),
+                static_cast<unsigned long long>(freshStereoSubmissionCount_),
+                static_cast<unsigned long long>(heldStereoSubmissionCount_),
+                static_cast<unsigned long long>(blackProjectionSubmissionCount_),
+                static_cast<unsigned long long>(fallbackProjectionSubmissionCount_),
+                static_cast<unsigned long long>(retainedProjectionSubmissionCount_),
+                static_cast<unsigned long long>(incompleteStereoFrameCount_),
+                static_cast<unsigned long long>(totalFrameFailures_),
+                static_cast<unsigned long long>(heldPairAgeFramesLatest_),
+                static_cast<unsigned long long>(heldPairAgeFramesMax_),
+                freshPairRate.c_str(),
+                freshSubmitPercent.c_str(),
+                freshnessRateAvailable ? "available" : "unavailable");
         }
     }
 
@@ -4526,7 +4768,27 @@ private:
             reinterpret_cast<const XrCompositionLayerBaseHeader*>(&recoveryProjection);
         endInfo.layerCount = 1;
         endInfo.layers = &recoveryLayer;
+        const int64_t endStartQpc = QpcNow();
         const XrResult result = xrEndFrame(session_, &endInfo);
+        xrEndLastUs_ = QpcDeltaMicroseconds(endStartQpc, QpcNow());
+        xrEndTotalUs_ += xrEndLastUs_;
+        ++xrEndSamples_;
+        ++xrEndRecoverySamples_;
+        const bool newEndMaximum = xrEndLastUs_ > xrEndMaxUs_;
+        xrEndMaxUs_ = std::max(xrEndMaxUs_, xrEndLastUs_);
+        if (xrEndLastUs_ >= kLongXrBoundaryThresholdUs) {
+            ++xrEndLongCount_;
+            if (xrEndLongCount_ <= 4 || newEndMaximum) {
+                Logger::Instance().Write(
+                    LogLevel::Warn,
+                    "openxr_frame end_long gameFrame=%llu state=%s endUs=%llu maxUs=%llu count=%llu recovery=1",
+                    static_cast<unsigned long long>(frameIndex),
+                    SessionStateName(sessionState_),
+                    static_cast<unsigned long long>(xrEndLastUs_),
+                    static_cast<unsigned long long>(xrEndMaxUs_),
+                    static_cast<unsigned long long>(xrEndLongCount_));
+            }
+        }
         frameOpen_ = false;
         frameOpenDisplayTime_ = 0;
         ++frameOpenRecoveries_;
@@ -4674,8 +4936,21 @@ private:
     uint64_t focusPacingSkippedFrames_ = 0;
     uint64_t focusPacingLongestEpisodeMs_ = 0;
     uint64_t xrWaitLastUs_ = 0;
+    uint64_t xrWaitTotalUs_ = 0;
     uint64_t xrWaitMaxUs_ = 0;
+    uint64_t xrWaitSamples_ = 0;
     uint64_t xrWaitLongCount_ = 0;
+    uint64_t xrBeginLastUs_ = 0;
+    uint64_t xrBeginTotalUs_ = 0;
+    uint64_t xrBeginMaxUs_ = 0;
+    uint64_t xrBeginSamples_ = 0;
+    uint64_t xrBeginLongCount_ = 0;
+    uint64_t xrEndLastUs_ = 0;
+    uint64_t xrEndTotalUs_ = 0;
+    uint64_t xrEndMaxUs_ = 0;
+    uint64_t xrEndSamples_ = 0;
+    uint64_t xrEndLongCount_ = 0;
+    uint64_t xrEndRecoverySamples_ = 0;
     uint64_t projectionTransferUsLatest_ = 0;
     uint64_t projectionTransferUsTotal_ = 0;
     uint64_t projectionTransferUsMax_ = 0;
@@ -4695,12 +4970,27 @@ private:
     uint64_t currentGameFrame_ = 0;
     uint64_t gameplayHapticRequestCount_ = 0;
     uint32_t consecutiveFrameFailures_ = 0;
+    uint64_t totalFrameFailures_ = 0;
     uint32_t frameErrorLogCount_ = 0;
     uint32_t pendingRenderedEye_ = 0;
     uint32_t lastCapturedStereoEye_ = 0;
     uint32_t stereoCaptureFailures_ = 0;
     uint64_t stereoCapturedEyeCount_ = 0;
+    uint64_t stereoCompletedPairCount_ = 0;
+    uint64_t lastFreshSubmittedPairCount_ = 0;
     uint64_t stereoSubmittedFrameCount_ = 0;
+    uint64_t shouldRenderFrameCount_ = 0;
+    uint64_t shouldRenderFalseFrameCount_ = 0;
+    uint64_t freshStereoSubmissionCount_ = 0;
+    uint64_t heldStereoSubmissionCount_ = 0;
+    uint64_t blackProjectionSubmissionCount_ = 0;
+    uint64_t fallbackProjectionSubmissionCount_ = 0;
+    uint64_t retainedProjectionSubmissionCount_ = 0;
+    uint64_t incompleteStereoFrameCount_ = 0;
+    uint64_t heldPairAgeFramesLatest_ = 0;
+    uint64_t heldPairAgeFramesMax_ = 0;
+    int64_t freshnessWindowStartQpc_ = 0;
+    int64_t freshnessWindowLastQpc_ = 0;
     uint64_t stereoPoseFrameGapLatest_ = 0;
     uint64_t stereoPoseFrameGapMax_ = 0;
     uint64_t stereoPoseFrameGapNonzero_ = 0;

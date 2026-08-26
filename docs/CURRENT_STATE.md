@@ -1,6 +1,6 @@
 # Current State
 
-Date: 2026-08-24
+Date: 2026-08-27
 
 ## Objective
 
@@ -26,6 +26,15 @@ The active engineering and gameplay test build is
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- The 2026-08-27 cross-engine playbook audit is recorded in
+  `PLAYBOOK_AUDIT_2026-08-27.md`. It found two high-confidence implementation
+  follow-ups without changing this build: replace the arm solver's projected
+  fixed-direction elbow pole with a cross-product construction, and add
+  independent `xrBeginFrame`/`xrEndFrame` timing plus a consolidated
+  fresh-pair/held-pair/black-fallback ledger. Moving `xrWaitFrame` to a worker
+  remains evidence-gated; a thread move that prevents a wedge can still pace
+  the game through its handoff.
 
 - Version 0.94 makes an AFR pair one camera transaction. The first eye latches
   the complete native projection/view/frustum-parameter packet and the complete

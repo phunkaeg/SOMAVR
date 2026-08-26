@@ -567,11 +567,10 @@ struct OpenXRRuntime::Impl {
         return true;
     }
 
-    void Shutdown()
+    void StopRuntimeLocked(const char* reason, bool restartable)
     {
-        std::lock_guard lock(mutex_);
         if (session_ != XR_NULL_HANDLE) {
-            CloseOpenFrameLocked("shutdown", currentGameFrame_);
+            CloseOpenFrameLocked(reason, currentGameFrame_);
             input_.ShutdownSession();
             DestroyFrameResourcesLocked();
             xrDestroySession(session_);
@@ -586,8 +585,13 @@ struct OpenXRRuntime::Impl {
             xrDestroyInstance(instance_);
             instance_ = XR_NULL_HANDLE;
         }
+        systemId_ = XR_NULL_SYSTEM_ID;
+        sessionState_ = XR_SESSION_STATE_UNKNOWN;
         initialized_ = false;
         attempted_ = false;
+        if (restartable) {
+            failed_ = false;
+        }
         sessionAttempted_ = false;
         sessionCreated_ = false;
         sessionHeldAfterProbe_ = false;
@@ -600,6 +604,9 @@ struct OpenXRRuntime::Impl {
         stereoCaptureQpc_[1] = 0;
         stereoCacheAgeUsLatest_[0] = 0;
         stereoCacheAgeUsLatest_[1] = 0;
+        latestPoseValid_ = false;
+        frameSubmitFailed_ = false;
+        consecutiveFrameFailures_ = 0;
         recoveryRequested_ = false;
         comfortBlackoutUntilFrame_ = 0;
         presentationBlackoutActive_ = false;
@@ -612,8 +619,38 @@ struct OpenXRRuntime::Impl {
         controllerAimGuideStates_ = {};
         interactionReticleSubmissionSuspended_ = false;
         interactionReticleConsecutiveFailures_ = 0;
+        retryFrame_ = 0;
         releaseFrame_ = 0;
-        ResetFocusPacingLocked("shutdown", currentGameFrame_);
+        manualStartArmed_ = false;
+        manualStartLogged_ = false;
+        manualStartKeyDown_ = false;
+        manualStartFrame_ = 0;
+        ResetFocusPacingLocked(reason, currentGameFrame_);
+    }
+
+    bool Suspend(const char* reason)
+    {
+        std::lock_guard lock(mutex_);
+        const bool hadRuntime = session_ != XR_NULL_HANDLE
+            || instance_ != XR_NULL_HANDLE
+            || initialized_
+            || attempted_;
+        StopRuntimeLocked(reason != nullptr ? reason : "manual_suspend", true);
+        ++manualSuspendCount_;
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "openxr_runtime suspended reason=%s hadRuntime=%d frame=%llu count=%llu policy=symmetric_stop_restart_on_next_manual_start",
+            reason != nullptr ? reason : "manual_suspend",
+            hadRuntime ? 1 : 0,
+            static_cast<unsigned long long>(currentGameFrame_),
+            static_cast<unsigned long long>(manualSuspendCount_));
+        return hadRuntime;
+    }
+
+    void Shutdown()
+    {
+        std::lock_guard lock(mutex_);
+        StopRuntimeLocked("shutdown", false);
     }
 
     std::string SummaryString() const
@@ -639,6 +676,7 @@ struct OpenXRRuntime::Impl {
             << " openxrManualStart=" << (manualStartEnabled_ ? 1 : 0)
             << " openxrManualStartArmed=" << (manualStartArmed_ ? 1 : 0)
             << " openxrManualStartFrame=" << static_cast<unsigned long long>(manualStartFrame_)
+            << " openxrManualSuspends=" << static_cast<unsigned long long>(manualSuspendCount_)
             << " openxrFrameSubmit=" << (frameSubmitEnabled_ ? 1 : 0)
             << " openxrRuntimeMaxLayers=" << maxLayerCount_
             << " openxrLayerHardCap=16"
@@ -652,6 +690,12 @@ struct OpenXRRuntime::Impl {
                 << static_cast<unsigned long long>(zeroLayerPreventions_)
             << " openxrPredictionLeadNs="
                 << static_cast<unsigned long long>(predictionLeadNsLatest_)
+            << " openxrLocateViewCalls="
+                << static_cast<unsigned long long>(locateViewCalls_)
+            << " openxrLocateViewFrames="
+                << static_cast<unsigned long long>(locateViewFrames_)
+            << " openxrLocateViewMaxPerFrame="
+                << static_cast<unsigned long long>(locateViewMaxPerFrame_)
             << " openxrUpcomingPoseFallbacks="
                 << static_cast<unsigned long long>(upcomingPoseFallbacks_)
             << " openxrUpcomingPoseFailures="
@@ -2559,11 +2603,7 @@ private:
         ApplyFoveationLocked();
 
         locatedViews_.resize(glBridge_.EyeCount());
-        pendingLocatedViews_.resize(glBridge_.EyeCount());
         for (XrView& view : locatedViews_) {
-            view.type = XR_TYPE_VIEW;
-        }
-        for (XrView& view : pendingLocatedViews_) {
             view.type = XR_TYPE_VIEW;
         }
 
@@ -2703,7 +2743,6 @@ private:
             appSpace_ = XR_NULL_HANDLE;
         }
         locatedViews_.clear();
-        pendingLocatedViews_.clear();
         pendingRenderedEyeValid_ = false;
         renderedStereoViewValid_[0] = false;
         renderedStereoViewValid_[1] = false;
@@ -3076,59 +3115,39 @@ private:
         bool copyAttemptFailed = false;
         bool stereoReady = false;
         bool projectionLayerAppended = false;
-        std::vector<XrView> submissionLocatedViews(glBridge_.EyeCount());
-        std::vector<XrView> upcomingLocatedViews(glBridge_.EyeCount());
-        for (XrView& view : pendingLocatedViews_) {
-            view = {XR_TYPE_VIEW};
-        }
-        for (XrView& view : submissionLocatedViews) {
-            view = {XR_TYPE_VIEW};
-        }
-        for (XrView& view : upcomingLocatedViews) {
+        uint32_t locateCallsThisFrame = 0;
+        std::vector<XrView> frameLocatedViews(glBridge_.EyeCount());
+        for (XrView& view : frameLocatedViews) {
             view = {XR_TYPE_VIEW};
         }
 
         if (glBridge_.Ready()) {
             XrViewLocateInfo locateInfo{XR_TYPE_VIEW_LOCATE_INFO};
             locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-            locateInfo.displayTime = frameState.predictedDisplayTime;
+            locateInfo.displayTime = upcomingRenderDisplayTime;
             locateInfo.space = appSpace_;
-            const XrResult submissionLocateResult = xrLocateViews(
+            ++locateCallsThisFrame;
+            const XrResult locateResult = xrLocateViews(
                 session_,
                 &locateInfo,
                 &viewState,
-                static_cast<uint32_t>(pendingLocatedViews_.size()),
+                static_cast<uint32_t>(frameLocatedViews.size()),
                 &locatedViewCount,
-                pendingLocatedViews_.data());
+                frameLocatedViews.data());
+            locateViewCalls_ += locateCallsThisFrame;
+            ++locateViewFrames_;
+            locateViewMaxPerFrame_ = std::max<uint64_t>(
+                locateViewMaxPerFrame_, locateCallsThisFrame);
 
             const XrViewStateFlags requiredFlags =
                 XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
-            const bool viewsValid = XR_SUCCEEDED(submissionLocateResult)
+            const bool viewsValid = XR_SUCCEEDED(locateResult)
                 && locatedViewCount == glBridge_.EyeCount()
                 && (viewState.viewStateFlags & requiredFlags) == requiredFlags;
             viewsLocatedValid = viewsValid;
 
-            submissionLocatedViews = pendingLocatedViews_;
-            XrViewState upcomingViewState{XR_TYPE_VIEW_STATE};
-            uint32_t upcomingViewCount = 0;
-            locateInfo.displayTime = upcomingRenderDisplayTime;
-            const XrResult upcomingLocateResult = xrLocateViews(
-                session_,
-                &locateInfo,
-                &upcomingViewState,
-                static_cast<uint32_t>(upcomingLocatedViews.size()),
-                &upcomingViewCount,
-                upcomingLocatedViews.data());
-            const bool upcomingViewsValid = XR_SUCCEEDED(upcomingLocateResult)
-                && upcomingViewCount == glBridge_.EyeCount()
-                && (upcomingViewState.viewStateFlags & requiredFlags) == requiredFlags;
-            const bool renderViewsValid = upcomingViewsValid || viewsValid;
-            if (renderViewsValid) {
-                locatedViews_ = upcomingViewsValid
-                    ? upcomingLocatedViews : submissionLocatedViews;
-                if (!upcomingViewsValid) {
-                    ++upcomingPoseFallbacks_;
-                }
+            if (viewsValid) {
+                locatedViews_ = frameLocatedViews;
                 RecordTrackingRestoredLocked(frameIndex);
                 latestLeftEyePose_ = locatedViews_[0].pose;
                 latestRightEyePose_ = locatedViews_[1].pose;
@@ -3142,8 +3161,7 @@ private:
                 const float eyeDy = latestRightEyePose_.position.y - latestLeftEyePose_.position.y;
                 const float eyeDz = latestRightEyePose_.position.z - latestLeftEyePose_.position.z;
                 latestIpdMeters_ = std::sqrt(eyeDx * eyeDx + eyeDy * eyeDy + eyeDz * eyeDz);
-                latestViewStateFlags_ = upcomingViewsValid
-                    ? upcomingViewState.viewStateFlags : viewState.viewStateFlags;
+                latestViewStateFlags_ = viewState.viewStateFlags;
                 latestPoseGameFrame_ = frameIndex;
                 latestPoseValid_ = true;
             }
@@ -3154,14 +3172,10 @@ private:
                 && renderedStereoViewValid_[1];
             bool copied = viewsValid && frameState.shouldRender == XR_TRUE;
             if (!viewsValid) {
-                if (!upcomingViewsValid) {
-                    ++upcomingPoseFailures_;
-                    RecordTrackingInvalidLocked(
-                        frameIndex, upcomingLocateResult, upcomingViewState.viewStateFlags);
-                }
-                if (XR_FAILED(submissionLocateResult) && !upcomingViewsValid) {
-                    RecordFrameFailureLocked(
-                        "xrLocateViews_submission", submissionLocateResult, frameIndex);
+                ++upcomingPoseFailures_;
+                RecordTrackingInvalidLocked(frameIndex, locateResult, viewState.viewStateFlags);
+                if (XR_FAILED(locateResult)) {
+                    RecordFrameFailureLocked("xrLocateViews_upcoming", locateResult, frameIndex);
                 }
             } else {
                 if (stereoReady) {
@@ -3247,10 +3261,10 @@ private:
                         projectionView.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
                         projectionView.pose = stereoReady
                             ? ToXrPose(renderedStereoViews_[eyeIndex])
-                            : submissionLocatedViews[eyeIndex].pose;
+                            : frameLocatedViews[eyeIndex].pose;
                         projectionView.fov = stereoReady
                             ? ToXrFov(renderedStereoViews_[eyeIndex])
-                            : submissionLocatedViews[eyeIndex].fov;
+                            : frameLocatedViews[eyeIndex].fov;
                         projectionView.subImage.swapchain = eye.handle;
                         projectionView.subImage.imageRect.offset = {0, 0};
                         projectionView.subImage.imageRect.extent = {eye.width, eye.height};
@@ -4175,12 +4189,14 @@ private:
         if (completedXrFrameCount_ == 1 || (completedXrFrameCount_ % 300) == 0) {
             Logger::Instance().Write(
                 LogLevel::Info,
-                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u stereo=%d stereoPoseFrames=%llu,%llu stereoPoseGap=%llu stereoCaptureDeltaUs=%llu stereoCacheAgeUs=%llu,%llu depth=%d hud=%d hudShape=%s reticle=%d aimGuide=%d statusPanel=%d comfortVignette=%d comfortVignetteLevel=%.3f spectatorFrames=%llu stereoCaptured=%llu stereoSubmitted=%llu depthSubmitted=%llu depthFailures=%llu hudSubmitted=%llu reticleSubmitted=%llu aimGuideSubmitted=%llu panelSubmitted=%llu vignetteSubmitted=%llu predictedDisplayTime=%lld upcomingRenderDisplayTime=%lld predictionLeadNs=%llu upcomingFallbacks=%llu zeroLayerPreventions=%llu leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
+                "openxr_frame ok gameFrame=%llu xrFrame=%llu shouldRender=%d layers=%u views=%u locateCalls=%u locateMaxPerFrame=%llu stereo=%d stereoPoseFrames=%llu,%llu stereoPoseGap=%llu stereoCaptureDeltaUs=%llu stereoCacheAgeUs=%llu,%llu depth=%d hud=%d hudShape=%s reticle=%d aimGuide=%d statusPanel=%d comfortVignette=%d comfortVignetteLevel=%.3f spectatorFrames=%llu stereoCaptured=%llu stereoSubmitted=%llu depthSubmitted=%llu depthFailures=%llu hudSubmitted=%llu reticleSubmitted=%llu aimGuideSubmitted=%llu panelSubmitted=%llu vignetteSubmitted=%llu predictedDisplayTime=%lld upcomingRenderDisplayTime=%lld predictionLeadNs=%llu upcomingFallbacks=%llu zeroLayerPreventions=%llu leftPos=%.4f,%.4f,%.4f rightPos=%.4f,%.4f,%.4f",
                 static_cast<unsigned long long>(frameIndex),
                 static_cast<unsigned long long>(completedXrFrameCount_),
                 frameState.shouldRender == XR_TRUE ? 1 : 0,
                 layerCount,
                 locatedViewCount,
+                locateCallsThisFrame,
+                static_cast<unsigned long long>(locateViewMaxPerFrame_),
                 submittedStereo ? 1 : 0,
                 static_cast<unsigned long long>(renderedStereoViews_[0].gameFrame),
                 static_cast<unsigned long long>(renderedStereoViews_[1].gameFrame),
@@ -4650,6 +4666,7 @@ private:
     uint64_t releaseFrame_ = 0;
     uint64_t sessionCreatedFrame_ = 0;
     uint64_t manualStartFrame_ = 0;
+    uint64_t manualSuspendCount_ = 0;
     uint64_t completedXrFrameCount_ = 0;
     uint64_t focusPacingEpisodeStartMs_ = 0;
     uint64_t focusPacingEpisodeSkippedFrames_ = 0;
@@ -4667,6 +4684,9 @@ private:
     uint64_t frameOpenRecoveries_ = 0;
     uint64_t zeroLayerPreventions_ = 0;
     uint64_t predictionLeadNsLatest_ = 0;
+    uint64_t locateViewCalls_ = 0;
+    uint64_t locateViewFrames_ = 0;
+    uint64_t locateViewMaxPerFrame_ = 0;
     uint64_t upcomingPoseFallbacks_ = 0;
     uint64_t upcomingPoseFailures_ = 0;
     XrTime frameOpenDisplayTime_ = 0;
@@ -4805,7 +4825,6 @@ private:
     std::vector<XrViewConfigurationView> viewConfigurationViews_;
     std::vector<int64_t> swapchainFormats_;
     std::vector<XrView> locatedViews_;
-    std::vector<XrView> pendingLocatedViews_;
     std::vector<XrReferenceSpaceType> supportedReferenceSpaces_;
     OpenXRGLBridge glBridge_;
     OpenXRInput input_;
@@ -4969,6 +4988,8 @@ struct OpenXRRuntime::Impl {
         LogUnavailableLocked();
         return false;
     }
+
+    bool Suspend(const char*) { return false; }
 
     void Shutdown() {}
 
@@ -5258,6 +5279,11 @@ void OpenXRRuntime::OnFrameBoundary(HDC deviceContext, HGLRC glContext, uint64_t
 bool OpenXRRuntime::RequestManualStart()
 {
     return impl_->RequestManualStart();
+}
+
+bool OpenXRRuntime::Suspend(const char* reason)
+{
+    return impl_->Suspend(reason);
 }
 
 void OpenXRRuntime::Shutdown()

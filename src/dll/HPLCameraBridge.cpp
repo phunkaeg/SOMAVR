@@ -36,7 +36,9 @@ using camera_math::Quaternion;
 using camera_math::ReplaceTrackedHeadTranslation;
 using camera_math::RotateVector;
 using camera_math::RotationMatrix;
+using camera_math::ResolveStereoPairBaseAction;
 using camera_math::ResolveTrackedEyeOffset;
+using camera_math::StereoPairBaseAction;
 using camera_math::TranslationMatrix;
 using camera_math::UpdatePoseStability;
 using camera_math::ValidateStereoProjectionMath;
@@ -46,6 +48,7 @@ using camera_math::Vector3;
 // up. Matches the existing stereoCaptureFailures_ suspend threshold in
 // OpenXRRuntime so the two stereo lanes fail over on the same budget.
 constexpr uint32_t kStereoApplyFailureLimit = 8;
+constexpr uint64_t kStereoPairBaseMaxAgeMilliseconds = 100;
 
 constexpr uintptr_t kCameraGetFrustumRva = 0x271b80;
 constexpr uintptr_t kSetupPerspectiveFrustumRva = 0x270230;
@@ -136,6 +139,14 @@ struct BridgeState {
     uint32_t stereoApplyFailures = 0;
     bool pairRotationValid = false;
     Quaternion pairRotation{};
+    bool pairBaseValid = false;
+    uint64_t pairBaseCapturedAtMilliseconds = 0;
+    void* pairBaseFrustum = nullptr;
+    std::array<float, 16> pairBaseProjection{};
+    std::array<float, 16> pairBaseView{};
+    FrustumParameters pairBaseParameters{};
+    bool pairViewsValid = false;
+    OpenXRStereoViewSnapshot pairViews{};
     uint32_t activationTrackingWaitLogs = 0;
     uint32_t recenterTrackingWaitLogs = 0;
     void* activeCamera = nullptr;
@@ -182,6 +193,14 @@ std::atomic<uint64_t> g_stereoFillCommits = 0;
 std::atomic<uint64_t> g_stereoFillRejects = 0;
 std::atomic<uint64_t> g_pairRotationLatches = 0;
 std::atomic<uint64_t> g_pairRotationReuses = 0;
+std::atomic<uint64_t> g_pairBaseLatches = 0;
+std::atomic<uint64_t> g_pairBaseReplays = 0;
+std::atomic<uint64_t> g_pairBaseMissingRejects = 0;
+std::atomic<uint64_t> g_pairBaseStaleRejects = 0;
+std::atomic<uint64_t> g_pairBaseFrustumRejects = 0;
+std::atomic<uint64_t> g_pairViewLatches = 0;
+std::atomic<uint64_t> g_pairViewReplays = 0;
+std::atomic<uint64_t> g_pairViewRejects = 0;
 std::atomic<uint64_t> g_trackingFallbackFrames = 0;
 std::atomic<uint64_t> g_trackingRecoveryEvents = 0;
 std::atomic<uint64_t> g_nativeRollObservedCalls = 0;
@@ -212,6 +231,8 @@ void ResetStereoFillPhase()
     g_committableEye.store(-1, std::memory_order_release);
     g_committableEyePoseFrame.store(0, std::memory_order_release);
     g_state.pairRotationValid = false;
+    g_state.pairBaseValid = false;
+    g_state.pairViewsValid = false;
 }
 
 Vector3 TransformLocalDirectionToWorld(const Vector3& local, const std::array<float, 16>& baseView)
@@ -734,6 +755,115 @@ bool RefreshBaseMatrices(void* frustum, const FrustumParameters& parameters)
     return true;
 }
 
+const char* StereoPairBaseActionName(StereoPairBaseAction action)
+{
+    switch (action) {
+    case StereoPairBaseAction::CaptureFresh: return "capture_fresh";
+    case StereoPairBaseAction::ReplayCached: return "replay_cached";
+    case StereoPairBaseAction::RejectMissing: return "reject_missing";
+    case StereoPairBaseAction::RejectStale: return "reject_stale";
+    case StereoPairBaseAction::RejectFrustumMismatch: return "reject_frustum_mismatch";
+    default: return "unknown";
+    }
+}
+
+bool PrepareStereoPairBase(
+    void* frustum,
+    const FrustumParameters& parameters,
+    uint32_t eyeIndex,
+    bool wasDirty)
+{
+    const uint64_t nowMilliseconds = GetTickCount64();
+    const uint64_t ageMilliseconds = g_state.pairBaseValid
+        && nowMilliseconds >= g_state.pairBaseCapturedAtMilliseconds
+            ? nowMilliseconds - g_state.pairBaseCapturedAtMilliseconds
+            : 0;
+    const StereoPairBaseAction action = ResolveStereoPairBaseAction(
+        eyeIndex,
+        g_state.pairBaseValid,
+        g_state.pairBaseFrustum == frustum,
+        ageMilliseconds,
+        kStereoPairBaseMaxAgeMilliseconds);
+
+    if (action == StereoPairBaseAction::CaptureFresh) {
+        if (wasDirty || !g_state.baseMatricesValid || g_state.activeFrustum != frustum) {
+            if (!RefreshBaseMatrices(frustum, parameters)) {
+                LogNativeMemoryWarning("refresh_pair_base_matrices", frustum);
+                return false;
+            }
+        }
+        g_state.pairBaseProjection = g_state.baseProjection;
+        g_state.pairBaseView = g_state.baseView;
+        g_state.pairBaseParameters = g_state.parameters;
+        g_state.pairBaseFrustum = frustum;
+        g_state.pairBaseCapturedAtMilliseconds = nowMilliseconds;
+        g_state.pairBaseValid = true;
+        g_pairBaseLatches.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
+
+    if (action == StereoPairBaseAction::ReplayCached) {
+        g_state.baseProjection = g_state.pairBaseProjection;
+        g_state.baseView = g_state.pairBaseView;
+        g_state.parameters = g_state.pairBaseParameters;
+        g_state.activeFrustum = g_state.pairBaseFrustum;
+        g_state.baseMatricesValid = true;
+        g_pairBaseReplays.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
+
+    if (action == StereoPairBaseAction::RejectMissing) {
+        g_pairBaseMissingRejects.fetch_add(1, std::memory_order_relaxed);
+    } else if (action == StereoPairBaseAction::RejectStale) {
+        g_pairBaseStaleRejects.fetch_add(1, std::memory_order_relaxed);
+    } else if (action == StereoPairBaseAction::RejectFrustumMismatch) {
+        g_pairBaseFrustumRejects.fetch_add(1, std::memory_order_relaxed);
+    }
+    Logger::Instance().Write(
+        LogLevel::Warn,
+        "hpl_stereo pair_base_rejected eye=%u action=%s ageMs=%llu maxAgeMs=%llu frustum=%p cachedFrustum=%p policy=abandon_pair_no_mixed_base",
+        eyeIndex,
+        StereoPairBaseActionName(action),
+        static_cast<unsigned long long>(ageMilliseconds),
+        static_cast<unsigned long long>(kStereoPairBaseMaxAgeMilliseconds),
+        frustum,
+        g_state.pairBaseFrustum);
+    return false;
+}
+
+bool ResolveStereoPairViews(uint32_t eyeIndex, OpenXRStereoViewSnapshot& views)
+{
+    views = {};
+    if (eyeIndex == 0) {
+        if (!ReadStereoViews(views) || !views.valid || views.gameFrame == 0) {
+            g_pairViewRejects.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
+        g_state.pairViews = views;
+        g_state.pairViewsValid = true;
+        g_pairViewLatches.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
+
+    if (!g_state.pairViewsValid
+        || !g_state.pairViews.valid
+        || g_state.pairViews.gameFrame == 0) {
+        const uint64_t rejects = g_pairViewRejects.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (rejects <= 8 || rejects % 120 == 0) {
+            Logger::Instance().Write(
+                LogLevel::Warn,
+                "hpl_stereo pair_views_rejected eye=%u rejects=%llu policy=abandon_pair_no_cross_tick_pose",
+                eyeIndex,
+                static_cast<unsigned long long>(rejects));
+        }
+        return false;
+    }
+
+    views = g_state.pairViews;
+    g_pairViewReplays.fetch_add(1, std::memory_order_relaxed);
+    return true;
+}
+
 void SetupFrustum(
     void* frustum,
     const std::array<float, 16>& projection,
@@ -1121,17 +1251,22 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
 
     if (f10Pressed && (g_state.trackingEnabled || g_state.activationPending)) {
         if (g_state.activationPending && !g_state.trackingEnabled) {
+            const bool runtimeSuspended = g_openxr != nullptr
+                && g_openxr->Suspend("f10_activation_cancelled");
             g_state = BridgeState{};
             g_state.f2Down = f2Down;
             g_state.f10Down = true;
             g_state.f11Down = f11Down;
             Logger::Instance().Write(
                 LogLevel::Warn,
-                "hpl_vr_mode cancelled key=F10 reason=user_request");
+                "hpl_vr_mode cancelled key=F10 reason=user_request runtimeSuspended=%d",
+                runtimeSuspended ? 1 : 0);
             return frustum;
         }
+        bool runtimeSuspended = false;
         if (g_openxr != nullptr) {
             g_openxr->SetStereoSubmissionEnabled(false);
+            runtimeSuspended = g_openxr->Suspend("f10_vr_mode_disabled");
         }
         const bool restored = g_state.activeCamera == camera;
         if (restored) {
@@ -1139,12 +1274,13 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
         }
         Logger::Instance().Write(
             LogLevel::Warn,
-            "hpl_vr_mode disabled key=F10 camera=%p frustum=%p restored=%d recenterPending=%d applied=%llu",
+            "hpl_vr_mode disabled key=F10 camera=%p frustum=%p restored=%d recenterPending=%d applied=%llu runtimeSuspended=%d",
             camera,
             frustum,
             restored ? 1 : 0,
             g_state.recenterPending ? 1 : 0,
-            static_cast<unsigned long long>(g_appliedCalls.load(std::memory_order_relaxed)));
+            static_cast<unsigned long long>(g_appliedCalls.load(std::memory_order_relaxed)),
+            runtimeSuspended ? 1 : 0);
         g_state = BridgeState{};
         g_state.f2Down = f2Down;
         g_state.f10Down = true;
@@ -1372,13 +1508,6 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
         }
     }
 
-    if (wasDirty || !g_state.baseMatricesValid || g_state.activeFrustum != frustum) {
-        if (!RefreshBaseMatrices(frustum, parameters)) {
-            LogNativeMemoryWarning("refresh_base_matrices", frustum);
-            return frustum;
-        }
-    }
-
     if (g_state.recenterPending) {
         do {
             Quaternion orientation;
@@ -1461,6 +1590,7 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
             ++g_state.calibrationGeneration;
             g_state.currentEyeIndex = -1;
             g_state.currentEyePoseFrame = 0;
+            g_state.baseMatricesValid = false;
             ResetStereoFillPhase();
             InvalidateRoomscaleSafetyCache();
             if (g_openxr != nullptr && g_config.hplControllerComfortBlackoutFrames > 0) {
@@ -1490,13 +1620,30 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
     if (g_state.stereoEnabled) {
         OpenXRStereoViewSnapshot views;
         const uint32_t eyeIndex = g_nextEyeIndex.load(std::memory_order_acquire);
-        if (!ReadStereoViews(views)) {
+        if (!PrepareStereoPairBase(frustum, parameters, eyeIndex, wasDirty)) {
+            RestoreBaseView(frustum);
+            g_state.currentEyeIndex = -1;
+            g_state.currentEyePoseFrame = 0;
+            ResetStereoFillPhase();
+            if (g_openxr != nullptr) {
+                g_openxr->InvalidateStereoCaches("camera_pair_base_rejected");
+            }
+            return frustum;
+        }
+        if (!ResolveStereoPairViews(eyeIndex, views)) {
             g_trackingFallbackFrames.fetch_add(1, std::memory_order_relaxed);
             if (!g_state.trackingFallbackActive) {
                 g_state.trackingFallbackActive = true;
                 Logger::Instance().Write(
                     LogLevel::Warn,
-                    "hpl_stereo tracking_fallback active=1 action=restore_base_view stereoIntent=preserved");
+                    "hpl_stereo tracking_fallback active=1 eye=%u action=restore_base_view stereoIntent=preserved",
+                    eyeIndex);
+            }
+            if (eyeIndex == 1) {
+                ResetStereoFillPhase();
+                if (g_openxr != nullptr) {
+                    g_openxr->InvalidateStereoCaches("camera_pair_views_rejected");
+                }
             }
             RestoreBaseView(frustum);
             return frustum;
@@ -1551,6 +1698,13 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
                 LogLevel::Warn,
                 "hpl_stereo suspended reason=projection_apply_failed consecutive=%u fallback=mono_orientation",
                 g_state.stereoApplyFailures);
+        }
+    }
+
+    if (wasDirty || !g_state.baseMatricesValid || g_state.activeFrustum != frustum) {
+        if (!RefreshBaseMatrices(frustum, parameters)) {
+            LogNativeMemoryWarning("refresh_base_matrices", frustum);
+            return frustum;
         }
     }
 
@@ -1702,6 +1856,14 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
     g_stereoFillRejects.store(0, std::memory_order_relaxed);
     g_pairRotationLatches.store(0, std::memory_order_relaxed);
     g_pairRotationReuses.store(0, std::memory_order_relaxed);
+    g_pairBaseLatches.store(0, std::memory_order_relaxed);
+    g_pairBaseReplays.store(0, std::memory_order_relaxed);
+    g_pairBaseMissingRejects.store(0, std::memory_order_relaxed);
+    g_pairBaseStaleRejects.store(0, std::memory_order_relaxed);
+    g_pairBaseFrustumRejects.store(0, std::memory_order_relaxed);
+    g_pairViewLatches.store(0, std::memory_order_relaxed);
+    g_pairViewReplays.store(0, std::memory_order_relaxed);
+    g_pairViewRejects.store(0, std::memory_order_relaxed);
     g_nativeRollObservedCalls.store(0, std::memory_order_relaxed);
     g_nativeRollSuppressedCalls.store(0, std::memory_order_relaxed);
     g_nativePitchObservedCalls.store(0, std::memory_order_relaxed);
@@ -1783,7 +1945,7 @@ void LogHPLCameraBridgeSummary()
     std::lock_guard lock(g_stateMutex);
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu secondaryCameraCandidates=%llu secondaryCameraControlSkips=%llu authoredCameraOwnershipChanges=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu fillCommits=%llu fillRejects=%llu pairRotationLatches=%llu pairRotationReuses=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativePitchObserved=%llu nativePitchSuppressed=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu nativeMemoryReadFailures=%llu nativeMemoryWriteFailures=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyProbes=%llu roomscaleSafetySkippedProbes=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu roomscaleBodyShiftProbes=%llu roomscaleBodyShiftBlocks=%llu roomscaleBodyShiftCommits=%llu",
+        "hpl_camera_bridge summary getFrustumCalls=%llu candidateCalls=%llu secondaryCameraCandidates=%llu secondaryCameraControlSkips=%llu authoredCameraOwnershipChanges=%llu activationPending=%d recenterPending=%d trackingEnabled=%d stereoEnabled=%d trackingFallbackActive=%d activeCamera=%p activeFrustum=%p appliedCalls=%llu stereoApplied=%llu leftApplied=%llu rightApplied=%llu fillCommits=%llu fillRejects=%llu pairRotationLatches=%llu pairRotationReuses=%llu pairBaseLatches=%llu pairBaseReplays=%llu pairBaseMissingRejects=%llu pairBaseStaleRejects=%llu pairBaseFrustumRejects=%llu pairBaseMaxAgeMs=%llu pairViewLatches=%llu pairViewReplays=%llu pairViewRejects=%llu baseRefreshes=%llu poseMisses=%llu trackingFallbackFrames=%llu trackingRecoveryEvents=%llu nativePitchObserved=%llu nativePitchSuppressed=%llu nativeRollObserved=%llu nativeRollSuppressed=%llu nativeMemoryReadFailures=%llu nativeMemoryWriteFailures=%llu roomscaleSafetySamples=%llu roomscaleSafetyQueries=%llu roomscaleSafetyProbes=%llu roomscaleSafetySkippedProbes=%llu roomscaleSafetyBlocked=%llu roomscaleSafetyClamped=%llu roomscaleSafetyFallbacks=%llu roomscaleBodyShiftProbes=%llu roomscaleBodyShiftBlocks=%llu roomscaleBodyShiftCommits=%llu",
         static_cast<unsigned long long>(g_getFrustumCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_candidateCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_secondaryCameraCandidates.load(std::memory_order_relaxed)),
@@ -1804,6 +1966,15 @@ void LogHPLCameraBridgeSummary()
         static_cast<unsigned long long>(g_stereoFillRejects.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_pairRotationLatches.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_pairRotationReuses.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_pairBaseLatches.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_pairBaseReplays.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_pairBaseMissingRejects.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_pairBaseStaleRejects.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_pairBaseFrustumRejects.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(kStereoPairBaseMaxAgeMilliseconds),
+        static_cast<unsigned long long>(g_pairViewLatches.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_pairViewReplays.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_pairViewRejects.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_baseRefreshes.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_poseMisses.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_trackingFallbackFrames.load(std::memory_order_relaxed)),
@@ -1923,7 +2094,14 @@ bool GetHPLPendingStereoRenderTarget(HPLPendingStereoRenderTarget& target)
     }
 
     OpenXRStereoViewSnapshot views;
-    if (!ReadStereoViews(views) || views.gameFrame == 0) {
+    bool viewsReady = false;
+    if (nextEyeIndex == 1 && g_state.pairViewsValid) {
+        views = g_state.pairViews;
+        viewsReady = views.valid && views.gameFrame != 0;
+    } else {
+        viewsReady = ReadStereoViews(views) && views.gameFrame != 0;
+    }
+    if (!viewsReady) {
         return false;
     }
 

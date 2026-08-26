@@ -1,5 +1,34 @@
 # Test Checklists
 
+## 0.94.0 AFR Pair Coherence
+
+1. Launch `out\SOMAVR-latest`, load the apartment save, and press F10 once.
+   Require `version=0.94.0-afr-pair-coherence`, normal world scale/height, and
+   no regression in hands, locomotion, interactions, terminal, HUD or mirror.
+2. Stand still for ten seconds, then walk and turn while yawing and pitching the
+   HMD for at least 30 seconds. Look specifically for motion-only shear,
+   vertical disparity, or a subtle delay between eyes. Require periodic
+   `openxr_frame ok ... locateCalls=1 locateMaxPerFrame=1 ... stereoPoseGap=0`.
+3. Exit normally and require camera summary `pairBaseLatches` and
+   `pairBaseReplays` to rise together, `pairViewLatches` and `pairViewReplays`
+   to rise together, and all pair missing/stale/frustum/view rejects to remain
+   zero. A bounded rejection during a real loading/camera replacement boundary
+   is acceptable only when it restarts at eye zero and immediately recovers.
+4. Press F10 a second time during ordinary gameplay. The flat game must remain
+   responsive and the log must contain `openxr_runtime suspended ...` plus
+   `runtimeSuspended=1`. Wait five seconds, press F10 again, and require a fresh
+   session bootstrap, tracking calibration, and stereo recovery without
+   restarting SOMA.
+5. Open/close pause, use the laptop, reload the save once, and repeat the
+   walking/turning check. Preserve `xrWait` and frame-lock timings. They remain
+   evidence for the unresolved active-VR present-thread pacing question; F10
+   stop/restart does not claim to solve it.
+6. Leave the packaged same-frame mode unchanged for the normal regression.
+   After acceptance, one optional F1 off/on comparison should end with
+   `hpl_dual_render_cost_summary`; compare replay draws, average microseconds,
+   and microseconds per 1,000 draws. Any one-eye-copied screen-space artifact is
+   a rejection, regardless of apparent performance.
+
 ## 0.93.0 Playbook Hardening
 
 1. Run packaged `somavr_injector.exe --doctor` before launch. Preserve every

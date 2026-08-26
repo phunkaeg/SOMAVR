@@ -4,6 +4,22 @@ Date: 2026-08-23
 Status: **observation build ready; existing viewport replay unchanged; future world-only native stereo unimplemented.**
 Prompted by playbook chapter 17 (native stereo) and FEAR-VR's LithTech precedent.
 
+## 0.94 Cost And Binocular-Correctness Update
+
+The existing replay lane now aggregates viewport replay CPU duration and draw
+count, including normalized microseconds per 1,000 draws. This is the first
+pricing gate for any proposal that repeats scene geometry: measured cost must
+be evaluated against the actual draw population before a new render lane is
+designed.
+
+Screen-space work is an eye-local requirement, not a reusable result. Each eye
+has different disocclusions and silhouettes, and SOMA's refraction path copies
+camera-dependent scene color before translucent draws. A candidate that renders
+or copies these results for one eye and submits them to both is rejected even
+if it reduces draw count. The acceptable transaction remains sequential per
+eye through culling, refraction copies, translucent consumption, and temporal
+ownership.
+
 ## 0.92 Evidence Update
 
 The original study correctly named occlusion queries as the first unknown, but

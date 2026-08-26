@@ -1,24 +1,27 @@
 # Next Live Evidence
 
-Date: 2026-08-24
+Date: 2026-08-26
 
 Use `out\SOMAVR-latest`
-(`0.93.0-playbook-hardening`) for the next run.
+(`0.94.0-afr-pair-coherence`) for the next run.
 
-The first priority is a normal/default regression pass. Version 0.93 does not
-enable native same-frame stereo or the hands-owner probe in the release profile;
-ordinary visuals and controls must match 0.91.
+The first priority is pair rigidity plus symmetric F10 stop/restart. Version
+0.94 does not promote the future native world-stereo path or the hands-owner
+probe; ordinary visuals and controls must match the accepted baseline.
 
 1. Launch the rolling package, load the apartment save, press F10 once, and
    verify the established world, hands/IK, locomotion, interactions, terminal,
    HUD/menu and desktop-mirror behavior.
-2. Stand, turn, and walk for at least 30 seconds, then use the laptop and pause
-   menu. This collects XR mutex and GPU transfer evidence under ordinary frame
-   pacing. Reload the save once to cover fallback-black/cache recovery.
-3. Exit normally and attach the complete log. Preserve these rows when present:
+2. Stand still for ten seconds, then walk and turn for at least 30 seconds while
+   deliberately yawing and pitching the HMD. Watch for motion-only shear,
+   vertical disparity, eye delay, or world softness that disappears when still.
+3. Press F10 again. Confirm the flat game remains fully responsive for five
+   seconds, then press F10 once more and require normal OpenXR rebootstrap and
+   stereo recovery. Use the laptop and pause menu, reload once, then exit
+   normally and attach the complete log.
 
 ```text
-build_identity identity=0.93.0-playbook-hardening+...
+build_identity identity=0.94.0-afr-pair-coherence+...
 runtime_paths ... source=module
 config_applied ... mtime=... bytes=... parsedKeyHash=... accepted=... unknownKeys=0 unknownSections=0
 openxr_api_layers available=... policy=report_only
@@ -33,6 +36,9 @@ controller_config_interaction ...
 controller_config_hands ...
 controller_config_presentation ...
 openxr_gl_transfer ... phaseOrder=total/acquire/wait/copyCpu/flush/release gpuOrder=capture/submit ...
+openxr_frame ok ... locateCalls=1 locateMaxPerFrame=1 ... stereoPoseGap=0 ...
+openxr_runtime suspended reason=f10_vr_mode_disabled ...
+hpl_vr_mode disabled ... runtimeSuspended=1
 proof_summary ... openxrFrameLockWaitMaxUs=... openxrFrameLockHoldMaxUs=...
 proof_summary ... openxrSnapshotLockWaitMaxUs=... openxrSnapshotLockWaitOver100Us=...
 proof_summary ... openxrGlLeftGpuCaptureAvgUs=... openxrGlLeftGpuSubmitAvgUs=...
@@ -40,13 +46,18 @@ proof_summary ... openxrGlRightGpuCaptureAvgUs=... openxrGlRightGpuSubmitAvgUs=.
 proof_summary ... openxrSessionStateTransitions=... openxrFocusGainEvents=... openxrFocusLossEvents=...
 proof_summary ... openxrInteractionProfileEvents=... openxrInstanceLossEvents=...
 proof_summary ... openxrReferenceSpaceCreateAttempts=... openxrReferenceSpaceCreateSuccesses=... openxrReferenceSpaceCreateFailures=0
-hpl_camera_bridge summary ... nativeMemoryReadFailures=0 nativeMemoryWriteFailures=0
+hpl_camera_bridge summary ... pairBaseLatches=... pairBaseReplays=... pairBaseMissingRejects=0 pairBaseStaleRejects=0 pairBaseFrustumRejects=0 pairViewLatches=... pairViewReplays=... pairViewRejects=0 ... nativeMemoryReadFailures=0 nativeMemoryWriteFailures=0
+hpl_dual_render_cost_summary ... averageDraws=... averageUs=... usPer1000Draws=...
 proof_summary ... ownGlBypasses=...
 ```
 
 Any native-memory failure, sustained snapshot lock wait above 100 us, busy GPU
-query ring, zero-layer submit, persistent eye skew, or second-F10 recovery is a
-specific follow-up target rather than a reason to guess at architecture.
+query ring, zero-layer submit, pair rejection outside a real boundary,
+`locateMaxPerFrame` above one, nonzero pose gap, persistent eye skew, or failed
+second-F10 recovery is a specific follow-up target rather than a reason to
+guess at architecture. `xrWaitFrame` still runs on the `SwapBuffers` thread;
+its timing remains an open active-VR pacing question even when this pass is
+otherwise clean.
 
 The second pass is optional and explicitly diagnostic. In a package-local copy
 of `somavr.ini`, change only `HandTrackingProbe=1`, leave the packaged

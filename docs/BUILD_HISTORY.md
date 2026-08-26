@@ -1,5 +1,27 @@
 # Build History
 
+## 2026-08-26
+
+### 0.94.0-afr-pair-coherence
+
+- Made the first eye's complete native camera base and located OpenXR stereo
+  snapshot immutable across the AFR pair. Eye two replays them absolutely;
+  missing, wrong-frustum, or older-than-100-ms state abandons the pair instead
+  of introducing cross-tick vertical disparity or motion shear.
+- Reduced the running frame loop from two `xrLocateViews` calls to one
+  upcoming-render locate per `xrWaitFrame`/game tick. Added call/frame/maximum
+  counters; cached images retain their exact rendered submission poses.
+- Made F10 disable/cancel symmetric with start by tearing down the OpenXR
+  session and instance and rearming a clean F10 bootstrap. This removes runtime
+  cadence while VR is off. Active-VR `xrWaitFrame` remains on the
+  `SwapBuffers` thread and is explicitly still an open pacing risk.
+- Added cumulative same-frame replay draw/time evidence and normalized CPU cost
+  per 1,000 draws. Per-eye screen-space effects remain a native-stereo
+  promotion requirement, not a shareable one-eye optimization.
+- Added deterministic pair-base policy coverage. Verification: OpenXR Release
+  build and CTest `9/9`; headset pair rigidity and stop/restart remain the live
+  acceptance gates.
+
 ## 2026-08-24
 
 ### 0.93.0-playbook-hardening

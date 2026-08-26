@@ -240,6 +240,8 @@ std::atomic<uint64_t> g_dualRenderSamePoseOppositeEye = 0;
 std::atomic<uint64_t> g_dualRenderFailures = 0;
 std::atomic<uint64_t> g_dualRenderContinuousReplays = 0;
 std::atomic<uint64_t> g_dualRenderContinuousSkips = 0;
+std::atomic<uint64_t> g_dualRenderReplayDrawCalls = 0;
+std::atomic<uint64_t> g_dualRenderReplayDurationNanoseconds = 0;
 std::atomic<bool> g_dualRenderArmed = false;
 std::atomic<bool> g_dualRenderKeyDown = false;
 std::atomic<uint64_t> g_dualRenderAutoCompleted = 0;
@@ -1666,6 +1668,19 @@ void HookRenderViewport(void* scene, void* viewport, float frameTime, uint64_t r
                 ? static_cast<double>(replayEnd.QuadPart - replayStart.QuadPart) * 1000000.0
                     / static_cast<double>(g_performanceFrequency)
                 : 0.0;
+            const uint64_t replayDrawCalls =
+                telemetryAfter.drawElements - telemetryBefore.drawElements
+                + telemetryAfter.drawArrays - telemetryBefore.drawArrays;
+            const uint64_t replayDurationNanoseconds = g_performanceFrequency > 0
+                && replayEnd.QuadPart >= replayStart.QuadPart
+                    ? static_cast<uint64_t>(
+                        static_cast<long double>(replayEnd.QuadPart - replayStart.QuadPart)
+                        * 1000000000.0L
+                        / static_cast<long double>(g_performanceFrequency))
+                    : 0;
+            g_dualRenderReplayDrawCalls.fetch_add(replayDrawCalls, std::memory_order_relaxed);
+            g_dualRenderReplayDurationNanoseconds.fetch_add(
+                replayDurationNanoseconds, std::memory_order_relaxed);
             if (!oppositeEye || ShouldLogDualRenderEvent(armSource, continuousReplay)) {
                 Logger::Instance().Write(
                     oppositeEye ? LogLevel::Warn : LogLevel::Error,
@@ -1684,9 +1699,7 @@ void HookRenderViewport(void* scene, void* viewport, float frameTime, uint64_t r
                     static_cast<unsigned long long>(replayMask),
                     diagnosticReplay ? 1 : 0,
                     durationUs,
-                    static_cast<unsigned long long>(
-                        telemetryAfter.drawElements - telemetryBefore.drawElements
-                        + telemetryAfter.drawArrays - telemetryBefore.drawArrays),
+                    static_cast<unsigned long long>(replayDrawCalls),
                     static_cast<unsigned long long>(telemetryAfter.clears - telemetryBefore.clears),
                     oppositeEye ? 1 : 0,
                     oppositeEye ? 0 : 1);
@@ -2096,6 +2109,8 @@ bool InstallHPLCompatibilityProbe(const Config& config, OpenXRRuntime* openxr)
     g_dualRenderFailures.store(0, std::memory_order_relaxed);
     g_dualRenderContinuousReplays.store(0, std::memory_order_relaxed);
     g_dualRenderContinuousSkips.store(0, std::memory_order_relaxed);
+    g_dualRenderReplayDrawCalls.store(0, std::memory_order_relaxed);
+    g_dualRenderReplayDurationNanoseconds.store(0, std::memory_order_relaxed);
     g_dualRenderArmed.store(false, std::memory_order_relaxed);
     g_dualRenderKeyDown.store(false, std::memory_order_relaxed);
     g_dualRenderAutoCompleted.store(0, std::memory_order_relaxed);
@@ -2403,6 +2418,30 @@ void LogHPLCompatibilityProbeSummary()
         static_cast<unsigned long long>(ssaoFrameOwner.committedRestores),
         static_cast<unsigned long long>(ssaoFrameOwner.mismatches),
         static_cast<unsigned long long>(ssaoFrameOwner.failures));
+    const uint64_t replayCount = g_dualRenderReplays.load(std::memory_order_relaxed);
+    const uint64_t replayDrawCalls = g_dualRenderReplayDrawCalls.load(std::memory_order_relaxed);
+    const uint64_t replayDurationNanoseconds =
+        g_dualRenderReplayDurationNanoseconds.load(std::memory_order_relaxed);
+    const double replayAverageDrawCalls = replayCount != 0
+        ? static_cast<double>(replayDrawCalls) / static_cast<double>(replayCount)
+        : 0.0;
+    const double replayAverageMicroseconds = replayCount != 0
+        ? static_cast<double>(replayDurationNanoseconds) / 1000.0
+            / static_cast<double>(replayCount)
+        : 0.0;
+    const double replayMicrosecondsPerThousandDraws = replayDrawCalls != 0
+        ? static_cast<double>(replayDurationNanoseconds) / 1000.0
+            * 1000.0 / static_cast<double>(replayDrawCalls)
+        : 0.0;
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "hpl_dual_render_cost_summary replays=%llu draws=%llu durationMs=%.3f averageDraws=%.2f averageUs=%.2f usPer1000Draws=%.2f policy=price_geometry_replay_before_promotion",
+        static_cast<unsigned long long>(replayCount),
+        static_cast<unsigned long long>(replayDrawCalls),
+        static_cast<double>(replayDurationNanoseconds) / 1000000.0,
+        replayAverageDrawCalls,
+        replayAverageMicroseconds,
+        replayMicrosecondsPerThousandDraws);
     Logger::Instance().Write(
         LogLevel::Info,
         "hpl_compat_summary viewport=%llu world=%llu worldCallbacks=%llu postEffects=%llu postEffectRenderOne=%llu postPostEffects=%llu screenGui=%llu renderTransactions=%llu canonicalRenderTransactions=%llu viewportIdentitySamples=%llu viewportIdentityChanges=%llu knownViewports=%llu playerViewportCalls=%llu secondaryViewportCalls=%llu dualRender={arms=%llu attempts=%llu firstEyeCaptures=%llu replays=%llu samePoseOppositeEye=%llu failures=%llu armed=%d autoCompleted=%llu continuousConfigured=%d continuousReady=%d continuousEnabled=%d continuousDefault=%d continuousReplays=%llu continuousSkips=%llu continuousChanges=%llu continuousRejections=%llu temporalCaptures=%llu temporalFailedRegions=%llu temporalCorrelatedPairs=%llu temporalEquivalentPairs=%llu viewHistoryConfigured=%d viewHistoryActive=%d viewHistoryFaulted=%d viewHistoryActivations=%llu viewHistoryResets=%llu viewHistorySeeds=%llu viewHistoryRestores=%llu viewHistoryCaptures=%llu viewHistoryFailures=%llu} audioUpdates=%llu audioSamples=%llu audioCorrections=%llu audioTranslations=%llu postEffectQueries=%llu postEffectBypasses=%llu postEffectInventorySamples=%llu postEffectIsolationApplications=%llu postEffectComfortApplications=%llu postEffectComfortSuppressed=%llu postEffectBypassEnabled=%d postEffectIsolated=%p installedHooks=%llu",

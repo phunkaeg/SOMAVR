@@ -39,6 +39,36 @@ enum class PoseStabilityUpdate {
     Ready,
 };
 
+enum class StereoPairBaseAction {
+    CaptureFresh,
+    ReplayCached,
+    RejectMissing,
+    RejectStale,
+    RejectFrustumMismatch,
+};
+
+constexpr StereoPairBaseAction ResolveStereoPairBaseAction(
+    uint32_t eyeIndex,
+    bool cachedBaseValid,
+    bool sameFrustum,
+    uint64_t cachedBaseAgeMilliseconds,
+    uint64_t maximumAgeMilliseconds)
+{
+    if (eyeIndex == 0) {
+        return StereoPairBaseAction::CaptureFresh;
+    }
+    if (!cachedBaseValid) {
+        return StereoPairBaseAction::RejectMissing;
+    }
+    if (!sameFrustum) {
+        return StereoPairBaseAction::RejectFrustumMismatch;
+    }
+    if (cachedBaseAgeMilliseconds > maximumAgeMilliseconds) {
+        return StereoPairBaseAction::RejectStale;
+    }
+    return StereoPairBaseAction::ReplayCached;
+}
+
 Quaternion Normalize(Quaternion value);
 Quaternion Conjugate(const Quaternion& value);
 Quaternion Multiply(const Quaternion& left, const Quaternion& right);

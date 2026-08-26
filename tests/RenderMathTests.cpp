@@ -78,6 +78,19 @@ int main()
             && !openxr_frame_pacing_math::RequiresFallbackProjection(true, 1)
             && !openxr_frame_pacing_math::RequiresFallbackProjection(false, 0),
         "every begun OpenXR frame requires at least one projection layer");
+    using camera_math::StereoPairBaseAction;
+    failures += Check(
+        camera_math::ResolveStereoPairBaseAction(0, false, false, 1'000, 100)
+                == StereoPairBaseAction::CaptureFresh
+            && camera_math::ResolveStereoPairBaseAction(1, true, true, 100, 100)
+                == StereoPairBaseAction::ReplayCached
+            && camera_math::ResolveStereoPairBaseAction(1, false, true, 0, 100)
+                == StereoPairBaseAction::RejectMissing
+            && camera_math::ResolveStereoPairBaseAction(1, true, false, 0, 100)
+                == StereoPairBaseAction::RejectFrustumMismatch
+            && camera_math::ResolveStereoPairBaseAction(1, true, true, 101, 100)
+                == StereoPairBaseAction::RejectStale,
+        "AFR eye two replays only a fresh matching eye-one camera base");
     failures += Check(!IsOwnOpenGLWork(), "OpenGL ownership starts outside mod GL work");
     {
         ScopedOwnOpenGLWork outerOwnGl;

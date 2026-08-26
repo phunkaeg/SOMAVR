@@ -22,10 +22,35 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 ## Active Baseline
 
 The active engineering and gameplay test build is
-`0.93.0-playbook-hardening`, layered on the
+`0.94.0-afr-pair-coherence`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Version 0.94 makes an AFR pair one camera transaction. The first eye latches
+  the complete native projection/view/frustum-parameter packet and the complete
+  located OpenXR stereo snapshot. The second eye replays both absolutely; it
+  never re-reads a dirty HPL frustum or consumes the next game tick's pose.
+  Missing, mismatched, or more-than-100-ms-old pair state abandons the pair,
+  invalidates incomplete caches, and restarts at eye zero. Summary counters
+  expose every latch, replay, and rejection, while rendered pose-frame gap must
+  remain zero.
+
+- The OpenXR frame loop now performs one `xrWaitFrame`, one upcoming-render
+  prediction, and exactly one `xrLocateViews` per running game tick. The former
+  current-submission locate was removed; cached projection images continue to
+  submit with the exact poses recorded when they rendered. F10-off now destroys
+  the session and instance, clears runtime state, and allows a fresh F10
+  bootstrap, so disabling VR cannot leave a focused runtime pacing the flat
+  game. `xrWaitFrame` still executes on the `SwapBuffers` thread while VR is
+  active: its direct cadence/backpressure and unbounded-runtime-wait risk remain
+  open, measured questions rather than claimed fixes.
+
+- Same-frame replay now accumulates total draw count and CPU duration and emits
+  `hpl_dual_render_cost_summary`, including average microseconds per 1,000
+  draws. Native-stereo promotion still requires sequential per-eye screen-space
+  work: scene-color refraction, disocclusions, silhouettes, and other
+  camera-dependent effects cannot be computed for one eye and copied to both.
 
 - Version 0.93 applies three concrete cross-engine playbook lessons without
   changing rendering or gameplay ownership. The default-active occlusion-query

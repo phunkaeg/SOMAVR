@@ -1,5 +1,33 @@
 # VR Compatibility Reverse-Engineering Map
 
+## 0.94.0 AFR Pair Coherence
+
+AFR now owns one immutable packet per pair. Eye zero caches the native HPL base
+projection, view matrix, frustum parameters and full located stereo snapshot.
+Eye one replays those values exactly even if `Present`/`SwapBuffers` and a dirty
+camera update occur between passes. A 100 ms staleness guard and frustum-identity
+check abandon the incomplete pair rather than mixing bases. Because the cached
+OpenXR snapshot contains both eye poses, IPD remains intact while both rendered
+images carry the same pose frame.
+
+The frame boundary performs one upcoming-render `xrLocateViews` call per
+successful `xrWaitFrame`; the previous submission-time locate is gone. Cached
+eye images are still submitted with their recorded rendered poses, so this does
+not relabel old imagery as current. `openxrLocateViewMaxPerFrame` must remain
+one and AFR `stereoPoseGap` must remain zero.
+
+F10 disable/cancel is now symmetric with F10 start: it tears down OpenXR frame
+resources, session and instance, then rearms manual bootstrap. This removes
+runtime cadence from the flat game while VR is off. It does not close the
+active-VR pacing question: `xrWaitFrame` remains on the `SwapBuffers` thread,
+and moving it to a worker would still require measuring handoff backpressure
+before claiming the game thread is unharmed.
+
+Replay feasibility is priced from cumulative draw count and CPU time. Any
+future native stereo transaction must render camera-dependent screen-space
+effects for each eye. Copying one eye's refraction, disocclusion, silhouette or
+post result to both eyes is rejected even when it appears cheaper.
+
 ## 0.93.0 Playbook Hardening
 
 The render-thread occlusion-query and framebuffer-copy observers use fixed-
@@ -56,11 +84,10 @@ cost attributable to the runtime handoff.
 ## 0.89.0 Frame Prediction And Projection Contract
 
 `SwapBuffers` is the handoff between a completed HPL image and the render that
-will start immediately afterward. SOMAVR therefore locates two pose sets after
-`xrWaitFrame`: `predictedDisplayTime` describes submission fallback for the
-completed image, while `predictedDisplayTime + predictedDisplayPeriod` is
-published to the HPL camera and OpenXR input spaces for the upcoming render.
-AFR projection still uses the exact pose recorded with each cached eye.
+will start immediately afterward. Version 0.89 originally located separate
+submission and upcoming-render pose sets after `xrWaitFrame`. Version 0.94
+supersedes that transport with one upcoming-render locate per game tick. AFR
+projection still uses the exact pose recorded with each cached eye.
 
 AFR phase is now transactional. `ApplyStereoEye` marks a pending eye but does
 not toggle it; only successful cache capture commits the next eye. Eye zero's

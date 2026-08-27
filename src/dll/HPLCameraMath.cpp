@@ -74,6 +74,27 @@ bool QuaternionFromRotationMatrix(
         rotation[column + 8] *= inverseLength;
     }
 
+    const Vector3 right{rotation[0], rotation[4], rotation[8]};
+    const Vector3 up{rotation[1], rotation[5], rotation[9]};
+    const Vector3 backward{rotation[2], rotation[6], rotation[10]};
+    const auto dot = [](const Vector3& left, const Vector3& rightValue) {
+        return left.x * rightValue.x + left.y * rightValue.y + left.z * rightValue.z;
+    };
+    const Vector3 rightCrossUp{
+        right.y * up.z - right.z * up.y,
+        right.z * up.x - right.x * up.z,
+        right.x * up.y - right.y * up.x,
+    };
+    constexpr float kBasisTolerance = 0.02f;
+    const float determinant = dot(rightCrossUp, backward);
+    if (!std::isfinite(determinant)
+        || std::fabs(dot(right, up)) > kBasisTolerance
+        || std::fabs(dot(right, backward)) > kBasisTolerance
+        || std::fabs(dot(up, backward)) > kBasisTolerance
+        || std::fabs(determinant - 1.0f) > kBasisTolerance) {
+        return false;
+    }
+
     Quaternion result;
     const float trace = rotation[0] + rotation[5] + rotation[10];
     if (trace > 0.0f) {

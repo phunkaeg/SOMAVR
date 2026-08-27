@@ -2,6 +2,24 @@
 
 ## 2026-08-27
 
+### 0.95.1-basis-guard
+
+- Hardened native matrix-to-quaternion extraction with a proper-rotation
+  requirement. Positively scaled orthogonal bases remain valid; mirrored or
+  materially sheared bases now fail closed before reaching camera, wrist,
+  hand, grab, or physics-body orientation consumers.
+- Kept existing caller ownership and fallbacks unchanged. The guard adds no
+  runtime switch and does not alter XR timing, projection, stereo, or IK policy.
+- Added deterministic acceptance for nonuniform positive scale and rejection
+  coverage for an orthonormal reflection and a positive-determinant shear.
+- Audited the 2026-08-27 fleet briefing. Runtime-sized near-square eye
+  swapchains, cached-eye desktop mirroring, AFR prediction/pair ownership, and
+  data-driven entity profiles are already aligned; square host rendering and
+  opaque runtime projection substitution remain evidence-gated.
+- Verification: OpenXR Release build, CTest `9/9`, packaged readiness doctor
+  `pass=9 warn=0 fail=0`, and canonical archive SHA-256
+  `4B1558405C47C1190AC319633D0E4473780F9031595116332FC7486551F1EFFB`.
+
 ### 0.95.0-freshness-elbow
 
 - Replaced the custom arm solver's projected fixed-direction elbow pole with

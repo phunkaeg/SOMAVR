@@ -1,5 +1,18 @@
 # Test Checklists
 
+## 0.95.1 Native Basis Guard
+
+1. Perform the complete 0.95 route below and require
+   `version=0.95.1-basis-guard`. Hands, wrists, arm IK, held physics props,
+   throw direction, and controller-driven interactions must match 0.95.
+2. Reload once, use the laptop, manipulate a drawer or curtain, pick up and
+   throw a physics prop, and exercise both arms across the full elbow sweep.
+   No hand may mirror, jump to an inverted orientation, or lose tracking during
+   ordinary valid animation and positive authored scale.
+3. Preserve the log. A basis rejection is a fail-closed diagnostic rather than
+   permission to synthesize a reflected quaternion; repeated rejection during
+   ordinary poses is a regression and should be reported with the exact action.
+
 ## 0.95.0 Freshness Ledger And Cross-Product Elbows
 
 1. Launch `out\SOMAVR-latest`, load the apartment save, and press F10 once.

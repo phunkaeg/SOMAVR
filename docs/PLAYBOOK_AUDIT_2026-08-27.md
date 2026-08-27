@@ -1,7 +1,8 @@
 # VR Modding Playbook Audit - 2026-08-27
 
 Status: audit complete; all three P1 findings implemented in
-`0.95.0-freshness-elbow`. P2/P3 remain evidence-gated research.
+`0.95.0-freshness-elbow`. The same-day fleet follow-up adds the
+`0.95.1-basis-guard` hardening patch. P2/P3 remain evidence-gated research.
 
 ## Scope
 
@@ -153,6 +154,43 @@ known-positive search control. It does not block the cross-product correction.
 - `STR-006`: AFR and same-frame replay remain independently selectable and
   shippable. A larger policy-interface refactor is justified only if native
   stereo or depth reprojection becomes a real third rung.
+
+## Fleet Briefing Follow-up
+
+The 2026-08-27 fleet briefing contains no SOMAVR-specific section, so every
+item below was re-audited against HPL3/OpenGL rather than copied as policy.
+
+- **Proper basis validation - implemented in 0.95.1.**
+  `QuaternionFromRotationMatrix` normalized native matrix columns but did not
+  prove mutual orthogonality or positive handedness. A reflected basis has
+  `|determinant| = 1` and could therefore become a plausible but inverted hand,
+  wrist, grab, or body quaternion. Extraction now requires near-orthogonal
+  columns and determinant near `+1`. Positive nonuniform scale remains valid;
+  reflection and material shear have deterministic rejection tests. Existing
+  callers already fail closed or retain their prior/native owner.
+- **Per-item data rather than per-item code - already aligned.**
+  `HPLEntityCalibrationProfiles` owns exact-entity hand, HUD-object,
+  flashlight, and socketed-prop calibration with finite, bounded payload
+  validation. Future authored interactions should extend that schema rather
+  than grow executable-name switch branches.
+- **Prediction and AFR pair ownership - already aligned.** One wait, one locate,
+  and one upcoming-render prediction occur per game tick; eye two replays eye
+  one's immutable native base and OpenXR snapshot with a 100 ms expiry.
+- **Runtime-sized eye targets and desktop reuse - already aligned.** OpenXR eye
+  swapchains use each runtime's recommended dimensions (the latest observed
+  pair was 2688x2880), while the desktop mirror blits a cached eye instead of
+  asking HPL3 for a third world render.
+- **Square host rendering - evidence-gated.** The game still renders its native
+  desktop backbuffer before transfer to near-square runtime eye images.
+  Forcing SOMA's host viewport square could affect GUI layout, culling, and
+  scene cost; it needs a controlled config comparison before becoming policy.
+- **Opaque/canted runtime projection substitution - not available through core
+  OpenXR.** SOMAVR already composes each eye's runtime pose and asymmetric FOV
+  into HPL's GL right-handed frustum. No full runtime projection matrix is
+  exposed by the active interface, so no speculative projection rewrite was
+  added.
+- D3D9 precision, adapter-LUID matching, and cross-project Graphify join gaps
+  do not alter SOMAVR's OpenGL runtime or local knowledge graph.
 
 ## Not Applicable Now
 

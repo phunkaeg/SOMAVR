@@ -3,12 +3,14 @@
 Date: 2026-08-27
 
 Use `out\SOMAVR-latest`
-(`0.95.0-freshness-elbow`) for the next run.
+(`0.95.1-basis-guard`) for the next run.
 
 The first priority is cross-product elbow continuity plus an attributable XR
 freshness/pacing record. Version 0.95 does not move XR calls between threads,
 promote native world stereo, or invoke the hands-owner probe; ordinary visuals
-and controls must match the accepted baseline.
+and controls must match the accepted baseline. Version 0.95.1 additionally
+fails closed on mirrored or materially sheared native orientation bases; it
+should be behaviorally invisible during valid transforms.
 
 1. Launch the rolling package, load the apartment save, press F10 once, and
    verify the established world, hands/IK, locomotion, interactions, terminal,
@@ -25,7 +27,7 @@ and controls must match the accepted baseline.
    normally and attach the complete log.
 
 ```text
-build_identity identity=0.95.0-freshness-elbow+...
+build_identity identity=0.95.1-basis-guard+...
 runtime_paths ... source=module
 config_applied ... mtime=... bytes=... parsedKeyHash=... accepted=... unknownKeys=0 unknownSections=0
 openxr_api_layers available=... policy=report_only

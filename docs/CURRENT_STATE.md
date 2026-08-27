@@ -22,10 +22,17 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 ## Active Baseline
 
 The active engineering and gameplay test build is
-`0.95.0-freshness-elbow`, layered on the
+`0.95.1-basis-guard`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Version 0.95.1 rejects reflected and materially sheared native transform
+  bases before converting them to quaternions. Positively scaled proper bases
+  still pass, while existing camera, wrist, hand, grab, and physics-body
+  fallbacks keep ownership when validation fails. This is a narrow fleet-
+  briefing hardening patch; XR pacing, stereo, projection, and IK behavior are
+  unchanged.
 
 - Version 0.95 replaces the arm solver's projected fixed-direction elbow pole
   with a cross-product construction. Cross magnitude continuously fades the

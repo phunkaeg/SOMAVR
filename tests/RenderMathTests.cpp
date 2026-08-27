@@ -1686,6 +1686,33 @@ int main()
             && Near(std::fabs(extractedYaw.y), kHalfSqrtTwo)
             && Near(std::fabs(extractedYaw.w), kHalfSqrtTwo),
         "rotation matrix round-trips through quaternion extraction");
+    std::array<float, 16> scaledProperBasis = camera_math::RotationMatrix(readYaw);
+    for (size_t row = 0; row < 3; ++row) {
+        scaledProperBasis[row * 4] *= 0.5f;
+        scaledProperBasis[row * 4 + 1] *= 1.5f;
+        scaledProperBasis[row * 4 + 2] *= 2.0f;
+    }
+    failures += Check(
+        camera_math::QuaternionFromRotationMatrix(scaledProperBasis, extractedYaw)
+            && Near(std::fabs(extractedYaw.y), kHalfSqrtTwo)
+            && Near(std::fabs(extractedYaw.w), kHalfSqrtTwo),
+        "quaternion extraction accepts a positively scaled proper basis");
+    std::array<float, 16> mirroredBasis = camera_math::RotationMatrix(readYaw);
+    for (size_t row = 0; row < 3; ++row) {
+        mirroredBasis[row * 4] *= -1.0f;
+    }
+    failures += Check(
+        !camera_math::QuaternionFromRotationMatrix(mirroredBasis, extractedYaw),
+        "quaternion extraction rejects a mirrored orthonormal basis");
+    std::array<float, 16> shearedBasis{
+        1.0f, 0.1f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f,
+    };
+    failures += Check(
+        !camera_math::QuaternionFromRotationMatrix(shearedBasis, extractedYaw),
+        "quaternion extraction rejects a materially sheared basis");
     camera_math::Quaternion basisOrientation{};
     failures += Check(
         camera_math::QuaternionFromForwardUp(

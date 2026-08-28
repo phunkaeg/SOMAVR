@@ -1,16 +1,17 @@
 # Next Live Evidence
 
-Date: 2026-08-27
+Date: 2026-08-29
 
 Use `out\SOMAVR-latest`
-(`0.95.1-basis-guard`) for the next run.
+(`0.95.2-playbook-conformance`) for the next run.
 
 The first priority is cross-product elbow continuity plus an attributable XR
 freshness/pacing record. Version 0.95 does not move XR calls between threads,
 promote native world stereo, or invoke the hands-owner probe; ordinary visuals
 and controls must match the accepted baseline. Version 0.95.1 additionally
 fails closed on mirrored or materially sheared native orientation bases; it
-should be behaviorally invisible during valid transforms.
+should be behaviorally invisible during valid transforms. Version 0.95.2 adds
+precise wrist-basis fallback attribution and no new runtime switch.
 
 1. Launch the rolling package, load the apartment save, press F10 once, and
    verify the established world, hands/IK, locomotion, interactions, terminal,
@@ -27,7 +28,7 @@ should be behaviorally invisible during valid transforms.
    normally and attach the complete log.
 
 ```text
-build_identity identity=0.95.1-basis-guard+...
+build_identity identity=0.95.2-playbook-conformance+...
 runtime_paths ... source=module
 config_applied ... mtime=... bytes=... parsedKeyHash=... accepted=... unknownKeys=0 unknownSections=0
 openxr_api_layers available=... policy=report_only
@@ -47,6 +48,7 @@ openxr_freshness ... pairCompletions=... freshStereo=... heldStereo=... blackPro
 openxr_freshness_summary reason=shutdown ... focusSkips=... failures=... heldAgeFrames=latest/max ...
 openxr_frame ok ... locateCalls=1 locateMaxPerFrame=1 ... stereoPoseGap=0 ...
 hpl_arm_ik ... crossMagnitude=... singularityBlend=... crossFallback=... policy=...cross_product_elbow...
+hpl_arm_body_summary ... wristRotation={... controllerBasisFallbacks=0 nativeBasisFallbacks={nonFiniteOrDegenerate=0 nonOrthogonal=0 improperHandedness=0 quaternion=0}} ...
 openxr_runtime suspended reason=f10_vr_mode_disabled ...
 hpl_vr_mode disabled ... runtimeSuspended=1
 proof_summary ... openxrFrameLockWaitMaxUs=... openxrFrameLockHoldMaxUs=...

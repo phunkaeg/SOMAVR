@@ -1,5 +1,28 @@
 # Build History
 
+## 2026-08-29
+
+### 0.95.2-playbook-conformance
+
+- Re-audited SOMAVR against the post-2026-08-27 playbook, its executable A1-A5
+  reference annexes, the fleet bottleneck map, the local project graph, and the
+  reconciled cross-project documentation graph.
+- Kept runtime behavior unchanged while making native rotation-basis failures
+  attributable. Wrist summaries now separate malformed controller forward/up
+  input from non-finite/degenerate, non-orthogonal, improper-handedness, and
+  quaternion-conversion failures in HPL native transforms.
+- Added failure-mode tests proving that a weak absolute-determinant check
+  accepts an orthonormal reflection while SOMAVR rejects it, plus explicit
+  tolerance-margin, degenerate-column, extreme-angle, and matrix/quaternion
+  agreement coverage.
+- Added asymmetric OpenXR projection tests that map left, right, up, and down
+  near-plane edges to NDC and prove tangent-space construction is not silently
+  replaced by angle averaging.
+- Verification: playbook reference executable `27/27` tests and `18,335`
+  checks; SOMAVR OpenXR Release build, CTest `9/9`, packaged readiness doctor
+  `pass=9 warn=0 fail=0`, and canonical archive SHA-256
+  `9B42CC94B35DC31E0FC4D07896C038A12CED698F84223A43E6E951318034EED9`.
+
 ## 2026-08-27
 
 ### 0.95.1-basis-guard

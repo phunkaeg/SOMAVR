@@ -1701,9 +1701,37 @@ int main()
     for (size_t row = 0; row < 3; ++row) {
         mirroredBasis[row * 4] *= -1.0f;
     }
+    camera_math::RotationBasisValidation basisValidation =
+        camera_math::RotationBasisValidation::Valid;
+    const auto normalizedBasisDeterminant = [](const std::array<float, 16>& matrix) {
+        camera_math::Vector3 columns[3];
+        for (size_t column = 0; column < 3; ++column) {
+            const float length = std::sqrt(
+                matrix[column] * matrix[column]
+                + matrix[column + 4] * matrix[column + 4]
+                + matrix[column + 8] * matrix[column + 8]);
+            columns[column] = {
+                matrix[column] / length,
+                matrix[column + 4] / length,
+                matrix[column + 8] / length,
+            };
+        }
+        const camera_math::Vector3 cross{
+            columns[0].y * columns[1].z - columns[0].z * columns[1].y,
+            columns[0].z * columns[1].x - columns[0].x * columns[1].z,
+            columns[0].x * columns[1].y - columns[0].y * columns[1].x,
+        };
+        return cross.x * columns[2].x
+            + cross.y * columns[2].y
+            + cross.z * columns[2].z;
+    };
     failures += Check(
-        !camera_math::QuaternionFromRotationMatrix(mirroredBasis, extractedYaw),
-        "quaternion extraction rejects a mirrored orthonormal basis");
+        !camera_math::QuaternionFromRotationMatrix(
+            mirroredBasis, extractedYaw, &basisValidation)
+            && basisValidation
+                == camera_math::RotationBasisValidation::ImproperHandedness
+            && Near(std::fabs(normalizedBasisDeterminant(mirroredBasis)), 1.0f),
+        "proper-basis guard rejects a reflection that a weak absolute-determinant check accepts");
     std::array<float, 16> shearedBasis{
         1.0f, 0.1f, 0.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
@@ -1711,8 +1739,35 @@ int main()
         0.0f, 0.0f, 0.0f, 1.0f,
     };
     failures += Check(
-        !camera_math::QuaternionFromRotationMatrix(shearedBasis, extractedYaw),
-        "quaternion extraction rejects a materially sheared basis");
+        !camera_math::QuaternionFromRotationMatrix(
+            shearedBasis, extractedYaw, &basisValidation)
+            && basisValidation == camera_math::RotationBasisValidation::NonOrthogonal,
+        "proper-basis guard classifies and rejects a materially sheared basis");
+    std::array<float, 16> nearToleranceBasis{
+        1.0f, 0.015f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f,
+    };
+    std::array<float, 16> outsideToleranceBasis = nearToleranceBasis;
+    outsideToleranceBasis[1] = 0.025f;
+    failures += Check(
+        camera_math::QuaternionFromRotationMatrix(
+            nearToleranceBasis, extractedYaw, &basisValidation)
+            && basisValidation == camera_math::RotationBasisValidation::Valid
+            && !camera_math::QuaternionFromRotationMatrix(
+                outsideToleranceBasis, extractedYaw, &basisValidation)
+            && basisValidation == camera_math::RotationBasisValidation::NonOrthogonal,
+        "proper-basis guard keeps explicit acceptance and rejection margin around its tolerance");
+    std::array<float, 16> degenerateBasis = camera_math::RotationMatrix(readYaw);
+    degenerateBasis[0] = 0.0f;
+    degenerateBasis[4] = 0.0f;
+    degenerateBasis[8] = 0.0f;
+    failures += Check(
+        !camera_math::QuaternionFromRotationMatrix(
+            degenerateBasis, extractedYaw, &basisValidation)
+            && basisValidation == camera_math::RotationBasisValidation::DegenerateColumn,
+        "proper-basis guard classifies a degenerate native transform");
     camera_math::Quaternion basisOrientation{};
     failures += Check(
         camera_math::QuaternionFromForwardUp(
@@ -1775,6 +1830,56 @@ int main()
         "centered projection construction");
     failures += Check(Near(projection[2], 0.0f), "horizontal projection offset");
     failures += Check(Near(projection[6], 0.0f), "vertical projection offset");
+
+    std::array<float, 16> asymmetricProjection{};
+    failures += Check(
+        camera_math::BuildOpenXRProjection(
+            asymmetricEye, 0.03f, 1000.0f,
+            asymmetricProjection, verticalFov, aspect),
+        "asymmetric projection construction");
+    const auto projectToNdc = [&asymmetricProjection](float x, float y, float z) {
+        const float clipX = asymmetricProjection[0] * x
+            + asymmetricProjection[1] * y
+            + asymmetricProjection[2] * z
+            + asymmetricProjection[3];
+        const float clipY = asymmetricProjection[4] * x
+            + asymmetricProjection[5] * y
+            + asymmetricProjection[6] * z
+            + asymmetricProjection[7];
+        const float clipW = asymmetricProjection[12] * x
+            + asymmetricProjection[13] * y
+            + asymmetricProjection[14] * z
+            + asymmetricProjection[15];
+        return camera_math::Vector3{clipX / clipW, clipY / clipW, clipW};
+    };
+    constexpr float projectionNear = 0.03f;
+    const float tanLeft = std::tan(asymmetricEye.angleLeft);
+    const float tanRight = std::tan(asymmetricEye.angleRight);
+    const float tanDown = std::tan(asymmetricEye.angleDown);
+    const float tanUp = std::tan(asymmetricEye.angleUp);
+    const camera_math::Vector3 leftEdge = projectToNdc(
+        tanLeft * projectionNear, 0.0f, -projectionNear);
+    const camera_math::Vector3 rightEdge = projectToNdc(
+        tanRight * projectionNear, 0.0f, -projectionNear);
+    const camera_math::Vector3 downEdge = projectToNdc(
+        0.0f, tanDown * projectionNear, -projectionNear);
+    const camera_math::Vector3 upEdge = projectToNdc(
+        0.0f, tanUp * projectionNear, -projectionNear);
+    const camera_math::Vector3 asymmetricCenter = projectToNdc(
+        0.0f, 0.0f, -projectionNear);
+    failures += Check(
+        Near(leftEdge.x, -1.0f, 0.0001f)
+            && Near(rightEdge.x, 1.0f, 0.0001f)
+            && Near(downEdge.y, -1.0f, 0.0001f)
+            && Near(upEdge.y, 1.0f, 0.0001f)
+            && std::fabs(asymmetricCenter.x) > 0.01f
+            && std::fabs(asymmetricCenter.y) > 0.01f,
+        "asymmetric OpenXR frustum maps all near-plane edges without hiding off-axis terms");
+    failures += Check(
+        std::fabs(
+            std::tan((asymmetricEye.angleLeft + asymmetricEye.angleRight) * 0.5f)
+            - (tanLeft + tanRight) * 0.5f) > 0.001f,
+        "asymmetric projection uses tangent-space extents rather than averaged angles");
 
     const camera_math::Quaternion identity;
     const camera_math::Vector3 inputVector{1.0f, 2.0f, 3.0f};
@@ -1841,6 +1946,57 @@ int main()
             && Near(matrixResult.y, quaternionResult.y)
             && Near(matrixResult.z, quaternionResult.z),
         "rotation matrix matches quaternion rotation");
+
+    constexpr float kPi = 3.14159265358979323846f;
+    constexpr std::array<float, 7> highAngles{
+        0.0f, 0.5f, 1.0f, 2.0f, 3.0f, kPi, -kPi};
+    constexpr std::array<camera_math::Vector3, 4> highAngleAxes{
+        camera_math::Vector3{1.0f, 0.0f, 0.0f},
+        camera_math::Vector3{0.0f, 1.0f, 0.0f},
+        camera_math::Vector3{0.0f, 0.0f, 1.0f},
+        camera_math::Vector3{0.26726124f, 0.53452248f, 0.80178373f},
+    };
+    constexpr std::array<camera_math::Vector3, 3> highAngleVectors{
+        camera_math::Vector3{1.0f, 0.0f, 0.0f},
+        camera_math::Vector3{0.31f, -0.27f, 0.73f},
+        camera_math::Vector3{-0.42f, 0.81f, 0.16f},
+    };
+    bool highAngleAgreement = true;
+    for (const camera_math::Vector3& axis : highAngleAxes) {
+        for (const float angle : highAngles) {
+            const float halfAngle = angle * 0.5f;
+            const camera_math::Quaternion rotation{
+                axis.x * std::sin(halfAngle),
+                axis.y * std::sin(halfAngle),
+                axis.z * std::sin(halfAngle),
+                std::cos(halfAngle),
+            };
+            const std::array<float, 16> matrix = camera_math::RotationMatrix(rotation);
+            camera_math::Quaternion roundTrip{};
+            if (!camera_math::QuaternionFromRotationMatrix(matrix, roundTrip)) {
+                highAngleAgreement = false;
+                break;
+            }
+            for (const camera_math::Vector3& vector : highAngleVectors) {
+                const camera_math::Vector3 byQuaternion =
+                    camera_math::RotateVector(rotation, vector);
+                const camera_math::Vector3 byMatrix{
+                    matrix[0] * vector.x + matrix[1] * vector.y + matrix[2] * vector.z,
+                    matrix[4] * vector.x + matrix[5] * vector.y + matrix[6] * vector.z,
+                    matrix[8] * vector.x + matrix[9] * vector.y + matrix[10] * vector.z,
+                };
+                if (!Near(byMatrix.x, byQuaternion.x, 0.0001f)
+                    || !Near(byMatrix.y, byQuaternion.y, 0.0001f)
+                    || !Near(byMatrix.z, byQuaternion.z, 0.0001f)) {
+                    highAngleAgreement = false;
+                    break;
+                }
+            }
+        }
+    }
+    failures += Check(
+        highAngleAgreement,
+        "rotation matrix and independent quaternion path agree at extreme tracked angles");
 
     camera_math::PoseStabilityState poseLatch;
     float positionStep = 0.0f;

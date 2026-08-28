@@ -352,6 +352,11 @@ std::atomic<uint64_t> g_wristRotationApplications = 0;
 std::atomic<uint64_t> g_wristRotationFallbacks = 0;
 std::atomic<uint64_t> g_wristGeometricAnchorSeeds = 0;
 std::atomic<uint64_t> g_wristLegacyAnchorSeeds = 0;
+std::atomic<uint64_t> g_wristControllerBasisFallbacks = 0;
+std::atomic<uint64_t> g_wristNativeBasisNonFiniteFallbacks = 0;
+std::atomic<uint64_t> g_wristNativeBasisOrthogonalityFallbacks = 0;
+std::atomic<uint64_t> g_wristNativeBasisHandednessFallbacks = 0;
+std::atomic<uint64_t> g_wristNativeQuaternionFallbacks = 0;
 std::atomic<uint64_t> g_wristReadFallbacks = 0;
 std::atomic<uint64_t> g_wristHierarchyFallbacks = 0;
 std::atomic<uint64_t> g_wristAuthoredPostFallbacks = 0;
@@ -452,6 +457,28 @@ bool ReadNativeString(const void* nativeString, std::string& value)
 
     value.resize(static_cast<size_t>(layout.size));
     return layout.size == 0 || ReadMemory(source, value.data(), value.size());
+}
+
+void CountWristNativeBasisFallback(camera_math::RotationBasisValidation validation)
+{
+    using camera_math::RotationBasisValidation;
+    switch (validation) {
+    case RotationBasisValidation::NonFinite:
+    case RotationBasisValidation::DegenerateColumn:
+        g_wristNativeBasisNonFiniteFallbacks.fetch_add(1, std::memory_order_relaxed);
+        break;
+    case RotationBasisValidation::NonOrthogonal:
+        g_wristNativeBasisOrthogonalityFallbacks.fetch_add(1, std::memory_order_relaxed);
+        break;
+    case RotationBasisValidation::ImproperHandedness:
+        g_wristNativeBasisHandednessFallbacks.fetch_add(1, std::memory_order_relaxed);
+        break;
+    case RotationBasisValidation::QuaternionFailure:
+        g_wristNativeQuaternionFallbacks.fetch_add(1, std::memory_order_relaxed);
+        break;
+    case RotationBasisValidation::Valid:
+        break;
+    }
 }
 
 NativeStringLayout MakeInlineNativeString(const char* value)
@@ -1486,12 +1513,19 @@ void SeedWristOrientationAnchor(
         || handIndex >= g_wristOrientationAnchors.size()) return;
     camera_math::Quaternion wristOrientation{};
     camera_math::Quaternion controllerOrientation{};
-    if (!camera_math::QuaternionFromForwardUp(
+    const bool controllerBasisValid = camera_math::QuaternionFromForwardUp(
             {target.forwardX, target.forwardY, target.forwardZ},
             {target.upX, target.upY, target.upZ},
-            controllerOrientation)
-        || !camera_math::QuaternionFromRotationMatrix(
-            wristWorld, wristOrientation)) {
+            controllerOrientation);
+    camera_math::RotationBasisValidation wristBasisValidation =
+        camera_math::RotationBasisValidation::Valid;
+    const bool wristBasisValid = camera_math::QuaternionFromRotationMatrix(
+        wristWorld, wristOrientation, &wristBasisValidation);
+    if (!controllerBasisValid || !wristBasisValid) {
+        if (!controllerBasisValid) {
+            g_wristControllerBasisFallbacks.fetch_add(1, std::memory_order_relaxed);
+        }
+        if (!wristBasisValid) CountWristNativeBasisFallback(wristBasisValidation);
         g_armIkReadFallbacks.fetch_add(1, std::memory_order_relaxed);
         return;
     }
@@ -1959,7 +1993,7 @@ void ApplyPlayerHandsWristPositions(
         if (g_config.hplHandWristRotation) {
             camera_math::Quaternion controllerOrientation;
             camera_math::Quaternion wristOrientation;
-            const bool orientationReadable = camera_math::QuaternionFromForwardUp(
+            const bool controllerBasisValid = camera_math::QuaternionFromForwardUp(
                     {
                         tracking.targets[handIndex].forwardX,
                         tracking.targets[handIndex].forwardY,
@@ -1970,9 +2004,16 @@ void ApplyPlayerHandsWristPositions(
                         tracking.targets[handIndex].upY,
                         tracking.targets[handIndex].upZ,
                     },
-                    controllerOrientation)
-                && camera_math::QuaternionFromRotationMatrix(
-                    worldMatrix, wristOrientation);
+                    controllerOrientation);
+            camera_math::RotationBasisValidation wristBasisValidation =
+                camera_math::RotationBasisValidation::Valid;
+            const bool wristBasisValid = camera_math::QuaternionFromRotationMatrix(
+                worldMatrix, wristOrientation, &wristBasisValidation);
+            const bool orientationReadable = controllerBasisValid && wristBasisValid;
+            if (!controllerBasisValid) {
+                g_wristControllerBasisFallbacks.fetch_add(1, std::memory_order_relaxed);
+            }
+            if (!wristBasisValid) CountWristNativeBasisFallback(wristBasisValidation);
             if (orientationReadable) {
                 WristOrientationAnchor anchor;
                 {
@@ -4040,7 +4081,7 @@ void LogHPLHandsBridgeSummary()
         static_cast<unsigned long long>(g_flashlightGameplayRayMathFallbacks.load(std::memory_order_relaxed)));
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_arm_body_summary armIK={enabled=%d ergonomics=%d shoulderReach=%d shoulderVerticalOffsetMeters=%.3f shoulderOffsets=%llu frameAttempts=%llu framesApplied=%llu applications=%llu reachClamps=%llu ergonomicFallbacks=%llu shoulderCompensations=%llu elbowHistoryUses=%llu elbowSingularityBlends=%llu elbowSwivelLimits=%llu readFallbacks=%llu hierarchyFallbacks=%llu authoredPostFallbacks=%llu mathFallbacks=%llu sharedRootSeeds=%llu sharedRootRestores=%llu sharedRootDriftCorrections=%llu sharedRootFallbacks=%llu} wristRotation={enabled=%d anchorSeeds=%llu geometricSeeds=%llu legacySeeds=%llu applications=%llu fallbacks=%llu} persistentHands={enabled=%d hooksInstalled=%d nativeSeeds=%llu wakeRequests=%llu activeCalls=%llu visibleCalls=%llu activeSuppressions=%llu visibleSuppressions=%llu retainedFrames=%llu fallbacks=%llu invalidations=%llu lifecyclePolicy=native_visibility_hooks_plus_matrix_only_synthetic_updates}",
+        "hpl_arm_body_summary armIK={enabled=%d ergonomics=%d shoulderReach=%d shoulderVerticalOffsetMeters=%.3f shoulderOffsets=%llu frameAttempts=%llu framesApplied=%llu applications=%llu reachClamps=%llu ergonomicFallbacks=%llu shoulderCompensations=%llu elbowHistoryUses=%llu elbowSingularityBlends=%llu elbowSwivelLimits=%llu readFallbacks=%llu hierarchyFallbacks=%llu authoredPostFallbacks=%llu mathFallbacks=%llu sharedRootSeeds=%llu sharedRootRestores=%llu sharedRootDriftCorrections=%llu sharedRootFallbacks=%llu} wristRotation={enabled=%d anchorSeeds=%llu geometricSeeds=%llu legacySeeds=%llu applications=%llu fallbacks=%llu controllerBasisFallbacks=%llu nativeBasisFallbacks={nonFiniteOrDegenerate=%llu nonOrthogonal=%llu improperHandedness=%llu quaternion=%llu}} persistentHands={enabled=%d hooksInstalled=%d nativeSeeds=%llu wakeRequests=%llu activeCalls=%llu visibleCalls=%llu activeSuppressions=%llu visibleSuppressions=%llu retainedFrames=%llu fallbacks=%llu invalidations=%llu lifecyclePolicy=native_visibility_hooks_plus_matrix_only_synthetic_updates}",
         g_config.hplHandArmIK ? 1 : 0,
         g_config.hplHandArmIKErgonomics ? 1 : 0,
         g_config.hplHandShoulderReachCompensation ? 1 : 0,
@@ -4069,6 +4110,11 @@ void LogHPLHandsBridgeSummary()
         static_cast<unsigned long long>(g_wristLegacyAnchorSeeds.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_wristRotationApplications.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_wristRotationFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_wristControllerBasisFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_wristNativeBasisNonFiniteFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_wristNativeBasisOrthogonalityFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_wristNativeBasisHandednessFallbacks.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_wristNativeQuaternionFallbacks.load(std::memory_order_relaxed)),
         g_config.hplHandAlwaysVisible ? 1 : 0,
         g_setActiveTarget != nullptr && g_setVisibleTarget != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_handsNativeSeeds.load(std::memory_order_relaxed)),

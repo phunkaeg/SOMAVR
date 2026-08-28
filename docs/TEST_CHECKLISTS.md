@@ -1,5 +1,24 @@
 # Test Checklists
 
+## 0.95.2 Playbook Conformance And Basis Attribution
+
+1. Perform the complete 0.95.1 and 0.95 route below and require
+   `version=0.95.2-playbook-conformance`. This build intentionally changes no
+   XR timing, stereo, projection, IK geometry, locomotion, or interaction
+   policy, so every established visual and control behavior must match.
+2. Exercise both hands at neutral, high roll/pitch, overhead, across the body,
+   and behind the shoulder. Then reload once, use the laptop, manipulate a
+   drawer or curtain, and pick up and throw a physics prop. No hand may mirror,
+   invert, jump, or silently lose wrist rotation.
+3. Exit normally and preserve `hpl_arm_body_summary`. During ordinary valid
+   poses require `controllerBasisFallbacks=0` and all four
+   `nativeBasisFallbacks` counters to remain zero. Any nonzero value now names
+   the exact input class to investigate; it is not permission to weaken the
+   proper-basis guard.
+4. Continue the 0.95 freshness, pacing, elbow-continuity, F10 stop/restart, and
+   render-resource checks unchanged. This build adds attribution around those
+   paths but does not claim new headset acceptance.
+
 ## 0.95.1 Native Basis Guard
 
 1. Perform the complete 0.95 route below and require

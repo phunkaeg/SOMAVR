@@ -60,14 +60,26 @@ Vector3 RotateVector(const Quaternion& input, const Vector3& value)
 
 bool QuaternionFromRotationMatrix(
     const std::array<float, 16>& matrix,
-    Quaternion& output)
+    Quaternion& output,
+    RotationBasisValidation* validation)
 {
+    const auto reject = [validation](RotationBasisValidation reason) {
+        if (validation != nullptr) *validation = reason;
+        return false;
+    };
+    if (validation != nullptr) *validation = RotationBasisValidation::Valid;
+
     std::array<float, 16> rotation = matrix;
     for (size_t column = 0; column < 3; ++column) {
         const float lengthSquared = matrix[column] * matrix[column]
             + matrix[column + 4] * matrix[column + 4]
             + matrix[column + 8] * matrix[column + 8];
-        if (!std::isfinite(lengthSquared) || lengthSquared < 1.0e-8f) return false;
+        if (!std::isfinite(lengthSquared)) {
+            return reject(RotationBasisValidation::NonFinite);
+        }
+        if (lengthSquared < 1.0e-8f) {
+            return reject(RotationBasisValidation::DegenerateColumn);
+        }
         const float inverseLength = 1.0f / std::sqrt(lengthSquared);
         rotation[column] *= inverseLength;
         rotation[column + 4] *= inverseLength;
@@ -86,49 +98,70 @@ bool QuaternionFromRotationMatrix(
         right.x * up.y - right.y * up.x,
     };
     constexpr float kBasisTolerance = 0.02f;
+    const float rightUpDot = dot(right, up);
+    const float rightBackwardDot = dot(right, backward);
+    const float upBackwardDot = dot(up, backward);
     const float determinant = dot(rightCrossUp, backward);
-    if (!std::isfinite(determinant)
-        || std::fabs(dot(right, up)) > kBasisTolerance
-        || std::fabs(dot(right, backward)) > kBasisTolerance
-        || std::fabs(dot(up, backward)) > kBasisTolerance
-        || std::fabs(determinant - 1.0f) > kBasisTolerance) {
-        return false;
+    if (!std::isfinite(rightUpDot)
+        || !std::isfinite(rightBackwardDot)
+        || !std::isfinite(upBackwardDot)
+        || !std::isfinite(determinant)) {
+        return reject(RotationBasisValidation::NonFinite);
+    }
+    if (std::fabs(rightUpDot) > kBasisTolerance
+        || std::fabs(rightBackwardDot) > kBasisTolerance
+        || std::fabs(upBackwardDot) > kBasisTolerance) {
+        return reject(RotationBasisValidation::NonOrthogonal);
+    }
+    if (std::fabs(determinant - 1.0f) > kBasisTolerance) {
+        return reject(RotationBasisValidation::ImproperHandedness);
     }
 
     Quaternion result;
     const float trace = rotation[0] + rotation[5] + rotation[10];
     if (trace > 0.0f) {
         const float scale = std::sqrt(trace + 1.0f) * 2.0f;
-        if (!std::isfinite(scale) || scale < 1.0e-6f) return false;
+        if (!std::isfinite(scale) || scale < 1.0e-6f) {
+            return reject(RotationBasisValidation::QuaternionFailure);
+        }
         result.w = 0.25f * scale;
         result.x = (rotation[9] - rotation[6]) / scale;
         result.y = (rotation[2] - rotation[8]) / scale;
         result.z = (rotation[4] - rotation[1]) / scale;
     } else if (rotation[0] > rotation[5] && rotation[0] > rotation[10]) {
         const float scale = std::sqrt(1.0f + rotation[0] - rotation[5] - rotation[10]) * 2.0f;
-        if (!std::isfinite(scale) || scale < 1.0e-6f) return false;
+        if (!std::isfinite(scale) || scale < 1.0e-6f) {
+            return reject(RotationBasisValidation::QuaternionFailure);
+        }
         result.w = (rotation[9] - rotation[6]) / scale;
         result.x = 0.25f * scale;
         result.y = (rotation[1] + rotation[4]) / scale;
         result.z = (rotation[2] + rotation[8]) / scale;
     } else if (rotation[5] > rotation[10]) {
         const float scale = std::sqrt(1.0f + rotation[5] - rotation[0] - rotation[10]) * 2.0f;
-        if (!std::isfinite(scale) || scale < 1.0e-6f) return false;
+        if (!std::isfinite(scale) || scale < 1.0e-6f) {
+            return reject(RotationBasisValidation::QuaternionFailure);
+        }
         result.w = (rotation[2] - rotation[8]) / scale;
         result.x = (rotation[1] + rotation[4]) / scale;
         result.y = 0.25f * scale;
         result.z = (rotation[6] + rotation[9]) / scale;
     } else {
         const float scale = std::sqrt(1.0f + rotation[10] - rotation[0] - rotation[5]) * 2.0f;
-        if (!std::isfinite(scale) || scale < 1.0e-6f) return false;
+        if (!std::isfinite(scale) || scale < 1.0e-6f) {
+            return reject(RotationBasisValidation::QuaternionFailure);
+        }
         result.w = (rotation[4] - rotation[1]) / scale;
         result.x = (rotation[2] + rotation[8]) / scale;
         result.y = (rotation[6] + rotation[9]) / scale;
         result.z = 0.25f * scale;
     }
     output = Normalize(result);
-    return std::isfinite(output.x) && std::isfinite(output.y)
-        && std::isfinite(output.z) && std::isfinite(output.w);
+    if (!std::isfinite(output.x) || !std::isfinite(output.y)
+        || !std::isfinite(output.z) || !std::isfinite(output.w)) {
+        return reject(RotationBasisValidation::QuaternionFailure);
+    }
+    return true;
 }
 
 bool QuaternionFromForwardUp(

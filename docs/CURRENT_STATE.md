@@ -1,6 +1,6 @@
 # Current State
 
-Date: 2026-08-27
+Date: 2026-08-29
 
 ## Objective
 
@@ -22,10 +22,20 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 ## Active Baseline
 
 The active engineering and gameplay test build is
-`0.95.1-basis-guard`, layered on the
+`0.95.2-playbook-conformance`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
 compatibility probes:
+
+- Version 0.95.2 completes the applicable 2026-08-29 executable-playbook
+  conformance pass without changing XR, stereo, IK, or interaction policy.
+  Native wrist-basis failures are now classified as controller-input,
+  non-finite/degenerate, non-orthogonal, improper-handedness, or quaternion
+  failures in `hpl_arm_body_summary`. Deterministic tests prove the strong
+  handedness guard catches a reflection that an absolute-determinant check
+  accepts, pin the guard's acceptance/rejection margin, exercise extreme
+  tracked rotations, and map all four edges of an asymmetric OpenXR frustum.
+  The full delta audit is `docs/PLAYBOOK_AUDIT_2026-08-29.md`.
 
 - Version 0.95.1 rejects reflected and materially sheared native transform
   bases before converting them to quaternions. Positively scaled proper bases

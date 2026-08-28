@@ -20,6 +20,15 @@ struct Vector3 {
     float z = 0.0f;
 };
 
+enum class RotationBasisValidation {
+    Valid,
+    NonFinite,
+    DegenerateColumn,
+    NonOrthogonal,
+    ImproperHandedness,
+    QuaternionFailure,
+};
+
 constexpr size_t kMaxRoomscaleSafetySamples = 19;
 
 struct PoseStabilityState {
@@ -76,7 +85,8 @@ Quaternion YawOnly(const Quaternion& value);
 Vector3 RotateVector(const Quaternion& input, const Vector3& value);
 bool QuaternionFromRotationMatrix(
     const std::array<float, 16>& matrix,
-    Quaternion& output);
+    Quaternion& output,
+    RotationBasisValidation* validation = nullptr);
 bool QuaternionFromForwardUp(
     const Vector3& forward,
     const Vector3& up,

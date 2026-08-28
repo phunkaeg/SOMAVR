@@ -21,7 +21,7 @@
 - Verification: playbook reference executable `27/27` tests and `18,335`
   checks; SOMAVR OpenXR Release build, CTest `9/9`, packaged readiness doctor
   `pass=9 warn=0 fail=0`, and canonical archive SHA-256
-  `9B42CC94B35DC31E0FC4D07896C038A12CED698F84223A43E6E951318034EED9`.
+  `F425CE121D24D6FCFA080BA0A8A2FFDA3020206D02C93B08309BDEACC7F55218`.
 
 ## 2026-08-27
 

@@ -38,7 +38,7 @@ and it passes against the shared runtime unmodified. So adoption is not blocked 
 Worth noting `max layers 16` — that is exactly the capacity F-05's `appendLayer` budget clamps to,
 so the simulated system is representative for that path rather than permissive.
 
-## 2. The vendored copy is a stale fork, and the divergence matters in one place
+## 2. The vendored copy is a specialised subset (see §5 for why the line counts mislead)
 
 `SOMAVR\tools\xrsim\runtime\` and `Xr-sim\src\` are the same lineage — identical file names, same
 overall size — but have diverged:
@@ -53,9 +53,11 @@ overall size — but have diverged:
 | `xrsim_graphics.cpp` | **absent** | 533 | — |
 | others | — | — | 2-70 each |
 
-Most of that is backend breadth SOMAVR does not need: `xrsim_graphics.cpp` is the multi-binding
-layer (D3D9/10/11/12, Vulkan, headless) and the private `XR_XRSIM_d3d9_enable` /
-`XR_XRSIM_d3d10_enable` extensions. Irrelevant here — SOMAVR is x64 OpenGL only.
+Two files being *larger* locally looks like local work upstream lacks. It is not — see
+[§5](#5-correction-the-divergence-is-a-refactor-not-lost-features). `xrsim_graphics.cpp` is the
+multi-binding layer (D3D9/10/11/12, Vulkan, headless) plus the private `XR_XRSIM_d3d9_enable` /
+`XR_XRSIM_d3d10_enable` extensions, and it is also where the GL code that the fork inlines into
+`xrsim_session.cpp` now lives.
 
 **The part that is not irrelevant is depth.** Counting depth references in the compositor:
 
@@ -120,9 +122,47 @@ session. Two routes, in order of preference:
 
 Route 1 is the higher-value half and does not depend on this integration decision.
 
-## 5. Blocker before any re-sync — read this first
+## 5. Correction: the divergence is a refactor, not lost features
 
-**The vendored runtime is uncommitted work belonging to another session.** At time of writing:
+**An earlier revision of this document warned that the divergence ran "both ways" — that
+`xrsim_actions.cpp` and `xrsim_session.cpp` being larger locally meant local work existed that
+upstream lacked, and that a blind copy would "lose work in both directions." That was inferred from
+line counts alone and is wrong.** Checked properly, the size inversion is an artifact of an upstream
+refactor.
+
+The local fork **inlines the OpenGL binding into the session layer**, with file-scope global state:
+
+```cpp
+HDC   g_deviceContext = nullptr;      // xrsim_session.cpp, local only
+HGLRC g_glContext     = nullptr;
+// ... XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR handled inline in xrCreateSession
+compositor_init(g_deviceContext, g_glContext);
+```
+
+Upstream extracted exactly that code into `xrsim_graphics.cpp`, where the same binding is handled
+**per session** rather than globally, alongside five others:
+
+```cpp
+// Xr-sim/src/xrsim_graphics.cpp:241
+case XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR: {
+    if (!b->hDC || !b->hGLRC) return XR_ERROR_GRAPHICS_DEVICE_INVALID;
+    s.glDC = b->hDC;
+    s.glRC = b->hGLRC;
+```
+
+So `xrsim_session.cpp` is *smaller* upstream because the GL code moved *out* of it, and
+`xrsim_graphics.cpp` (533 lines, absent locally) is where it went. The local copy is a **specialised
+subset**, not a superset. Per-session state is also strictly better than the fork's globals.
+
+The same holds for the actions file: `control_bool`, `kTouch`, `actions_reset_session` and
+`VC_TRIGGER_L` are all present upstream. Exactly one symbol is genuinely local-only —
+`subaction_hand`, which resolves a subaction path to a hand index at query time. Upstream does not
+need it because its binding table carries the hand index in the table itself (the third column of
+each `BindingEntry`), resolving at binding time instead. A design difference, not a dropped feature.
+
+**Net: there is nothing in the fork worth upstreaming, and nothing lost by adopting upstream.**
+
+## 6. The remaining blocker is process, not technical
 
 ```
  M CMakeLists.txt        (+53 lines, adds somavr_xrsim64 and somavr_xrsim_smoke)
@@ -131,23 +171,20 @@ Route 1 is the higher-value half and does not depend on this integration decisio
 ?? tools/                (entire directory untracked — includes tools/xrsim/)
 ```
 
-All dated 2026-08-30, uncommitted as of 2026-08-31. Overwriting `tools/xrsim/runtime/` with a sync
-from `Xr-sim\src\` would silently discard whatever that session changed in it, and the divergence
-table above shows the local copy is not simply an older snapshot — `xrsim_actions.cpp` and
-`xrsim_session.cpp` are *larger* locally, so there is local work in there that does not exist
-upstream.
-
-**Reconcile before re-syncing.** The right sequence is: commit or stash the in-flight work, diff
-`tools/xrsim/runtime` against `Xr-sim/src` properly, decide whether the local-only additions should
-go upstream into the shared project, and only then adopt. A blind copy loses work in both
-directions.
+All dated 2026-08-30 and still uncommitted as of 2026-08-31. This is another session's work in
+flight. The technical risk of re-syncing is now known to be low, but the *process* risk is
+unchanged: the files are uncommitted, so any change to them cannot be committed without dragging
+that session's work into the commit. Commit or stash it first.
 
 ## Recommendation
 
-1. **Do route 1 regardless** — lift the layer-budget and hold decisions into `somavr_render_math`
-   and unit-test them. No dependency on this decision, closes the real regression gap.
-2. **Re-sync the vendored runtime only after reconciling** the uncommitted `tools/` work, and treat
-   depth-layer support as the reason rather than freshness for its own sake.
-3. **Prefer consuming the shared project over vendoring** long-term, so this divergence does not
-   recur — but that is a CMake change to a file another session currently has modified, so it is not
-   a change to make unilaterally.
+1. **Adopt upstream and retire the fork.** The fork is a GL-specialised subset with global state
+   where upstream has per-session state; it holds nothing worth preserving. SOMAVR's own smoke probe
+   already passes against the shared runtime unmodified, so adoption is proven, not projected.
+   Depth-layer support is the concrete gain.
+2. **Prefer consuming `D:\Dev Debug\Xr-sim` over re-vendoring**, so this divergence cannot recur.
+   That is a CMake change to a file another session currently has modified — commit or stash that
+   work first.
+3. **Do the `somavr_render_math` extraction regardless.** Lifting the layer-budget and hold
+   decisions into pure math and unit-testing them closes the actual regression gap, needs no xr-sim
+   at all, and is independent of every choice above.

@@ -79,3 +79,36 @@ Expected from that run, none of which any existing test reaches: `layer_budget` 
 `depth_submission_consistent` exercised, `never_submits_zero_layers` against the real submit path
 (F-02), and — via xr-sim's `hazard` / `instanceloss` controls — F-19 and F-20 across a transient
 fault.
+
+
+---
+
+# CORRECTION --- crashing runs DO produce traces
+
+**An earlier revision of this document stated that a crashing run "produces no trace by
+construction", because the layer flushes only on `xrDestroyInstance`. That is wrong, and the
+recommendation to report it upstream as a limitation was based on a false premise.**
+
+The layer flushes explicitly every 256 records (`if ((recorded % 256) == 0) g_trace.Flush();` in
+`layer/xrtape_layer.cpp`), on top of a 64 KiB fully-buffered stdio stream. The periodic flush that
+was recommended as a fix already existed.
+
+Measured, after the claim had been repeated across three sessions:
+
+| run | pid | outcome | trace |
+| --- | --- | --- | ---: |
+| 1 | 103996 | clean exit | 23.9 MB |
+| 2 | 94740 | **crashed** | 2.4 MB |
+| 3 | 17992 | **crashed** | 2.4 MB |
+| 4 | 52752 | **crashed** | 2.2 MB |
+| 5 | 11316 | stereo active, killed | 5.3 MB |
+
+Both crashed runs whose traces were declared lost had written 2.4 MB each. What a crashed run
+actually loses is the `footer` record and at most the records since the last flush.
+
+The error was reading [xr-tape's SCHEMA.md](../../xr-tape/docs/SCHEMA.md), which correctly says the
+*footer* is written from `xrDestroyInstance` and that "a process that was killed never gets there",
+and generalising "it" from the footer to the whole trace. The directory was never listed. Upstream
+has been amended to state the distinction explicitly.
+
+**Rule: list the trace directory before reporting that a run produced nothing.**

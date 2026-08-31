@@ -3783,8 +3783,21 @@ void UpdateHPLHandsBridge(uint64_t frameIndex)
     if (!retained.wakeRequested
         && g_originalSetActive != nullptr
         && g_originalSetVisible != nullptr) {
+        // Only SetActive is originated here. SetActive is the iLuxEntity-level
+        // API the game itself uses, and it performs the visibility work on the
+        // engine entities it owns.
+        //
+        // Do NOT add a SetVisible call here. SetVisible requires an iEntity3D:
+        // it dispatches through vtable slot 0xd0 and then dereferences the
+        // pointer at +8. Neither pointer retained here satisfies that.
+        //   - retained.mesh is the cMeshEntity from GetMeshEntity (iLuxEntity
+        //     vtable +0xd8); its vtable has 14 slots, so slot 0xd0 read past the
+        //     end into adjacent string data and called it. (crash, 3x)
+        //   - retained.entity is the iLuxEntity, which only wraps an engine
+        //     entity. Its vtable is long enough that slot 0xd0 dispatches some
+        //     unrelated virtual, and +8 is not a parent pointer there (observed
+        //     0x101, two packed bools), so the deref faulted. (crash, 1x)
         g_originalSetActive(retained.entity, true);
-        g_originalSetVisible(retained.mesh, true);
         retained.wakeRequested = true;
         const uint64_t wake = g_handsWakeRequests.fetch_add(
             1, std::memory_order_relaxed) + 1;

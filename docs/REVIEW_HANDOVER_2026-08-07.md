@@ -1373,3 +1373,79 @@ Stated plainly so nobody reads silence as a pass:
   `OpenXRGLBridge`, `CrashHandler`, `HPLCameraBridge`, `HPLGrabBridge`, the injector and the
   packaging scripts were read closely. The remaining ~30 `HPL*Bridge`/`HPL*Math` files were surveyed
   by pattern search (raw reads, signature checks, hot-path work) rather than read line by line.
+
+
+---
+
+# F-21 --- a correct stale-pair rejection latches stereo into mono until manual toggle
+
+Found by live headset test, 2026-09-01, on `0.95.2-playbook-conformance+8393b92-dirty` against the
+Virtual Desktop runtime and a real Quest 3. **Observed, not reasoned.** This is the first finding on
+this project produced by deliberately breaking tracking in a headset.
+
+## Reproduction
+
+Cover the headset cameras until the Quest raises its in-HMD tracking error, then uncover and return
+to the game. The app stalls for the duration of the error screen (~79 s in this run).
+
+## Chain
+
+| # | Event | Evidence |
+| --- | --- | --- |
+| 1 | App stalls while the runtime shows its tracking error | 79 s gap between `frame_summary` lines |
+| 2 | On resume the cached pair base is stale and is rejected --- **correct** | `hpl_stereo pair_base_rejected eye=1 action=reject_stale ageMs=78750 maxAgeMs=100` |
+| 3 | The rejection path resets the eye sentinel **mid-pass** | [HPLCameraBridge.cpp:1653](../src/dll/HPLCameraBridge.cpp:1653), `if (!PrepareStereoPairBase(...)) { ... currentEyeIndex = -1; }` |
+| 4 | The pass therefore ends with a different eye than it began with, and faults | [HPLPerEyeViewHistory.cpp:257](../src/dll/HPLPerEyeViewHistory.cpp:257), `if (actualEyeIndex != pass.eyeIndex \|\| actualPoseFrame != pass.poseFrame) Fault(...)` |
+| 5 | The fault latches and falls back to a shared view | `hpl_per_eye_view_history fault=1 reason=render_eye_sequence_mismatch eye=-1 poseFrame=0 failures=1 fallback=shared_native_history_until_toggle` |
+| 6 | Stereo keeps *submitting*, but every frame is the same eye | `hpl_stereo applied=4800/4920/5040/5160` --- all `eye=0`, where it alternated `0`/`1` before |
+| 7 | F10 off/on clears it | confirmed live; `g_faulted = false` on deactivate, logs `faultCleared=1` |
+
+## Why it is easy to miss
+
+Every counter that a health check would look at stays green. `openxrStereoHoldExhausted=0`,
+`openxrTrackingLost=0`, `openxrTrackingLossEvents=0`, `openxrStereoCacheInvalidations=5`,
+`openxrDepthSubmissionFailures=0`, and the submitted-frame count keeps climbing. **The pipeline is
+healthy; it is just feeding both eyes the same image.** The only signals are the single `[error]`
+line at the moment of the fault and the `eye=` field staying constant afterwards.
+
+Note also that SOMAVR never registered the tracking loss at all --- `openxrTrackingLossEvents=0`
+across the whole run, despite the runtime showing the user a tracking error. Whatever the tracking
+guard is watching, this did not trip it. Worth a separate look.
+
+## Assessment
+
+Each behaviour in isolation is correct. Rejecting a 79-second-old pair base is exactly right;
+faulting when an eye pass ends on a different eye than it started is exactly right; failing closed to
+a shared view rather than showing garbage is exactly right. The defect is the **interaction**: a
+correct, expected, transient event leaves the user in monoscopic VR indefinitely with no automatic
+recovery and no user-visible signal.
+
+The `until_toggle` fallback is deliberate --- the string says so --- but it assumes someone notices
+and knows to toggle. A user who does not know the mod has an F10 toggle simply concludes VR broke.
+
+## Suggested fix, not implemented
+
+Re-arm rather than wait for a human. The natural place is wherever stereo re-establishes a valid pair
+base after a rejection: if the caches have re-warmed and eye alternation has resumed, clear
+`g_faulted` the same way deactivate does and log `faultCleared=1 reason=pair_base_recovered`. That
+keeps the fail-closed behaviour for genuine mismatches while removing the manual step for the
+transient case.
+
+A cheaper interim: promote the condition to a repeating warning while latched, so a run that has
+silently gone mono is visible in the log without needing to notice the `eye=` field.
+
+## Corrections to my own analysis of this finding
+
+Recorded because the reasoning errors are more reusable than the finding.
+
+1. I first reported "the fault latched with **no path back**". Wrong --- the log string ends
+   `..._until_toggle`, which names the recovery. I had truncated the line to 200 characters when
+   reading it and concluded from my own truncation.
+2. I then suspected F-19's failure path had written the `-1` sentinel, since the values matched.
+   Wrong --- nine sites write that sentinel, and F-19's logs a warning when it fires, which does not
+   appear anywhere in the log. The actual writer is the pair-rejection path at line 1653.
+
+Both are the same failure that produced the earlier corrections in this document and in
+[CRASH_F10_DUAL_RENDER_2026-09-01.md](CRASH_F10_DUAL_RENDER_2026-09-01.md): concluding from a single
+piece of evidence without asking what else produces it. **Check every writer of a value before
+attributing it to one of them.**

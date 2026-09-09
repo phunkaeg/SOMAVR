@@ -39,4 +39,19 @@ bool IsSamePoseOppositeEye(
         && firstPoseFrame == secondPoseFrame;
 }
 
+ReplayOutcome ResolveReplayOutcome(
+    int firstEye,
+    uint64_t firstPoseFrame,
+    int secondEye,
+    uint64_t secondPoseFrame,
+    bool pairBaseRejected)
+{
+    if (pairBaseRejected) return ReplayOutcome::ExpectedPairAbort;
+    if (IsSamePoseOppositeEye(
+            firstEye, firstPoseFrame, secondEye, secondPoseFrame)) {
+        return ReplayOutcome::SamePoseOppositeEye;
+    }
+    return ReplayOutcome::EyeSequenceMismatch;
+}
+
 } // namespace somavr::dual_render_math

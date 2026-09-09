@@ -6,6 +6,13 @@
 namespace somavr::input_math
 {
 
+camera_math::Quaternion OrientationFromHorizontalYaw(float headingRadians)
+{
+    // ResolveHorizontalYaw is clockwise from -Z; quaternion +Y is counterclockwise.
+    const float halfYaw = headingRadians * 0.5f;
+    return {0.0f, -std::sin(halfYaw), 0.0f, std::cos(halfYaw)};
+}
+
 Axis2 ApplyRadialDeadzone(float x, float y, float deadzone)
 {
     const float clampedDeadzone = std::clamp(deadzone, 0.0f, 0.999f);
@@ -67,6 +74,18 @@ bool ResolveHorizontalYaw(
     }
     yawRadians = std::atan2(forward.x, -forward.z);
     return std::isfinite(yawRadians);
+}
+
+float ComposeBodyFollowWorldYaw(
+    float relativeHeadYawRadians,
+    float nativeBodyYawRadians,
+    bool nativeBodyYawValid)
+{
+    if (!std::isfinite(relativeHeadYawRadians)) relativeHeadYawRadians = 0.0f;
+    if (!nativeBodyYawValid || !std::isfinite(nativeBodyYawRadians)) {
+        return WrapRadians(relativeHeadYawRadians);
+    }
+    return WrapRadians(nativeBodyYawRadians + relativeHeadYawRadians);
 }
 
 float ComputeBodyFollowStepRadians(

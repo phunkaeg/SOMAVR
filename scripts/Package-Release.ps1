@@ -3,6 +3,7 @@ param(
     [string]$BuildDirectory = "build-openxr\Release",
     [string]$OutputDirectory = "out",
     [switch]$IncludeDumper,
+    [switch]$SceneDepthTest,
     [switch]$Versioned
 )
 
@@ -32,6 +33,16 @@ foreach ($setting in $forbiddenReleaseSettings) {
     if ($releaseConfigText -match "(?m)^\s*$([regex]::Escape($setting))\s*=\s*1\s*$") {
         throw "Release configuration enables diagnostic setting $setting"
     }
+}
+$testConfigText = $null;
+if ($SceneDepthTest) {
+    # Explicit test package only; the tracked shipping defaults still forbid probes.
+    $probePattern = '(?m)^(DepthCompositionProbe[ \t]*=[ \t]*)0[ \t]*\r?$'
+    if ([regex]::Matches($releaseConfigText, $probePattern).Count -ne 1 -or
+        $releaseConfigText -notmatch '(?m)^DepthCompositionSubmit=0[ \t]*\r?$') {
+        throw "Scene-depth test profile requires exactly one disabled probe and disabled submission."
+    }
+    $testConfigText = [regex]::Replace($releaseConfigText, $probePattern, '${1}1');
 }
 $buildPath = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $BuildDirectory))
 $outputRoot = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $OutputDirectory))
@@ -129,6 +140,12 @@ foreach ($file in $runtimeFiles) {
     Copy-Item -LiteralPath (Join-Path $buildPath $file) -Destination $stagePath
 }
 Copy-Item -LiteralPath $releaseConfigPath -Destination (Join-Path $stagePath "somavr.ini")
+if ($SceneDepthTest) {
+    $testConfigText |
+        Set-Content -LiteralPath (Join-Path $stagePath "somavr.ini") -Encoding ascii
+    'scene-depth-probe; submission disabled; no game launch' |
+        Set-Content -LiteralPath (Join-Path $stagePath "somavr_test_profile.txt") -Encoding ascii
+}
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "README.md") -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "scripts\Install-Or-Update-SOMAVR.ps1") -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "scripts\Launch-SOMAVR-Dev.ps1") -Destination $stagePath
@@ -136,7 +153,7 @@ Copy-Item -LiteralPath (Join-Path $repositoryRoot "scripts\Uninstall-SOMAVR.ps1"
 
 $packageDocs = Join-Path $stagePath "docs"
 New-Item -ItemType Directory -Path $packageDocs | Out-Null
-foreach ($doc in @("USER_GUIDE.md", "CURRENT_STATE.md", "TEST_CHECKLISTS.md", "SMOKE_TEST_MATRIX.md")) {
+foreach ($doc in @("USER_GUIDE.md", "CURRENT_STATE.md", "TEST_CHECKLISTS.md", "SMOKE_TEST_MATRIX.md", "NEXT_LIVE_EVIDENCE.md")) {
     Copy-Item -LiteralPath (Join-Path $repositoryRoot "docs\$doc") -Destination $packageDocs
 }
 

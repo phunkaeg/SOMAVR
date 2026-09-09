@@ -17,6 +17,12 @@ camera_math::Quaternion ResolveRelativeOrientation(
     const camera_math::Quaternion& currentController,
     const camera_math::Quaternion& anchorObject);
 
+bool BuildStablePresentationOffset(
+    const camera_math::Vector3& viewForward,
+    float sourceDistance,
+    float distanceScale,
+    camera_math::Vector3& output);
+
 bool ScaleCameraRelativePosition(
     const camera_math::Vector3& cameraPosition,
     const camera_math::Vector3& nativePosition,

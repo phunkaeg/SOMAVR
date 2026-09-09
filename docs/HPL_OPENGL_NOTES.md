@@ -77,6 +77,19 @@ at the driver layer, and that HPL3 uploads projection as a GLSL uniform (not fix
 The numeric GL program names belong to this trace and may change between runs;
 matrix semantics and the native frustum packet are the stable anchors.
 
+## Scene Depth Content Proof (2026-09-09)
+
+Full-image replay of the existing baseline establishes that HPL's G-buffer and
+lit scene share a D24S8 geometry attachment. A separate R16F color texture
+sampled as `aSceneDepth` contains z/far; it agrees with linearized hardware depth
+within 0.2% at every pixel in two separated scene samples. The final desktop
+framebuffer, in contrast, contains only depth 1.0 even during ordinary gameplay.
+The current `OpenXRGLBridge` default-FBO depth copy therefore does not establish
+scene depth despite successful blits. Use the existing native pre-post render
+boundary to validate/copy the correct attachment per eye; no GL object number
+from the capture is a stable identifier. Reproduction, hashes, limitations and
+next acceptance gate: `HPL_SCENE_DEPTH_PROOF_2026-09-09.md`.
+
 ## apitrace Native-Stereo Resource Evidence (2026-08-23)
 
 The same vanilla trace supplies two constraints that are invisible at the

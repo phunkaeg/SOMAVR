@@ -416,18 +416,11 @@ bool OpenXRGLBridge::Initialize(
         int32_t sourceStencilBits = 0;
         glGetIntegerv(kGlDepthBits, &sourceDepthBits);
         glGetIntegerv(kGlStencilBits, &sourceStencilBits);
-        const std::array<int64_t, 4> preferredDepthFormats = sourceStencilBits > 0
-            ? std::array<int64_t, 4>{
+        const std::array<int64_t, 4> preferredDepthFormats = {
                 kGlDepth24Stencil8,
                 kGlDepth32fStencil8,
                 kGlDepthComponent24,
                 kGlDepthComponent32f,
-            }
-            : std::array<int64_t, 4>{
-                kGlDepthComponent24,
-                kGlDepthComponent32f,
-                kGlDepth24Stencil8,
-                kGlDepth32fStencil8,
             };
         for (const int64_t preferred : preferredDepthFormats) {
             if (std::find(formats.begin(), formats.end(), preferred) != formats.end()) {
@@ -727,7 +720,7 @@ bool OpenXRGLBridge::CopyBackbufferToEye(uint32_t eyeIndex)
     return copied;
 }
 
-bool OpenXRGLBridge::CaptureBackbufferToCache(uint32_t eyeIndex)
+bool OpenXRGLBridge::CaptureBackbufferToCache(uint32_t eyeIndex, uint64_t renderSerial, uint64_t poseFrame)
 {
     ScopedOwnOpenGLWork ownGl;
     if (!Ready() || eyeIndex >= eyes_.size()) {
@@ -776,68 +769,20 @@ bool OpenXRGLBridge::CaptureBackbufferToCache(uint32_t eyeIndex)
         kGlLinear);
     EndGpuTiming(eye, gpuSlot);
 
-    if (depthCaptureProbeEnabled_ && eye.depthCacheTexture != 0) {
-        int32_t depthBits = 0;
-        glGetIntegerv(kGlDepthBits, &depthBits);
-        const uint32_t priorError = glGetError();
-        glBlitFramebuffer_(
-            viewport[0],
-            viewport[1],
-            viewport[0] + viewport[2],
-            viewport[1] + viewport[3],
-            0,
-            0,
-            eye.width,
-            eye.height,
-            kGlDepthBufferBit,
-            kGlNearest);
-        const uint32_t depthError = glGetError();
-        eye.depthCacheValid = depthBits > 0 && depthError == GL_NO_ERROR;
-        ++eye.depthProbeSamples;
-        if (eye.depthProbeSamples <= 4 || eye.depthProbeSamples % 120 == 0) {
-            float centerDepth[16] = {};
-            const int32_t sampleWidth = std::min(viewport[2], 4);
-            const int32_t sampleHeight = std::min(viewport[3], 4);
-            const int32_t sampleX = viewport[0] + std::max(0, (viewport[2] - sampleWidth) / 2);
-            const int32_t sampleY = viewport[1] + std::max(0, (viewport[3] - sampleHeight) / 2);
-            glReadPixels(
-                sampleX,
-                sampleY,
-                sampleWidth,
-                sampleHeight,
-                kGlDepthComponent,
-                GL_FLOAT,
-                centerDepth);
-            const uint32_t sampleError = glGetError();
-            float minimumDepth = 1.0f;
-            float maximumDepth = 0.0f;
-            bool finite = true;
-            for (int32_t index = 0; index < sampleWidth * sampleHeight; ++index) {
-                finite = finite && std::isfinite(centerDepth[index]);
-                minimumDepth = std::min(minimumDepth, centerDepth[index]);
-                maximumDepth = std::max(maximumDepth, centerDepth[index]);
-            }
-            Logger::Instance().Write(
-                eye.depthCacheValid ? LogLevel::Info : LogLevel::Warn,
-                "openxr_depth_cache_probe eye=%u sample=%llu sourceSize=%dx%d cacheSize=%dx%d depthBits=%d priorError=0x%x blitError=0x%x sampleError=0x%x valid=%d centerFinite=%d centerMin=%.7f centerMax=%.7f submitEnabled=%d depthFormat=0x%llx(%s)",
-                eyeIndex,
-                static_cast<unsigned long long>(eye.depthProbeSamples),
-                viewport[2], viewport[3],
-                eye.width, eye.height,
-                depthBits,
-                priorError,
-                depthError,
-                sampleError,
-                eye.depthCacheValid ? 1 : 0,
-                finite ? 1 : 0,
-                minimumDepth,
-                maximumDepth,
-                depthCompositionSubmitEnabled_ ? 1 : 0,
-                static_cast<unsigned long long>(depthFormat_),
-                GlFormatName(depthFormat_));
-        }
-    } else {
-        eye.depthCacheValid = false;
+    // Scene depth was copied before post-processing. Never read desktop depth here.
+    eye.depthCacheValid = depth_math::SceneDepthMatchesColor(eye.sceneDepth,
+        renderSerial, poseFrame, {viewport[0], viewport[1], viewport[2], viewport[3]});
+    ++eye.depthPairChecks;
+    if (depthCaptureProbeEnabled_ && (eye.depthPairChecks <= 4 || eye.depthPairChecks % 120 == 0)) {
+        Logger::Instance().Write(LogLevel::Info,
+            "openxr_scene_depth_pair eye=%u serial=%llu poseFrame=%llu depthSerial=%llu depthPose=%llu captured=%d matched=%d sourceViewport=%d,%d,%d,%d colorViewport=%d,%d,%d,%d",
+            eyeIndex, static_cast<unsigned long long>(renderSerial), static_cast<unsigned long long>(poseFrame),
+            static_cast<unsigned long long>(eye.sceneDepth.renderSerial),
+            static_cast<unsigned long long>(eye.sceneDepth.poseFrame),
+            eye.sceneDepth.captured ? 1 : 0, eye.depthCacheValid ? 1 : 0,
+            eye.sceneDepth.source.viewport[0], eye.sceneDepth.source.viewport[1],
+            eye.sceneDepth.source.viewport[2], eye.sceneDepth.source.viewport[3],
+            viewport[0], viewport[1], viewport[2], viewport[3]);
     }
 
     glBindFramebuffer_(kGlReadFramebuffer, static_cast<uint32_t>(savedReadFramebuffer));
@@ -1292,7 +1237,15 @@ bool OpenXRGLBridge::BeginTerminalHudCapture(
         hudCaptureState_.colorMask[1],
         hudCaptureState_.colorMask[2],
         hudCaptureState_.colorMask[3]);
-    BeginTerminalCaptureGuard(frameIndex, hud_.terminalFramebuffer);
+    BeginTerminalCaptureGuard(
+        frameIndex,
+        hud_.terminalFramebuffer,
+        hudCaptureState_.viewport[0],
+        hudCaptureState_.viewport[1],
+        hudCaptureState_.viewport[2],
+        hudCaptureState_.viewport[3],
+        hud_.terminalWidth,
+        hud_.terminalHeight);
     terminalColorClearSuppressionActive_ = preserveDirtyRects && retainedSurfaceValid;
     if (terminalColorClearSuppressionActive_) {
         BeginTerminalColorClearSuppression(frameIndex, hud_.terminalFramebuffer);
@@ -1335,6 +1288,15 @@ bool OpenXRGLBridge::EndTerminalHudCapture(uint64_t frameIndex)
         hud_.height,
         kGlColorBufferBit,
         kGlLinear);
+
+    // The terminal GUI authors most panel pixels with zero alpha because the
+    // native copy is drawn onto an in-world screen. The OpenXR HUD layer uses
+    // source-alpha blending, so leaving that alpha intact exposes the native
+    // laptop behind the head-locked copy and produces view-dependent beating.
+    // Preserve captured RGB and make this terminal-only surface opaque.
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(kGlColorBufferBit);
 
     hud_.terminalValid = true;
     RestoreHudCaptureState();
@@ -1511,6 +1473,18 @@ bool OpenXRGLBridge::DumpTerminalHudCapture(
         hud_.captureFrame);
 }
 
+bool OpenXRGLBridge::DumpEyeCache(
+    uint32_t eyeIndex, uint64_t frameIndex, uint64_t sequence,
+    uint32_t sampleIndex, uint64_t poseFrame)
+{
+    if (eyeIndex >= EyeCount() || !Eye(eyeIndex).cacheValid) return false;
+    const auto& eye = Eye(eyeIndex);
+    DumpEyeDepthCache(eyeIndex, frameIndex, sequence, sampleIndex, poseFrame);
+    return DumpCaptureFramebuffer(frameIndex, sequence, sampleIndex, "ctrl_f10",
+        eyeIndex == 0 ? "eye_left" : "eye_right", eye.cacheFramebuffer,
+        eye.width, eye.height, poseFrame, "eye-captures", false);
+}
+
 bool OpenXRGLBridge::DumpCaptureFramebuffer(
     uint64_t frameIndex,
     uint64_t sequence,
@@ -1520,7 +1494,9 @@ bool OpenXRGLBridge::DumpCaptureFramebuffer(
     uint32_t framebuffer,
     int width,
     int height,
-    uint64_t captureFrame)
+    uint64_t captureFrame,
+    const char* directoryName,
+    bool writeAlpha)
 {
     ScopedOwnOpenGLWork ownGl;
     if (framebuffer == 0
@@ -1611,7 +1587,7 @@ bool OpenXRGLBridge::DumpCaptureFramebuffer(
         }
     }
 
-    const std::filesystem::path directory = LogPath().parent_path() / "terminal-captures";
+    const std::filesystem::path directory = LogPath().parent_path() / directoryName;
     std::error_code ec;
     std::filesystem::create_directories(directory, ec);
     const std::string stem = std::string(targetName != nullptr ? targetName : "terminal_capture")
@@ -1621,9 +1597,9 @@ bool OpenXRGLBridge::DumpCaptureFramebuffer(
     const std::filesystem::path rgbPath = directory / (stem + "_rgb.bmp");
     const std::filesystem::path alphaPath = directory / (stem + "_alpha.bmp");
     const bool rgbWritten = WriteRgbBmp(rgbPath, width, height, pixels, false);
-    const bool alphaWritten = WriteRgbBmp(alphaPath, width, height, pixels, true);
+    const bool alphaWritten = writeAlpha && WriteRgbBmp(alphaPath, width, height, pixels, true);
     Logger::Instance().Write(
-        rgbWritten && alphaWritten ? LogLevel::Warn : LogLevel::Error,
+        rgbWritten && (!writeAlpha || alphaWritten) ? LogLevel::Warn : LogLevel::Error,
         "terminal_hud_dump target=%s sequence=%llu frame=%llu captureFrame=%llu sample=%u reason=%s size=%dx%d fbo=%u hash=0x%016llx alpha={min=%u max=%u nonzero=%llu partial=%llu total=%llu} rgbWritten=%d alphaWritten=%d rgbPath=\"%s\" alphaPath=\"%s\"",
         targetName != nullptr ? targetName : "terminal_capture",
         static_cast<unsigned long long>(sequence),
@@ -1643,8 +1619,8 @@ bool OpenXRGLBridge::DumpCaptureFramebuffer(
         rgbWritten ? 1 : 0,
         alphaWritten ? 1 : 0,
         rgbPath.string().c_str(),
-        alphaPath.string().c_str());
-    return rgbWritten && alphaWritten;
+        writeAlpha ? alphaPath.string().c_str() : "not_requested");
+    return rgbWritten && (!writeAlpha || alphaWritten);
 }
 
 void OpenXRGLBridge::InvalidateHudCapture()
@@ -1933,6 +1909,7 @@ void OpenXRGLBridge::InvalidateStereoCaches()
     for (EyeSwapchain& eye : eyes_) {
         eye.cacheValid = false;
         eye.depthCacheValid = false;
+        eye.sceneDepth = {};
     }
 }
 
@@ -2071,12 +2048,29 @@ void OpenXRGLBridge::EndGpuTiming(EyeSwapchain& eye, int slotIndex)
 
 bool OpenXRGLBridge::ResolveFunctions()
 {
+    using WglGetExtensionsStringArbFn = const char* (WINAPI*)(HDC);
+    const auto getWglExtensionsString =
+        ResolveGlProc<WglGetExtensionsStringArbFn>("wglGetExtensionsStringARB");
+    const HDC currentDc = wglGetCurrentDC();
+    const char* extensionText = getWglExtensionsString != nullptr && currentDc != nullptr
+        ? getWglExtensionsString(currentDc)
+        : nullptr;
+    const std::string paddedExtensions = extensionText != nullptr
+        ? " " + std::string(extensionText) + " "
+        : std::string();
+    const bool hasWglNvDxInterop2 = paddedExtensions.find(" WGL_NV_DX_interop2 ")
+        != std::string::npos;
+
     glGenFramebuffers_ = ResolveGlProc<GlGenFramebuffersFn>("glGenFramebuffers");
     glDeleteFramebuffers_ = ResolveGlProc<GlDeleteFramebuffersFn>("glDeleteFramebuffers");
     glBindFramebuffer_ = ResolveGlProc<GlBindFramebufferFn>("glBindFramebuffer");
     glFramebufferTexture2D_ = ResolveGlProc<GlFramebufferTexture2DFn>("glFramebufferTexture2D");
     glCheckFramebufferStatus_ = ResolveGlProc<GlCheckFramebufferStatusFn>("glCheckFramebufferStatus");
     glBlitFramebuffer_ = ResolveGlProc<GlBlitFramebufferFn>("glBlitFramebuffer");
+    glGetFramebufferAttachmentParameteriv_ = ResolveGlProc<GlGetFramebufferAttachmentParameterivFn>("glGetFramebufferAttachmentParameteriv");
+    glBindRenderbuffer_ = ResolveGlProc<GlBindRenderbufferFn>("glBindRenderbuffer");
+    glGetRenderbufferParameteriv_ = ResolveGlProc<GlGetRenderbufferParameterivFn>("glGetRenderbufferParameteriv");
+    glBindBuffer_ = ResolveGlProc<GlBindBufferFn>("glBindBuffer");
     glGenQueries_ = ResolveGlProc<GlGenQueriesFn>("glGenQueries");
     glDeleteQueries_ = ResolveGlProc<GlDeleteQueriesFn>("glDeleteQueries");
     glQueryCounter_ = ResolveGlProc<GlQueryCounterFn>("glQueryCounter");
@@ -2105,6 +2099,12 @@ bool OpenXRGLBridge::ResolveFunctions()
         glCheckFramebufferStatus_ != nullptr ? 1 : 0,
         glBlitFramebuffer_ != nullptr ? 1 : 0,
         gpuTimingAvailable_ ? 1 : 0);
+    Logger::Instance().Write(
+        LogLevel::Info,
+        "openxr_gl_interop_capability currentDc=%d extensionQuery=%d wglNvDxInterop2=%d policy=diagnostic_only",
+        currentDc != nullptr ? 1 : 0,
+        getWglExtensionsString != nullptr ? 1 : 0,
+        hasWglNvDxInterop2 ? 1 : 0);
     return ready;
 }
 
@@ -3232,7 +3232,8 @@ bool OpenXRGLBridge::CreateEyeCache(EyeSwapchain& eye, uint32_t eyeIndex)
         glTexParameteri(kGlTexture2D, GL_TEXTURE_WRAP_T, kGlClampToEdge);
         const int64_t cacheDepthFormat = depthCompositionSubmitEnabled_ && depthFormat_ != 0
             ? depthFormat_
-            : kGlDepthComponent24;
+            : kGlDepth24Stencil8;
+        eye.depthCacheFormat = cacheDepthFormat;
         const bool cacheHasStencil = cacheDepthFormat == kGlDepth24Stencil8
             || cacheDepthFormat == kGlDepth32fStencil8;
         const uint32_t cacheDepthExternalFormat = cacheHasStencil
@@ -3272,7 +3273,7 @@ bool OpenXRGLBridge::CreateEyeCache(EyeSwapchain& eye, uint32_t eyeIndex)
             status);
         glFramebufferTexture2D_(
             kGlFramebuffer,
-            kGlDepthAttachment,
+            kGlDepthStencilAttachment,
             kGlTexture2D,
             0,
             0);

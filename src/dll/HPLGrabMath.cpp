@@ -129,12 +129,52 @@ float ResolveSlideTargetSpeed(
         || maximumSpeed <= 0.0f) {
         return 0.0f;
     }
+    // Feed-forward and position feedback must follow the same scaled target.
     const float positionError =
-        controllerDisplacementAlongPin - bodyDisplacementAlongPin;
+        controllerDisplacementAlongPin * velocityScale - bodyDisplacementAlongPin;
     return std::clamp(
         controllerVelocityAlongPin * velocityScale + positionError * positionGain,
         -maximumSpeed,
         maximumSpeed);
+}
+
+camera_math::Vector3 RebaseRigidPoint(
+    const camera_math::Vector3& point,
+    const camera_math::Vector3& anchorPosition,
+    const camera_math::Quaternion& anchorOrientation,
+    const camera_math::Vector3& currentPosition,
+    const camera_math::Quaternion& currentOrientation)
+{
+    const auto local = camera_math::RotateVector(
+        camera_math::Conjugate(camera_math::Normalize(anchorOrientation)),
+        {point.x - anchorPosition.x, point.y - anchorPosition.y, point.z - anchorPosition.z});
+    const auto offset = camera_math::RotateVector(camera_math::Normalize(currentOrientation), local);
+    return {currentPosition.x + offset.x, currentPosition.y + offset.y, currentPosition.z + offset.z};
+}
+
+bool IsPhysicalThrowRelease(
+    bool velocityValid, const camera_math::Vector3& velocity, float velocityThreshold)
+{
+    const float speedSquared = velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z;
+    const float threshold = std::max(0.8f, velocityThreshold);
+    return velocityValid && std::isfinite(velocityThreshold) && std::isfinite(speedSquared)
+        && speedSquared >= threshold * threshold;
+}
+
+NativeThrowDecision AdvanceNativeThrowHandoff(
+    NativeThrowHandoff& state, uint64_t nowMs, bool throwState, bool request)
+{
+    NativeThrowDecision decision{};
+    if (state.pending) {
+        decision.timedOut = throwState && nowMs >= state.deadlineMs;
+        if (!throwState || decision.timedOut) state = {};
+    } else if (throwState && request) {
+        state.pending = true;
+        state.deadlineMs = nowMs + 250;
+        decision.begin = true;
+    }
+    decision.holdButtons = state.pending;
+    return decision;
 }
 
 float ResolveHingeAngularVelocity(

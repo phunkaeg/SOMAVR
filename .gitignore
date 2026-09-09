@@ -6,6 +6,8 @@ logs/
 Testing/
 CMakeUserPresets.json
 compile_commands.json
+__pycache__/
+*.py[cod]
 *.dmp
 *.user
 *.suo

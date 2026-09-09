@@ -1,5 +1,114 @@
 # Test Checklists
 
+## 0.95.9 Player-Space Recovery
+
+Use `NEXT_LIVE_EVIDENCE.md` for the short run order. Verify torso/wrist alignment
+at several native headings; story pickup before and after a half-turn; laptop
+emails while looking toward/away; drawer/door gain changes; and save-reload
+recovery without same-frame stereo disabling itself. Capture arms while walking
+with Ctrl+F10 and keep moving two seconds. Attach the log, `eye-captures` and
+`terminal-captures` from the rolling package's logs directory. Readback hitches
+are expected; judge normal latency outside those capture frames.
+
+Required offline receipts: 9/9 CTest, Release OpenXR build, package doctor,
+and exact manifest/DLL hash match. In-game and headset acceptance remain open.
+
+## 0.95.6 Regression Recovery
+
+1. Require `version=0.95.6-regression-recovery`. Startup must report
+   `hpl_comfort_bridge install_ok partial=0` with camera-add and DoF installed.
+   A failed optional lane is acceptable only if it logs `lane_disabled` while
+   retaining camera-add; any whole-bridge failure is a stop condition.
+2. Press F10, walk continuously for ten seconds, and move both hands. Require no
+   head bob and no left/right arm-animation lag. Enter and leave one Read object
+   during the walk test; an `expected_pair_abort_retry_next_frame` row may occur,
+   but it must not be followed by `dual_render_control enabled=0`.
+3. Snap turn left twice and right twice. The shoulders must rotate in the same
+   tick as the player capsule. Then physically turn beyond 45 degrees and verify
+   only that path uses gentle torso follow; neither path may turn the HMD view or
+   reverse/tangle the shoulder bar.
+4. Enter the laptop and open several emails. The camera must not be pulled to
+   the physical screen, the complete panel must remain visible, the cursor must
+   meet the controller beam, and look-away/controller exit must work. Require
+   affine `terminal_scissor_remap` rows and no sustained unmappable bypasses.
+5. Pick up one story object. It must appear without the fullscreen blur or
+   below-view rise. The new `ReadObjectDistanceScale=1.5` should be closer than
+   0.95.5 but still comfortable; native scale and grip rotation must remain.
+6. Regress curtain/drawer manipulation, physics pickup/throw, pause/main menu,
+   desktop mirror, F10 stop/restart, and normal exit. Attach the complete log.
+
+## 0.95.5 Torso Frame And Terminal Clip Remap
+
+1. Require `version=0.95.5-torso-terminal-remap`. Before pressing F10 in the
+   opening apartment, physically face well away from the original forward
+   direction. The first `hpl_physical_body_follow anchor` must show
+   `worldHeadYawDegrees` close to `nativeYawDegrees + relativeHeadYawDegrees`;
+   it must not begin with the previous roughly 115-degree mismatch.
+2. Turn physically left/right past 45 degrees while moving both wrists through
+   neutral, overhead, across-body, and side poses. The virtual shoulder bar
+   should settle slowly toward the new heading without rotating the HMD view,
+   reversing shoulders, tangling arms, or leaving permanent reach clamp.
+3. Enter the laptop, open an email, and look directly at the physical screen,
+   then 30-60 degrees away while retaining the overlay. Content and background
+   must remain solid. `terminal_scissor_remap` rows must translate the original
+   clip into the capture viewport; repeated unmappable
+   `terminal_scissor_bypass` rows are a failure signal.
+4. If any content still flashes, leave the bad email visible and press
+   `Ctrl+F10` once. Hold the view for four frames so both native and upscaled
+   RGB/alpha captures plus draw-state rows are written. A headset recording is
+   useful; xr-tape may concurrently prove layer continuity but cannot record
+   pixel contents.
+5. Attach the complete log. It should contain 34 `hpl_arm_hierarchy` rows per
+   hand seed with continuous runtime parents. This validates the active named
+   hierarchy, not final skin deformation; intermediate swing/twist remains a
+   later headset-accepted refinement.
+
+## 0.95.4 Rig, Terminal, And Read Presentation
+
+1. Require `version=0.95.4-rig-terminal-read`, enter the opening apartment
+   medicine state, and press F10 once. Shoulders must stay at plausible torso
+   height and follow the established body rig. For the live-proven authored
+   seed, require one `hpl_arm_root_pose_seed ... authoredCorrection=1` and a
+   neutral `anchorTranslation`; do not accept repeated corrections.
+2. Move both hands through neutral, overhead, across-body, and side poses before
+   and after medicine. There must be no miniature hands, high shoulder bar,
+   permanent reach clamp, wrist-orientation regression, or elbow-plane flip.
+3. Enter the laptop and sweep the active controller beam over its center and
+   edges. The cursor must align with the beam, clicks must land on the indicated
+   widgets, and logs should use `route=overlay_surface_ray`. Look directly at
+   and away from the physical laptop; the head-locked GUI should not flash or
+   change opacity. Exit by look-away and controller A/B.
+4. Pick up, dismiss, and pick up again one Read/story object. It must appear at
+   a comfortable forward distance on the first eligible frame, without a
+   below-view rise or delayed backward pop. After the orientation settle window,
+   grip rotation must remain available. Require an entry row with
+   `settled=0 entryOverride=1`.
+5. Regress locomotion, one curtain/drawer, physics pickup and throw, pause/main
+   menu, HUD/subtitles, desktop mirror, save reload, and F10 stop/restart. Other
+   overlays must retain their existing alpha and must not acquire a black
+   rectangle or center cutout. Attach the complete log.
+
+## 0.95.3 Recovery Cleanup
+
+1. Require `version=0.95.3-recovery-cleanup`, enter the apartment save, and
+   press F10 once. Hands must wake and track without a crash; the final
+   `persistentHands` summary must report `hooksInstalled=1` and the lifecycle
+   policy `native_active_hook_plus_matrix_only_synthetic_updates`.
+2. Exercise both hands, drink the medicine, use the laptop, manipulate a
+   curtain/drawer, and reload once. Hand visibility and pose takeover must
+   match the accepted 0.95.2 behavior. There must be no attempt to call or hook
+   `iEntity3D::SetVisible` from the retained-hands bridge.
+3. With VR and same-frame stereo active, cover the Quest tracking cameras until
+   the runtime raises its tracking error, then uncover them. Expect a bounded
+   `hpl_stereo pair_base_rejected` and
+   `hpl_per_eye_view_history abort=... reason=camera_pair_base_rejected`.
+4. Recovery must resume alternating eyes automatically, without cycling F10.
+   Reject the build for `render_eye_sequence_mismatch`, a latched
+   `viewHistoryFaulted=1`, persistent same-eye application, or a crash.
+5. Finish the 0.95.2 basis/hand/interaction regression below and attach the
+   complete log. Record `viewHistoryAborts` and `viewHistoryFailures`; the
+   interruption may increment the former, while the latter must remain zero.
+
 ## 0.95.2 Playbook Conformance And Basis Attribution
 
 1. Perform the complete 0.95.1 and 0.95 route below and require

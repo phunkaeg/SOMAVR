@@ -32,7 +32,15 @@ void RemoveOpenGLHooks();
 void LogOpenGLProofSummary();
 uint64_t GetOpenGLRenderFrameHint();
 OpenGLTelemetrySnapshot GetOpenGLTelemetrySnapshot();
-void BeginTerminalCaptureGuard(uint64_t frame, uint32_t targetFramebuffer);
+void BeginTerminalCaptureGuard(
+    uint64_t frame,
+    uint32_t targetFramebuffer,
+    int sourceViewportX,
+    int sourceViewportY,
+    int sourceViewportWidth,
+    int sourceViewportHeight,
+    int captureWidth,
+    int captureHeight);
 void EndTerminalCaptureGuard();
 void BeginTerminalColorClearSuppression(uint64_t frame, uint32_t targetFramebuffer);
 void EndTerminalColorClearSuppression();

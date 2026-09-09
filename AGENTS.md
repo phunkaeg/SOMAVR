@@ -1,48 +1,111 @@
-## graphify
+> Read `CLAUDE.md` in this folder once as well; the pair is one instruction set.
+> Current user scope and the project-specific restrictions below apply throughout.
 
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+## Project knowledge graph
 
-When the user types `/graphify`, invoke the `skill` tool with `skill: "graphify"` before doing anything else.
+For architecture, ownership and design questions, query the existing project graph
+before broad source browsing: `graphify explain "<concept>"`, `graphify query
+"<engine noun phrase>"`, or `graphify path "<A>" "<B>"`. Use `rg` first for exact
+symbols, byte patterns and known filenames; verify graph leads in their source.
+Check age and coverage. Dirty graph files alone do not invalidate a query. If the
+graph or tool is unavailable, state that limitation once and use scoped source/doc
+searches. Do not turn graph setup into a prerequisite for an unrelated fix.
+Refresh after substantial indexed changes using the project's update procedure;
+avoid rebuilding third-party corpora for a small edit. Read a full graph report
+only when a broad architecture review needs it.
+The project graph is `graphify-out/graph.json`.
+Start from `docs/FEATURE_TRACEABILITY.md` for feature ownership. Native addresses
+are in `docs/ADDRESS_REGISTRY.md`; implementation maps are in
+`docs/VR_COMPATIBILITY_RE.md` and `docs/FUTURE_SYSTEMS_RE.md`.
 
-Rules:
-- Use Graphify as the first orientation pass for architecture, feature ownership, and code-archeology questions. Start with `docs/FEATURE_TRACEABILITY.md` nodes for planned VR work, then confirm exact addresses and literals with `rg`, Ghidra, logs, or a debugger.
-- Treat `docs/ADDRESS_REGISTRY.md` as the confirmed native-address ledger and `docs/VR_COMPATIBILITY_RE.md` plus `docs/FUTURE_SYSTEMS_RE.md` as the future implementation maps.
-- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+## Engine source for this target
 
-## Reverse-engineering MCPs
+**HPL2 source is on this machine:** `D:\Dev Debug\source code\AmnesiaTheDarkDescent` and `AmnesiaAMachineForPigs`, GPL v3, officially released by Frictional. HPL3's direct predecessor - free to read, and GPL terms apply if you copy. See playbook ch00 `#local-engine-sources`.
 
-Ghidra, ReGenny, Frida, Cheat Engine, x64dbg/x32dbg and RenderDoc are all available as MCP tools.
-**Load the `re-mcp-toolkit` skill before using any of them** — it carries the preflight calls,
-per-tool caveats, and the pairing workflows (Ghidra static offsets -> ReGenny live layout, etc.).
+## RE workflow and tool discovery
 
-1. **Never assume a tool's host app is running or attached.** The tools always appear in your tool
-   list; that says nothing about whether the app behind them is live. Preflight first: Ghidra
-   `list_instances`, ReGenny `regenny_status`, Cheat Engine `ping` (then `get_opened_process_id`),
-   Frida `enumerate_processes`, x64dbg `get_debugger_status`.
-2. **If a tool isn't live, ask the user to launch/attach it.** Don't guess, don't silently skip the
-   step, and never fabricate a result you couldn't actually read. If the user has said this session
-   that something is running, trust that until a call fails.
-3. **Ghidra and ReGenny must be started before Claude Desktop.** Their tools still register when the
-   apps are closed, but every call fails. Once running you can connect whenever. Ghidra keeps the
-   relevant exes pre-loaded — but a program must be *opened* in the CodeBrowser before
-   program-scoped tools work (`No context found for request` = nothing open).
-4. **Cheat Engine and x64dbg/x32dbg are not running by default** — they must be requested. CE also
-   has to be *attached to the running game*, which `ping` alone does not prove.
-5. **RenderDoc only analyses existing `.rdc` captures — it cannot capture or inject.** Request a
-   capture for a *named* use case (not a bare "take a capture"); captures live in `RenderDoc/` or
-   `Captures/`.
-6. Target is `Soma.exe` / `Soma_NoSteam.exe` (64-bit -> **x64dbg** if a debugger is needed).
-7. **RenderDoc is unavailable for SOMA** — it runs an OpenGL version incompatible with the installed
-   RenderDoc 1.41, so captures cannot be taken. Use Frida / Ghidra / ReGenny instead; do not plan a
-   workflow around RenderDoc on this project.
-8. **For frame capture use apitrace (has an MCP now), not RenderDoc.** apitrace captures legacy GL,
-   which RenderDoc rejects. **Proven on SOMA (2026-08-10)** via the apitrace MCP: view-projection at
-   `glUniformMatrix4fv(program=822, location=1)` (`camera_moves=true`) and projection at `program=884,
-   location=1` (FOV 70°/102°, near 0.03, far 998.67) — see `docs/future-hook-map.md`. Flow:
-   `trace_launch(api="gl")` the **vanilla** game (no mod) → move around → `trace_stop` → `find_matrices`
-   (scope to one frame) + `track_camera`; `decode_matrix` to check candidates. Manual fallback:
-   `apitrace trace` / `qapitrace` / `glretrace --dump-state`. See **`vr-re-workflow`**.
+Read [the shared RE workflow](<D:/Dev Debug/VR Modding/AGENT_RE_WORKFLOW.md>) once when choosing an RE approach.
+Use `vr-re-workflow` for the method and `re-mcp-toolkit` for the selected tool's
+preflight and caveats. Read their `SKILL.md` files directly if there is no skill invoker.
+The session's discoverable tools and schemas determine what is callable; a configured
+server, a responding host and the correct open program/process are separate checks.
+
+Useful tool families: Ghidra for static contracts; ReGenny / `cheatengine` for live
+layouts; Frida / x64dbg or x32dbg for execution; RenderDoc / apitrace for graphics
+evidence. `local-llm` is optional bounded assistance: probe once, fall back if offline,
+and verify its output against the original evidence. A second model is not proof.
+Choose tools by the question, not by a fixed server count or a two-tool quota.
+
+Respect current user scope and exclusive runtime ownership. A closed app or missing
+launch script is not proof that automation is impossible: check the existing runbook,
+launcher and supported CLI/API within that scope. Keep static work moving when live
+work is unavailable. Static contracts can be proved from bytes; runtime acceptance
+and headset quality require their own evidence.
+
+## xr-sim and xr-tape
+
+For an authorized live SOMA launch from Codex, run the injector outside the
+filesystem sandbox using the normal approval mechanism. A sandboxed launch can
+load the DLL successfully but stop at SOMA's "Could not write to Documents
+folder" dialog before rendering. This was reproduced on 2026-09-09; retrying the
+same binary outside the sandbox reached rendering. Do not change Documents ACLs
+or use the developer launcher to work around it. Verify frame progress, not just
+the injector's success line, and check for a leftover process before retrying.
+
+`D:/Dev Debug/xr-sim` supplies a headset-free OpenXR runtime;
+`D:/Dev Debug/xr-tape` records submitted poses, FOVs, layers and timing. Read their
+current launcher scripts for process-scoped setup; this target needs the **x64**
+loader/layer. Select runtime and layer per process, preserving shared machine state.
+Use existing project launch/injection paths within the user's runtime authorization.
+A trace checks the submission contract; it does not prove the game rendered those
+views, accepted an input event, or looks correct in a headset. Correlate frames with
+mod logs and graphics evidence.
+
+Check `XrCompositionLayerDepthInfoKHR` separately: a reserved schema field does not prove the active layer records or validates depth. Use current `somavr_xrsim_smoke` receipts.
+
+## Target tool constraints
+
+`Soma.exe` / `Soma_NoSteam.exe` is x64 / HPL3 / OpenGL. The installed RenderDoc
+path rejected SOMA's legacy GL context; use the recorded apitrace GL route for new
+captures within authorized runtime scope. `docs/future-hook-map.md` owns the
+2026-08-10 matrix receipts (program IDs are capture-local, not stable identifiers).
+Inspect one frame for pipeline state; compare at least two controlled states for
+camera movement. Manual CLI analysis with qapitrace/glretrace is a supported option.
+
+## Fleet prior art
+
+Before choosing a seam or repeating an experiment, route through
+`D:/Dev Debug/VR Modding/docs/bottleneck-map.md` for this project's gate, or
+`failure-atlas.md` / `symptom-index.md` for its symptom. Read only the relevant row
+and linked section. The project's current receipts outrank a stale fleet summary.
+State hypothesis, control, variable and decision rule before experimental code.
+Record transferable results in the playbook when they change the route.
+
+Use `D:/Dev Debug/VR Modding/cross-engine-graph/graphify-out/fleet-graph.json`
+to find sibling documents: `graphify explain "Frustum and Culling Adjustment" --graph
+"<absolute fleet-graph.json path>"` (one command). For queries use engine nouns, not
+a long question; try near-duplicate concept names. Inspect graph age and coverage.
+Cross-project links are `INFERRED` leads, not confirmation for this target. Open the
+named source; its path may be relative to that project's `docs/`, and its label may
+be a summary rather than literal text. A miss is not an exhaustive negative result:
+fall through to `cross-project-index.md`, scoped `rg`, and sibling failure registries.
+External prior art is indexed in the playbook's `sources.yml` / `docs/coverage.md`.
+
+For scripts use `D:/Dev Debug/VR Modding/tools/graphio.py` (`load_graph`): node-link
+relationships live under `links`; a defaulted lookup of `edges` can hide real data.
+Check the interpreter before running helpers. Rebuild instructions live in
+`cross-engine-graph/README.md`; do not rebuild the whole fleet for a routine lookup.
+
+
+<!-- vr-research-integration:start -->
+## Research receipts and playbook contributions
+
+For a substantial VR research finding or failed approach, read
+`D:/Dev Debug/VR Modding/docs/research-receipts.md` and use the
+`vr-research-receipts` skill when available. `tools/research_receipt.py` in the
+playbook creates/validates a project-owned receipt and queues a candidate for review.
+Keep validity, fact verdict, baseline health, evidence grade and observation environment
+separate. Raw evidence stays in this project; intake never promotes claims or clears
+bottlenecks. Use the numerical camera-mapping recipe and `tools/research_checks.py`
+when that is the cheapest relevant proof. Existing runtime/launch restrictions apply.
+<!-- vr-research-integration:end -->

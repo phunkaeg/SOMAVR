@@ -1423,16 +1423,23 @@ recovery and no user-visible signal.
 The `until_toggle` fallback is deliberate --- the string says so --- but it assumes someone notices
 and knows to toggle. A user who does not know the mod has an F10 toggle simply concludes VR broke.
 
-## Suggested fix, not implemented
+## Resolution in 0.95.3
 
-Re-arm rather than wait for a human. The natural place is wherever stereo re-establishes a valid pair
-base after a rejection: if the caches have re-warmed and eye alternation has resumed, clear
-`g_faulted` the same way deactivate does and log `faultCleared=1 reason=pair_base_recovered`. That
-keeps the fail-closed behaviour for genuine mismatches while removing the manual step for the
-transient case.
+The fix prevents the expected transition from becoming a fault in the first place. Camera status now
+exposes a cumulative count of missing, stale, and wrong-frustum pair-base rejections. The viewport
+owner snapshots that count around each first-eye and replay-eye render. If it increases during the
+render, `AbortHPLPerEyeViewHistoryPass("camera_pair_base_rejected")` clears only the active
+transaction, increments `viewHistoryAborts`, and leaves the per-eye bank armed for the next valid
+pair.
 
-A cheaper interim: promote the condition to a repeating warning while latched, so a run that has
-silently gone mono is visible in the log without needing to notice the `eye=` field.
+The ordinary `EndHPLPerEyeViewHistoryPass` path is unchanged. An eye or pose mismatch without a
+corresponding camera pair rejection still calls `Fault("render_eye_sequence_mismatch")` and falls
+back to shared native history. This is narrower than clearing `g_faulted` after recovery: it does not
+reinterpret or automatically forgive a genuine sequence violation.
+
+Headset acceptance is still required. Reproduce the camera-cover interruption and require one
+`pair_base_rejected` followed by `hpl_per_eye_view_history abort=... policy=expected_transition_no_fault`,
+no `render_eye_sequence_mismatch`, and resumed alternating eye application without an F10 cycle.
 
 ## Corrections to my own analysis of this finding
 

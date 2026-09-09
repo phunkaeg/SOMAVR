@@ -249,6 +249,8 @@ public:
     void SetStereoSubmissionEnabled(bool enabled);
     bool MarkRenderedStereoEye(uint32_t eyeIndex, const OpenXREyeView& view);
     bool CapturePendingStereoEye(uint64_t frameIndex, const char* source);
+    bool CapturePendingSceneDepth(uint64_t frameIndex, int eyeIndex, uint64_t poseFrame,
+        float nearWorld, float farWorld, float worldUnitsPerMeter);
     void InvalidateStereoCaches(const char* reason);
     void RequestComfortBlackout(uint32_t frames, const char* reason);
     void SetPresentationBlackout(bool active, const char* reason);

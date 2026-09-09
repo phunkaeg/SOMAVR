@@ -388,7 +388,14 @@ std::atomic<uint32_t> g_terminalDrawProbeSamples = 0;
 std::atomic<bool> g_terminalCaptureGuardActive = false;
 std::atomic<GLuint> g_terminalCaptureGuardFramebuffer = 0;
 std::atomic<uint64_t> g_terminalCaptureGuardFrame = 0;
+std::atomic<GLint> g_terminalCaptureSourceViewportX = 0;
+std::atomic<GLint> g_terminalCaptureSourceViewportY = 0;
+std::atomic<GLsizei> g_terminalCaptureSourceViewportWidth = 0;
+std::atomic<GLsizei> g_terminalCaptureSourceViewportHeight = 0;
+std::atomic<GLsizei> g_terminalCaptureWidth = 0;
+std::atomic<GLsizei> g_terminalCaptureHeight = 0;
 std::atomic<uint64_t> g_terminalOffscreenScissorBypasses = 0;
+std::atomic<uint64_t> g_terminalScissorCoordinateRemaps = 0;
 std::atomic<uint32_t> g_matrixSamplesThisFrame = 0;
 std::atomic<uint32_t> g_uniformNameLogs = 0;
 std::atomic<uint32_t> g_uniformMatrixLogs = 0;
@@ -479,12 +486,18 @@ void RecordTerminalDrawState(const char* kind, GLenum mode, GLsizei count)
         blendDst);
 }
 
-bool DisableOffscreenTerminalScissor()
+struct TerminalScissorOverride {
+    bool active = false;
+    GLint original[4] = {};
+};
+
+TerminalScissorOverride RemapCapturedTerminalScissor()
 {
+    TerminalScissorOverride result{};
     if (!g_terminalCaptureGuardActive.load(std::memory_order_acquire)
         || g_glGetIntegerv == nullptr
         || glIsEnabled(GL_SCISSOR_TEST) != GL_TRUE) {
-        return false;
+        return result;
     }
     GLint framebuffer = 0;
     GLint viewport[4] = {};
@@ -493,32 +506,70 @@ bool DisableOffscreenTerminalScissor()
     g_glGetIntegerv(kGLViewport, viewport);
     g_glGetIntegerv(kGLScissorBox, scissor);
     const GLuint target = g_terminalCaptureGuardFramebuffer.load(std::memory_order_relaxed);
-    if (framebuffer != static_cast<GLint>(target)) return false;
+    if (framebuffer != static_cast<GLint>(target)) return result;
 
     const bool intersects = scissor[2] > 0 && scissor[3] > 0
         && scissor[0] < viewport[0] + viewport[2]
         && scissor[1] < viewport[1] + viewport[3]
         && scissor[0] + scissor[2] > viewport[0]
         && scissor[1] + scissor[3] > viewport[1];
-    if (intersects) return false;
-
-    glDisable(GL_SCISSOR_TEST);
-    const uint64_t bypass = g_terminalOffscreenScissorBypasses.fetch_add(
-        1, std::memory_order_relaxed) + 1;
-    const uint64_t interval = static_cast<uint64_t>(
-        std::max(g_config.hplControllerLogInterval, 1));
-    if (bypass <= 8 || bypass % interval == 0) {
-        Logger::Instance().Write(
-            LogLevel::Warn,
-            "terminal_scissor_bypass count=%llu frame=%llu fbo=%d viewport=%d,%d,%d,%d scissor=%d,%d,%d,%d policy=disable_only_fully_offscreen_capture_scissor",
-            static_cast<unsigned long long>(bypass),
-            static_cast<unsigned long long>(
-                g_terminalCaptureGuardFrame.load(std::memory_order_relaxed)),
-            framebuffer,
-            viewport[0], viewport[1], viewport[2], viewport[3],
-            scissor[0], scissor[1], scissor[2], scissor[3]);
+    const terminal_math::ScissorRect sourceScissor{
+        scissor[0], scissor[1], scissor[2], scissor[3]};
+    const terminal_math::ScissorRect sourceViewport{
+        g_terminalCaptureSourceViewportX.load(std::memory_order_relaxed),
+        g_terminalCaptureSourceViewportY.load(std::memory_order_relaxed),
+        g_terminalCaptureSourceViewportWidth.load(std::memory_order_relaxed),
+        g_terminalCaptureSourceViewportHeight.load(std::memory_order_relaxed)};
+    const terminal_math::ScissorRect captureViewport{
+        viewport[0],
+        viewport[1],
+        g_terminalCaptureWidth.load(std::memory_order_relaxed),
+        g_terminalCaptureHeight.load(std::memory_order_relaxed)};
+    terminal_math::ScissorRect remapped{};
+    if (terminal_math::RemapScissorToCaptureViewport(
+            sourceScissor, sourceViewport, captureViewport, remapped)) {
+        std::copy(std::begin(scissor), std::end(scissor), std::begin(result.original));
+        glScissor(remapped.x, remapped.y, remapped.width, remapped.height);
+        result.active = true;
+        const uint64_t repair = g_terminalOffscreenScissorBypasses.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+        const uint64_t remap = g_terminalScissorCoordinateRemaps.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+        const uint64_t interval = static_cast<uint64_t>(
+            std::max(g_config.hplControllerLogInterval, 1));
+        if (repair <= 8 || repair % interval == 0) {
+            Logger::Instance().Write(
+                LogLevel::Info,
+                "terminal_scissor_remap repair=%llu remap=%llu frame=%llu fbo=%d sourceViewport=%d,%d,%d,%d captureViewport=%d,%d,%d,%d scissor=%d,%d,%d,%d remapped=%d,%d,%d,%d originalIntersects=%d policy=affine_source_viewport_clip_to_private_capture",
+                static_cast<unsigned long long>(repair),
+                static_cast<unsigned long long>(remap),
+                static_cast<unsigned long long>(
+                    g_terminalCaptureGuardFrame.load(std::memory_order_relaxed)),
+                framebuffer,
+                sourceViewport.x, sourceViewport.y,
+                sourceViewport.width, sourceViewport.height,
+                captureViewport.x, captureViewport.y,
+                captureViewport.width, captureViewport.height,
+                sourceScissor.x, sourceScissor.y,
+                sourceScissor.width, sourceScissor.height,
+                remapped.x, remapped.y, remapped.width, remapped.height,
+                intersects ? 1 : 0);
+        }
+        return result;
     }
-    return true;
+
+    // An empty or unmappable clip must not become an unrestricted draw.
+    return result;
+}
+
+void RestoreTerminalScissor(const TerminalScissorOverride& state)
+{
+    if (!state.active) return;
+    glScissor(
+        state.original[0],
+        state.original[1],
+        state.original[2],
+        state.original[3]);
 }
 std::unordered_set<std::string> g_matrixCaptureSites;
 std::unordered_map<uint64_t, uint32_t> g_matrixCaptureSampleMasks;
@@ -2334,11 +2385,11 @@ void APIENTRY HookGlDrawElements(GLenum mode, GLsizei count, GLenum type, const 
     g_totalDrawElements.fetch_add(1, std::memory_order_relaxed);
     RecordRenderDiagnosticDraw("elements", mode, count);
     RecordTerminalDrawState("elements", mode, count);
-    const bool terminalScissorDisabled = DisableOffscreenTerminalScissor();
+    const TerminalScissorOverride terminalScissor = RemapCapturedTerminalScissor();
     const ReflectionFadePatch reflectionPatch = ApplyReflectionFadeBypass(
         g_currentProgram.load(std::memory_order_relaxed));
     g_originalGlDrawElements(mode, count, type, indices);
-    if (terminalScissorDisabled) glEnable(GL_SCISSOR_TEST);
+    RestoreTerminalScissor(terminalScissor);
     RestoreReflectionFade(reflectionPatch);
 }
 
@@ -2352,11 +2403,11 @@ void APIENTRY HookGlDrawArrays(GLenum mode, GLint first, GLsizei count)
     g_totalDrawArrays.fetch_add(1, std::memory_order_relaxed);
     RecordRenderDiagnosticDraw("arrays", mode, count);
     RecordTerminalDrawState("arrays", mode, count);
-    const bool terminalScissorDisabled = DisableOffscreenTerminalScissor();
+    const TerminalScissorOverride terminalScissor = RemapCapturedTerminalScissor();
     const ReflectionFadePatch reflectionPatch = ApplyReflectionFadeBypass(
         g_currentProgram.load(std::memory_order_relaxed));
     g_originalGlDrawArrays(mode, first, count);
-    if (terminalScissorDisabled) glEnable(GL_SCISSOR_TEST);
+    RestoreTerminalScissor(terminalScissor);
     RestoreReflectionFade(reflectionPatch);
 }
 
@@ -2886,11 +2937,25 @@ OpenGLTelemetrySnapshot GetOpenGLTelemetrySnapshot()
     };
 }
 
-void BeginTerminalCaptureGuard(uint64_t frame, uint32_t targetFramebuffer)
+void BeginTerminalCaptureGuard(
+    uint64_t frame,
+    uint32_t targetFramebuffer,
+    int sourceViewportX,
+    int sourceViewportY,
+    int sourceViewportWidth,
+    int sourceViewportHeight,
+    int captureWidth,
+    int captureHeight)
 {
     g_terminalCaptureGuardActive.store(false, std::memory_order_release);
     g_terminalCaptureGuardFrame.store(frame, std::memory_order_relaxed);
     g_terminalCaptureGuardFramebuffer.store(targetFramebuffer, std::memory_order_relaxed);
+    g_terminalCaptureSourceViewportX.store(sourceViewportX, std::memory_order_relaxed);
+    g_terminalCaptureSourceViewportY.store(sourceViewportY, std::memory_order_relaxed);
+    g_terminalCaptureSourceViewportWidth.store(sourceViewportWidth, std::memory_order_relaxed);
+    g_terminalCaptureSourceViewportHeight.store(sourceViewportHeight, std::memory_order_relaxed);
+    g_terminalCaptureWidth.store(captureWidth, std::memory_order_relaxed);
+    g_terminalCaptureHeight.store(captureHeight, std::memory_order_relaxed);
     g_terminalCaptureGuardActive.store(true, std::memory_order_release);
 }
 
@@ -2898,6 +2963,12 @@ void EndTerminalCaptureGuard()
 {
     g_terminalCaptureGuardActive.store(false, std::memory_order_release);
     g_terminalCaptureGuardFramebuffer.store(0, std::memory_order_relaxed);
+    g_terminalCaptureSourceViewportX.store(0, std::memory_order_relaxed);
+    g_terminalCaptureSourceViewportY.store(0, std::memory_order_relaxed);
+    g_terminalCaptureSourceViewportWidth.store(0, std::memory_order_relaxed);
+    g_terminalCaptureSourceViewportHeight.store(0, std::memory_order_relaxed);
+    g_terminalCaptureWidth.store(0, std::memory_order_relaxed);
+    g_terminalCaptureHeight.store(0, std::memory_order_relaxed);
 }
 
 void BeginTerminalColorClearSuppression(uint64_t frame, uint32_t targetFramebuffer)

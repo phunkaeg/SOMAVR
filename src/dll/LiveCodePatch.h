@@ -93,6 +93,12 @@ public:
                 FALSE,
                 entry.th32ThreadID);
             if (thread == nullptr) {
+                // A thread can exit after it appears in the Toolhelp snapshot.
+                // OpenThread reports that race as ERROR_INVALID_PARAMETER; it
+                // is no longer a peer that can execute the patch range.
+                if (GetLastError() == ERROR_INVALID_PARAMETER) {
+                    continue;
+                }
                 CloseHandle(snapshot);
                 failure = PatchWriteFailure::ThreadOpen;
                 threadId = entry.th32ThreadID;

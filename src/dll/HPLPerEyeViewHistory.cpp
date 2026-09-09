@@ -41,6 +41,7 @@ std::atomic<uint64_t> g_resets = 0;
 std::atomic<uint64_t> g_seeds = 0;
 std::atomic<uint64_t> g_restores = 0;
 std::atomic<uint64_t> g_captures = 0;
+std::atomic<uint64_t> g_aborts = 0;
 std::atomic<uint64_t> g_failures = 0;
 
 bool IsReadableProtection(DWORD protection)
@@ -146,6 +147,7 @@ void InitializeHPLPerEyeViewHistory(const Config& config)
     g_seeds.store(0, std::memory_order_relaxed);
     g_restores.store(0, std::memory_order_relaxed);
     g_captures.store(0, std::memory_order_relaxed);
+    g_aborts.store(0, std::memory_order_relaxed);
     g_failures.store(0, std::memory_order_relaxed);
     Logger::Instance().Write(
         LogLevel::Info,
@@ -247,6 +249,27 @@ void BeginHPLPerEyeViewHistoryPass(
     g_pass.calibrationGeneration = calibrationGeneration;
 }
 
+bool AbortHPLPerEyeViewHistoryPass(const char* reason)
+{
+    const ActivePass pass = g_pass;
+    g_pass = {};
+    if (!pass.active) return false;
+
+    const uint64_t abort = g_aborts.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (ShouldLog(abort)) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "hpl_per_eye_view_history abort=%llu reason=%s eye=%d poseFrame=%llu renderer=%p history=%p policy=expected_transition_no_fault",
+            static_cast<unsigned long long>(abort),
+            reason != nullptr ? reason : "unknown",
+            pass.eyeIndex,
+            static_cast<unsigned long long>(pass.poseFrame),
+            pass.renderer,
+            pass.historyAddress);
+    }
+    return true;
+}
+
 void EndHPLPerEyeViewHistoryPass(int actualEyeIndex, uint64_t actualPoseFrame)
 {
     const ActivePass pass = g_pass;
@@ -298,6 +321,7 @@ HPLPerEyeViewHistoryStatus GetHPLPerEyeViewHistoryStatus()
         g_seeds.load(std::memory_order_relaxed),
         g_restores.load(std::memory_order_relaxed),
         g_captures.load(std::memory_order_relaxed),
+        g_aborts.load(std::memory_order_relaxed),
         g_failures.load(std::memory_order_relaxed),
     };
 }

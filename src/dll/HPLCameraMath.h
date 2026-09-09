@@ -91,6 +91,11 @@ bool QuaternionFromForwardUp(
     const Vector3& forward,
     const Vector3& up,
     Quaternion& output);
+bool ComposeTrackedWorldOrientation(
+    const Vector3& nativeForward,
+    const Vector3& nativeUp,
+    const Quaternion& relativeTracking,
+    Quaternion& output);
 
 std::array<float, 16> RotationMatrix(const Quaternion& input);
 std::array<float, 16> MatrixMultiply(

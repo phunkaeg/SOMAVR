@@ -484,7 +484,7 @@ void RemoveAbsoluteJumpPatch(void*& target, const AbsoluteJumpRestoreSite& site)
         static_cast<unsigned long>(blockedThreadId));
 }
 
-void RollbackHooks()
+void RemoveOpticsPatches()
 {
     RemoveAbsoluteJumpPatch(
         g_fadeCameraFovTarget,
@@ -507,6 +507,11 @@ void RollbackHooks()
             .installed = g_fovMultiplierPatch,
             .original = g_fovMultiplierOriginal,
         });
+}
+
+void RollbackHooks()
+{
+    RemoveOpticsPatches();
     RemoveAbsoluteJumpPatch(
         g_setDepthOfFieldActiveTarget,
         {
@@ -547,71 +552,70 @@ bool InstallHPLComfortBridge(const Config& config)
 
     HMODULE executable = GetModuleHandleW(nullptr);
     const auto* base = reinterpret_cast<const std::byte*>(executable);
-    const bool rangeValid = (!cameraAddEnabled
-            || IsInsideImage(executable, kSetCameraPosAddRva, sizeof(kSetCameraPosAddSignature)))
-        && (!rollEnabled
-            || (IsInsideImage(executable, kFadeCameraRollRva, sizeof(kFadeCameraRollSignature))
-                && IsInsideImage(executable, kSetCameraRollRva, sizeof(kSetCameraRollSignature))))
-        && (!dofEnabled
-            || IsInsideImage(executable, kSetDepthOfFieldActiveRva,
-                sizeof(kSetDepthOfFieldActiveSignature)))
-        && (!opticsEnabled
-            || (IsInsideImage(executable, kFadeCameraFovMultiplierRva,
-                    sizeof(kFadeCameraFovMultiplierSignature))
-                && IsInsideImage(executable, kFadeCameraAspectMultiplierRva,
-                    sizeof(kFadeCameraAspectMultiplierSignature))
-                && IsInsideImage(executable, kFadeCameraFovRva,
-                    sizeof(kFadeCameraFovSignature))));
-    if (!rangeValid) {
-        Logger::Instance().Write(LogLevel::Error, "hpl_comfort_bridge install_failed reason=invalid_image_range");
-        return false;
-    }
-
-    const bool signaturesValid = (!cameraAddEnabled
-            || std::memcmp(base + kSetCameraPosAddRva, kSetCameraPosAddSignature,
-                sizeof(kSetCameraPosAddSignature)) == 0)
-        && (!rollEnabled
-            || (std::memcmp(base + kFadeCameraRollRva, kFadeCameraRollSignature,
-                    sizeof(kFadeCameraRollSignature)) == 0
-                && std::memcmp(base + kSetCameraRollRva, kSetCameraRollSignature,
-                    sizeof(kSetCameraRollSignature)) == 0))
-        && (!dofEnabled
-            || std::memcmp(base + kSetDepthOfFieldActiveRva, kSetDepthOfFieldActiveSignature,
-                sizeof(kSetDepthOfFieldActiveSignature)) == 0)
-        && (!opticsEnabled
-            || (std::memcmp(base + kFadeCameraFovMultiplierRva,
-                    kFadeCameraFovMultiplierSignature,
-                    sizeof(kFadeCameraFovMultiplierSignature)) == 0
-                && std::memcmp(base + kFadeCameraAspectMultiplierRva,
-                    kFadeCameraAspectMultiplierSignature,
-                    sizeof(kFadeCameraAspectMultiplierSignature)) == 0
-                && std::memcmp(base + kFadeCameraFovRva, kFadeCameraFovSignature,
-                    sizeof(kFadeCameraFovSignature)) == 0));
-    if (!signaturesValid) {
+    const bool cameraAddRangeValid = IsInsideImage(
+        executable, kSetCameraPosAddRva, sizeof(kSetCameraPosAddSignature));
+    const bool rollRangeValid = IsInsideImage(
+            executable, kFadeCameraRollRva, sizeof(kFadeCameraRollSignature))
+        && IsInsideImage(executable, kSetCameraRollRva, sizeof(kSetCameraRollSignature));
+    const bool dofRangeValid = IsInsideImage(
+        executable, kSetDepthOfFieldActiveRva, sizeof(kSetDepthOfFieldActiveSignature));
+    const bool opticsRangeValid = IsInsideImage(
+            executable, kFadeCameraFovMultiplierRva, sizeof(kFadeCameraFovMultiplierSignature))
+        && IsInsideImage(executable, kFadeCameraAspectMultiplierRva,
+            sizeof(kFadeCameraAspectMultiplierSignature))
+        && IsInsideImage(executable, kFadeCameraFovRva, sizeof(kFadeCameraFovSignature));
+    const bool cameraAddSignatureValid = cameraAddRangeValid
+        && std::memcmp(base + kSetCameraPosAddRva, kSetCameraPosAddSignature,
+            sizeof(kSetCameraPosAddSignature)) == 0;
+    const bool rollSignatureValid = rollRangeValid
+        && std::memcmp(base + kFadeCameraRollRva, kFadeCameraRollSignature,
+            sizeof(kFadeCameraRollSignature)) == 0
+        && std::memcmp(base + kSetCameraRollRva, kSetCameraRollSignature,
+            sizeof(kSetCameraRollSignature)) == 0;
+    const bool dofSignatureValid = dofRangeValid
+        && std::memcmp(base + kSetDepthOfFieldActiveRva, kSetDepthOfFieldActiveSignature,
+            sizeof(kSetDepthOfFieldActiveSignature)) == 0;
+    const bool opticsSignatureValid = opticsRangeValid
+        && std::memcmp(base + kFadeCameraFovMultiplierRva,
+            kFadeCameraFovMultiplierSignature,
+            sizeof(kFadeCameraFovMultiplierSignature)) == 0
+        && std::memcmp(base + kFadeCameraAspectMultiplierRva,
+            kFadeCameraAspectMultiplierSignature,
+            sizeof(kFadeCameraAspectMultiplierSignature)) == 0
+        && std::memcmp(base + kFadeCameraFovRva, kFadeCameraFovSignature,
+            sizeof(kFadeCameraFovSignature)) == 0;
+    const auto logValidationFailure = [](const char* lane, bool rangeValid) {
         Logger::Instance().Write(
             LogLevel::Error,
-            "hpl_comfort_bridge install_failed reason=signature_mismatch cameraAddRva=0x%llx fadeRollRva=0x%llx setRollRva=0x%llx dofRva=0x%llx fovMulRva=0x%llx aspectMulRva=0x%llx fovRva=0x%llx",
-            static_cast<unsigned long long>(kSetCameraPosAddRva),
-            static_cast<unsigned long long>(kFadeCameraRollRva),
-            static_cast<unsigned long long>(kSetCameraRollRva),
-            static_cast<unsigned long long>(kSetDepthOfFieldActiveRva),
-            static_cast<unsigned long long>(kFadeCameraFovMultiplierRva),
-            static_cast<unsigned long long>(kFadeCameraAspectMultiplierRva),
-            static_cast<unsigned long long>(kFadeCameraFovRva));
-        return false;
+            "hpl_comfort_bridge lane_disabled lane=%s reason=%s policy=independent_failure_domain",
+            lane,
+            rangeValid ? "signature_mismatch" : "invalid_image_range");
+    };
+    if (cameraAddEnabled && !cameraAddSignatureValid) {
+        logValidationFailure("camera_add", cameraAddRangeValid);
+    }
+    if (rollEnabled && !rollSignatureValid) {
+        logValidationFailure("camera_roll", rollRangeValid);
+    }
+    if (dofEnabled && !dofSignatureValid) {
+        logValidationFailure("depth_of_field", dofRangeValid);
+    }
+    if (opticsEnabled && !opticsSignatureValid) {
+        logValidationFailure("optics", opticsRangeValid);
     }
 
-    if (cameraAddEnabled
+    if (cameraAddEnabled && cameraAddSignatureValid
         && !InstallMinHook(
             const_cast<std::byte*>(base + kSetCameraPosAddRva),
             reinterpret_cast<void*>(&HookSetCameraPosAdd),
             reinterpret_cast<void**>(&g_originalSetCameraPosAdd),
             g_setCameraPosAddTarget,
             "SetCameraPosAdd")) {
-        RollbackHooks();
-        return false;
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_comfort_bridge lane_disabled lane=camera_add reason=hook_failed policy=independent_failure_domain");
     }
-    if (rollEnabled
+    if (rollEnabled && rollSignatureValid
         && (!InstallMinHook(
                 const_cast<std::byte*>(base + kFadeCameraRollRva),
                 reinterpret_cast<void*>(&HookFadeCameraRoll),
@@ -624,10 +628,15 @@ bool InstallHPLComfortBridge(const Config& config)
                 reinterpret_cast<void**>(&g_originalSetCameraRoll),
                 g_setCameraRollTarget,
                 "SetCameraRoll"))) {
-        RollbackHooks();
-        return false;
+        RemoveMinHook(g_setCameraRollTarget);
+        RemoveMinHook(g_fadeCameraRollTarget);
+        g_originalSetCameraRoll = nullptr;
+        g_originalFadeCameraRoll = nullptr;
+        Logger::Instance().Write(
+            LogLevel::Error,
+            "hpl_comfort_bridge lane_disabled lane=camera_roll reason=hook_failed policy=independent_failure_domain");
     }
-    if (dofEnabled
+    if (dofEnabled && dofSignatureValid
         && !InstallAbsoluteJumpPatch(
             {
                 .name = "SetDepthOfFieldActive",
@@ -640,11 +649,11 @@ bool InstallHPLComfortBridge(const Config& config)
             g_setDepthOfFieldActiveTarget)) {
         Logger::Instance().Write(
             LogLevel::Error,
-            "hpl_comfort_bridge install_failed reason=depth_of_field_patch");
-        RollbackHooks();
-        return false;
+            "hpl_comfort_bridge lane_disabled lane=depth_of_field reason=patch_failed retained={cameraAdd=%d roll=%d optics=0} policy=independent_failure_domain",
+            g_setCameraPosAddTarget != nullptr ? 1 : 0,
+            g_setCameraRollTarget != nullptr && g_fadeCameraRollTarget != nullptr ? 1 : 0);
     }
-    if (opticsEnabled
+    if (opticsEnabled && opticsSignatureValid
         && (!InstallAbsoluteJumpPatch(
                 {
                     .name = "FadeCameraFovMultiplier",
@@ -677,22 +686,43 @@ bool InstallHPLComfortBridge(const Config& config)
                 g_fadeCameraFovTarget))) {
         Logger::Instance().Write(
             LogLevel::Error,
-            "hpl_comfort_bridge install_failed reason=optics_patch");
-        RollbackHooks();
-        return false;
+            "hpl_comfort_bridge lane_disabled lane=optics reason=patch_failed retained={cameraAdd=%d roll=%d depthOfField=%d} policy=independent_failure_domain",
+            g_setCameraPosAddTarget != nullptr ? 1 : 0,
+            g_setCameraRollTarget != nullptr && g_fadeCameraRollTarget != nullptr ? 1 : 0,
+            g_setDepthOfFieldActiveTarget != nullptr ? 1 : 0);
+        RemoveOpticsPatches();
     }
+
+    const bool cameraAddInstalled = g_setCameraPosAddTarget != nullptr;
+    const bool rollInstalled = g_setCameraRollTarget != nullptr
+        && g_fadeCameraRollTarget != nullptr;
+    const bool dofInstalled = g_setDepthOfFieldActiveTarget != nullptr;
+    const bool opticsInstalled = g_fadeCameraFovMultiplierTarget != nullptr
+        && g_fadeCameraAspectMultiplierTarget != nullptr
+        && g_fadeCameraFovTarget != nullptr;
+    const bool anyInstalled = cameraAddInstalled || rollInstalled
+        || dofInstalled || opticsInstalled;
+    const bool partial = (cameraAddEnabled && !cameraAddInstalled)
+        || (rollEnabled && !rollInstalled)
+        || (dofEnabled && !dofInstalled)
+        || (opticsEnabled && !opticsInstalled);
 
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_comfort_bridge install_ok cameraAdd=%d cameraAddRva=0x%llx cameraRoll=%d fadeRollRva=0x%llx setRollRva=0x%llx depthOfField=%d dofRva=0x%llx optics=%d opticsRvas={fovMul=0x%llx aspectMul=0x%llx fov=0x%llx} addPolicy={bob=%d shake=%d sway=%d terminalDiegetic=%d} rollPolicy={script=%d lean=%d move=%d climb=%d} opticsPolicy={fov=%d fovMul=%d aspectMul=%d} policy=vr_active_semantic_zero",
+        "hpl_comfort_bridge install_ok partial=%d cameraAdd={requested=%d installed=%d rva=0x%llx} cameraRoll={requested=%d installed=%d fadeRva=0x%llx setRva=0x%llx} depthOfField={requested=%d installed=%d rva=0x%llx} optics={requested=%d installed=%d rvas={fovMul=0x%llx aspectMul=0x%llx fov=0x%llx}} addPolicy={bob=%d shake=%d sway=%d terminalDiegetic=%d} rollPolicy={script=%d lean=%d move=%d climb=%d} opticsPolicy={fov=%d fovMul=%d aspectMul=%d} policy=independent_lanes_vr_active_semantic_zero",
+        partial ? 1 : 0,
         cameraAddEnabled ? 1 : 0,
+        cameraAddInstalled ? 1 : 0,
         static_cast<unsigned long long>(kSetCameraPosAddRva),
         rollEnabled ? 1 : 0,
+        rollInstalled ? 1 : 0,
         static_cast<unsigned long long>(kFadeCameraRollRva),
         static_cast<unsigned long long>(kSetCameraRollRva),
         dofEnabled ? 1 : 0,
+        dofInstalled ? 1 : 0,
         static_cast<unsigned long long>(kSetDepthOfFieldActiveRva),
         opticsEnabled ? 1 : 0,
+        opticsInstalled ? 1 : 0,
         static_cast<unsigned long long>(kFadeCameraFovMultiplierRva),
         static_cast<unsigned long long>(kFadeCameraAspectMultiplierRva),
         static_cast<unsigned long long>(kFadeCameraFovRva),
@@ -707,7 +737,7 @@ bool InstallHPLComfortBridge(const Config& config)
         config.hplComfortSuppressFov ? 1 : 0,
         config.hplComfortSuppressFovMultiplier ? 1 : 0,
         config.hplComfortSuppressAspectMultiplier ? 1 : 0);
-    return true;
+    return anyInstalled;
 }
 
 void RemoveHPLComfortBridge()

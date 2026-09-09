@@ -635,6 +635,8 @@ struct OpenXRRuntime::Impl {
         manualStartKeyDown_ = false;
         manualStartFrame_ = 0;
         ResetFocusPacingLocked(reason, currentGameFrame_);
+        stereoDumpSamplesLeft_ = 0;
+        stereoDumpKeyDown_ = false;
     }
 
     bool Suspend(const char* reason)
@@ -1404,6 +1406,8 @@ struct OpenXRRuntime::Impl {
         pendingRenderedEye_ = eyeIndex;
         pendingRenderedView_ = view;
         pendingRenderedEyeValid_ = true;
+        ++pendingRenderSerial_;
+        glBridge_.InvalidateSceneDepth(eyeIndex);
         return true;
     }
 
@@ -1411,6 +1415,29 @@ struct OpenXRRuntime::Impl {
     {
         std::lock_guard lock(mutex_);
         return CapturePendingStereoEyeLocked(frameIndex, source);
+    }
+
+    bool CapturePendingSceneDepth(uint64_t frameIndex, int eyeIndex, uint64_t poseFrame,
+        float nearWorld, float farWorld, float worldUnitsPerMeter)
+    {
+        std::lock_guard lock(mutex_);
+        if (!depthCompositionProbeEnabled_ && !depthCompositionSubmitEnabled_) return false;
+        const uint64_t call = ++sceneDepthHookCalls_;
+        depth_math::CompositionDepthRange range;
+        const bool eligible = stereoSubmissionEnabled_ && pendingRenderedEyeValid_
+            && eyeIndex >= 0 && eyeIndex < 2 && pendingRenderedEye_ == static_cast<uint32_t>(eyeIndex)
+            && pendingRenderedView_.gameFrame == poseFrame && glBridge_.Ready()
+            && wglGetCurrentContext() == sessionGlContext_ && wglGetCurrentDC() == sessionHdc_
+            && depth_math::BuildStandardDepthRange(nearWorld, farWorld, worldUnitsPerMeter, range);
+        const bool captured = eligible && glBridge_.CaptureSceneDepthToCache(
+            static_cast<uint32_t>(eyeIndex), pendingRenderSerial_, poseFrame, range);
+        if (call <= 8 || call % 240 == 0) {
+            Logger::Instance().Write(LogLevel::Info,
+                "openxr_scene_depth_hook calls=%llu frame=%llu eye=%d poseFrame=%llu eligible=%d captured=%d phase=world_callbacks_entry",
+                static_cast<unsigned long long>(call), static_cast<unsigned long long>(frameIndex),
+                eyeIndex, static_cast<unsigned long long>(poseFrame), eligible ? 1 : 0, captured ? 1 : 0);
+        }
+        return captured;
     }
 
     void InvalidateStereoCaches(const char* reason)
@@ -2074,6 +2101,7 @@ private:
         extensions.resize(extensionCount);
 
         const bool hasOpenGL = ExtensionPresent(extensions, XR_KHR_OPENGL_ENABLE_EXTENSION_NAME);
+        const bool hasD3D11 = ExtensionPresent(extensions, "XR_KHR_D3D11_enable");
         const bool hasWin32Time = ExtensionPresent(extensions, "XR_KHR_win32_convert_performance_counter_time");
         depthExtensionAvailable_ = ExtensionPresent(extensions, "XR_KHR_composition_layer_depth");
         hudCylinderExtensionAvailable_ = ExtensionPresent(
@@ -2089,9 +2117,10 @@ private:
             && hasFoveationConfiguration;
         Logger::Instance().Write(
             LogLevel::Info,
-            "openxr_extensions count=%u khrOpenGL=%d khrWin32Time=%d khrCompositionLayerDepth=%d khrCompositionLayerCylinder=%d fbSwapchainUpdate=%d fbFoveation=%d fbFoveationConfiguration=%d depthProbeRequested=%d depthSubmitRequested=%d hudCylinderRequested=%d foveationRequested=%d sample=\"%s\"",
+            "openxr_extensions count=%u khrOpenGL=%d khrD3D11=%d khrWin32Time=%d khrCompositionLayerDepth=%d khrCompositionLayerCylinder=%d fbSwapchainUpdate=%d fbFoveation=%d fbFoveationConfiguration=%d depthProbeRequested=%d depthSubmitRequested=%d hudCylinderRequested=%d foveationRequested=%d sample=\"%s\"",
             extensionCount,
             hasOpenGL ? 1 : 0,
+            hasD3D11 ? 1 : 0,
             hasWin32Time ? 1 : 0,
             depthExtensionAvailable_ ? 1 : 0,
             hudCylinderExtensionAvailable_ ? 1 : 0,
@@ -2991,7 +3020,8 @@ private:
         const char* captureSource = source != nullptr ? source : "unspecified";
         const uint32_t eyeIndex = pendingRenderedEye_;
         const OpenXREyeView renderedView = pendingRenderedView_;
-        const bool captured = glBridge_.CaptureBackbufferToCache(eyeIndex);
+        const bool captured = glBridge_.CaptureBackbufferToCache(
+            eyeIndex, pendingRenderSerial_, renderedView.gameFrame);
         pendingRenderedEyeValid_ = false;
         if (captured) {
             renderedStereoViews_[eyeIndex] = renderedView;
@@ -3069,11 +3099,59 @@ private:
         return false;
     }
 
+    void PollStereoDumpLocked(uint64_t frameIndex)
+    {
+        const bool keyDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0
+            && (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
+        if (keyDown && !stereoDumpKeyDown_) {
+            ++stereoDumpSequence_;
+            stereoDumpSamplesLeft_ = 2;
+            stereoDumpNextFrame_ = frameIndex;
+            stereoDumpExpireFrame_ = frameIndex + 120;
+            Logger::Instance().Write(LogLevel::Info,
+                "stereo_eye_dump requested sequence=%llu frame=%llu samples=2 key=CtrlF10 policy=on_demand_readback_may_stall",
+                static_cast<unsigned long long>(stereoDumpSequence_),
+                static_cast<unsigned long long>(frameIndex));
+        }
+        stereoDumpKeyDown_ = keyDown;
+        if (stereoDumpSamplesLeft_ == 0) return;
+        if (frameIndex > stereoDumpExpireFrame_) {
+            Logger::Instance().Write(LogLevel::Warn,
+                "stereo_eye_dump expired sequence=%llu reason=no_recent_stereo_caches",
+                static_cast<unsigned long long>(stereoDumpSequence_));
+            stereoDumpSamplesLeft_ = 0;
+            return;
+        }
+        if (frameIndex < stereoDumpNextFrame_ || presentationBlackoutActive_
+            || !glBridge_.StereoCachesReady()
+            || !renderedStereoViewValid_[0] || !renderedStereoViewValid_[1]) return;
+        for (const auto& view : renderedStereoViews_) {
+            if (view.gameFrame > frameIndex || frameIndex - view.gameFrame > 4) return;
+        }
+        const uint32_t sample = 3 - stereoDumpSamplesLeft_;
+        bool written[2]{};
+        for (uint32_t eye = 0; eye < 2; ++eye) {
+            written[eye] = glBridge_.DumpEyeCache(eye, frameIndex,
+                stereoDumpSequence_, sample, renderedStereoViews_[eye].gameFrame);
+        }
+        Logger::Instance().Write(LogLevel::Info,
+            "stereo_eye_dump sequence=%llu sample=%u frame=%llu leftPoseFrame=%llu rightPoseFrame=%llu samePose=%d leftWritten=%d rightWritten=%d source=rendered_eye_caches policy=scene_pixels_not_compositor_overlays",
+            static_cast<unsigned long long>(stereoDumpSequence_), sample,
+            static_cast<unsigned long long>(frameIndex),
+            static_cast<unsigned long long>(renderedStereoViews_[0].gameFrame),
+            static_cast<unsigned long long>(renderedStereoViews_[1].gameFrame),
+            renderedStereoViews_[0].gameFrame == renderedStereoViews_[1].gameFrame ? 1 : 0,
+            written[0] ? 1 : 0, written[1] ? 1 : 0);
+        --stereoDumpSamplesLeft_;
+        stereoDumpNextFrame_ = frameIndex + 15;
+    }
+
     void SubmitFrameLocked(uint64_t frameIndex, const HPLCameraBridgeStatus& cameraStatus)
     {
         CapturePendingStereoEyeLocked(frameIndex, "frame_boundary");
 
         CloseOpenFrameLocked("next_frame", frameIndex);
+        PollStereoDumpLocked(frameIndex);
         if (openxr_frame_pacing_math::Decide(
                 sessionRunning_,
                 sessionState_ == XR_SESSION_STATE_FOCUSED,
@@ -3342,19 +3420,15 @@ private:
 
                 if (copied) {
                     const int64_t projectionTransferStartQpc = QpcNow();
-                    depth_math::CompositionDepthRange depthRange;
                     bool depthFrameReady = stereoReady
                         && depthCompositionSubmitEnabled_
                         && depthExtensionEnabled_
-                        && cameraStatus.projectionParametersValid
-                        && cameraStatus.projectionType == 0
                         && glBridge_.DepthCachesReady()
-                        && glBridge_.DepthSwapchainsReady()
-                        && depth_math::BuildStandardDepthRange(
-                            cameraStatus.nearPlane,
-                            cameraStatus.farPlane,
-                            cameraStatus.worldUnitsPerMeter,
-                            depthRange);
+                        && glBridge_.DepthSwapchainsReady();
+                    for (uint32_t eyeIndex = 0; depthFrameReady && eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
+                        depthFrameReady = glBridge_.Eye(eyeIndex).sceneDepth.poseFrame
+                            == renderedStereoViews_[eyeIndex].gameFrame;
+                    }
                     for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
                         const bool eyeCopied = stereoReady
                             ? glBridge_.CopyCacheToEye(eyeIndex)
@@ -3433,6 +3507,7 @@ private:
                     if (copied && depthFrameReady) {
                         for (uint32_t eyeIndex = 0; eyeIndex < glBridge_.EyeCount(); ++eyeIndex) {
                             const OpenXRGLBridge::EyeSwapchain& eye = glBridge_.Eye(eyeIndex);
+                            const auto& depthRange = eye.sceneDepth.range;
                             XrCompositionLayerDepthInfoKHR& depthView = depthViews[eyeIndex];
                             depthView.type = XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR;
                             depthView.subImage.swapchain = eye.depthHandle;
@@ -4826,6 +4901,11 @@ private:
     bool manualStartArmed_ = false;
     bool manualStartLogged_ = false;
     bool manualStartKeyDown_ = false;
+    bool stereoDumpKeyDown_ = false;
+    uint32_t stereoDumpSamplesLeft_ = 0;
+    uint64_t stereoDumpSequence_ = 0;
+    uint64_t stereoDumpNextFrame_ = 0;
+    uint64_t stereoDumpExpireFrame_ = 0;
     bool frameSubmitEnabled_ = false;
     bool inputEnabled_ = false;
     int inputLogInterval_ = 120;
@@ -4974,6 +5054,8 @@ private:
     uint32_t frameErrorLogCount_ = 0;
     uint32_t pendingRenderedEye_ = 0;
     uint32_t lastCapturedStereoEye_ = 0;
+    uint64_t pendingRenderSerial_ = 0;
+    uint64_t sceneDepthHookCalls_ = 0;
     uint32_t stereoCaptureFailures_ = 0;
     uint64_t stereoCapturedEyeCount_ = 0;
     uint64_t stereoCompletedPairCount_ = 0;
@@ -5389,6 +5471,7 @@ struct OpenXRRuntime::Impl {
     void SetStereoSubmissionEnabled(bool) {}
     bool MarkRenderedStereoEye(uint32_t, const OpenXREyeView&) { return false; }
     bool CapturePendingStereoEye(uint64_t, const char*) { return false; }
+    bool CapturePendingSceneDepth(uint64_t, int, uint64_t, float, float, float) { return false; }
     void InvalidateStereoCaches(const char*) {}
     void RequestComfortBlackout(uint32_t, const char*) {}
     void SetPresentationBlackout(bool, const char*) {}
@@ -5714,6 +5797,13 @@ bool OpenXRRuntime::MarkRenderedStereoEye(uint32_t eyeIndex, const OpenXREyeView
 bool OpenXRRuntime::CapturePendingStereoEye(uint64_t frameIndex, const char* source)
 {
     return impl_->CapturePendingStereoEye(frameIndex, source);
+}
+
+bool OpenXRRuntime::CapturePendingSceneDepth(uint64_t frameIndex, int eyeIndex,
+    uint64_t poseFrame, float nearWorld, float farWorld, float worldUnitsPerMeter)
+{
+    return impl_->CapturePendingSceneDepth(frameIndex, eyeIndex, poseFrame,
+        nearWorld, farWorld, worldUnitsPerMeter);
 }
 
 void OpenXRRuntime::InvalidateStereoCaches(const char* reason)

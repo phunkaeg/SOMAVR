@@ -58,6 +58,39 @@ camera_math::Quaternion ResolveRelativeOrientation(
         camera_math::Normalize(anchorObject)));
 }
 
+bool BuildStablePresentationOffset(
+    const camera_math::Vector3& viewForward,
+    float sourceDistance,
+    float distanceScale,
+    camera_math::Vector3& output)
+{
+    output = {};
+    if (!std::isfinite(viewForward.x)
+        || !std::isfinite(viewForward.y)
+        || !std::isfinite(viewForward.z)
+        || !std::isfinite(sourceDistance)
+        || !std::isfinite(distanceScale)
+        || sourceDistance <= 0.05f
+        || distanceScale < 0.5f
+        || distanceScale > 4.0f) {
+        return false;
+    }
+    const float forwardLength = std::sqrt(
+        viewForward.x * viewForward.x
+        + viewForward.y * viewForward.y
+        + viewForward.z * viewForward.z);
+    if (!std::isfinite(forwardLength) || forwardLength <= 1.0e-5f) return false;
+    const float distance = sourceDistance * distanceScale;
+    output = {
+        viewForward.x / forwardLength * distance,
+        viewForward.y / forwardLength * distance,
+        viewForward.z / forwardLength * distance,
+    };
+    return std::isfinite(output.x)
+        && std::isfinite(output.y)
+        && std::isfinite(output.z);
+}
+
 bool ScaleCameraRelativePosition(
     const camera_math::Vector3& cameraPosition,
     const camera_math::Vector3& nativePosition,

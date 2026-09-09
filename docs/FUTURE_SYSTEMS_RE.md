@@ -418,12 +418,14 @@ for HUD capture, doubling stateful draw work and producing fragmented/flashing
 content. Version 0.68 renders once, then blits the completed nonzero terminal FBO
 to the HUD capture. Cursor ownership and native widget dispatch are unchanged.
 
-SOMA's Grab throw script teleports the prop immediately in front of the camera,
-zeros velocity, and then applies a camera-forward native impulse. Arbitrary
-controller redirection could point that fresh prop back through the character,
-causing recoil, while the old `0.5..1.5` speed scale weakened ordinary throws.
-The new policy preserves at least native magnitude, permits up to `2x` for fast
-motion, and enforces a small forward-clearance component.
+Correction (2026-09-09): the current shipped Grab throw script constructs a
+camera transform but does not apply it to the prop. The earlier teleport claim
+was unsupported. It restores body properties, zeros velocity, then applies a
+camera-forward native impulse. The established redirect preserves native
+magnitude up to `2x` and a forward cone; that cone does not prove collision
+clearance. Trigger release previously used speed-limited DropBody instead.
+0.96.1 adds an exact-body native throw handoff for fast releases; collision/recoil
+acceptance is still open. See `INTERACTION_FOLLOW_REVIEW_2026-09-09.md`.
 
 Read presentation now scales each current native matrix translation from the
 current camera position. This is intentionally not an acquisition-frame cache:

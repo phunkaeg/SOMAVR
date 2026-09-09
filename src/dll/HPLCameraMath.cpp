@@ -5,6 +5,22 @@
 
 namespace somavr::camera_math {
 
+bool ComposeTrackedWorldOrientation(
+    const Vector3& nativeForward,
+    const Vector3& nativeUp,
+    const Quaternion& relativeTracking,
+    Quaternion& output)
+{
+    Quaternion native{};
+    if (!QuaternionFromForwardUp(nativeForward, nativeUp, native)) return false;
+    const float lengthSquared = relativeTracking.x * relativeTracking.x
+        + relativeTracking.y * relativeTracking.y + relativeTracking.z * relativeTracking.z
+        + relativeTracking.w * relativeTracking.w;
+    if (!std::isfinite(lengthSquared) || lengthSquared < 0.0001f) return false;
+    output = Normalize(Multiply(native, Normalize(relativeTracking)));
+    return true;
+}
+
 Quaternion Normalize(Quaternion value)
 {
     const float lengthSquared = value.x * value.x + value.y * value.y

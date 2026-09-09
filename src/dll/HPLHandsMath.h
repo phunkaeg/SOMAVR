@@ -16,6 +16,21 @@ struct HudObjectCalibration {
     camera_math::Vector3 rotationDegrees;
 };
 
+struct WristPositionGoal {
+    camera_math::Vector3 requested{};
+    camera_math::Vector3 selected{};
+    bool ikSolved = false;
+};
+
+bool BuildCalibratedWristGoal(
+    const camera_math::Vector3& trackedPosition,
+    const camera_math::Vector3& viewForward,
+    const camera_math::Vector3& offsetsMeters,
+    float worldUnitsPerMeter,
+    bool leftHand,
+    WristPositionGoal& goal);
+bool CommitWristIKGoal(const camera_math::Vector3& solvedEndpoint, WristPositionGoal& goal);
+
 bool BuildControllerHandMatrix(
     const camera_math::Vector3& gripPosition,
     const camera_math::Vector3& gripForward,
@@ -77,6 +92,10 @@ camera_math::Quaternion ApplyControllerForwardRoll(
 
 camera_math::Quaternion ApplyControllerLocalPitch(
     const camera_math::Quaternion& controllerToWrist,
+    float pitchDegrees);
+camera_math::Quaternion ApplyControllerWristCalibration(
+    const camera_math::Quaternion& controllerToWrist,
+    float rollDegrees,
     float pitchDegrees);
 
 bool BuildTrackedWristWorldMatrixFromOffset(

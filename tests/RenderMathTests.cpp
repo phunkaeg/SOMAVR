@@ -66,6 +66,151 @@ int main()
     using namespace somavr;
 
     int failures = 0;
+    for (float heading : {0.0f, 90.0f, 180.0f, -90.0f}) {
+        const auto yaw = input_math::OrientationFromHorizontalYaw(input_math::DegreesToRadians(heading));
+        const auto forward = camera_math::RotateVector(yaw, {0, 0, -1});
+        const auto right = camera_math::RotateVector(yaw, {1, 0, 0});
+        for (bool left : {false, true}) {
+            hands_math::WristPositionGoal goal;
+            const float sign = left ? -1.0f : 1.0f;
+            failures += Check(hands_math::BuildCalibratedWristGoal(
+                    {3, 4, 5}, forward, {.03f, -.04f, -.04f}, 2, left, goal)
+                && Near(goal.requested.x, 3 + 2 * (right.x * sign * .03f - forward.x * .04f))
+                && Near(goal.requested.y, 3.92f)
+                && Near(goal.requested.z, 5 + 2 * (right.z * sign * .03f - forward.z * .04f))
+                && !goal.ikSolved && Near(goal.requested.x, goal.selected.x),
+                "calibrated wrist goal is yaw-relative, mirrored and unit-scaled with IK-off fallback");
+            arm_ik_math::TwoBoneSolution solution;
+            const camera_math::Vector3 shoulder{0, 0, 0};
+            failures += Check(arm_ik_math::SolveTwoBone(shoulder, goal.requested,
+                    {0, -1, 0}, .3f, .3f, .98f, solution)
+                && solution.reachClamped && hands_math::CommitWristIKGoal(solution.wrist, goal)
+                && goal.ikSolved && Near(goal.selected.x, solution.wrist.x)
+                && Near(goal.selected.y, solution.wrist.y) && Near(goal.selected.z, solution.wrist.z),
+                "final wrist target consumes the arm solver clamp without adding offsets again");
+        }
+    }
+    hands_math::WristPositionGoal invalidGoal;
+    hands_math::WristPositionGoal reachableGoal;
+    arm_ik_math::TwoBoneSolution reachableSolution;
+    failures += Check(hands_math::BuildCalibratedWristGoal({.1f, 0, -.4f}, {0, 0, -1},
+            {.03f, -.04f, -.04f}, 1, false, reachableGoal)
+        && arm_ik_math::SolveTwoBone({}, reachableGoal.requested, {0, -1, 0}, .3f, .3f, .98f, reachableSolution)
+        && !reachableSolution.reachClamped
+        && hands_math::CommitWristIKGoal(reachableSolution.wrist, reachableGoal)
+        && Near(reachableGoal.selected.x, reachableGoal.requested.x)
+        && Near(reachableGoal.selected.y, reachableGoal.requested.y)
+        && Near(reachableGoal.selected.z, reachableGoal.requested.z),
+        "reachable calibrated wrist stays one-to-one without controller travel compression");
+    failures += Check(!hands_math::BuildCalibratedWristGoal({}, {0, 1, 0}, {}, 1, false, invalidGoal)
+        && !hands_math::BuildCalibratedWristGoal({}, {0, 0, -1}, {}, 0, false, invalidGoal)
+        && !hands_math::CommitWristIKGoal({std::numeric_limits<float>::quiet_NaN(), 0, 0}, invalidGoal),
+        "invalid calibration axes, units and IK endpoints fail closed");
+
+    depth_math::SceneDepthSource sceneDepth;
+    sceneDepth.framebuffer = 11;
+    sceneDepth.objectType = 0x8D41;
+    sceneDepth.object = 1;
+    sceneDepth.format = 0x88F0;
+    sceneDepth.width = 1920;
+    sceneDepth.height = 1080;
+    sceneDepth.viewport = {0, 0, 1920, 1080};
+    sceneDepth.depthRange = {0, 1};
+    sceneDepth.complete = true;
+    failures += Check(std::string(depth_math::ValidateSceneDepthSource(sceneDepth, 0x88F0)) == "accepted",
+        "baseline full-size single-sample D24S8 scene attachment passes");
+    for (int fault = 0; fault < 8; ++fault) {
+        auto invalid = sceneDepth;
+        if (fault == 0) invalid.framebuffer = 0;
+        if (fault == 1) invalid.objectType = 0x1702;
+        if (fault == 2) invalid.object = 0;
+        if (fault == 3) invalid.format = 0x822D;
+        if (fault == 4) invalid.samples = 4;
+        if (fault == 5) invalid.viewport[2] = 1024;
+        if (fault == 6) invalid.depthRange = {1, 0};
+        if (fault == 7) invalid.complete = false;
+        failures += Check(std::string(depth_math::ValidateSceneDepthSource(invalid, 0x88F0)) != "accepted",
+            "default/missing/texture/linear/MSAA/viewport/reversed/incomplete depth sources fail closed");
+    }
+    depth_math::SceneDepthStamp depthStamp{2, 100, sceneDepth, {}, true};
+    failures += Check(depth_math::SceneDepthMatchesColor(depthStamp, 2, 100, sceneDepth.viewport)
+        && !depth_math::SceneDepthMatchesColor(depthStamp, 3, 100, sceneDepth.viewport)
+        && !depth_math::SceneDepthMatchesColor(depthStamp, 2, 101, sceneDepth.viewport)
+        && !depth_math::SceneDepthMatchesColor(depthStamp, 2, 100, {0, 0, 1024, 768}),
+        "depth copy pairs with exact render generation, pose and color viewport, not frame number alone");
+    depthStamp.captured = false;
+    failures += Check(!depth_math::SceneDepthMatchesColor(depthStamp, 2, 100, sceneDepth.viewport),
+        "missing scene callback cannot reuse previous depth");
+    for (const float degrees : {-170.0f, -90.0f, -35.0f, 0.0f, 60.0f, 170.0f}) {
+        const float heading = input_math::DegreesToRadians(degrees);
+        const auto native = input_math::OrientationFromHorizontalYaw(heading);
+        float recovered = 0.0f;
+        failures += Check(input_math::ResolveHorizontalYaw(native, recovered)
+            && Near(input_math::WrapRadians(recovered - heading), 0.0f, 1.0e-4f),
+            "torso heading round-trips with the clockwise -Z convention");
+        const auto nativeForward = camera_math::RotateVector(native, {0, 0, -1});
+        const auto headRelative = hands_math::ApplyControllerLocalPitch({}, 25.0f);
+        camera_math::Quaternion sceneHead{};
+        const bool composed = camera_math::ComposeTrackedWorldOrientation(
+            nativeForward, {0, 1, 0}, headRelative, sceneHead);
+        const auto actual = camera_math::RotateVector(sceneHead, {0, 0, -1});
+        const auto expected = camera_math::RotateVector(native,
+            camera_math::RotateVector(headRelative, {0, 0, -1}));
+        failures += Check(composed && Near(actual.x, expected.x, 1.0e-4f)
+            && Near(actual.y, expected.y, 1.0e-4f)
+            && Near(actual.z, expected.z, 1.0e-4f),
+            "head scene orientation composes native camera before tracking pitch");
+        camera_math::Vector3 offset{};
+        failures += Check(read_math::BuildStablePresentationOffset(actual, 0.5f, 1.5f, offset)
+            && Near(offset.x * actual.x + offset.y * actual.y + offset.z * actual.z,
+                0.75f, 1.0e-4f),
+            "story object remains in front at arbitrary native headings");
+        camera_math::Vector3 turnedOffset{};
+        failures += Check(read_math::BuildStablePresentationOffset(
+                {-actual.x, actual.y, -actual.z}, 0.75f, 1.0f, turnedOffset)
+            && Near(turnedOffset.x, -offset.x, 1.0e-4f)
+            && Near(turnedOffset.z, -offset.z, 1.0e-4f),
+            "latched story distance follows a half-turn without scaling twice");
+    }
+    const auto fullWristCalibration = hands_math::ApplyControllerWristCalibration({}, -90, 45);
+    const auto expectedWristCalibration = hands_math::ApplyControllerLocalPitch(
+        hands_math::ApplyControllerForwardRoll({}, -90), 45);
+    failures += Check(input_math::QuaternionAngularDistanceDegrees(
+            fullWristCalibration, expectedWristCalibration) < 0.1f
+        && input_math::QuaternionAngularDistanceDegrees(fullWristCalibration,
+            hands_math::ApplyControllerForwardRoll({}, -90)) > 44.9f,
+        "both wrist seed paths include the configured pitch exactly once");
+    const auto neutralWristCalibration = hands_math::ApplyControllerWristCalibration({}, -90, -45);
+    const auto neutralGrip = hands_math::ApplyControllerLocalPitch({}, 45);
+    const auto neutralHand = camera_math::Multiply(neutralGrip, neutralWristCalibration);
+    const auto neutralFingers = camera_math::RotateVector(neutralHand, {0, 0, -1});
+    const auto neutralPalm = camera_math::RotateVector(neutralHand, {0, 1, 0});
+    const auto oldPalm = camera_math::RotateVector(
+        camera_math::Multiply(neutralGrip, fullWristCalibration), {0, 1, 0});
+    failures += Check(Near(neutralFingers.x, 0) && Near(neutralFingers.y, 0)
+        && Near(neutralFingers.z, -1) && Near(neutralPalm.x, -1)
+        && Near(neutralPalm.x, oldPalm.x) && Near(neutralPalm.y, oldPalm.y)
+        && Near(neutralPalm.z, oldPalm.z)
+        && Near(input_math::QuaternionAngularDistanceDegrees(
+            neutralWristCalibration, fullWristCalibration), 90, .001f),
+        "neutral wrist profile lowers upward fingers 90 degrees without changing the left-facing palm");
+    failures += Check(dual_render_math::IsReplaySceneReady(true, false)
+        && !dual_render_math::IsReplaySceneReady(false, false)
+        && !dual_render_math::IsReplaySceneReady(true, true)
+        && !dual_render_math::IsReplaySceneReady(false, true),
+        "loading and world-less viewports cannot replay stale eye identities");
+    terminal_math::ScissorRect overlappingAtlasClip{};
+    failures += Check(terminal_math::RemapScissorToCaptureViewport(
+            {276, 118, 230, 116}, {264, 103, 256, 145}, {0, 0, 1024, 577},
+            overlappingAtlasClip)
+        && overlappingAtlasClip.x == 48 && overlappingAtlasClip.y == 59
+        && overlappingAtlasClip.width == 920 && overlappingAtlasClip.height == 463,
+        "atlas scissor remaps even when its old coordinates overlap the capture target");
+    failures += Check(terminal_math::RemapScissorToCaptureViewport(
+            {277, 118, 0, 0}, {264, 103, 256, 145}, {0, 0, 1024, 577},
+            overlappingAtlasClip)
+        && overlappingAtlasClip.width == 0 && overlappingAtlasClip.height == 0,
+        "fractional scissor scaling preserves deliberately empty clips");
     failures += Check(
         openxr_frame_pacing_math::UpcomingRenderDisplayTime(1'000, 11) == 1'011
             && openxr_frame_pacing_math::UpcomingRenderDisplayTime(1'000, 0) == 1'000
@@ -569,6 +714,16 @@ int main()
             && !dual_render_math::IsSamePoseOppositeEye(0, 42, 0, 42)
             && !dual_render_math::IsSamePoseOppositeEye(0, 42, 1, 43),
         "dual-render replay validates opposite eyes from one tracked pose");
+    failures += Check(
+        dual_render_math::ResolveReplayOutcome(0, 42, 1, 42, false)
+                == dual_render_math::ReplayOutcome::SamePoseOppositeEye
+            && dual_render_math::ResolveReplayOutcome(0, 42, -1, 0, true)
+                == dual_render_math::ReplayOutcome::ExpectedPairAbort
+            && dual_render_math::ResolveReplayOutcome(0, 42, 1, 42, true)
+                == dual_render_math::ReplayOutcome::ExpectedPairAbort
+            && dual_render_math::ResolveReplayOutcome(0, 42, -1, 0, false)
+                == dual_render_math::ReplayOutcome::EyeSequenceMismatch,
+        "dual-render replay distinguishes a stale-base resync from an eye-sequence fault");
     per_eye_view_history_math::Bank viewHistoryBank;
     per_eye_view_history_math::ViewHistoryPacket sharedHistory{};
     sharedHistory.fill(0x11);
@@ -1353,15 +1508,46 @@ int main()
             && !terminal_math::ShouldFallbackToLiveTerminalFrames(8, 8, true)
             && !terminal_math::ShouldFallbackToLiveTerminalFrames(8, 8, false, true),
         "terminal retention falls back only after bounded missing-clear evidence without a repaired draw path");
+    terminal_math::ScissorRect remappedScissor{};
+    failures += Check(
+        terminal_math::RemapScissorToCaptureViewport(
+            {120, 1047, 534, 813},
+            {0, 893, 2048, 1155},
+            {0, 0, 1024, 577},
+            remappedScissor)
+            && remappedScissor.x == 60
+            && remappedScissor.y == 76
+            && remappedScissor.width == 267
+            && remappedScissor.height == 408
+            && !terminal_math::RemapScissorToCaptureViewport(
+                {276, 118, 230, 116},
+                {0, 0, 1024, 577},
+                {0, 0, 1024, 577},
+                remappedScissor),
+        "terminal scissor repair scales HPL source-viewport clips into the private capture FBO");
+    failures += Check(
+        terminal_math::RemapScissorToCaptureViewport(
+            {532, 630, 230, 116},
+            {520, 615, 256, 145},
+            {0, 0, 1024, 577},
+            remappedScissor)
+            && remappedScissor.x == 48
+            && remappedScissor.y == 59
+            && remappedScissor.width == 920
+            && remappedScissor.height == 463,
+        "terminal scissor repair scales the animated low-resolution source viewport");
     terminal_math::HudPointerPosition terminalPointer{};
     const camera_math::Quaternion identityOrientation{0.0f, 0.0f, 0.0f, 1.0f};
     failures += Check(
         terminal_math::ProjectAimToHudSurface(
+            {},
             identityOrientation,
+            {},
             identityOrientation,
             true,
             70.0f,
             1.5f,
+            0.0f,
             1.6f,
             16.0f / 9.0f,
             terminalPointer)
@@ -1375,17 +1561,36 @@ int main()
             {0.0f, 1.0f, 0.0f},
             rightAim)
             && terminal_math::ProjectAimToHudSurface(
+                {},
                 identityOrientation,
+                {},
                 rightAim,
                 true,
                 70.0f,
                 1.5f,
+                0.0f,
                 1.6f,
                 16.0f / 9.0f,
                 terminalPointer)
             && terminalPointer.x > 0.90f
             && Near(terminalPointer.y, 0.5f),
         "terminal HUD projection follows the cylinder arc instead of a mismatched flat FOV");
+    failures += Check(
+        terminal_math::ProjectAimToHudSurface(
+            {},
+            identityOrientation,
+            {0.2f, -0.1f, 0.0f},
+            identityOrientation,
+            false,
+            70.0f,
+            1.5f,
+            -0.05f,
+            1.6f,
+            16.0f / 9.0f,
+            terminalPointer)
+            && Near(terminalPointer.x, 0.625f)
+            && Near(terminalPointer.y, 0.55556f, 0.0001f),
+        "terminal HUD projection includes controller-origin parallax and HUD vertical offset");
 
     std::array<float, 16> flashlightMatrix{};
     const flashlight_math::FlashlightCalibration flashlightCalibration{
@@ -1547,6 +1752,15 @@ int main()
                         1.0f, 0.40f, 0.0f, 1.0f, 10.0f, 2.5f),
                 2.5f),
         "slide target catches body up to hand displacement and respects speed cap");
+    failures += Check(
+        Near(grab_math::ResolveSlideTargetSpeed(0.2f, 0.1f, 0.125f, 1.25f, 18.0f, 2.5f), 0.25f)
+            && Near(grab_math::ResolveSlideTargetSpeed(0.2f, 0.4f, 0.5f, 1.25f, 18.0f, 2.5f), 0.25f)
+            && Near(grab_math::ResolveSlideTargetSpeed(0.0f, 0.4f, 0.5f, 1.25f, 18.0f, 2.5f), 0.0f)
+            && Near(grab_math::ResolveSlideTargetSpeed(-0.2f, -0.4f, -0.5f, 1.25f, 18.0f, 2.5f), -0.25f),
+        "slide gain does not decay or pull back as scaled controller travel accumulates");
+    failures += Check(
+        Near(grab_math::ResolveSlideTargetSpeed(0.4021f, 0.1461f, 0.1579f, 1.25f, 18.0f, 2.5f), 0.947675f),
+        "September 9 drawer receipt no longer brakes against an unscaled position target");
 
     using grab_math::ResolveHingeAngularVelocity;
     failures += Check(
@@ -1575,6 +1789,24 @@ int main()
                         {0.0f, 1.0f, 0.0f}, 1.0f, 4.0f),
                 0.0f),
         "hinge velocity rejects radial motion and degenerate radius");
+    const camera_math::Quaternion hingeQuarterTurn{0.0f, std::sqrt(0.5f), 0.0f, std::sqrt(0.5f)};
+    const auto rotatedHandle = grab_math::RebaseRigidPoint(
+        {3.0f, 3.0f, 4.0f}, {2.0f, 3.0f, 4.0f}, {}, {2.0f, 3.0f, 4.0f}, hingeQuarterTurn);
+    const auto translatedHandle = grab_math::RebaseRigidPoint(
+        rotatedHandle, {2.0f, 3.0f, 4.0f}, hingeQuarterTurn, {5.0f, 6.0f, 7.0f}, {});
+    failures += Check(
+        Near(rotatedHandle.x, 2.0f) && Near(rotatedHandle.y, 3.0f) && Near(rotatedHandle.z, 3.0f)
+            && Near(translatedHandle.x, 6.0f) && Near(translatedHandle.y, 6.0f) && Near(translatedHandle.z, 7.0f)
+            && Near(ResolveHingeAngularVelocity(
+                {2.0f, 3.0f, 4.0f}, rotatedHandle, {-1.0f, 0.0f, 0.0f},
+                {0.0f, 1.0f, 0.0f}, 1.0f, 4.0f), 1.0f),
+        "body-local door handle preserves radius and signed tangential response through rotation");
+    failures += Check(
+        Near(ResolveHingeAngularVelocity({}, {1.0f, 0.0f, 1.0f}, {0.0f, 0.0f, -1.0f},
+                {0.0f, 1.0f, 0.0f}, 1.0f, 4.0f), 0.5f)
+            && Near(ResolveHingeAngularVelocity({}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f},
+                {0.0f, 1.0f, 0.0f}, 1.0f, 4.0f), 1.0f),
+        "old displaced virtual handle loses leverage; actual handle retains it");
     failures += Check(
         Near(grab_math::CombineHingeAngularVelocity(
                  0.5f,
@@ -1596,6 +1828,31 @@ int main()
             && Near(grab_math::ResolveThrowVelocityScale(3.0f, 0.25f, 2.0f, true), 1.5f)
             && Near(grab_math::ResolveThrowVelocityScale(8.0f, 0.25f, 2.0f, true), 2.0f),
         "controller throw scale preserves native strength and rewards faster throws");
+    failures += Check(
+        grab_math::IsPhysicalThrowRelease(true, {0.0f, 0.0f, -1.2f}, 0.35f)
+            && !grab_math::IsPhysicalThrowRelease(true, {0.0f, 0.0f, -0.5f}, 0.35f)
+            && !grab_math::IsPhysicalThrowRelease(false, {0.0f, 0.0f, -2.0f}, 0.35f)
+            && !grab_math::IsPhysicalThrowRelease(true, {0.0f, 0.0f, -1.2f}, 1.5f)
+            && !grab_math::IsPhysicalThrowRelease(true,
+                {std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f}, 0.35f),
+        "physical release separates fast tracked throws from placement and invalid samples");
+    grab_math::NativeThrowHandoff throwHandoff{};
+    auto throwDecision = grab_math::AdvanceNativeThrowHandoff(throwHandoff, 1000, true, true);
+    failures += Check(throwDecision.begin && throwDecision.holdButtons && !throwDecision.timedOut,
+        "throw starts with both native action and grab held");
+    throwDecision = grab_math::AdvanceNativeThrowHandoff(throwHandoff, 1249, true, true);
+    failures += Check(!throwDecision.begin && throwDecision.holdButtons && throwHandoff.deadlineMs == 1250,
+        "repeated request cannot extend pending throw or drop grab before native action");
+    throwDecision = grab_math::AdvanceNativeThrowHandoff(throwHandoff, 1250, true, true);
+    failures += Check(!throwDecision.begin && !throwDecision.holdButtons && throwDecision.timedOut,
+        "unconsumed native throw releases both buttons at bounded deadline");
+    grab_math::AdvanceNativeThrowHandoff(throwHandoff, 2000, true, true);
+    throwDecision = grab_math::AdvanceNativeThrowHandoff(throwHandoff, 2010, false, false);
+    failures += Check(!throwDecision.holdButtons && !throwDecision.timedOut && !throwHandoff.pending,
+        "native state exit promptly clears throw handoff");
+    throwDecision = grab_math::AdvanceNativeThrowHandoff(throwHandoff, 2020, false, true);
+    failures += Check(!throwDecision.begin && !throwDecision.holdButtons,
+        "throw request outside manipulation never holds native buttons");
     const camera_math::Vector3 safeRearwardThrow =
         grab_math::ResolveSafeThrowDirection(
             {0.0f, 0.0f, 1.0f},
@@ -1615,19 +1872,27 @@ int main()
                 safeSideThrow.x * safeSideThrow.x
                 + safeSideThrow.y * safeSideThrow.y
                 + safeSideThrow.z * safeSideThrow.z), 1.0f),
-        "controller throw direction keeps clearance from the player body");
+        "controller throw direction stays in forward cone; collision clearance is not proven");
 
     float bodyFollowYaw = 0.0f;
     const float bodyFollowStep = input_math::ComputeBodyFollowStepRadians(
         input_math::DegreesToRadians(60.0f), 10.0f, 20.0f, 500);
+    const float bodyFollowWorldYaw = input_math::ComposeBodyFollowWorldYaw(
+        input_math::DegreesToRadians(15.0f),
+        input_math::DegreesToRadians(115.0f),
+        true);
     failures += Check(
         input_math::ResolveHorizontalYaw(
             {0.0f, -0.5f, 0.0f, 0.8660254f}, bodyFollowYaw)
             && Near(bodyFollowYaw, input_math::DegreesToRadians(60.0f), 0.001f)
             && Near(bodyFollowStep, input_math::DegreesToRadians(10.0f), 0.001f)
+            && Near(bodyFollowWorldYaw, input_math::DegreesToRadians(130.0f), 0.001f)
+            && Near(input_math::ComposeBodyFollowWorldYaw(
+                    input_math::DegreesToRadians(-20.0f), 0.0f, false),
+                input_math::DegreesToRadians(-20.0f), 0.001f)
             && Near(input_math::WrapRadians(input_math::DegreesToRadians(370.0f)),
                 input_math::DegreesToRadians(10.0f), 0.001f),
-        "physical body follow resolves horizontal HMD yaw and rate-limits toward release angle");
+        "physical body follow composes native body and relative HMD yaw before rate limiting");
 
     std::array<float, 16> readNative{
         0.5f, 0.0f, 0.0f, 0.0f,
@@ -1644,6 +1909,12 @@ int main()
             && Near(readPresented[10], 3.0f)
             && Near(readPresented[11], -0.5f),
         "read presentation multiplies authored per-axis scale while preserving pickup travel");
+    camera_math::Vector3 oldReadOffset{}, closerReadOffset{};
+    failures += Check(read_math::BuildStablePresentationOffset({0, 0, -1}, .485f, 1.5f, oldReadOffset)
+        && read_math::BuildStablePresentationOffset({0, 0, -1}, .485f, 1.2f, closerReadOffset)
+        && Near(closerReadOffset.z, oldReadOffset.z * .8f)
+        && Near(closerReadOffset.z, -.582f),
+        "inspection tuning brings the measured story object 20 percent closer independently of mesh scale");
     const camera_math::Quaternion readYaw =
         read_math::ResolveRelativeOrientation(
             {},
@@ -1658,6 +1929,17 @@ int main()
             && Near(readPresented[11], -0.5f),
         "read presentation applies orientation while retaining authored scale proportions");
     camera_math::Vector3 readPresentationPosition{};
+    camera_math::Vector3 readPresentationOffset{};
+    failures += Check(
+        read_math::BuildStablePresentationOffset(
+            {0.0f, 0.0f, -2.0f},
+            0.15f,
+            2.0f,
+            readPresentationOffset)
+            && Near(readPresentationOffset.x, 0.0f)
+            && Near(readPresentationOffset.y, 0.0f)
+            && Near(readPresentationOffset.z, -0.3f),
+        "read presentation converts the first native distance into a stable view-forward offset");
     failures += Check(
         read_math::ScaleCameraRelativePosition(
             {1.0f, 2.0f, 3.0f},

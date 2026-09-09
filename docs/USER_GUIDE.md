@@ -118,23 +118,32 @@ ManipulationReadPixelsPerRadian=900
 GrabTranslation=1
 GrabAttachToHand=1
 SlideDirectVelocity=1
-SlideVelocityScale=1
-SlidePositionGain=12
+SlideVelocityScale=1.25
+SlidePositionGain=18
 SlideMaxVelocityMetersPerSecond=2.5
 RotateDirectVelocity=1
-RotateVelocityScale=1
+RotateVelocityScale=1.5
 RotateAngularVelocityScale=1
 RotateMaxAngularSpeed=4
 ReadPresentation=1
-ReadObjectDistanceScale=2
-ReadObjectScale=1
+ReadObjectDistanceScale=1.2
+ReadObjectScale=2
 ReadObjectSettleFrames=45
 TerminalPointerScale=1.75
-HandWristPitchDegrees=45
+HandWristPitchDegrees=-45
 HandWristOutwardOffsetMeters=0.03
 HandWristVerticalOffsetMeters=-0.04
 HandWristViewForwardOffsetMeters=-0.04
 ```
+
+For ordinary physics props, release slowly to place/drop; release the trigger
+while moving the hand faster than 0.8 m/s to throw (unless a higher throw threshold
+is configured). Keep the rotate grip released for a physical throw. The holding
+hand's primary button (right A / left X) also throws.
+This uses SOMA's native impulse, not exact 1:1 release momentum. `ThrowRedirect=0`
+disables automatic fast-release throws; A retains native behavior.
+`SlideVelocityScale` now applies to both travel and velocity so sensitivity does
+not fade as the drawer moves. Doors use their body-attached handle as the lever.
 
 Use `MovementReference=head` for HMD-relative direction or `body` for SOMA's
 native body-relative input. `NativeLocomotion=0` now uses SOMA's native
@@ -274,8 +283,12 @@ For terminal rendering diagnosis, leave the problem view visible and press
 `Ctrl+F10` once. Four native-size and four upscaled captures are written, each
 with RGB and alpha variants, to `logs\terminal-captures`; a brief stall is
 expected. The same chord records a bounded framebuffer/program/scissor/texture/
-blend trace in `somavr.log`. These capture both sides of the terminal upscale,
-not the projection eye images.
+blend trace in `somavr.log`. These capture both sides of the terminal upscale.
+Starting with 0.95.9, the same chord also records two left/right scene-image
+pairs to `logs\eye-captures`, 15 game frames apart. Keep moving for two seconds
+when diagnosing arm lag. The log identifies each eye's rendered pose frame;
+these are scene caches, not final compositor images with quad overlays. The
+brief synchronous capture hitch is expected and is not normal gameplay timing.
 
 The active profile captures HUD content at the observed `1920x1080` SOMA target.
 Quest currently requests `2688x2880` per eye, but world detail still originates

@@ -7,6 +7,7 @@ appears to work.
 
 | ID | Save/checkpoint | Exercise | Required evidence | Stop condition |
 | --- | --- | --- | --- | --- |
+| S00 | No game/headset | Build `somavr_xrsim64` and `somavr_xrsim_smoke`, then run `tools/xrsim/scripts/xrsim-selftest.ps1` | Runtime identity `somavr-xrsim`, running stereo session, sequence-runner assertions, menu action edge, 600 submitted frames, two projection views, nonblack stereo capture | Wrong runtime, timeout, non-advancing frames, silent command rejection, missing action edge/layer/view, black capture, or unbounded process |
 | S01 | Startup and main menu | Run packaged doctor, launch through packaged injector, wait at menu, then load a save | Doctor `fail=0`, correct version/flavor, loader/runtime/config success, hook install rows, no signature failure | Doctor failure, crash, wrong DLL flavor, missing loader/runtime/config, or input behind menu |
 | S02 | Quiet lit room | Press F10, inspect stereo and stable desktop eye, translate/rotate HMD, lean into static walls/corners/ceiling edges and a moving door, then inspect reflective and shadowed surfaces | VR activation, alternating headset eyes, stable selected spectator eye, zero projection offset, dynamic-inclusive head-volume rows, submitted frames | Skew, scale drift, eye mismatch, desktop alternation/corruption, wall/dynamic clipping or stuck clamp, moving shadows/reflections, or wrong eye height |
 | S03 | Same room with light-sensitive target | Toggle and aim flashlight independently through yaw/pitch/roll; observe agent/gobo response; briefly lose hand tracking | Exact `Flashlight` identity, visual override plus cone-preserving gameplay-ray rows, native fallback then recovery | Visual beam or gameplay response remains camera-locked, stale, reversed, divergent, or moves world/camera |
@@ -38,4 +39,5 @@ Failed rows and log timestamps:
 
 Retain the corresponding `somavr.log`, build manifest, and any dump under the
 same test-run label. Promote a build only after S01-S03, S07, S09, S11, and S12
-pass; feature-specific rows must pass before that feature is marked proven.
+pass; S00 is also required when an OpenXR contract, xr-sim, or automation edge
+changes. Feature-specific rows must pass before that feature is marked proven.

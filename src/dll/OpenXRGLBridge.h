@@ -9,6 +9,7 @@
 #include <openxr/openxr_platform.h>
 
 #include "OpenXRSpectatorMath.h"
+#include "OpenXRDepthMath.h"
 
 #include <array>
 #include <cstdint>
@@ -76,6 +77,8 @@ public:
         std::vector<uint32_t> depthFramebuffers;
         uint32_t cacheTexture = 0;
         uint32_t depthCacheTexture = 0;
+        int64_t depthCacheFormat = 0;
+        depth_math::SceneDepthStamp sceneDepth{};
         uint32_t cacheFramebuffer = 0;
         bool cacheValid = false;
         bool depthCacheValid = false;
@@ -84,6 +87,7 @@ public:
         bool depthImageAcquired = false;
         uint32_t acquiredDepthImageIndex = 0;
         uint64_t depthProbeSamples = 0;
+        uint64_t depthPairChecks = 0;
         SwapchainTransferTiming colorTransferTiming;
         std::array<GpuTimestampSlot, 8> gpuTimestampSlots{};
         uint32_t nextGpuTimestampSlot = 0;
@@ -164,7 +168,10 @@ public:
     void Shutdown(bool deleteGlResources = true);
 
     bool CopyBackbufferToEye(uint32_t eyeIndex);
-    bool CaptureBackbufferToCache(uint32_t eyeIndex);
+    bool CaptureBackbufferToCache(uint32_t eyeIndex, uint64_t renderSerial, uint64_t poseFrame);
+    void InvalidateSceneDepth(uint32_t eyeIndex);
+    bool CaptureSceneDepthToCache(uint32_t eyeIndex, uint64_t renderSerial,
+        uint64_t poseFrame, const depth_math::CompositionDepthRange& range);
     bool CopyCacheToEye(uint32_t eyeIndex);
     bool ClearEyeToBlack(uint32_t eyeIndex);
     bool CopyDepthCacheToEye(uint32_t eyeIndex);
@@ -206,6 +213,10 @@ public:
         uint64_t sequence,
         uint32_t sampleIndex,
         const char* reason);
+    bool DumpEyeCache(uint32_t eyeIndex, uint64_t frameIndex, uint64_t sequence,
+        uint32_t sampleIndex, uint64_t poseFrame);
+    bool DumpEyeDepthCache(uint32_t eyeIndex, uint64_t frameIndex, uint64_t sequence,
+        uint32_t sampleIndex, uint64_t poseFrame);
     void InvalidateHudCapture();
     bool HudReady() const;
     bool HudCaptureFresh(uint64_t frameIndex, uint64_t maxAgeFrames) const;
@@ -233,6 +244,7 @@ public:
     const ComfortVignetteSwapchain& ComfortVignette() const;
 
 private:
+    friend struct SceneDepthTestAccess;
     bool ResolveFunctions();
     bool CreateEyeSwapchain(
         XrSession session,
@@ -256,7 +268,9 @@ private:
         uint32_t framebuffer,
         int width,
         int height,
-        uint64_t captureFrame);
+        uint64_t captureFrame,
+        const char* directoryName = "terminal-captures",
+        bool writeAlpha = true);
     bool CopyHudCaptureToImage(uint32_t imageIndex);
     int BeginGpuTiming(EyeSwapchain& eye, GpuTransferPhase phase);
     void EndGpuTiming(EyeSwapchain& eye, int slotIndex);
@@ -325,6 +339,10 @@ private:
     using GlQueryCounterFn = void(APIENTRY*)(uint32_t, uint32_t);
     using GlGetQueryObjectivFn = void(APIENTRY*)(uint32_t, uint32_t, int32_t*);
     using GlGetQueryObjectui64vFn = void(APIENTRY*)(uint32_t, uint32_t, uint64_t*);
+    using GlGetFramebufferAttachmentParameterivFn = void(APIENTRY*)(uint32_t, uint32_t, uint32_t, int32_t*);
+    using GlBindRenderbufferFn = void(APIENTRY*)(uint32_t, uint32_t);
+    using GlGetRenderbufferParameterivFn = void(APIENTRY*)(uint32_t, uint32_t, int32_t*);
+    using GlBindBufferFn = void(APIENTRY*)(uint32_t, uint32_t);
 
     GlGenFramebuffersFn glGenFramebuffers_ = nullptr;
     GlDeleteFramebuffersFn glDeleteFramebuffers_ = nullptr;
@@ -337,6 +355,10 @@ private:
     GlQueryCounterFn glQueryCounter_ = nullptr;
     GlGetQueryObjectivFn glGetQueryObjectiv_ = nullptr;
     GlGetQueryObjectui64vFn glGetQueryObjectui64v_ = nullptr;
+    GlGetFramebufferAttachmentParameterivFn glGetFramebufferAttachmentParameteriv_ = nullptr;
+    GlBindRenderbufferFn glBindRenderbuffer_ = nullptr;
+    GlGetRenderbufferParameterivFn glGetRenderbufferParameteriv_ = nullptr;
+    GlBindBufferFn glBindBuffer_ = nullptr;
     bool gpuTimingAvailable_ = false;
 };
 

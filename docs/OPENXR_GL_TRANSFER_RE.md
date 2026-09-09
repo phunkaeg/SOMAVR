@@ -20,6 +20,14 @@ condition.
 TheDarkModVR is GPL software. This document records architecture and observed
 behavior only; SOMAVR does not copy its implementation source.
 
+OpenMW-VR provides an independent implementation of the same boundary. It
+selects `XR_KHR_D3D11_enable` only when `WGL_NV_DX_interop2` is present, exposes
+a D3D11 texture to GL, and locks/unlocks it around rendering. Its attempted
+direct registration of runtime-owned XR images is disabled because some
+runtimes return textures that cannot be shared this way; the working path uses
+an intermediary D3D11 texture and `CopyResource` into the acquired image. Any
+SOMAVR prototype must include that extra copy in both its design and telemetry.
+
 ## SOMAVR Transfer Boundary
 
 Normal AFR submission is:
@@ -86,7 +94,10 @@ packaging dependency.
 If promoted, the smallest compatible design is:
 
 - require both `XR_KHR_D3D11_enable` and `WGL_NV_DX_interop2`;
+- log both prerequisites on the native GL baseline before enabling a prototype;
 - create the D3D11 device on the runtime-required adapter LUID;
+- assume an intermediary GL-shareable D3D11 texture plus a measured copy into
+  the runtime image; treat direct runtime-image registration as optional;
 - retain all HPL rendering, AFR caches, HUD capture, and diagnostics in GL;
 - register one shared intermediate texture per source shape, not each HPL
   render target;

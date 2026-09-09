@@ -224,6 +224,21 @@ std::atomic<bool> g_projectionCenterF5Down = false;
 std::atomic<bool> g_projectionCentered = false;
 std::atomic<bool> g_roomscaleF4Down = false;
 std::atomic<bool> g_roomscaleEnabled = true;
+bool g_automationAutoStartEnabled = false;
+bool g_automationAutoStartIssued = false;
+
+bool EnvironmentFlagEnabled(const wchar_t* name)
+{
+    wchar_t value[16]{};
+    const DWORD length = GetEnvironmentVariableW(name, value, static_cast<DWORD>(std::size(value)));
+    if (length == 0 || length >= std::size(value)) {
+        return false;
+    }
+    return _wcsicmp(value, L"1") == 0
+        || _wcsicmp(value, L"true") == 0
+        || _wcsicmp(value, L"yes") == 0
+        || _wcsicmp(value, L"on") == 0;
+}
 
 void ResetStereoFillPhase()
 {
@@ -1243,7 +1258,20 @@ void* HookCameraGetFrustum(void* camera, bool projectionFlag)
     g_state.f2Down = f2Down;
     const bool f10Down = (GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0
         && (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
-    const bool f10Pressed = f10Down && !g_state.f10Down;
+    const bool physicalF10Pressed = f10Down && !g_state.f10Down;
+    const bool automationF10Pressed = g_automationAutoStartEnabled
+        && !g_automationAutoStartIssued
+        && playerCameraKnown
+        && camera == playerState.camera;
+    if (automationF10Pressed) {
+        g_automationAutoStartIssued = true;
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "hpl_vr_mode automation_request source=SOMAVR_AUTOMATION camera=%p frustum=%p playerCamera=1",
+            camera,
+            frustum);
+    }
+    const bool f10Pressed = physicalF10Pressed || automationF10Pressed;
     g_state.f10Down = f10Down;
     const bool f11Down = (GetAsyncKeyState(VK_F11) & 0x8000) != 0;
     const bool f11Pressed = f11Down && !g_state.f11Down;
@@ -1813,6 +1841,13 @@ bool InstallHPLCameraBridge(const Config& config, OpenXRRuntime* openxr)
     }
 
     g_config = config;
+    g_automationAutoStartEnabled = EnvironmentFlagEnabled(L"SOMAVR_AUTOMATION");
+    g_automationAutoStartIssued = false;
+    if (g_automationAutoStartEnabled) {
+        Logger::Instance().Write(
+            LogLevel::Warn,
+            "hpl_vr_mode automation_enabled source=SOMAVR_AUTOMATION policy=first_confirmed_player_camera");
+    }
     const bool lineOfSightAvailable = MatchBytes(
         lineOfSightTarget,
         kCheckLineOfSightSignature,
@@ -2008,6 +2043,10 @@ HPLCameraBridgeStatus GetHPLCameraBridgeStatus()
     status.roomscaleEnabled = g_roomscaleEnabled.load(std::memory_order_relaxed);
     status.stereoRenderEye = g_state.currentEyeIndex;
     status.stereoRenderPoseFrame = g_state.currentEyePoseFrame;
+    status.stereoPairBaseRejects =
+        g_pairBaseMissingRejects.load(std::memory_order_relaxed)
+        + g_pairBaseStaleRejects.load(std::memory_order_relaxed)
+        + g_pairBaseFrustumRejects.load(std::memory_order_relaxed);
     status.activeCamera = g_state.activeCamera;
     status.activeFrustum = g_state.activeFrustum;
     status.calibrationGeneration = g_state.calibrationGeneration;
@@ -2057,6 +2096,13 @@ HPLCameraBridgeStatus GetHPLCameraBridgeStatus()
             status.headWorldRotationY = headWorldRotation.y;
             status.headWorldRotationZ = headWorldRotation.z;
             status.headWorldRotationW = headWorldRotation.w;
+            status.headSceneOrientationValid = status.nativeCameraBasisValid
+                && camera_math::ComposeTrackedWorldOrientation(
+                    {status.nativeCameraForwardX, status.nativeCameraForwardY,
+                        status.nativeCameraForwardZ},
+                    {status.nativeCameraUpX, status.nativeCameraUpY,
+                        status.nativeCameraUpZ},
+                    headWorldRotation, status.headSceneOrientation);
 
             if (g_state.baseMatricesValid) {
                 const Vector3 localOffset = ResolveSafeTrackedOffset(

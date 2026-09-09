@@ -15,6 +15,7 @@ struct HPLPerEyeViewHistoryStatus {
     uint64_t seeds = 0;
     uint64_t restores = 0;
     uint64_t captures = 0;
+    uint64_t aborts = 0;
     uint64_t failures = 0;
 };
 
@@ -23,6 +24,7 @@ void SetHPLPerEyeViewHistoryActive(bool active, const char* source);
 void ObserveHPLPerEyeViewHistoryRenderer(void* renderer);
 void BeginHPLPerEyeViewHistoryPass(
     int eyeIndex, uint64_t poseFrame, uint64_t calibrationGeneration);
+bool AbortHPLPerEyeViewHistoryPass(const char* reason);
 void EndHPLPerEyeViewHistoryPass(int actualEyeIndex, uint64_t actualPoseFrame);
 HPLPerEyeViewHistoryStatus GetHPLPerEyeViewHistoryStatus();
 void RemoveHPLPerEyeViewHistory();

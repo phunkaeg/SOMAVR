@@ -622,7 +622,7 @@ instead of weakening the existing guard.
 
 ## S22 - HPL scene depth can be submitted without reconstruction
 
-Status: GUARDED BUILD READY (`0.33.0-depth-resources`)
+Status: SCENE DEPTH PROVEN IN BASELINE REPLAY; GUARDED ACQUISITION BUILT IN 0.96.0; LIVE ACCEPTANCE OPEN
 
 Hypothesis: SOMA's captured per-eye depth already follows the finite standard
 OpenGL convention required by `XR_KHR_composition_layer_depth`, so a same-format
@@ -632,6 +632,33 @@ Evidence: `0x140270230` supplies projection, view, far, and near to common setup
 at `0x14026fcf0`; the matching HPL2 matrix maps near/far to NDC `-1/+1` and
 normalized depth `0/1`. The build fails back to color-only on unsupported depth
 formats, invalid clip data, absent caches, or copy failure.
+
+2026-09-07 content-validation caveat: the archived 0.95.8 test contains 188
+successful depth-probe rows, all with centre minimum/maximum 1.0000000. The
+current probe reads a 4x4 centre patch of default framebuffer zero, not a
+full-image scene-depth census. Format/convention and blit success therefore do
+not establish that captured depth represents visible geometry. Scene-content
+validation remains open; see `PUREDARK_AFW_ASSESSMENT_2026-09-07.md` for evidence
+and the controlled next probe. No runtime or configuration change made by this
+audit.
+
+2026-09-09 discriminating proof: complete apitrace states show geometry in
+HPL's shared D24 scene attachment and matching R16F linear depth. At both
+separated scene samples all 2073600 pixels agree within 0.2% after linearization.
+The default framebuffer has 2073600/2073600 depth pixels equal to 1.0 in each
+paired final-frame sample, including ordinary gameplay at frame 3000. This
+confirms a usable raw depth source exists but rejects the current default-FBO
+copy as the proven geometry source. R16F is a color attachment encoding z/far,
+not directly blit-compatible raw depth. Next gate: exact player viewport,
+pre-post source identity and per-eye copy before shared-buffer overwrite.
+See `HPL_SCENE_DEPTH_PROOF_2026-09-09.md`; that evidence pass changed no runtime behavior.
+
+Implementation follow-up: 0.96.0 captures a validated renderbuffer at the exact
+player pre-post callback, pairs depth/color by render serial and pose/viewport,
+and records full PFM/JSON on Ctrl+F10. Production GL copy tests pass in an owned
+hidden context, including eye independence and stale-source rejection. The next
+decision gate is live callback/source identity and visible-geometry correlation,
+not allocation success. Depth submission stays disabled in the test profile.
 
 ## S23 - Graphics-binding and view-contract changes can recover transactionally
 

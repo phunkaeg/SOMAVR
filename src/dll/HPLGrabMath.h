@@ -1,6 +1,7 @@
 #pragma once
 
 #include "HPLCameraMath.h"
+#include <cstdint>
 
 namespace somavr::grab_math {
 
@@ -33,6 +34,32 @@ float ResolveSlideTargetSpeed(
     float velocityScale,
     float positionGain,
     float maximumSpeed);
+
+camera_math::Vector3 RebaseRigidPoint(
+    const camera_math::Vector3& point,
+    const camera_math::Vector3& anchorPosition,
+    const camera_math::Quaternion& anchorOrientation,
+    const camera_math::Vector3& currentPosition,
+    const camera_math::Quaternion& currentOrientation);
+
+bool IsPhysicalThrowRelease(
+    bool velocityValid,
+    const camera_math::Vector3& velocity,
+    float velocityThreshold);
+
+struct NativeThrowHandoff {
+    bool pending = false;
+    uint64_t deadlineMs = 0;
+};
+
+struct NativeThrowDecision {
+    bool begin = false;
+    bool holdButtons = false;
+    bool timedOut = false;
+};
+
+NativeThrowDecision AdvanceNativeThrowHandoff(
+    NativeThrowHandoff& state, uint64_t nowMs, bool throwState, bool request);
 
 float ResolveHingeAngularVelocity(
     const camera_math::Vector3& pivot,

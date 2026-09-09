@@ -1,5 +1,301 @@
 # Build History
 
+## 2026-09-09
+
+### 0.96.1-interaction-follow
+
+- Reviewed the completed 0.96.0 log and installed Grab/Slide/Door scripts. No hard
+  angle threshold found; corrected the conflicting slide gain and changing
+  virtual-door-handle radius. Added position-only slider acquisition and consistent
+  world units, preserving native joint limits/PIDs.
+- Fast trigger release now requests native Throw before releasing Interact;
+  bounded 250 ms handoff, exact-body redirect, timeout/completion/drop diagnostics.
+  Slow release still drops. This is not yet proof that player recoil is solved.
+- Added per-grab 4 Hz follow-through samples and regression math/handoff tests.
+  Release compiled and all ten CTests passed. No game launch. Wrist pitch -45,
+  Read distance 1.2/scale 2, and scene-depth probe-only test profile retained.
+- Preserved baseline logs/package and source hashes under
+  `logs/receipts/2026-09-09-interaction-follow/`. Full findings/test protocol:
+  `INTERACTION_FOLLOW_REVIEW_2026-09-09.md`. Corrected the unsupported historical
+  claim that the current Throw script teleports the prop to the camera.
+
+### 0.96.0-scene-depth-arm-goals
+
+September 9 post-test profile tuning (DLL unchanged):
+
+- User: palms acceptable but fingers point up; story-object placement more
+  consistent, objects too small. Existing controls suffice, no new native hook.
+- `HandWristPitchDegrees=45 -> -45`, keeping roll at `-90`, applies a 90-degree
+  controller-right-axis downward correction. `ReadObjectDistanceScale=1.5 -> 1.2`
+  brings the anchor 20% closer; `ReadObjectScale=1 -> 2` doubles linear mesh size
+  while retaining authored proportions. For the logged 0.485m source distance,
+  the presentation moves from 0.7275m to 0.582m. Appearance needs user acceptance.
+- Added focused calibration and independent distance/scale tests plus parser
+  assertions for the tracked release profile. Original profile/package and live
+  log snapshot retained in `logs/receipts/2026-09-09-0.96.0-before-neutral-tuning/`.
+  The active process is not restarted or mutated; new settings apply next launch.
+- Focused math/config tests passed 2/2; doctor `pass=9 warn=0 fail=0`. Refreshed
+  config/docs/checksums and ZIP without overwriting the loaded DLL or including
+  live logs/captures. All 17 ZIP entries verified against the rolling package.
+  Tuned ZIP SHA-256: `247A95515F00B5AC5CA5EA6AE6F549A35674E015DA4E285D205CD05E9655C0A4`.
+  Tuned INI SHA-256: `BB66F8C2E955151D1CACEFEB82BD3CE10E4483FE8E72AC79A95485D57F94775B`.
+
+- Implemented the shared calibrated wrist-goal contract found in the PreyVR
+  comparison. Calibration offsets precede clavicle/elbow IK, and final wrist
+  placement respects the successful solver's reachable endpoint. No new global
+  rotation correction, controller-travel gain, or speculative twist distribution.
+- Captured scene depth at the existing exact-player world-callback entry, under
+  an own-GL scope, into same-format per-eye caches. Validates context/DC, frustum,
+  world/loading state, attachment type/format/size/samples and standard depth range.
+  Defaults and unproven sources fail closed; no numeric capture IDs in runtime code.
+- Removed desktop depth blits; commit depth only when serial/pose/viewport match
+  the captured color. Store near/far with each depth eye instead of re-sampling
+  the current camera at submission. Added source/hook/pair diagnostics and manual
+  Ctrl+F10 PFM/JSON depth images alongside the RGB pair.
+- Release defaults now keep depth submission off. Explicit `-SceneDepthTest`
+  packaging enables capture only, without relaxing normal release probe checks.
+- OpenXR Ninja Release compiled. CTest passed 10/10, including new calibrated
+  target/reach/failure math and a hidden-window production GL capture test. The
+  GPU test retained depths 0.2/0.8 in the first eye while the shared source was
+  overwritten with 0.6 for the second; desktop depth 1.0 did not overwrite it.
+  It also tested hostile PBO/pack state and same-pose/new-serial rejection.
+- Added bounded native callback eligibility rows before the viewport/loading/
+  frustum gates, separating hook coverage from source-copy failures. Independent
+  inspection verified all 4096 PFM pixels from the GL test despite non-default
+  depth scale/bias; readback restores those transfer settings as well.
+- Initial build shell lacked SDK include paths; reran in the existing VS 2026
+  developer environment. No toolchain/source downgrade. No SOMA launch or XR
+  runtime session; native capture-boundary and headset acceptance remain open.
+- Research receipts: `HPL_SCENE_DEPTH_PROOF_2026-09-09.md`,
+  `PREYVR_ARM_IK_TRANSFER_2026-09-09.md`. Current test: `NEXT_LIVE_EVIDENCE.md`.
+- Rolling test package rebuilt and all 16 file checksums verified. Doctor:
+  `pass=9 warn=0 fail=0`. DLL SHA-256:
+  `4BA8FDF23CD488801DD6128F77ECC66FF8059CEE08E7E4067891019DEE91D635`.
+  Archive SHA-256:
+  `CECAA80970592F4746C0A9A69C78E8FC16B2E509A478617CB3E4DD8A5110A5AB`.
+  Prior rolling archive retained in `logs/receipts/2026-09-09-pre-0.96.0/`.
+- First authorized headset launch stalled before rendering in a native
+  "Could not write to Documents folder" dialog, despite successful injection.
+  Read-only window enumeration confirmed the error. Closed only that identified
+  failed process, preserved its log in `logs/receipts/2026-09-09-launch-permissions/`,
+  and relaunched the unchanged DLL outside Codex's filesystem sandbox. The retry
+  passed 720 rendered frames with the real GL context; no ACL/config changes.
+  This establishes launch recovery, not gameplay or headset acceptance.
+
+## 2026-09-07
+
+### 0.95.9-player-space-recovery
+
+- Reviewed the September 7 0.95.8 log and terminal captures, archived under
+  `logs/receipts/2026-09-07-0.95.8`. Found 289 coherent sampled arm palettes, then
+  a world-less save-load render at frame 11248 that disabled same-frame stereo.
+- Fixed torso heading/quaternion and snap-delta signs, aligned elbow poles to
+  the virtual torso, and composed scene-world HMD orientation for Read placement
+  and hand calibration offsets. Story distance is latched, direction is not.
+- Unified wrist roll/pitch calibration; the geometric path had omitted pitch.
+- Extended terminal affine scissor mapping to incidentally overlapping source
+  coordinates and removed the clipping-disable fallback. Empty clips stay empty.
+- Added world/loading eligibility for stereo replay, modest native joint gain
+  increases, and Ctrl+F10 paired-eye scene dumps with pose-frame identities.
+- Offline verification: OpenXR Ninja Release compiled and CTest passed 9/9,
+  including nonzero-heading, story-forward, wrist calibration, loading gate and
+  scissor-overlap/empty-clip regression cases. No SOMA launch or headset claim.
+- Evidence and remaining acceptance gates: `TEST_REVIEW_2026-09-07.md`.
+- Rolling package doctor: `pass=9 warn=0 fail=0`; manifest matches DLL SHA-256
+  `65C40B77CD50913FC827B3FDAA906649FB454B56574F60F93D26CED308065341`.
+  Archive SHA-256:
+  `085088B3BB53CCDA04A3869E2E15645DABFDC8C85A2F17975B1B5CFA4D0CEBA4`.
+
+## 2026-09-05
+
+### 0.95.8-arm-palette-evidence
+
+- Confirmed the final HPL3 arm-deformation path from both `Soma_NoSteam.exe`
+  and released AMFP HPL2 source. `0x1401fe1a0` builds the mesh bone palette at
+  `cMeshEntity+0x340`; `0x140338900` consumes that palette to CPU-skin each
+  submesh and update its dynamic vertex buffer. Both functions were renamed and
+  saved in Ghidra.
+- Extended the sparse, read-only 0.95.7 arm witness to compare the validated
+  bone palette before and after both same-frame eye passes. The result now
+  separates node-input drift, render-time palette divergence, palette identity
+  loss, and a later CPU-skin/VBO-consumption fault. No hot-path hook, pose write,
+  palette write, or IK behavior change was added.
+- Verification: OpenXR Ninja Release build succeeded; CTest passed `9/9`;
+  packaged readiness doctor reports `pass=9 warn=0 fail=0`; and the vendored
+  xr-sim self-test passed runtime negotiation, WGL swapchains, action edges,
+  600 layered frames, two projection views, and 100% nonblack stereo captures.
+  SOMA was deliberately not launched. Packaged DLL SHA-256:
+  `8C66B17110B63B7E0309B20ED1F1A12F716FE315B44FF572E6ECCBAA0A7C3601`;
+  canonical archive SHA-256:
+  `695DD9528BE849797243D3CCFF8FED368829307563C9827820DADD3EB305D90A`.
+
+## 2026-09-03
+
+### 0.95.7-arm-pass-evidence
+
+- Added a bounded read-only witness at the exact dual-render viewport boundary.
+  It snapshots the retained shared root plus both 15-node clavicle-to-wrist
+  chains before and after the first-eye and replay-eye passes, then compares
+  entity identity, rendered eye, OpenXR pose frame, and local/world matrix
+  hashes.
+- The new `hpl_arm_render_pair` rows distinguish per-eye CPU pose drift,
+  in-render mutation, and between-pass animation mutation. Coherent matrices
+  with a visibly different arm in each eye instead localise the fault downstream
+  to HPL's final deform/skinning palette or GPU upload. Sampling is limited to
+  the first eight eligible pairs and every thirtieth pair thereafter.
+- Kept the diagnostic observational: it does not write bones, change damping,
+  alter eye ownership, or broaden the untested 0.95.6 recovery changes. This
+  follows the fleet evidence that matching joint endpoints do not prove matching
+  deform bones, while locomotion-only eye disagreement must first be separated
+  from an AFR pair-coherence fault.
+- Verification: OpenXR Ninja Release build succeeded, CTest passed `9/9`, and
+  the packaged readiness doctor reports `pass=9 warn=0 fail=0`. Headset
+  execution was deliberately not performed pending user permission. A
+  600-frame shared xr-sim plus xr-tape run reported `18 passed, 0 failed,
+  2 skipped`, including no zero-layer submissions and coherent stereo timing,
+  poses, FOV, IPD, and eye subimages. The vendored xr-sim additionally passed
+  menu action-edge delivery and produced 100% nonblack stereo captures. The
+  shared xr-sim's menu-edge assertion is presently invalid because commit
+  `9155410` hardcodes `changedSinceLastSync=XR_FALSE`; that external harness
+  limitation is documented in `XRSIM_INTEGRATION_ASSESSMENT.md`. Packaged
+  DLL SHA-256:
+  `76FFD3E4F5326F361A77BDF13DF0CD100294B14557239B11CF99CA83CC0092F1`;
+  canonical archive SHA-256:
+  `46A11E021D2C94D1B579D651BADF6ED9FAD05364EFC294D899EE133F7B22FB37`.
+
+### 0.95.6-regression-recovery
+
+- Hardened live code patching against the normal Toolhelp race where a thread
+  exits between enumeration and `OpenThread`. The comfort bridge now keeps
+  camera-add/head-bob suppression installed if an independent DoF or optics
+  patch fails; requested/installed lane state and partial installation are
+  explicit in the log.
+- Preserved continuous same-frame stereo across an expected stale pair-base
+  abort. A long first-eye transition now drops that transaction and retries on
+  the next frame instead of permanently disabling dual render as an apparent
+  eye-sequence mismatch. Genuine mismatches retain fail-closed cache
+  invalidation.
+- Committed native snap-turn yaw immediately to the virtual torso, with a
+  one-tick stale-camera-sample guard, so shoulders turn with the capsule while
+  physical HMD turning still uses delayed rate-limited follow.
+- Replaced terminal source-viewport origin translation with conservative affine
+  origin-and-scale scissor mapping. This covers the observed `256x145` through
+  `2048x1155` laptop viewports redirected into the fixed `1024x577` target.
+- Reduced the release Read/story-object distance scale from `2.0` to `1.5`.
+- Verification: OpenXR Ninja Release build succeeded; CTest passed `9/9`; the
+  xr-sim self-test passed runtime negotiation, action delivery, 600 layered
+  frames, two projection views, and 100% nonblack stereo captures. Packaged
+  doctor reports `pass=9 warn=0 fail=0`. Packaged DLL SHA-256:
+  `D7CA566BE82EE7076AFB911D4A048253D7D4FC4EDCAEB59E3419C23D64ED08CE`;
+  canonical archive SHA-256:
+  `5ABDA75361C26B9C66B88DE8F9480597AA58FD0CA9A6DFC097938C3FE760E7FE`.
+
+## 2026-09-02
+
+### 0.95.5-torso-terminal-remap
+
+- Fixed a live-proven torso reference mismatch. Physical-body follow now
+  composes SOMA's native world yaw with the recentered tracking-space HMD yaw;
+  it no longer compares the near-zero relative pose directly with an arbitrary
+  world heading. This removes the observed initial `-114.73 degree` correction
+  that could reverse the shoulder bar and tangle both arms.
+- Replaced the terminal's first-choice impossible-scissor bypass with a source
+  viewport remap. HPL retains the previous framebuffer viewport while SOMAVR
+  redirects the flat GUI into its private target, so nested clips carry that
+  viewport origin. A remap is accepted only when it lands inside the capture
+  viewport, then the original GL scissor is restored after the draw. Unmappable
+  clips keep the old bounded disable fallback.
+- Added a per-seed census of all 34 named nodes on each arm/finger hierarchy.
+  Logs include runtime parents, parent indices, local/world positions, segment
+  lengths, and whether a node is one of the current shoulder/elbow/wrist solver
+  owners. Released DAE weights remain the static deformation evidence; runtime
+  rows deliberately do not pretend to observe skin weights.
+- Added deterministic coverage for native-plus-relative torso yaw composition
+  and source-to-capture scissor translation. Release compiles, CTest passes
+  `9/9`, and xr-sim passes runtime negotiation, action delivery, 600 layered
+  frames, and nonblack stereo capture. Packaged doctor reports
+  `pass=9 warn=0 fail=0`. Packaged DLL SHA-256:
+  `96F6D39513D7EC518B2D1B74F79952D1DABD90A0A813FD440EB27C5EB09AF409`;
+  canonical archive SHA-256:
+  `7B4991AD82CF2F25B9F85A97B617369D98F49864DC2FC2C08A936FA494D6853D`.
+
+## 2026-09-01
+
+### 0.95.4-rig-terminal-read
+
+- Corrected a live-proven retained-arm seed failure. If the first shared-root
+  matrix exactly matches the apartment medicine animation's authored
+  `(0, 0.6643875, -0.0431139)` translation, the bridge now substitutes the
+  established neutral root `(0, 0, -0.0002)` before retaining it. Other root
+  translations remain native, and summary telemetry records
+  `sharedRootAuthoredSeedCorrections`.
+- Replaced the terminal overlay's orientation-only pointer with a full tracked
+  controller ray against the configured VIEW-space quad or cylinder. The
+  projection includes controller-origin parallax and the configured HUD
+  vertical offset; orientation-only input remains a fail-soft fallback when
+  controller position is unavailable.
+- Made only the terminal capture surface opaque after its RGB blit. SOMA's
+  terminal GUI authors most panel pixels with zero alpha for its in-world
+  screen; preserving that alpha allowed the native laptop beneath the
+  head-locked layer to produce view-dependent flashing. Ordinary HUD, menu,
+  subtitle, and presentation captures are unchanged.
+- Story-object presentation now owns position on the first eligible Read-state
+  frame. It derives one stable view-forward offset from the native source
+  distance and reapplies that offset relative to the current tracked head or
+  camera, while SOMA's authored object orientation may continue settling for
+  the existing 45-frame window. This removes the below-view rise followed by a
+  distance pop without recursively scaling the submitted pose.
+- Deterministic coverage now includes controller-origin terminal parallax,
+  HUD vertical offset, and stable first-frame Read presentation distance.
+- Verification: both OpenXR Release trees built successfully, CTest `9/9` in
+  each tree, xr-sim self-test with 600 layered frames, menu action delivery and
+  100% nonblack stereo captures, and packaged readiness doctor
+  `pass=9 warn=0 fail=0`. Packaged DLL SHA-256:
+  `A890C7DD0BC3EBB5B8413A70A0469CC03E9031C3FB116C275391DB5DF00AA8E5`;
+  canonical archive SHA-256:
+  `BBFD4A89838CC5849DC31E22577F5E827D8AE589EEBC832D5B83F9EC880FE561`.
+
+### 0.95.3-recovery-cleanup
+
+- Removed the residual `iEntity3D::SetVisible` retained-hands hook end to end:
+  its misnamed signature, trampoline, install transaction, counters, and
+  shutdown path are gone. Retained-hands wake now depends only on the proven
+  `iLuxEntity::SetActive` owner.
+- Classified a camera pair-base rejection during an active per-eye history
+  transaction as an expected abort. The pass is discarded without latching
+  shared mono history; genuine unexplained eye/pose mismatches retain the
+  existing fail-closed behavior. Summary telemetry adds
+  `viewHistoryAborts`.
+- Normalized the F10 crash report to text-only UTF-8 and reconciled the address
+  registry, crash closure, current state, review finding F-21, and headset test
+  route with the implemented ownership model.
+- Verification: OpenXR Ninja Release build (including the local xr-sim runtime
+  and smoke client), CTest `9/9`, xr-sim self-test with 600 submitted frames,
+  menu-action edge delivery and 100% nonblack stereo capture, and packaged
+  readiness doctor `pass=9 warn=0 fail=0`. Canonical archive SHA-256:
+  `C92CA2DD93082AD032DF8613930CDFAF5D37FD82C0EEAE65CF8616A6B12C15F7`.
+- Completed the SOMAVR identity pass over the newly ported xr-sim tooling.
+  `xrsim-run.ps1` no longer exposes BioShock game selectors or invokes the
+  absent `game-cmd.ps1`; scripted game input now uses a PID-bound,
+  foreground-verified `@key` route. The self-test exercises the sequence
+  runner, and the tool now carries explicit usage/provenance documentation and
+  the upstream MIT license.
+- Re-ran the post-2026-08-29 playbook/prior-art audit. Request-ID pacing remains
+  reserved for a future queued/worker/interop transport: the current synchronous
+  AFR path already records each eye's render pose, game-frame identity, capture
+  QPC, and submission age. Native GL versus D3D11 interop, same-frame resource
+  cost, and wait ownership remain matched-headset evidence gates.
+- Added diagnostic-only interop prerequisite logging after OpenMW-VR supplied
+  independent source corroboration for the TheDarkModVR boundary. Logs now
+  report `khrD3D11` and live-context `wglNvDxInterop2`; the native GL backend
+  remains unchanged. OpenMW's required intermediary texture and `CopyResource`
+  are recorded as costs a future spike must measure.
+- Verified the capability probe in a bounded real SOMA launch under xr-sim:
+  the game reached a `VISIBLE` running session and enabled stereo submission;
+  xr-sim reported its expected GL-only extension set while SOMA's live WGL
+  context reported `WGL_NV_DX_interop2=1`. The launched process was then
+  terminated by exact PID.
+
 ## 2026-08-29
 
 ### 0.95.2-playbook-conformance

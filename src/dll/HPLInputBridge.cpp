@@ -3,6 +3,7 @@
 #include "HPLCameraBridge.h"
 #include "HPLComfortMath.h"
 #include "HPLGrabBridge.h"
+#include "HPLGrabMath.h"
 #include "HPLHandsBridge.h"
 #include "HPLHudBridge.h"
 #include "HPLInputMath.h"
@@ -88,6 +89,8 @@ struct BridgeState {
     uint64_t terminalCancelStartFrame = 0;
     uint64_t terminalCancelReleaseFrame = 0;
     bool menuClickLatchedUntilRelease = false;
+    grab_math::NativeThrowHandoff throwHandoff{};
+    uint64_t lastThrowInputFrame = UINT64_MAX;
     bool readRotateLatched = false;
     crouch_math::PhysicalCrouchState physicalCrouch{};
     bool playerStateInitialized = false;
@@ -100,6 +103,7 @@ struct BridgeState {
     bool bodyFollowNativeYawValid = false;
     float bodyFollowLastNativeYaw = 0.0f;
     uint64_t bodyFollowThresholdStartMs = 0;
+    uint64_t bodyFollowSkipNativeSampleFrame = 0;
 };
 
 struct ControllerRoles {
@@ -823,27 +827,20 @@ void SetRightMouseButton(ButtonState& state, bool down)
     state.down = down;
 }
 
-void TapMouseButton(DWORD downFlag, DWORD upFlag)
-{
-    std::array<INPUT, 2> inputs{};
-    inputs[0].type = INPUT_MOUSE;
-    inputs[0].mi.dwFlags = downFlag;
-    inputs[1].type = INPUT_MOUSE;
-    inputs[1].mi.dwFlags = upFlag;
-    SendInputs(inputs.data(), static_cast<UINT>(inputs.size()));
-}
-
 void ResetPhysicalBodyFollow()
 {
     g_state.bodyFollowAnchorValid = false;
     g_state.bodyFollowActive = false;
     g_state.bodyFollowNativeYawValid = false;
     g_state.bodyFollowThresholdStartMs = 0;
+    g_state.bodyFollowSkipNativeSampleFrame = 0;
     g_virtualTorsoYawValid.store(false, std::memory_order_release);
 }
 
 void ReleaseGameplayInputs()
 {
+    g_state.throwHandoff = {};
+    CancelHPLControllerThrow();
     ReleaseMovementInputs();
     ClearPendingMovementAnalog();
     g_state.semanticAnalogMovementActive = false;
@@ -860,6 +857,8 @@ void ReleaseGameplayInputs()
 
 void ReleaseGameplayExceptPointer()
 {
+    g_state.throwHandoff = {};
+    CancelHPLControllerThrow();
     ReleaseMovementInputs();
     ClearPendingMovementAnalog();
     g_state.semanticAnalogMovementActive = false;
@@ -1386,8 +1385,29 @@ bool ApplyTurn(const ControllerRoles& roles, const HPLPlayerStateSnapshot& playe
             const bool nativeTurn = ApplyHPLNativeTurn(player, radians);
             if (!nativeTurn)
                 SendMouseMove(turn > 0.0f ? g_config.hplControllerSnapTurnPixels : -g_config.hplControllerSnapTurnPixels);
-            else
+            else {
                 g_nativeTurnEvents.fetch_add(1, std::memory_order_relaxed);
+                if (g_state.bodyFollowAnchorValid) {
+                    g_state.bodyFollowAnchorYaw = input_math::WrapRadians(
+                        g_state.bodyFollowAnchorYaw - radians);
+                    if (g_state.bodyFollowNativeYawValid) {
+                        g_state.bodyFollowLastNativeYaw = input_math::WrapRadians(
+                            g_state.bodyFollowLastNativeYaw - radians);
+                    }
+                    g_state.bodyFollowSkipNativeSampleFrame = player.frame;
+                    g_state.bodyFollowActive = false;
+                    g_state.bodyFollowThresholdStartMs = 0;
+                    g_virtualTorsoYawRadians.store(
+                        g_state.bodyFollowAnchorYaw, std::memory_order_relaxed);
+                    g_virtualTorsoYawValid.store(true, std::memory_order_release);
+                    Logger::Instance().Write(
+                        LogLevel::Info,
+                        "hpl_physical_body_follow snap_commit frame=%llu deltaDegrees=%.2f anchorYawDegrees=%.2f policy=immediate_native_snap_no_slow_follow",
+                        static_cast<unsigned long long>(player.frame),
+                        radians * 57.2957795f,
+                        g_state.bodyFollowAnchorYaw * 57.2957795f);
+                }
+            }
             PulseHaptic(roles.turnHand, "snap_turn");
             if (g_openxr != nullptr && g_config.hplControllerComfortBlackoutFrames > 0) {
                 g_openxr->RequestComfortBlackout(
@@ -1445,7 +1465,10 @@ bool ApplyPhysicalBodyFollow(
         return false;
     }
 
-    float headYaw = 0.0f;
+    // HPLCameraBridge's head rotation is the recentered tracking-space delta.
+    // Compose it with SOMA's native camera/body yaw before comparing it with
+    // the world-space torso anchor.
+    float relativeHeadYaw = 0.0f;
     if (!input_math::ResolveHorizontalYaw(
             {
                 camera.headWorldRotationX,
@@ -1453,10 +1476,10 @@ bool ApplyPhysicalBodyFollow(
                 camera.headWorldRotationZ,
                 camera.headWorldRotationW,
             },
-            headYaw)) {
+            relativeHeadYaw)) {
         return false;
     }
-    float nativeYaw = headYaw;
+    float nativeYaw = 0.0f;
     bool nativeYawValid = false;
     if (camera.nativeCameraBasisValid) {
         camera_math::Quaternion nativeOrientation{};
@@ -1466,6 +1489,8 @@ bool ApplyPhysicalBodyFollow(
                 nativeOrientation)
             && input_math::ResolveHorizontalYaw(nativeOrientation, nativeYaw);
     }
+    const float headYaw = input_math::ComposeBodyFollowWorldYaw(
+        relativeHeadYaw, nativeYaw, nativeYawValid);
     if (!g_state.bodyFollowAnchorValid) {
         g_state.bodyFollowAnchorValid = true;
         g_state.bodyFollowAnchorYaw = nativeYawValid ? nativeYaw : headYaw;
@@ -1474,10 +1499,20 @@ bool ApplyPhysicalBodyFollow(
         g_virtualTorsoYawRadians.store(
             g_state.bodyFollowAnchorYaw, std::memory_order_relaxed);
         g_virtualTorsoYawValid.store(true, std::memory_order_release);
+        Logger::Instance().Write(
+            LogLevel::Info,
+            "hpl_physical_body_follow anchor frame=%llu relativeHeadYawDegrees=%.2f nativeYawDegrees=%.2f nativeYawValid=%d worldHeadYawDegrees=%.2f anchorYawDegrees=%.2f policy=native_body_plus_tracking_space_head_yaw",
+            static_cast<unsigned long long>(player.frame),
+            relativeHeadYaw * 57.2957795f,
+            nativeYaw * 57.2957795f,
+            nativeYawValid ? 1 : 0,
+            headYaw * 57.2957795f,
+            g_state.bodyFollowAnchorYaw * 57.2957795f);
         return false;
     }
 
-    if (nativeYawValid) {
+    if (nativeYawValid
+        && g_state.bodyFollowSkipNativeSampleFrame != player.frame) {
         if (g_state.bodyFollowNativeYawValid) {
             const float nativeDelta = input_math::WrapRadians(
                 nativeYaw - g_state.bodyFollowLastNativeYaw);
@@ -1486,6 +1521,10 @@ bool ApplyPhysicalBodyFollow(
         }
         g_state.bodyFollowNativeYawValid = true;
         g_state.bodyFollowLastNativeYaw = nativeYaw;
+    }
+    if (g_state.bodyFollowSkipNativeSampleFrame != 0
+        && g_state.bodyFollowSkipNativeSampleFrame != player.frame) {
+        g_state.bodyFollowSkipNativeSampleFrame = 0;
     }
     g_virtualTorsoYawRadians.store(
         g_state.bodyFollowAnchorYaw, std::memory_order_relaxed);
@@ -1523,10 +1562,12 @@ bool ApplyPhysicalBodyFollow(
             1, std::memory_order_relaxed) + 1;
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_physical_body_follow entry=%llu frame=%llu headYawDegrees=%.2f errorDegrees=%.2f thresholdDegrees=%.2f releaseDegrees=%.2f speedDegreesPerSecond=%.2f delayMs=%d",
+            "hpl_physical_body_follow entry=%llu frame=%llu relativeHeadYawDegrees=%.2f worldHeadYawDegrees=%.2f nativeYawDegrees=%.2f errorDegrees=%.2f thresholdDegrees=%.2f releaseDegrees=%.2f speedDegreesPerSecond=%.2f delayMs=%d",
             static_cast<unsigned long long>(entry),
             static_cast<unsigned long long>(player.frame),
+            relativeHeadYaw * 57.2957795f,
             headYaw * 57.2957795f,
+            nativeYaw * 57.2957795f,
             error * 57.2957795f,
             g_config.hplControllerPhysicalBodyFollowThresholdDegrees,
             g_config.hplControllerPhysicalBodyFollowReleaseDegrees,
@@ -1852,30 +1893,66 @@ void ApplyGameplayActions(
         VK_LSHIFT,
         !manipulationState && !roles.oneHand && support.trigger >= 0.75f);
 
-    if (g_config.hplControllerManipulationMappings && throwState
-        && !recenterChord && dominant.primary && dominant.primaryChanged) {
-        SetMouseButton(g_state.interact, false);
-        if (player.playerStateId == kGrabPlayerState) {
-            ArmHPLControllerThrow(dominant.gripPose, input.gameFrame);
-        }
-        TapMouseButton(MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP);
+    const uint32_t interactionHand = ResolveInteractionActionHand(input, roles);
+    const auto& interactionInput = HandInput(input, interactionHand);
+    const auto& releasePose = interactionInput.gripPose;
+    const bool interactionHeld = InteractionPressed(interactionInput);
+    const bool releasingGrab = player.playerStateId == kGrabPlayerState
+        && g_state.interact.down && !interactionHeld
+        && interactionInput.squeeze < 0.75f
+        && !g_state.menuClickLatchedUntilRelease;
+    const bool physicalThrow = releasingGrab && releasePose.valid && releasePose.positionTracked
+        && grab_math::IsPhysicalThrowRelease(releasePose.linearVelocityValid,
+            {releasePose.linearVelocityX, releasePose.linearVelocityY, releasePose.linearVelocityZ},
+            g_config.hplControllerThrowVelocityThreshold);
+    const bool buttonThrow = !recenterChord && dominant.primary && dominant.primaryChanged
+        && input.gameFrame != g_state.lastThrowInputFrame;
+    bool throwArmed = false;
+    bool throwRequested = g_config.hplControllerManipulationMappings && throwState
+        && !recenterChord && !g_state.throwHandoff.pending && (buttonThrow || physicalThrow);
+    if (throwRequested && player.playerStateId == kGrabPlayerState) {
+        throwArmed = ArmHPLControllerThrow(releasePose, input.gameFrame);
+        // Automatic releases require an exact held body; A retains the native action fallback.
+        if (!buttonThrow && !throwArmed) throwRequested = false;
+    }
+    const bool wasThrowPending = g_state.throwHandoff.pending;
+    const auto throwDecision = grab_math::AdvanceNativeThrowHandoff(
+        g_state.throwHandoff, TickMs(), throwState, throwRequested);
+    if (wasThrowPending && !throwDecision.holdButtons) {
+        CancelHPLControllerThrow();
+        Logger::Instance().Write(throwDecision.timedOut ? LogLevel::Warn : LogLevel::Info,
+            "hpl_native_throw handoff_finished state=%d timedOut=%d policy=release_buttons_after_state_exit_or_250ms",
+            player.playerStateId, throwDecision.timedOut ? 1 : 0);
+    }
+    if (releasingGrab && !throwDecision.begin && !wasThrowPending) {
+        Logger::Instance().Write(LogLevel::Info,
+            "hpl_grab_release route=native_drop hand=%u velocityValid=%d velocity=%.4f,%.4f,%.4f fastRelease=%d redirectArmed=%d",
+            interactionHand, releasePose.linearVelocityValid ? 1 : 0,
+            releasePose.linearVelocityX, releasePose.linearVelocityY, releasePose.linearVelocityZ,
+            physicalThrow ? 1 : 0, throwArmed ? 1 : 0);
+    }
+    if (throwDecision.begin) {
+        g_state.lastThrowInputFrame = input.gameFrame;
         g_state.menuClickLatchedUntilRelease = true;
-        PulseHaptic(roles.dominantHand, "native_throw");
+        PulseHaptic(interactionHand, "native_throw");
         g_nativeThrowActions.fetch_add(1, std::memory_order_relaxed);
         Logger::Instance().Write(
             LogLevel::Info,
-            "hpl_native_throw requested playerState=%d hand=%s linearVelocityValid=%d linearVelocity=%.4f,%.4f,%.4f angularVelocityValid=%d angularVelocity=%.4f,%.4f,%.4f route=right_mouse_native_action",
+            "hpl_native_throw requested playerState=%d hand=%s linearVelocityValid=%d linearVelocity=%.4f,%.4f,%.4f angularVelocityValid=%d angularVelocity=%.4f,%.4f,%.4f source=%s redirectArmed=%d route=held_right_mouse_before_grab_release",
             player.playerStateId,
-            roles.dominantHand == 0 ? "left" : "right",
-            dominant.gripPose.linearVelocityValid ? 1 : 0,
-            dominant.gripPose.linearVelocityX,
-            dominant.gripPose.linearVelocityY,
-            dominant.gripPose.linearVelocityZ,
-            dominant.gripPose.angularVelocityValid ? 1 : 0,
-            dominant.gripPose.angularVelocityX,
-            dominant.gripPose.angularVelocityY,
-            dominant.gripPose.angularVelocityZ);
-    } else if (!manipulationState && !inspectionState && !recenterChord
+            interactionHand == 0 ? "left" : "right",
+            releasePose.linearVelocityValid ? 1 : 0,
+            releasePose.linearVelocityX,
+            releasePose.linearVelocityY,
+            releasePose.linearVelocityZ,
+            releasePose.angularVelocityValid ? 1 : 0,
+            releasePose.angularVelocityX,
+            releasePose.angularVelocityY,
+            releasePose.angularVelocityZ,
+            buttonThrow ? "primary_button" : "fast_trigger_release",
+            throwArmed ? 1 : 0);
+    } else if (!manipulationState && !inspectionState && !recenterChord && !wasThrowPending
+        && input.gameFrame != g_state.lastThrowInputFrame
         && dominant.primary && dominant.primaryChanged) {
         TapKey(VK_SPACE);
         PulseHaptic(roles.dominantHand, "jump");
@@ -1896,7 +1973,7 @@ void ApplyGameplayActions(
     }
     SetRightMouseButton(
         g_state.cancel,
-        inspectionState && !recenterChord && inspectionExitHeld);
+        throwDecision.holdButtons || (inspectionState && !recenterChord && inspectionExitHeld));
     const bool rotate = g_config.hplControllerManipulationMappings
         && (manipulationState || player.playerStateId == kReadPlayerState)
         && (player.playerStateId == kReadPlayerState
@@ -1916,12 +1993,13 @@ void ApplyGameplayActions(
         g_inventoryActions.fetch_add(1, std::memory_order_relaxed);
     }
     if (g_config.hplControllerInteraction) {
-        const uint32_t interactionHand = ResolveInteractionActionHand(input, roles);
-        bool interact = InteractionPressed(HandInput(input, interactionHand));
+        bool interact = interactionHeld;
         if (g_state.menuClickLatchedUntilRelease) {
-            if (!interact) g_state.menuClickLatchedUntilRelease = false;
+            if (!interact && !throwDecision.holdButtons) g_state.menuClickLatchedUntilRelease = false;
             interact = false;
         }
+        // Native Grab::PostUpdate drops on left-up before a queued throw can run.
+        interact = interact || throwDecision.holdButtons;
         if (interact && !g_state.interact.down) {
             PulseHaptic(interactionHand, "interaction");
         }
@@ -1936,8 +2014,7 @@ bool GetHPLVirtualTorsoYaw(camera_math::Quaternion& yaw)
     if (!g_virtualTorsoYawValid.load(std::memory_order_acquire)) return false;
     const float radians = g_virtualTorsoYawRadians.load(std::memory_order_relaxed);
     if (!std::isfinite(radians)) return false;
-    const float halfYaw = radians * 0.5f;
-    yaw = {0.0f, std::sin(halfYaw), 0.0f, std::cos(halfYaw)};
+    yaw = input_math::OrientationFromHorizontalYaw(radians);
     return true;
 }
 

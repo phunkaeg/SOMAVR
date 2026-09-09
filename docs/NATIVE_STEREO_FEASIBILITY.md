@@ -133,9 +133,9 @@ the reverse-engineering.
 ## What source cannot answer, and what SOMAVR already has for it
 
 Source proves the *structure* carries no simulation. It cannot prove the *shipping HPL3 binary* has
-no per-frame state that a second world render would double-advance. Two known hazards, both of which
-this project has already built machinery for — a striking convergence, because that machinery was
-built for AFR and native stereo needs the same ownership:
+no per-frame state that a second world render would double-advance. Four known hazards now need
+explicit ownership. The AFR work already covers part of this surface, but the AMFP source comparison
+also exposed a CPU-side visibility history that the earlier study missed:
 
 - **Temporal passes.** SSAO history, image trail, tone mapping and view history all carry
   frame-to-frame state. `HPLSSAOTemporalHistory`, `HPLToneMappingFrame`, `HPLPerEyeViewHistory` and
@@ -145,9 +145,38 @@ built for AFR and native stereo needs the same ownership:
   pointer, and those span frames. apitrace proves immediate pooled-ID reuse; 0.92 now provides the
   first/replay observation surface. Whether the existing second render corrupts visibility remains
   a live observation question on the existing replay path.
+- **CPU visibility history.** AMFP's `cRenderSettings` owns one `cVisibleRCNodeTracker`. Its two node
+  sets alternate every call to `CheckForVisibleObjectsAddToListAndRenderZ` via
+  `SwitchAndClearVisibleNodeSet()` (`Renderer.cpp:1177-1211`, `RenderableContainer.cpp:44-50`). With
+  sequential eyes and shared settings, eye zero reads the prior pair's eye-one set while eye one
+  reads eye zero's current-pair set. That creates asymmetric, cross-eye coherent-occlusion history
+  even though the render list itself is cleared per call. HPL3 retention and layout are not yet
+  proven, so the safe first native-stereo experiment must either bank this tracker per eye or disable
+  coherent occlusion culling for both eye passes.
 - **Refraction scratch.** HPL copies object clip rectangles into shared scene-color texture storage
   immediately before translucent draws. Both the copy and the camera UBO must be eye-local within
   the sequential render transaction.
+
+## AMFP source cross-check: useful ancestry and one rejected branch
+
+AMFP is a later HPL2 revision than The Dark Descent and adds useful evidence without becoming an
+HPL3 ABI claim:
+
+- `cRendererDeferred::RenderSubMeshEntityReflection` (`RendererDeferred.cpp:3346`) ends the outer
+  render, constructs a reflected/oblique frustum, recursively calls `Render(...)` with dedicated
+  reflection settings and target, then restores the outer renderer. This is strong ancestral
+  evidence that a supplied-frustum world render was designed to be re-entered with isolated
+  settings. SOMA's mapped `HPL3_RendererDeferred_RenderLocalReflection` is a different path, so the
+  exact reflection implementation is not assumed to survive.
+- AMFP inserts `RenderPrePostEffectScreenGui` between 3D GUI and post effects. Decompilation of the
+  shipping HPL3 viewport at `0x140298630` does not preserve it: `0x140297670` renders only 3D GUI,
+  `FUN_1402976f0` prepares post-effect parameters rather than traversing GUI sets, and ordinary
+  screen GUI remains after post effects. Therefore AMFP's extra GUI phase is rejected prior art,
+  not a new SOMA hook target.
+- Address hygiene: two former `FEATURE.NATIVE_STEREO` labels were removed after direct SOMA
+  decompilation. `0x140327570` is a vector-growth helper, not the coherent-culling traversal, and
+  `0x1402b3c30` lies inside a 2D bounds test, not occlusion-query submission. GL query telemetry is
+  still valid at the OpenGL API boundary; the exact HPL3 CPU culling/tracker owner remains unlabelled.
 
 ## The discipline this must be held to
 
@@ -171,6 +200,7 @@ and fails closed on mismatch.
 | The second render advances no simulation | **structurally yes**; needs a live side-effect assertion before it is a claim |
 | Temporal passes can be given per-eye ownership | **partly built already** (SSAO, tone mapping, image trail, view history) |
 | Occlusion queries survive two renders per frame | **instrumented, live result pending** — vanilla ID recycling is proven; first/replay reuse is now logged |
+| CPU visibility history survives two renders per frame | **open, high risk** — AMFP proves a two-slot tracker advances per render; confirm the HPL3 owner and then bank per eye or disable coherent occlusion for both passes |
 | Refraction scratch survives two renders per frame | **instrumented, live result pending** — partial-copy and shared destination texture ownership are now logged |
 | Frame budget allows two world renders | **unknown** — the question the per-eye GPU timestamp telemetry was built to answer, and it needs a headset |
 
@@ -178,8 +208,9 @@ and fails closed on mismatch.
 
 The reverse-engineering precondition that usually kills native stereo — *find a re-enterable world
 render that takes a camera you control* — is **already satisfied and already hooked** on this
-project. What remains is not RE work but a budget question and a temporal-ownership audit, and
-neither can be settled from this machine.
+project. What remains is a budget question plus shared-state ownership. Most of that needs a headset,
+but the HPL3 coherent-visibility owner can and should be mapped statically before the next native
+stereo experiment.
 
 The next concrete step is measurement, not more reading: use the existing
 bounded existing second-render lane, assert the side-effect gate live (no
@@ -228,7 +259,7 @@ add correct per-eye culling — **it retires a defect class this project has alr
 That is a stronger argument for rung 1 than the rendering-quality one, and it was not visible before
 the parameter/global distinction was drawn.
 
-## Q2 — per-frame fixed arenas: two benign, one open
+## Q2 — per-frame fixed arenas and histories: two benign, two open
 
 Audited against the SS2VR failure mode — an arena sized for one pass, exhausted partway through the
 second, presenting as *geometry quietly missing in one eye* and reading as a culling bug:
@@ -238,11 +269,12 @@ second, presenting as *geometry quietly missing in one eye* and reading as a cul
 | `mpCurrentRenderList` | `Clear()` inside `BeginRendering`, gated on `abAtStartOfRendering` (`Renderer.cpp:636`) | **benign** — resets per render call, so each eye builds a fresh list |
 | `mpBatchBuffer`, deferred light batching | created once in init, destroyed at shutdown, sized `mlMaxBatchLights = 100` (`RendererDeferred.cpp:196, 664-675`) | **benign for stereo** — it is a persistent fixed arena, but per-pass scratch, filled and flushed inside one render. Two renders reuse it cleanly, and a >100-light scene starves *both* eyes equally, which is a pre-existing cap rather than a stereo asymmetry |
 | Occlusion queries | `WaitAndRetrieveAllOcclusionQueries()` (`Renderer.cpp:523`); assigned and retrieved keyed by source pointer, spanning frames | **open** |
+| `mpVisibleNodeTracker` | one tracker in `cRenderSettings`; `SwitchAndClearVisibleNodeSet()` toggles between two sets once per coherent-occlusion render (`Renderer.cpp:114, 1177-1211`; `RenderableContainer.cpp:44-65`) | **open, high risk** — sharing it makes eye one consume eye zero's current visibility while eye zero consumes the previous pair's eye-one visibility |
 
-The audit comes back mostly clean, and both halves of the acceptance gate — *what advances twice* and
-*what runs out* — converge on the same suspect. **Occlusion queries are the single unvalidated
-interaction**, and a failure there would present exactly as the SS2VR symptom: missing geometry in
-one eye that looks like a culling bug. Instrument that before anything else in a two-eye experiment.
+The fixed arenas come back clean, but the culling path has two coupled histories: GPU query results
+and the CPU visible-node tracker. Either can present exactly as the SS2VR symptom: missing geometry
+in one eye that looks like a frustum bug. Map the HPL3 tracker and prove both owners before promoting
+a two-eye experiment.
 
 ## Q3 — does `cCamera` expose an override the engine already honours? **No.**
 
@@ -262,6 +294,7 @@ passing a different one **is** the override.
 | Camera reaches the renderer as a parameter, not a mutated global | **yes** — `mpCurrentFrustum = apFrustum` per call; the borrow/restore/freeze family is not needed |
 | Per-frame arenas survive two passes | **yes** for the render list and the light batch buffer |
 | Occlusion queries survive two renders per frame | **instrumented, headset result pending** — vanilla immediate reuse is proven and 0.92 tags first/replay traffic |
+| CPU visibility history survives two renders per frame | **open, high risk** — confirm HPL3's tracker/settings offsets, then bank it per eye or disable coherent occlusion symmetrically |
 | Refraction scratch survives two renders per frame | **instrumented, headset result pending** — partial copied rectangles and cross-eye destination texture reuse are logged |
 | Frame budget allows two world renders | still the headset question |
 
@@ -297,6 +330,6 @@ The real case is the one the parameter/global finding exposed, and it is a **mai
 
 So the honest framing when this is scheduled: it buys **correct per-eye culling, LOD, sky and fog**,
 and it **retires a defect class already paid for twice** — at the cost of a second world render whose
-budget is still unmeasured, and three shared-resource hazards (occlusion queries, refraction scratch,
-temporal passes) of which only the third already has machinery. It is not a features item and should
-not be scheduled as one.
+budget is still unmeasured, and four shared-resource hazards (occlusion queries, CPU visibility
+history, refraction scratch, temporal passes) of which only temporal ownership already has broad
+machinery. It is not a features item and should not be scheduled as one.

@@ -3,6 +3,16 @@
 #include <cmath>
 
 namespace somavr::hands_math {
+
+camera_math::Quaternion ApplyControllerWristCalibration(
+    const camera_math::Quaternion& controllerToWrist,
+    float rollDegrees,
+    float pitchDegrees)
+{
+    return ApplyControllerLocalPitch(
+        ApplyControllerForwardRoll(controllerToWrist, rollDegrees), pitchDegrees);
+}
+
 namespace {
 
 constexpr float kPi = 3.14159265358979323846f;
@@ -286,6 +296,38 @@ bool BuildPostTransformForWorldTarget(
         camera_math::MatrixMultiply(inverseParent, desiredWorld),
         inverseLocal);
     return IsFinite(postTransform);
+}
+
+bool BuildCalibratedWristGoal(
+    const camera_math::Vector3& trackedPosition,
+    const camera_math::Vector3& viewForward,
+    const camera_math::Vector3& offsetsMeters,
+    float worldUnitsPerMeter,
+    bool leftHand,
+    WristPositionGoal& goal)
+{
+    goal = {};
+    camera_math::Vector3 forward{viewForward.x, 0.0f, viewForward.z};
+    if (!IsFinite(trackedPosition) || !IsFinite(viewForward) || !IsFinite(offsetsMeters)
+        || !std::isfinite(worldUnitsPerMeter) || worldUnitsPerMeter <= 0.0f
+        || !Normalize(forward)) return false;
+    const camera_math::Vector3 right{-forward.z, 0.0f, forward.x};
+    const float outward = offsetsMeters.x * (leftHand ? -1.0f : 1.0f);
+    goal.requested = {
+        trackedPosition.x + (right.x * outward + forward.x * offsetsMeters.z) * worldUnitsPerMeter,
+        trackedPosition.y + offsetsMeters.y * worldUnitsPerMeter,
+        trackedPosition.z + (right.z * outward + forward.z * offsetsMeters.z) * worldUnitsPerMeter,
+    };
+    goal.selected = goal.requested;
+    return IsFinite(goal.requested);
+}
+
+bool CommitWristIKGoal(const camera_math::Vector3& solvedEndpoint, WristPositionGoal& goal)
+{
+    if (!IsFinite(solvedEndpoint)) return false;
+    goal.selected = solvedEndpoint;
+    goal.ikSolved = true;
+    return true;
 }
 
 bool NormalizeUniformScale(

@@ -1,9 +1,32 @@
 # xr-sim Integration Assessment
 
-Date: 2026-08-31
-Status: **assessed and measured, not integrated.** Nothing in the SOMAVR tree was modified.
+Date: 2026-09-03
+Status: **assessed and measured; shared-runtime transport passes, shared action-edge regression identified.**
 Subject: `D:\Dev Debug\Xr-sim` (the standalone, matured runtime) vs `SOMAVR\tools\xrsim\runtime`
 (a vendored snapshot currently uncommitted in this repo).
+
+## 2026-09-03 Headless Retest
+
+Build `0.95.7-arm-pass-evidence` was checked without launching SOMA. The
+standalone SOMAVR OpenGL smoke client ran for 600 frames through shared xr-sim
+commit `9155410` and xr-tape commit `52d3fac`. The trace checker reported
+`18 passed, 0 failed, 2 skipped`: exact Wait/Begin/End counts, monotonic display
+time, no zero-layer submits, two submitted eyes, plausible 63 mm IPD, no
+vertical disparity, parallel eyes, matching located/submitted pose and FOV,
+distinct eye subimages, and one display time per pair. Layer-budget discovery
+and depth consistency were not applicable to this generic one-projection-layer
+client. The trace is under
+`logs/headless-validation/0.95.7/traces/`.
+
+The shared runtime does have one independently isolated action regression. Its
+control channel acknowledged both `btn menu down/up`, but SOMAVR's smoke client
+reported `menu-edge: no`. Shared `xrsim_actions.cpp` currently assigns
+`XR_FALSE` to `XrActionStateBoolean::changedSinceLastSync` unconditionally.
+SOMAVR's vendored simulator passed the identical 600-frame client with
+`menu-edge: yes`, two nonblack stereo captures at 100%, and zero runtime errors.
+Treat a failed menu-edge assertion against shared xr-sim commit `9155410` as a
+simulator limitation, not a SOMAVR input regression, until that edge state is
+implemented upstream.
 
 ## Short answer
 

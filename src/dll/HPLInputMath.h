@@ -40,9 +40,14 @@ Axis2 ApplyHeadRelativeMovement(
     const camera_math::Quaternion& headOrientation);
 float DegreesToRadians(float degrees);
 float WrapRadians(float radians);
+camera_math::Quaternion OrientationFromHorizontalYaw(float headingRadians);
 bool ResolveHorizontalYaw(
     const camera_math::Quaternion& orientation,
     float& yawRadians);
+float ComposeBodyFollowWorldYaw(
+    float relativeHeadYawRadians,
+    float nativeBodyYawRadians,
+    bool nativeBodyYawValid);
 float ComputeBodyFollowStepRadians(
     float yawErrorRadians,
     float releaseDegrees,

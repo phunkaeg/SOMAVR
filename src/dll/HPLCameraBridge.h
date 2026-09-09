@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Config.h"
+#include "HPLCameraMath.h"
 #include "OpenXRRuntime.h"
 
 namespace somavr {
@@ -15,6 +16,7 @@ struct HPLCameraBridgeStatus {
     bool roomscaleSafetyClamped = false;
     int stereoRenderEye = -1;
     uint64_t stereoRenderPoseFrame = 0;
+    uint64_t stereoPairBaseRejects = 0;
     bool headWorldRotationValid = false;
     void* activeCamera = nullptr;
     void* activeFrustum = nullptr;
@@ -25,10 +27,13 @@ struct HPLCameraBridgeStatus {
     float farPlane = 0.0f;
     int projectionType = -1;
     float worldUnitsPerMeter = 1.0f;
+    // Legacy name: these four components are tracking-relative, not scene-world.
     float headWorldRotationX = 0.0f;
     float headWorldRotationY = 0.0f;
     float headWorldRotationZ = 0.0f;
     float headWorldRotationW = 1.0f;
+    bool headSceneOrientationValid = false;
+    camera_math::Quaternion headSceneOrientation{};
     bool headWorldPositionValid = false;
     bool cameraWorldPositionValid = false;
     bool nativeCameraBasisValid = false;

@@ -27,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -74,11 +75,6 @@ constexpr uint8_t kLuxEntitySetActiveSignature[] = {
     0xb6, 0xfa, 0x48, 0x8b, 0xd9, 0x38, 0x91, 0x61,
     0x04, 0x00, 0x00,
 };
-constexpr uintptr_t kMeshEntitySetVisibleRva = 0x2cb5a0;
-constexpr uint8_t kMeshEntitySetVisibleSignature[] = {
-    0x40, 0x53, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8b,
-    0x01, 0x48, 0x8b, 0xd9, 0x88, 0x51, 0x38,
-};
 constexpr uintptr_t kGetClosestBodyRva = 0x0cd7d0;
 constexpr uint8_t kGetClosestBodySignature[] = {
     0x48, 0x83, 0xec, 0x38,
@@ -94,6 +90,7 @@ constexpr size_t kNodeUsePreTransformOffset = 0xc4;
 constexpr size_t kNodeUsePostTransformOffset = 0xc5;
 constexpr size_t kNodePostTransformOffset = 0x108;
 constexpr size_t kNodeParentOffset = 0x180;
+constexpr size_t kMeshBoneMatricesOffset = 0x340;
 constexpr size_t kMaxIdentityCache = 4096;
 constexpr size_t kMaxIdentityLogs = 16;
 constexpr uint32_t kSkeletonProbeBurstFrames = 12;
@@ -112,6 +109,36 @@ constexpr size_t kArmPoseIndexRootIndex = 18;
 constexpr size_t kArmPoseMiddleRootIndex = 22;
 constexpr size_t kArmPoseRingRootIndex = 26;
 constexpr size_t kArmPosePinkyRootIndex = 30;
+constexpr float kMedicineArmRootY = 0.6643875f;
+constexpr float kMedicineArmRootZ = -0.0431139f;
+constexpr float kNeutralArmRootZ = -0.0002f;
+constexpr float kMedicineArmRootTranslationTolerance = 0.01f;
+constexpr const char* kArmPoseNodeNames[2][kArmPoseNodeCount] = {
+    {
+        "j_L_Clavicle", "j_L_Shoulder",
+        "j_L_Arm_1", "j_L_Arm_2", "j_L_Arm_3", "j_L_Arm_4", "j_L_Arm_5",
+        "j_L_Elbow_1", "j_L_Elbow_2",
+        "j_L_Arm_6", "j_L_Arm_7", "j_L_Arm_8", "j_L_Arm_9", "j_L_Arm_10",
+        "j_L_Wrist",
+        "j_L_Thumb_1", "j_L_Thumb_2", "j_L_Thumb_3",
+        "j_L_Index_1", "j_L_Index_2", "j_L_Index_3", "j_L_Index_4",
+        "j_L_Middle_1", "j_L_Middle_2", "j_L_Middle_3", "j_L_Middle_4",
+        "j_L_Ring_1", "j_L_Ring_2", "j_L_Ring_3", "j_L_Ring_4",
+        "j_L_Pinky_1", "j_L_Pinky_2", "j_L_Pinky_3", "j_L_Pinky_4",
+    },
+    {
+        "j_R_Clavicle", "j_R_Shoulder",
+        "j_R_Arm_1", "j_R_Arm_2", "j_R_Arm_3", "j_R_Arm_4", "j_R_Arm_5",
+        "j_R_Elbow_1", "j_R_Elbow_2",
+        "j_R_Arm_6", "j_R_Arm_7", "j_R_Arm_8", "j_R_Arm_9", "j_R_Arm_10",
+        "j_R_Wrist",
+        "j_R_Thumb_1", "j_R_Thumb_2", "j_R_Thumb_3",
+        "j_R_Index_1", "j_R_Index_2", "j_R_Index_3", "j_R_Index_4",
+        "j_R_Middle_1", "j_R_Middle_2", "j_R_Middle_3", "j_R_Middle_4",
+        "j_R_Ring_1", "j_R_Ring_2", "j_R_Ring_3", "j_R_Ring_4",
+        "j_R_Pinky_1", "j_R_Pinky_2", "j_R_Pinky_3", "j_R_Pinky_4",
+    },
+};
 
 using LuxEntitySetMatrixFn = void (*)(void* entity, const float* matrix);
 using LuxEntityGetNameFn = const void* (*)(void* entity);
@@ -123,7 +150,6 @@ using NodeApplyPostAnimTransformFn = void (*)(void* node, bool setChildrenUpdate
 using NodeSetMatrixFn = void (*)(void* node, const float* matrix, bool setChildrenUpdated);
 using LuxMapDestroyEntityFn = void (*)(void* map, void* entity);
 using LuxEntitySetActiveFn = void (*)(void* entity, bool active);
-using MeshEntitySetVisibleFn = void (*)(void* meshEntity, bool visible);
 using GetClosestBodyFn = void* (*)(
     const float* start,
     const float* direction,
@@ -135,6 +161,12 @@ struct NativeStringLayout {
     std::array<std::byte, 16> storage{};
     uint64_t size = 0;
     uint64_t capacity = 0;
+};
+
+struct NativeVectorLayout {
+    const std::byte* begin = nullptr;
+    const std::byte* end = nullptr;
+    const std::byte* capacity = nullptr;
 };
 
 struct EntityIdentity {
@@ -156,6 +188,8 @@ struct FlashlightPoseCache {
 struct ReadPresentationAnchor {
     bool presentationSeeded = false;
     bool warmupStarted = false;
+    bool presentationOffsetValid = false;
+    bool objectOrientationValid = false;
     bool manipulated = false;
     bool rotateActive = false;
     uint64_t firstFrame = 0;
@@ -163,8 +197,11 @@ struct ReadPresentationAnchor {
     uint64_t session = 0;
     std::array<float, 16> sourceMatrix{};
     camera_math::Vector3 sourceCameraPosition{};
+    camera_math::Vector3 presentationOffset{};
     camera_math::Quaternion gripOrientation{};
     camera_math::Quaternion objectOrientation{};
+    bool viewOrientationValid = false;
+    camera_math::Quaternion viewOrientation{};
 };
 
 struct WristTrackingFrame {
@@ -174,6 +211,8 @@ struct WristTrackingFrame {
     uint64_t inputAge = UINT64_MAX;
     std::array<bool, 2> eligible{};
     std::array<HPLTrackedPoseWorld, 2> targets{};
+    HPLCameraBridgeStatus camera{};
+    std::array<hands_math::WristPositionGoal, 2> goals{};
 };
 
 struct RetainedHandsState {
@@ -247,12 +286,10 @@ NodeApplyPostAnimTransformFn g_applyPostAnimTransform = nullptr;
 NodeSetMatrixFn g_nodeSetMatrix = nullptr;
 LuxMapDestroyEntityFn g_originalDestroyEntity = nullptr;
 LuxEntitySetActiveFn g_originalSetActive = nullptr;
-MeshEntitySetVisibleFn g_originalSetVisible = nullptr;
 GetClosestBodyFn g_originalGetClosestBody = nullptr;
 void* g_setMatrixTarget = nullptr;
 void* g_destroyEntityTarget = nullptr;
 void* g_setActiveTarget = nullptr;
-void* g_setVisibleTarget = nullptr;
 void* g_getClosestBodyTarget = nullptr;
 std::mutex g_installMutex;
 std::mutex g_identityMutex;
@@ -370,6 +407,7 @@ std::atomic<uint64_t> g_armIkApplications = 0;
 std::atomic<uint64_t> g_armIkBaseRestores = 0;
 std::atomic<uint64_t> g_armPoseSeeds = 0;
 std::atomic<uint64_t> g_armRootPoseSeeds = 0;
+std::atomic<uint64_t> g_armRootPoseAuthoredSeedCorrections = 0;
 std::atomic<uint64_t> g_armRootPoseRestores = 0;
 std::atomic<uint64_t> g_armRootPoseDriftCorrections = 0;
 std::atomic<uint64_t> g_armRootPoseFallbacks = 0;
@@ -386,9 +424,7 @@ std::atomic<uint64_t> g_armIkElbowSwivelLimits = 0;
 std::mutex g_retainedHandsMutex;
 RetainedHandsState g_retainedHands;
 std::atomic<uint64_t> g_handsActiveCalls = 0;
-std::atomic<uint64_t> g_handsVisibleCalls = 0;
 std::atomic<uint64_t> g_handsActiveSuppressions = 0;
-std::atomic<uint64_t> g_handsVisibleSuppressions = 0;
 std::atomic<uint64_t> g_handsRetainedFrames = 0;
 std::atomic<uint64_t> g_handsRetainedFallbacks = 0;
 std::atomic<uint64_t> g_handsRetainedInvalidations = 0;
@@ -925,6 +961,7 @@ bool ResolveWristTrackingFrame(
 {
     frame = {};
     frame.playerFrame = player.frame;
+    frame.camera = camera;
     bool paused = false;
     if (g_config.hplHandControllerRoot
         || !playerSnapshotValid
@@ -973,7 +1010,22 @@ bool ResolveWristTrackingFrame(
             g_wristPoseFallbacks.fetch_add(1, std::memory_order_relaxed);
             continue;
         }
-        frame.eligible[handIndex] = true;
+        camera_math::Vector3 calibrationForward{
+            frame.targets[handIndex].forwardX, 0.0f, frame.targets[handIndex].forwardZ};
+        if (camera.headSceneOrientationValid) {
+            calibrationForward = camera_math::RotateVector(
+                camera_math::YawOnly(camera.headSceneOrientation), {0.0f, 0.0f, -1.0f});
+        }
+        const camera_math::Vector3 offsets = g_config.hplHandWristPosition
+            ? camera_math::Vector3{g_config.hplHandWristOutwardOffsetMeters,
+                g_config.hplHandWristVerticalOffsetMeters, g_config.hplHandWristViewForwardOffsetMeters}
+            : camera_math::Vector3{};
+        frame.eligible[handIndex] = hands_math::BuildCalibratedWristGoal(
+            {frame.targets[handIndex].positionX, frame.targets[handIndex].positionY,
+                frame.targets[handIndex].positionZ},
+            calibrationForward, offsets, camera.worldUnitsPerMeter, handIndex == 0,
+            frame.goals[handIndex]);
+        if (!frame.eligible[handIndex]) g_wristMathFallbacks.fetch_add(1, std::memory_order_relaxed);
     }
     return frame.eligible[0] || frame.eligible[1];
 }
@@ -1075,28 +1127,7 @@ bool ResolveHandsBodyYaw(
                 && std::isfinite(bodyYaw.z) && std::isfinite(bodyYaw.w);
         }
     }
-    if (g_openxr == nullptr || !camera.headWorldRotationValid) return false;
-    OpenXRHeadPose rawHead{};
-    if (!g_openxr->GetLatestHeadPose(rawHead)
-        || !rawHead.valid || !rawHead.orientationTracked) {
-        return false;
-    }
-    const camera_math::Quaternion headWorld{
-        camera.headWorldRotationX,
-        camera.headWorldRotationY,
-        camera.headWorldRotationZ,
-        camera.headWorldRotationW,
-    };
-    const camera_math::Quaternion rawOrientation{
-        rawHead.orientationX,
-        rawHead.orientationY,
-        rawHead.orientationZ,
-        rawHead.orientationW,
-    };
-    bodyYaw = camera_math::YawOnly(camera_math::Multiply(
-        headWorld, camera_math::Conjugate(rawOrientation)));
-    return std::isfinite(bodyYaw.x) && std::isfinite(bodyYaw.y)
-        && std::isfinite(bodyYaw.z) && std::isfinite(bodyYaw.w);
+    return false;
 }
 
 bool ResolveShoulderAnchorPosition(
@@ -1205,25 +1236,6 @@ void HookLuxEntitySetActive(void* entity, bool active)
     g_originalSetActive(entity, active);
 }
 
-void HookMeshEntitySetVisible(void* meshEntity, bool visible)
-{
-    g_handsVisibleCalls.fetch_add(1, std::memory_order_relaxed);
-    bool retainedMesh = false;
-    {
-        std::lock_guard lock(g_retainedHandsMutex);
-        retainedMesh = g_retainedHands.valid && g_retainedHands.mesh == meshEntity;
-    }
-    if (!visible && retainedMesh) {
-        if (ShouldSuppressNativeHandsHide()) {
-            visible = true;
-            g_handsVisibleSuppressions.fetch_add(1, std::memory_order_relaxed);
-        } else if (ResolveRetainedHandsMode() == RetainedHandsMode::Invalid) {
-            InvalidateRetainedHands("native_set_visible_ineligible");
-        }
-    }
-    g_originalSetVisible(meshEntity, visible);
-}
-
 camera_math::Vector3 MatrixPosition(const std::array<float, 16>& matrix)
 {
     return {matrix[3], matrix[7], matrix[11]};
@@ -1237,6 +1249,46 @@ float Distance(
     const float y = left.y - right.y;
     const float z = left.z - right.z;
     return std::sqrt(x*x + y*y + z*z);
+}
+
+bool ResolveReadPresentationView(
+    const HPLCameraBridgeStatus& camera,
+    camera_math::Vector3& position,
+    camera_math::Vector3& forward,
+    camera_math::Quaternion& orientation,
+    bool& usesTrackedHead)
+{
+    usesTrackedHead = camera.headWorldPositionValid;
+    if (usesTrackedHead) {
+        position = {
+            camera.headWorldPositionX,
+            camera.headWorldPositionY,
+            camera.headWorldPositionZ,
+        };
+    } else if (camera.cameraWorldPositionValid) {
+        position = {
+            camera.cameraWorldPositionX,
+            camera.cameraWorldPositionY,
+            camera.cameraWorldPositionZ,
+        };
+    } else {
+        return false;
+    }
+    if (camera.headSceneOrientationValid) {
+        orientation = camera.headSceneOrientation;
+    } else if (camera.nativeCameraBasisValid
+        && camera_math::QuaternionFromForwardUp(
+            {camera.nativeCameraForwardX, camera.nativeCameraForwardY,
+                camera.nativeCameraForwardZ},
+            {camera.nativeCameraUpX, camera.nativeCameraUpY, camera.nativeCameraUpZ},
+            orientation)) {
+    } else {
+        return false;
+    }
+    forward = camera_math::RotateVector(orientation, {0.0f, 0.0f, -1.0f});
+    return std::isfinite(position.x) && std::isfinite(position.y)
+        && std::isfinite(position.z) && std::isfinite(forward.x)
+        && std::isfinite(forward.y) && std::isfinite(forward.z);
 }
 
 bool IsReadPresentationCandidate(const EntityIdentity& identity)
@@ -1337,32 +1389,8 @@ bool ResolveArmPoseNodes(
     size_t handIndex,
     std::array<void*, kArmPoseNodeCount>& nodes)
 {
-    static constexpr const char* kLeftNames[kArmPoseNodeCount] = {
-        "j_L_Clavicle", "j_L_Shoulder",
-        "j_L_Arm_1", "j_L_Arm_2", "j_L_Arm_3", "j_L_Arm_4", "j_L_Arm_5",
-        "j_L_Elbow_1", "j_L_Elbow_2",
-        "j_L_Arm_6", "j_L_Arm_7", "j_L_Arm_8", "j_L_Arm_9", "j_L_Arm_10",
-        "j_L_Wrist",
-        "j_L_Thumb_1", "j_L_Thumb_2", "j_L_Thumb_3",
-        "j_L_Index_1", "j_L_Index_2", "j_L_Index_3", "j_L_Index_4",
-        "j_L_Middle_1", "j_L_Middle_2", "j_L_Middle_3", "j_L_Middle_4",
-        "j_L_Ring_1", "j_L_Ring_2", "j_L_Ring_3", "j_L_Ring_4",
-        "j_L_Pinky_1", "j_L_Pinky_2", "j_L_Pinky_3", "j_L_Pinky_4",
-    };
-    static constexpr const char* kRightNames[kArmPoseNodeCount] = {
-        "j_R_Clavicle", "j_R_Shoulder",
-        "j_R_Arm_1", "j_R_Arm_2", "j_R_Arm_3", "j_R_Arm_4", "j_R_Arm_5",
-        "j_R_Elbow_1", "j_R_Elbow_2",
-        "j_R_Arm_6", "j_R_Arm_7", "j_R_Arm_8", "j_R_Arm_9", "j_R_Arm_10",
-        "j_R_Wrist",
-        "j_R_Thumb_1", "j_R_Thumb_2", "j_R_Thumb_3",
-        "j_R_Index_1", "j_R_Index_2", "j_R_Index_3", "j_R_Index_4",
-        "j_R_Middle_1", "j_R_Middle_2", "j_R_Middle_3", "j_R_Middle_4",
-        "j_R_Ring_1", "j_R_Ring_2", "j_R_Ring_3", "j_R_Ring_4",
-        "j_R_Pinky_1", "j_R_Pinky_2", "j_R_Pinky_3", "j_R_Pinky_4",
-    };
     if (mesh == nullptr || handIndex >= 2) return false;
-    const char* const* names = handIndex == 0 ? kLeftNames : kRightNames;
+    const char* const* names = kArmPoseNodeNames[handIndex];
     for (size_t index = 0; index < nodes.size(); ++index) {
         NativeStringLayout name = MakeInlineNativeString(names[index]);
         nodes[index] = g_getBoneStateFromName(mesh, &name);
@@ -1419,6 +1447,63 @@ bool RestoreOrSeedArmPose(
             handIndex == 0 ? "left" : "right",
             nodes.size(),
             g_config.hplHandFreezePose ? 1 : 0);
+        if (g_config.hplHandTrackingProbe) {
+            for (size_t index = 0; index < nodes.size(); ++index) {
+                void* parent = nullptr;
+                std::array<float, 16> world{};
+                std::array<float, 16> parentWorld{};
+                const bool parentValid = ReadMemory(
+                    static_cast<const std::byte*>(nodes[index]) + kNodeParentOffset,
+                    &parent,
+                    sizeof(parent));
+                const bool worldValid = ReadMemory(
+                    static_cast<const std::byte*>(nodes[index]) + kNodeWorldMatrixOffset,
+                    world.data(),
+                    sizeof(world));
+                const bool parentWorldValid = parentValid && parent != nullptr
+                    && ReadMemory(
+                        static_cast<const std::byte*>(parent) + kNodeWorldMatrixOffset,
+                        parentWorld.data(),
+                        sizeof(parentWorld));
+                const auto parentIt = std::find(nodes.begin(), nodes.end(), parent);
+                const int parentIndex = parentIt == nodes.end()
+                    ? -1 : static_cast<int>(std::distance(nodes.begin(), parentIt));
+                float segmentLength = -1.0f;
+                if (worldValid && parentWorldValid) {
+                    const float dx = world[3] - parentWorld[3];
+                    const float dy = world[7] - parentWorld[7];
+                    const float dz = world[11] - parentWorld[11];
+                    segmentLength = std::sqrt(dx * dx + dy * dy + dz * dz);
+                }
+                const char* role = index == kArmPoseShoulderIndex
+                    ? "solver_shoulder"
+                    : (index == kArmPoseElbowIndex
+                        ? "solver_elbow"
+                        : (index == kArmPoseWristIndex
+                            ? "solver_wrist"
+                            : (index < kArmPoseWristIndex
+                                ? "intermediate_or_twist"
+                                : "finger")));
+                Logger::Instance().Write(
+                    worldValid && parentValid ? LogLevel::Info : LogLevel::Warn,
+                    "hpl_arm_hierarchy seed=%llu hand=%s index=%zu name=%s node=%p parent=%p parentIndex=%d role=%s localPos=%.5f,%.5f,%.5f worldPos=%.5f,%.5f,%.5f parentSegment=%.5f evidence=named_node_and_runtime_parent releasedAssetWeightsKnown=1 runtimeSkinWeightsObserved=0 policy=separate_joint_hierarchy_from_deform_ownership",
+                    static_cast<unsigned long long>(seedCount),
+                    handIndex == 0 ? "left" : "right",
+                    index,
+                    kArmPoseNodeNames[handIndex][index],
+                    nodes[index],
+                    parent,
+                    parentIndex,
+                    role,
+                    anchor.localMatrices[index][3],
+                    anchor.localMatrices[index][7],
+                    anchor.localMatrices[index][11],
+                    worldValid ? world[3] : 0.0f,
+                    worldValid ? world[7] : 0.0f,
+                    worldValid ? world[11] : 0.0f,
+                    segmentLength);
+            }
+        }
     } else {
         const size_t restoreCount = g_config.hplHandFreezePose
             ? nodes.size() : kArmPoseWristIndex + 1;
@@ -1457,16 +1542,32 @@ bool RestoreOrSeedSharedArmRootPose(
         anchor.node = node;
         anchor.lastRestoreFrame = frame;
         anchor.localMatrix = currentLocal;
+        const bool medicineAuthoredSeed =
+            std::fabs(currentLocal[3]) <= kMedicineArmRootTranslationTolerance
+            && std::fabs(currentLocal[7] - kMedicineArmRootY)
+                <= kMedicineArmRootTranslationTolerance
+            && std::fabs(currentLocal[11] - kMedicineArmRootZ)
+                <= kMedicineArmRootTranslationTolerance;
+        if (medicineAuthoredSeed) {
+            anchor.localMatrix[3] = 0.0f;
+            anchor.localMatrix[7] = 0.0f;
+            anchor.localMatrix[11] = kNeutralArmRootZ;
+            g_nodeSetMatrix(node, anchor.localMatrix.data(), true);
+            g_armRootPoseAuthoredSeedCorrections.fetch_add(
+                1, std::memory_order_relaxed);
+        }
         const uint64_t seed = g_armRootPoseSeeds.fetch_add(
             1, std::memory_order_relaxed) + 1;
         Logger::Instance().Write(
-            LogLevel::Info,
-            "hpl_arm_root_pose_seed seed=%llu frame=%llu entity=%p node=%p localTranslation=%.4f,%.4f,%.4f policy=shared_clavicle_parent_local_pose",
+            medicineAuthoredSeed ? LogLevel::Warn : LogLevel::Info,
+            "hpl_arm_root_pose_seed seed=%llu frame=%llu entity=%p node=%p incomingTranslation=%.4f,%.4f,%.4f anchorTranslation=%.4f,%.4f,%.4f authoredCorrection=%d policy=reject_known_medicine_authored_lift_then_restore_shared_clavicle_parent_local_pose",
             static_cast<unsigned long long>(seed),
             static_cast<unsigned long long>(frame),
             entity,
             node,
-            currentLocal[3], currentLocal[7], currentLocal[11]);
+            currentLocal[3], currentLocal[7], currentLocal[11],
+            anchor.localMatrix[3], anchor.localMatrix[7], anchor.localMatrix[11],
+            medicineAuthoredSeed ? 1 : 0);
         return true;
     }
     if (anchor.node != node) {
@@ -1552,9 +1653,10 @@ void SeedWristOrientationAnchor(
         controllerToWrist = camera_math::Normalize(camera_math::Multiply(
             camera_math::Conjugate(controllerOrientation), wristOrientation));
     }
-    controllerToWrist = hands_math::ApplyControllerForwardRoll(
+    controllerToWrist = hands_math::ApplyControllerWristCalibration(
         controllerToWrist,
-        g_config.hplHandWristRollDegrees);
+        g_config.hplHandWristRollDegrees,
+        g_config.hplHandWristPitchDegrees);
     std::lock_guard lock(g_wristMutationMutex);
     WristOrientationAnchor& anchor = g_wristOrientationAnchors[handIndex];
     if (!anchor.valid || anchor.entity != entity) {
@@ -1569,17 +1671,18 @@ void SeedWristOrientationAnchor(
             : g_wristLegacyAnchorSeeds).fetch_add(1, std::memory_order_relaxed);
         Logger::Instance().Write(
             geometricPalmBasis ? LogLevel::Info : LogLevel::Warn,
-            "hpl_wrist_orientation_seed entity=%p hand=%s inputFrame=%llu mode=%s offsetQuaternion=%.5f,%.5f,%.5f,%.5f policy=deterministic_model_palm_to_grip_basis",
+            "hpl_wrist_orientation_seed entity=%p hand=%s inputFrame=%llu mode=%s offsetQuaternion=%.5f,%.5f,%.5f,%.5f rollDegrees=%.2f pitchDegrees=%.2f policy=deterministic_model_palm_to_grip_basis",
             entity,
             handIndex == 0 ? "left" : "right",
             static_cast<unsigned long long>(inputFrame),
             geometricPalmBasis ? "geometric_palm" : "legacy_takeover_fallback",
             controllerToWrist.x, controllerToWrist.y,
-            controllerToWrist.z, controllerToWrist.w);
+            controllerToWrist.z, controllerToWrist.w,
+            g_config.hplHandWristRollDegrees, g_config.hplHandWristPitchDegrees);
     }
 }
 
-void ApplyPlayerHandsArmIK(void* entity, const WristTrackingFrame& tracking)
+void ApplyPlayerHandsArmIK(void* entity, WristTrackingFrame& tracking)
 {
     if (!g_config.hplHandArmIK || !tracking.stateEligible
         || g_getMeshEntity == nullptr || g_getBoneStateFromName == nullptr
@@ -1603,13 +1706,15 @@ void ApplyPlayerHandsArmIK(void* entity, const WristTrackingFrame& tracking)
         return;
     }
 
-    const HPLCameraBridgeStatus camera = GetHPLCameraBridgeStatus();
-    const float worldUnitsPerMeter = std::max(camera.worldUnitsPerMeter, 0.001f);
-    const camera_math::Vector3 bodyForward{
-        camera.nativeCameraForwardX, 0.0f, camera.nativeCameraForwardZ};
+    const HPLCameraBridgeStatus& camera = tracking.camera;
+    const float worldUnitsPerMeter = camera.worldUnitsPerMeter;
+    camera_math::Quaternion bodyYaw{};
+    const bool bodyYawValid = ResolveHandsBodyYaw(camera, bodyYaw);
+    const camera_math::Vector3 bodyForward = camera_math::RotateVector(
+        bodyYaw, {0.0f, 0.0f, -1.0f});
     const camera_math::Vector3 worldUp{0.0f, 1.0f, 0.0f};
     const bool ergonomicFrame = g_config.hplHandArmIKErgonomics
-        && camera.nativeCameraBasisValid;
+        && bodyYawValid;
     uint32_t applied = 0;
     for (size_t handIndex = 0; handIndex < 2; ++handIndex) {
         if (!tracking.eligible[handIndex]) continue;
@@ -1659,10 +1764,7 @@ void ApplyPlayerHandsArmIK(void* entity, const WristTrackingFrame& tracking)
             poseNodes,
             wristWorld,
             tracking.inputFrame);
-        const camera_math::Vector3 target{
-            tracking.targets[handIndex].positionX,
-            tracking.targets[handIndex].positionY,
-            tracking.targets[handIndex].positionZ};
+        const camera_math::Vector3 target = tracking.goals[handIndex].requested;
 
         ArmErgonomicState previousErgonomic{};
         bool previousErgonomicValid = false;
@@ -1786,6 +1888,7 @@ void ApplyPlayerHandsArmIK(void* entity, const WristTrackingFrame& tracking)
         }
         const camera_math::Vector3 rotatedWrist = MatrixPosition(wristWorld);
         if (!ApplyArmNodeToward(elbow, rotatedWrist, solution.wrist)) continue;
+        hands_math::CommitWristIKGoal(solution.wrist, tracking.goals[handIndex]);
 
         if (ergonomicPoleValid) {
             std::lock_guard lock(g_armIkMutationMutex);
@@ -1935,57 +2038,9 @@ void ApplyPlayerHandsWristPositions(
 
         std::array<float, 16> desiredWorld = worldMatrix;
         if (g_config.hplHandWristPosition) {
-            const HPLCameraBridgeStatus camera = GetHPLCameraBridgeStatus();
-            camera_math::Quaternion calibrationYaw{};
-            bool calibrationYawValid = false;
-            if (camera.headWorldRotationValid) {
-                calibrationYaw = camera_math::YawOnly({
-                    camera.headWorldRotationX,
-                    camera.headWorldRotationY,
-                    camera.headWorldRotationZ,
-                    camera.headWorldRotationW,
-                });
-                const float lengthSquared = calibrationYaw.x * calibrationYaw.x
-                    + calibrationYaw.y * calibrationYaw.y
-                    + calibrationYaw.z * calibrationYaw.z
-                    + calibrationYaw.w * calibrationYaw.w;
-                calibrationYawValid = std::isfinite(lengthSquared)
-                    && lengthSquared > 0.5f;
-            }
-            if (!calibrationYawValid) {
-                calibrationYawValid = camera_math::QuaternionFromForwardUp(
-                    {
-                        tracking.targets[handIndex].forwardX,
-                        0.0f,
-                        tracking.targets[handIndex].forwardZ,
-                    },
-                    {0.0f, 1.0f, 0.0f},
-                    calibrationYaw);
-            }
-            const camera_math::Vector3 viewRight = calibrationYawValid
-                ? camera_math::RotateVector(calibrationYaw, {1.0f, 0.0f, 0.0f})
-                : camera_math::Vector3{1.0f, 0.0f, 0.0f};
-            const camera_math::Vector3 viewForward = calibrationYawValid
-                ? camera_math::RotateVector(calibrationYaw, {0.0f, 0.0f, -1.0f})
-                : camera_math::Vector3{
-                    tracking.targets[handIndex].forwardX,
-                    0.0f,
-                    tracking.targets[handIndex].forwardZ,
-                };
-            const float worldUnitsPerMeter = std::max(
-                camera.worldUnitsPerMeter, 0.001f);
-            const float outwardSign = handIndex == 0 ? -1.0f : 1.0f;
-            const float outward = g_config.hplHandWristOutwardOffsetMeters
-                * outwardSign * worldUnitsPerMeter;
-            const float vertical = g_config.hplHandWristVerticalOffsetMeters
-                * worldUnitsPerMeter;
-            const float forward = g_config.hplHandWristViewForwardOffsetMeters
-                * worldUnitsPerMeter;
-            desiredWorld[3] = tracking.targets[handIndex].positionX
-                + viewRight.x * outward + viewForward.x * forward;
-            desiredWorld[7] = tracking.targets[handIndex].positionY + vertical;
-            desiredWorld[11] = tracking.targets[handIndex].positionZ
-                + viewRight.z * outward + viewForward.z * forward;
+            desiredWorld[3] = tracking.goals[handIndex].selected.x;
+            desiredWorld[7] = tracking.goals[handIndex].selected.y;
+            desiredWorld[11] = tracking.goals[handIndex].selected.z;
         }
         bool orientationAnchorSeeded = false;
         bool orientationApplied = false;
@@ -2028,11 +2083,9 @@ void ApplyPlayerHandsWristPositions(
                             camera_math::Multiply(
                                 camera_math::Conjugate(controllerOrientation),
                                 wristOrientation));
-                        stored.controllerToWrist = hands_math::ApplyControllerForwardRoll(
+                        stored.controllerToWrist = hands_math::ApplyControllerWristCalibration(
                             stored.controllerToWrist,
-                            g_config.hplHandWristRollDegrees);
-                        stored.controllerToWrist = hands_math::ApplyControllerLocalPitch(
-                            stored.controllerToWrist,
+                            g_config.hplHandWristRollDegrees,
                             g_config.hplHandWristPitchDegrees);
                         orientationAnchorSeeded = true;
                         g_wristRotationAnchorSeeds.fetch_add(1, std::memory_order_relaxed);
@@ -2108,6 +2161,22 @@ void ApplyPlayerHandsWristPositions(
         const uint64_t interval = static_cast<uint64_t>(
             std::max(g_config.hplControllerLogInterval, 1));
         if (application <= 12 || application % interval == 0) {
+            std::array<float, 16> actualWorld{};
+            const bool actualValid = ReadMemory(
+                static_cast<const std::byte*>(wrist) + kNodeWorldMatrixOffset,
+                actualWorld.data(), sizeof(actualWorld));
+            const auto& goal = tracking.goals[handIndex];
+            Logger::Instance().Write(LogLevel::Info,
+                "hpl_wrist_goal frame=%llu inputFrame=%llu hand=%s entity=%p ikSolved=%d requested=%.4f,%.4f,%.4f selected=%.4f,%.4f,%.4f actualValid=%d actual=%.4f,%.4f,%.4f clampMeters=%.5f residualMeters=%.5f policy=single_calibrated_goal_before_ik",
+                static_cast<unsigned long long>(tracking.playerFrame),
+                static_cast<unsigned long long>(tracking.inputFrame),
+                handIndex == 0 ? "left" : "right", entity, goal.ikSolved ? 1 : 0,
+                goal.requested.x, goal.requested.y, goal.requested.z,
+                goal.selected.x, goal.selected.y, goal.selected.z,
+                actualValid ? 1 : 0, actualWorld[3], actualWorld[7], actualWorld[11],
+                Distance(goal.requested, goal.selected) / tracking.camera.worldUnitsPerMeter,
+                actualValid ? Distance(MatrixPosition(actualWorld), MatrixPosition(desiredWorld))
+                    / tracking.camera.worldUnitsPerMeter : -1.0f);
             Logger::Instance().Write(
                 restored ? LogLevel::Info : LogLevel::Warn,
                 "hpl_wrist_position application=%llu frameAttempt=%llu frame=%llu inputFrame=%llu "
@@ -2913,11 +2982,23 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                                 },
                                 gripOrientation);
                         std::array<float, 16> anchoredSourceMatrix{};
-                        camera_math::Vector3 anchoredCameraPosition{};
+                        camera_math::Vector3 sourceCameraPosition{};
+                        camera_math::Vector3 presentationOffset{};
+                        camera_math::Vector3 currentPresentationPosition{};
+                        camera_math::Vector3 currentPresentationForward{};
+                        camera_math::Quaternion currentViewOrientation{};
                         camera_math::Quaternion presentationOrientation{};
+                        bool presentationUsesTrackedHead = false;
+                        const bool presentationViewValid = ResolveReadPresentationView(
+                            camera,
+                            currentPresentationPosition,
+                            currentPresentationForward,
+                            currentViewOrientation,
+                            presentationUsesTrackedHead);
                         bool usePresentationOrientation = false;
                         bool rotateActive = false;
                         bool anchorSeeded = false;
+                        bool presentationSettled = false;
                         bool presentationReady = false;
                         uint64_t warmupAge = 0;
                         {
@@ -2927,19 +3008,47 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                                 anchor = {};
                                 anchor.session = readSession;
                             }
+                            if (presentationViewValid && anchor.viewOrientationValid
+                                && (anchor.presentationSeeded || anchor.manipulated)) {
+                                anchor.objectOrientation = read_math::ResolveRelativeOrientation(
+                                    anchor.viewOrientation, currentViewOrientation,
+                                    anchor.objectOrientation);
+                                anchor.gripOrientation = read_math::ResolveRelativeOrientation(
+                                    anchor.viewOrientation, currentViewOrientation,
+                                    anchor.gripOrientation);
+                            }
+                            if (presentationViewValid) {
+                                anchor.viewOrientation = currentViewOrientation;
+                                anchor.viewOrientationValid = true;
+                            }
                             if (!anchor.presentationSeeded) {
                                 if (!anchor.warmupStarted) {
                                     anchor.warmupStarted = true;
                                     anchor.firstFrame = player.frame;
                                 }
-                                anchor.sourceMatrix = matrix;
-                                anchor.sourceCameraPosition = {
-                                    camera.cameraWorldPositionX,
-                                    camera.cameraWorldPositionY,
-                                    camera.cameraWorldPositionZ,
-                                };
-                                camera_math::QuaternionFromRotationMatrix(anchor.sourceMatrix,
-                                                                          anchor.objectOrientation);
+                                if (!anchor.presentationOffsetValid
+                                    && presentationViewValid) {
+                                    anchor.sourceMatrix = matrix;
+                                    anchor.sourceCameraPosition =
+                                        currentPresentationPosition;
+                                    anchor.presentationOffsetValid =
+                                        presentationViewValid
+                                        && read_math::BuildStablePresentationOffset(
+                                            currentPresentationForward,
+                                            Distance(
+                                                MatrixPosition(matrix),
+                                                currentPresentationPosition),
+                                            g_config.hplControllerReadObjectDistanceScale,
+                                            anchor.presentationOffset);
+                                }
+                                if (!anchor.manipulated) {
+                                    camera_math::Quaternion currentOrientation{};
+                                    if (camera_math::QuaternionFromRotationMatrix(
+                                            matrix, currentOrientation)) {
+                                        anchor.objectOrientation = currentOrientation;
+                                        anchor.objectOrientationValid = true;
+                                    }
+                                }
                                 warmupAge = player.frame >= anchor.firstFrame
                                     ? player.frame - anchor.firstFrame : 0;
                                 if (warmupAge >= static_cast<uint64_t>(
@@ -2948,23 +3057,26 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                                     anchorSeeded = true;
                                 }
                             }
-                            presentationReady = anchor.presentationSeeded;
+                            warmupAge = anchor.warmupStarted
+                                && player.frame >= anchor.firstFrame
+                                ? player.frame - anchor.firstFrame : 0;
+                            presentationSettled = anchor.presentationSeeded;
+                            presentationReady = anchor.presentationOffsetValid;
                             anchoredSourceMatrix = anchor.sourceMatrix;
-                            anchoredCameraPosition = anchor.sourceCameraPosition;
-                            camera_math::Quaternion nativeOrientation{};
-                            const bool nativeOrientationValid =
-                                camera_math::QuaternionFromRotationMatrix(anchoredSourceMatrix,
-                                                                          nativeOrientation);
+                            sourceCameraPosition = anchor.sourceCameraPosition;
+                            // Latch distance once, but resolve direction in the current player view.
+                            presentationReady = presentationReady && presentationViewValid
+                                && read_math::BuildStablePresentationOffset(
+                                    currentPresentationForward,
+                                    Distance({}, anchor.presentationOffset), 1.0f,
+                                    presentationOffset);
                             const float squeeze = hand != nullptr ? hand->squeeze : 0.0f;
-                            const bool rotateRequested = presentationReady
+                            const bool rotateRequested = presentationSettled
                                 && gripValid
                                 && squeeze >= (anchor.rotateActive ? 0.55f : 0.75f);
-                            if (rotateRequested && nativeOrientationValid) {
+                            if (rotateRequested && anchor.objectOrientationValid) {
                                 if (!anchor.rotateActive) {
                                     anchor.gripOrientation = gripOrientation;
-                                    if (!anchor.manipulated) {
-                                        anchor.objectOrientation = nativeOrientation;
-                                    }
                                 }
                                 anchor.objectOrientation = read_math::ResolveRelativeOrientation(
                                     anchor.gripOrientation, gripOrientation,
@@ -2977,30 +3089,21 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                             }
                             anchor.lastFrame = player.frame;
                             rotateActive = anchor.rotateActive;
-                            if (anchor.manipulated) {
+                            if (anchor.objectOrientationValid) {
                                 presentationOrientation = anchor.objectOrientation;
                                 usePresentationOrientation = true;
                             }
                         }
-                        if (presentationReady && read_math::BuildReadPresentationMatrix(
+                        if (presentationReady && presentationViewValid
+                            && read_math::BuildReadPresentationMatrix(
                                 anchoredSourceMatrix, g_config.hplControllerReadObjectScale,
                                 usePresentationOrientation ? &presentationOrientation : nullptr,
                                 controllerMatrix)) {
-                            camera_math::Vector3 presentationPosition{};
-                            const camera_math::Vector3 currentCameraPosition{
-                                camera.cameraWorldPositionX,
-                                camera.cameraWorldPositionY,
-                                camera.cameraWorldPositionZ,
+                            const camera_math::Vector3 presentationPosition{
+                                currentPresentationPosition.x + presentationOffset.x,
+                                currentPresentationPosition.y + presentationOffset.y,
+                                currentPresentationPosition.z + presentationOffset.z,
                             };
-                            if (!read_math::ResolveLatchedCameraRelativePosition(
-                                    anchoredCameraPosition, MatrixPosition(anchoredSourceMatrix),
-                                    currentCameraPosition,
-                                    g_config.hplControllerReadObjectDistanceScale,
-                                    presentationPosition)) {
-                                g_readPresentationFallbacks.fetch_add(1, std::memory_order_relaxed);
-                                g_originalSetMatrix(entity, submittedMatrix);
-                                return;
-                            }
                             controllerMatrix[3] = presentationPosition.x;
                             controllerMatrix[7] = presentationPosition.y;
                             controllerMatrix[11] = presentationPosition.z;
@@ -3015,28 +3118,30 @@ void HookLuxEntitySetMatrix(void* entity, const float* matrixPointer)
                                     LogLevel::Info,
                                     "hpl_read_presentation override=%llu session=%llu frame=%llu "
                                     "entity=%p name=%s "
-                                    "incomingDistance=%.4f sourceDistance=%.4f anchorSeeded=%d settleAge=%llu settleFrames=%d "
+                                    "incomingDistance=%.4f sourceDistance=%.4f anchorSeeded=%d settled=%d entryOverride=%d settleAge=%llu settleFrames=%d "
                                     "configuredDistanceScale=%.3f scaleMultiplier=%.3f "
                                     "gripValid=%d gripHand=%s "
                                     "squeeze=%.3f rotateActive=%d orientationOverride=%d "
-                                    "finalPos=%.4f,%.4f,%.4f "
-                                    "policy=session_latched_native_matrix_camera_translation_non_"
-                                    "recursive_controller_"
-                                    "orientation",
+                                    "viewAnchor=%s finalPos=%.4f,%.4f,%.4f "
+                                    "policy=latched_distance_current_scene_view_settling_native_orientation_non_recursive_controller_orientation",
                                     static_cast<unsigned long long>(overrideCount),
                                     static_cast<unsigned long long>(readSession),
                                     static_cast<unsigned long long>(player.frame), entity,
                                     identity.name.c_str(), distance,
                                     Distance(MatrixPosition(anchoredSourceMatrix),
-                                             anchoredCameraPosition),
+                                             sourceCameraPosition),
                                     anchorSeeded ? 1 : 0,
+                                    presentationSettled ? 1 : 0,
+                                    presentationSettled ? 0 : 1,
                                     static_cast<unsigned long long>(warmupAge),
                                     g_config.hplControllerReadObjectSettleFrames,
                                     g_config.hplControllerReadObjectDistanceScale,
                                     g_config.hplControllerReadObjectScale, gripValid ? 1 : 0,
                                     handIndex == 0 ? "left" : "right",
                                     hand != nullptr ? hand->squeeze : 0.0f, rotateActive ? 1 : 0,
-                                    usePresentationOrientation ? 1 : 0, controllerMatrix[3],
+                                    usePresentationOrientation ? 1 : 0,
+                                    presentationUsesTrackedHead ? "tracked_head" : "camera",
+                                    controllerMatrix[3],
                                     controllerMatrix[7], controllerMatrix[11]);
                             }
                         } else if (presentationReady) {
@@ -3598,51 +3703,31 @@ bool InstallHPLHandsBridge(const Config& config, OpenXRRuntime* openxr)
     }
     if (config.hplHandAlwaysVisible) {
         auto* setActiveTarget = reinterpret_cast<std::byte*>(executable) + kLuxEntitySetActiveRva;
-        auto* setVisibleTarget = reinterpret_cast<std::byte*>(executable) + kMeshEntitySetVisibleRva;
-        bool visibilityHooksValid =
+        bool visibilityHookValid =
             IsInsideImage(executable, kLuxEntitySetActiveRva, sizeof(kLuxEntitySetActiveSignature))
-            && IsInsideImage(executable, kMeshEntitySetVisibleRva, sizeof(kMeshEntitySetVisibleSignature))
             && std::memcmp(setActiveTarget, kLuxEntitySetActiveSignature,
-                sizeof(kLuxEntitySetActiveSignature)) == 0
-            && std::memcmp(setVisibleTarget, kMeshEntitySetVisibleSignature,
-                sizeof(kMeshEntitySetVisibleSignature)) == 0;
-        if (visibilityHooksValid) {
+                sizeof(kLuxEntitySetActiveSignature)) == 0;
+        if (visibilityHookValid) {
             status = MH_CreateHook(
                 setActiveTarget,
                 reinterpret_cast<void*>(&HookLuxEntitySetActive),
                 reinterpret_cast<void**>(&g_originalSetActive));
-            visibilityHooksValid = status == MH_OK || status == MH_ERROR_ALREADY_CREATED;
+            visibilityHookValid = status == MH_OK || status == MH_ERROR_ALREADY_CREATED;
         }
-        if (visibilityHooksValid) {
+        if (visibilityHookValid) {
             status = MH_EnableHook(setActiveTarget);
-            visibilityHooksValid = status == MH_OK || status == MH_ERROR_ENABLED;
+            visibilityHookValid = status == MH_OK || status == MH_ERROR_ENABLED;
         }
-        if (visibilityHooksValid) {
-            status = MH_CreateHook(
-                setVisibleTarget,
-                reinterpret_cast<void*>(&HookMeshEntitySetVisible),
-                reinterpret_cast<void**>(&g_originalSetVisible));
-            visibilityHooksValid = status == MH_OK || status == MH_ERROR_ALREADY_CREATED;
-        }
-        if (visibilityHooksValid) {
-            status = MH_EnableHook(setVisibleTarget);
-            visibilityHooksValid = status == MH_OK || status == MH_ERROR_ENABLED;
-        }
-        if (visibilityHooksValid) {
+        if (visibilityHookValid) {
             g_setActiveTarget = setActiveTarget;
-            g_setVisibleTarget = setVisibleTarget;
         } else {
-            MH_DisableHook(setVisibleTarget);
-            MH_RemoveHook(setVisibleTarget);
             MH_DisableHook(setActiveTarget);
             MH_RemoveHook(setActiveTarget);
             g_originalSetActive = nullptr;
-            g_originalSetVisible = nullptr;
             Logger::Instance().Write(
                 LogLevel::Warn,
-                "hpl_hands_visibility install_fallback reason=signature_or_hook_failure setActiveRva=0x%llx setVisibleRva=0x%llx policy=continue_without_retention",
-                static_cast<unsigned long long>(kLuxEntitySetActiveRva),
-                static_cast<unsigned long long>(kMeshEntitySetVisibleRva));
+                "hpl_hands_visibility install_fallback reason=signature_or_hook_failure setActiveRva=0x%llx policy=continue_without_retention",
+                static_cast<unsigned long long>(kLuxEntitySetActiveRva));
         }
     }
     Logger::Instance().Write(
@@ -3781,8 +3866,7 @@ void UpdateHPLHandsBridge(uint64_t frameIndex)
     }
 
     if (!retained.wakeRequested
-        && g_originalSetActive != nullptr
-        && g_originalSetVisible != nullptr) {
+        && g_originalSetActive != nullptr) {
         // Only SetActive is originated here. SetActive is the iLuxEntity-level
         // API the game itself uses, and it performs the visibility work on the
         // engine entities it owns.
@@ -3888,6 +3972,94 @@ void UpdateHPLHandsBridge(uint64_t frameIndex)
     }
 }
 
+bool CaptureHPLArmRenderSnapshot(HPLArmRenderSnapshot& snapshot)
+{
+    snapshot = {};
+
+    RetainedHandsState retained{};
+    {
+        std::lock_guard lock(g_retainedHandsMutex);
+        retained = g_retainedHands;
+    }
+    if (!retained.valid || retained.entity == nullptr) return false;
+
+    SharedArmRootPoseAnchor rootAnchor{};
+    std::array<ArmPoseAnchor, kHPLArmRenderDiagnosticHandCount> armAnchors{};
+    {
+        std::lock_guard lock(g_armIkMutationMutex);
+        rootAnchor = g_sharedArmRootPoseAnchor;
+        armAnchors = g_armPoseAnchors;
+    }
+    if (!rootAnchor.valid || rootAnchor.entity != retained.entity
+        || rootAnchor.node == nullptr) {
+        return false;
+    }
+    for (const ArmPoseAnchor& anchor : armAnchors) {
+        if (!anchor.valid || anchor.entity != retained.entity) return false;
+        for (size_t index = 0; index < kHPLArmRenderDiagnosticNodeCount; ++index) {
+            if (anchor.nodes[index] == nullptr) return false;
+        }
+    }
+
+    HPLPlayerStateSnapshot player{};
+    GetHPLPlayerStateSnapshot(player);
+    snapshot.entity = retained.entity;
+    snapshot.mesh = retained.mesh;
+    snapshot.playerFrame = player.frame;
+    NativeVectorLayout boneMatrices{};
+    if (retained.mesh != nullptr
+        && ReadMemory(
+            static_cast<const std::byte*>(retained.mesh) + kMeshBoneMatricesOffset,
+            &boneMatrices, sizeof(boneMatrices))
+        && boneMatrices.begin != nullptr) {
+        const uintptr_t begin = reinterpret_cast<uintptr_t>(boneMatrices.begin);
+        const uintptr_t end = reinterpret_cast<uintptr_t>(boneMatrices.end);
+        const uintptr_t capacity = reinterpret_cast<uintptr_t>(boneMatrices.capacity);
+        const size_t bytes = end >= begin
+            ? static_cast<size_t>(end - begin) : 0;
+        const size_t matrixBytes = sizeof(snapshot.palette[0]);
+        const size_t count = matrixBytes != 0 ? bytes / matrixBytes : 0;
+        if (end >= begin
+            && capacity >= end
+            && bytes % matrixBytes == 0
+            && count > 0
+            && count <= snapshot.palette.size()
+            && ReadMemory(
+                boneMatrices.begin, snapshot.palette.data(), bytes)) {
+            snapshot.paletteValid = true;
+            snapshot.paletteCount = count;
+        }
+    }
+    if (!ReadMemory(
+            static_cast<const std::byte*>(rootAnchor.node) + kNodeLocalMatrixOffset,
+            snapshot.rootLocal.data(), sizeof(snapshot.rootLocal))
+        || !ReadMemory(
+            static_cast<const std::byte*>(rootAnchor.node) + kNodeWorldMatrixOffset,
+            snapshot.rootWorld.data(), sizeof(snapshot.rootWorld))) {
+        snapshot = {};
+        return false;
+    }
+    for (size_t hand = 0; hand < armAnchors.size(); ++hand) {
+        for (size_t index = 0; index < kHPLArmRenderDiagnosticNodeCount; ++index) {
+            const auto* node = static_cast<const std::byte*>(
+                armAnchors[hand].nodes[index]);
+            if (!ReadMemory(
+                    node + kNodeLocalMatrixOffset,
+                    snapshot.local[hand][index].data(),
+                    sizeof(snapshot.local[hand][index]))
+                || !ReadMemory(
+                    node + kNodeWorldMatrixOffset,
+                    snapshot.world[hand][index].data(),
+                    sizeof(snapshot.world[hand][index]))) {
+                snapshot = {};
+                return false;
+            }
+        }
+    }
+    snapshot.valid = true;
+    return true;
+}
+
 void RemoveHPLHandsBridge()
 {
     std::lock_guard lock(g_installMutex);
@@ -3897,10 +4069,6 @@ void RemoveHPLHandsBridge()
         "hpl_entity_profiles save=%d %s",
         profilesSaved ? 1 : 0,
         g_calibrationProfiles.SummaryString().c_str());
-    if (g_setVisibleTarget != nullptr) {
-        MH_DisableHook(g_setVisibleTarget);
-        MH_RemoveHook(g_setVisibleTarget);
-    }
     if (g_setActiveTarget != nullptr) {
         MH_DisableHook(g_setActiveTarget);
         MH_RemoveHook(g_setActiveTarget);
@@ -3919,12 +4087,10 @@ void RemoveHPLHandsBridge()
     }
     g_setMatrixTarget = nullptr;
     g_setActiveTarget = nullptr;
-    g_setVisibleTarget = nullptr;
     g_destroyEntityTarget = nullptr;
     g_getClosestBodyTarget = nullptr;
     g_originalSetMatrix = nullptr;
     g_originalSetActive = nullptr;
-    g_originalSetVisible = nullptr;
     g_originalDestroyEntity = nullptr;
     g_originalGetClosestBody = nullptr;
     g_getEntityName = nullptr;
@@ -4094,7 +4260,7 @@ void LogHPLHandsBridgeSummary()
         static_cast<unsigned long long>(g_flashlightGameplayRayMathFallbacks.load(std::memory_order_relaxed)));
     Logger::Instance().Write(
         LogLevel::Info,
-        "hpl_arm_body_summary armIK={enabled=%d ergonomics=%d shoulderReach=%d shoulderVerticalOffsetMeters=%.3f shoulderOffsets=%llu frameAttempts=%llu framesApplied=%llu applications=%llu reachClamps=%llu ergonomicFallbacks=%llu shoulderCompensations=%llu elbowHistoryUses=%llu elbowSingularityBlends=%llu elbowSwivelLimits=%llu readFallbacks=%llu hierarchyFallbacks=%llu authoredPostFallbacks=%llu mathFallbacks=%llu sharedRootSeeds=%llu sharedRootRestores=%llu sharedRootDriftCorrections=%llu sharedRootFallbacks=%llu} wristRotation={enabled=%d anchorSeeds=%llu geometricSeeds=%llu legacySeeds=%llu applications=%llu fallbacks=%llu controllerBasisFallbacks=%llu nativeBasisFallbacks={nonFiniteOrDegenerate=%llu nonOrthogonal=%llu improperHandedness=%llu quaternion=%llu}} persistentHands={enabled=%d hooksInstalled=%d nativeSeeds=%llu wakeRequests=%llu activeCalls=%llu visibleCalls=%llu activeSuppressions=%llu visibleSuppressions=%llu retainedFrames=%llu fallbacks=%llu invalidations=%llu lifecyclePolicy=native_visibility_hooks_plus_matrix_only_synthetic_updates}",
+        "hpl_arm_body_summary armIK={enabled=%d ergonomics=%d shoulderReach=%d shoulderVerticalOffsetMeters=%.3f shoulderOffsets=%llu frameAttempts=%llu framesApplied=%llu applications=%llu reachClamps=%llu ergonomicFallbacks=%llu shoulderCompensations=%llu elbowHistoryUses=%llu elbowSingularityBlends=%llu elbowSwivelLimits=%llu readFallbacks=%llu hierarchyFallbacks=%llu authoredPostFallbacks=%llu mathFallbacks=%llu sharedRootSeeds=%llu sharedRootAuthoredSeedCorrections=%llu sharedRootRestores=%llu sharedRootDriftCorrections=%llu sharedRootFallbacks=%llu} wristRotation={enabled=%d anchorSeeds=%llu geometricSeeds=%llu legacySeeds=%llu applications=%llu fallbacks=%llu controllerBasisFallbacks=%llu nativeBasisFallbacks={nonFiniteOrDegenerate=%llu nonOrthogonal=%llu improperHandedness=%llu quaternion=%llu}} persistentHands={enabled=%d hooksInstalled=%d nativeSeeds=%llu wakeRequests=%llu activeCalls=%llu activeSuppressions=%llu retainedFrames=%llu fallbacks=%llu invalidations=%llu lifecyclePolicy=native_active_hook_plus_matrix_only_synthetic_updates}",
         g_config.hplHandArmIK ? 1 : 0,
         g_config.hplHandArmIKErgonomics ? 1 : 0,
         g_config.hplHandShoulderReachCompensation ? 1 : 0,
@@ -4114,6 +4280,7 @@ void LogHPLHandsBridgeSummary()
         static_cast<unsigned long long>(g_armIkAuthoredPostFallbacks.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_armIkMathFallbacks.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_armRootPoseSeeds.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(g_armRootPoseAuthoredSeedCorrections.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_armRootPoseRestores.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_armRootPoseDriftCorrections.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_armRootPoseFallbacks.load(std::memory_order_relaxed)),
@@ -4129,13 +4296,11 @@ void LogHPLHandsBridgeSummary()
         static_cast<unsigned long long>(g_wristNativeBasisHandednessFallbacks.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_wristNativeQuaternionFallbacks.load(std::memory_order_relaxed)),
         g_config.hplHandAlwaysVisible ? 1 : 0,
-        g_setActiveTarget != nullptr && g_setVisibleTarget != nullptr ? 1 : 0,
+        g_setActiveTarget != nullptr ? 1 : 0,
         static_cast<unsigned long long>(g_handsNativeSeeds.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_handsWakeRequests.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_handsActiveCalls.load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_handsVisibleCalls.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_handsActiveSuppressions.load(std::memory_order_relaxed)),
-        static_cast<unsigned long long>(g_handsVisibleSuppressions.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_handsRetainedFrames.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_handsRetainedFallbacks.load(std::memory_order_relaxed)),
         static_cast<unsigned long long>(g_handsRetainedInvalidations.load(std::memory_order_relaxed)));

@@ -203,6 +203,11 @@ int main()
             && releaseManager.UnknownKeyCount() == 0
             && releaseManager.UnknownSectionCount() == 0,
         "tracked release config is fully recognized by the runtime parser");
+    failures += Check(releaseManager.Get().hplHandWristPitchDegrees == -45.0f
+            && releaseManager.Get().hplHandWristRollDegrees == -90.0f
+            && releaseManager.Get().hplControllerReadObjectDistanceScale == 1.2f
+            && releaseManager.Get().hplControllerReadObjectScale == 2.0f,
+        "release profile selects neutral wrist pitch and closer double-size story inspection");
 #endif
     {
         std::ofstream out(configPath, std::ios::trunc);

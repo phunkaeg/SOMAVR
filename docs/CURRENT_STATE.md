@@ -1,6 +1,6 @@
 # Current State
 
-Date: 2026-08-29
+Date: 2026-09-09
 
 ## Objective
 
@@ -21,11 +21,242 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active engineering and gameplay test build is
-`0.95.2-playbook-conformance`, layered on the
+The active headset build is **`0.96.1-interaction-follow`**. Built after the user
+quit; not launched. It retains all 0.96.0 arm/depth work and profile tuning below.
+Drawer gain now applies consistently to displacement and velocity; door leverage
+uses the actual body-attached handle. Fast tracked trigger releases use a bounded,
+exact-body native throw handoff instead of the speed-limited drop route. Slow
+releases still place/drop. Per-grab motion and throw-outcome logs are included.
+Release and all ten CTests pass; feel and player-recoil acceptance remain open.
+See `INTERACTION_FOLLOW_REVIEW_2026-09-09.md` for evidence, limits and test protocol.
+
+September 9 headset follow-up: the user reports both hands' fingers pointing up
+with palm direction acceptable, and more consistent but too-small story objects.
+The next-launch profile changes only existing settings: wrist pitch `45 -> -45`
+(90 degrees downward, roll remains `-90`); Read distance scale `1.5 -> 1.2`
+(20% closer); Read object scale `1 -> 2` (twice each authored linear dimension).
+That profile-only edit left the then-running 0.96.0 session unchanged; the new
+0.96.1 package retains it. Restart is required. This is
+calibration tuning awaiting headset confirmation, not a new IK or Read hook.
+The sampled live log already shows solved wrist goals with zero residual and
+accepted, matching per-eye scene-depth copies. Full depth-image correspondence
+and visual acceptance remain separate checks.
+
+- Arm IK and wrist placement share one calibrated target and camera snapshot.
+  The wrist consumes the successful solver's reachable endpoint instead of
+  overriding its clamp. IK-off/read-failure fallback uses the calibrated target.
+  Existing orientation calibration, two-hinge solver and frame guards remain.
+  `hpl_wrist_goal` reports requested/selected/actual positions and residuals.
+- A new `OpenXRSceneDepth.cpp` captures a validated single-sample depth
+  renderbuffer at the exact player viewport's pre-post world-callback entry.
+  No capture-local GL names are hardcoded. Default, incomplete, wrong-format,
+  texture, multisample, viewport and depth-range mismatches fail closed.
+- Color/depth pairing checks the render serial, pose frame and source viewport;
+  each eye retains its own clip range. Desktop color copies no longer read depth.
+- Ctrl+F10 includes per-eye float depth PFM and JSON metadata beside existing
+  RGB captures. Readback is manual/bounded and restores PBO/pixel-pack state.
+- Release defaults disable depth submission. The rolling test package explicitly
+  enables only `DepthCompositionProbe=1` using `Package-Release.ps1 -SceneDepthTest`.
+  Rendering to the headset remains color-only while the new source is evaluated.
+
+Verification: Release compiled; all 10 CTests passed, including production GL
+copy/readback in a hidden 64x64 context (no XR session), independent eye values,
+source reuse, stale-serial rejection and state restoration. The subsequent live
+run reached the player callback and captured D24S8 at matching serial/pose/viewport;
+this alone is not full-image geometry/alignment or headset acceptance.
+See `NEXT_LIVE_EVIDENCE.md` and the September 9 build-history entry.
+
+### Evidence Behind This Build
+
+September 9 evidence pass, before this implementation: existing apitrace replay
+proves geometry depth in HPL's scene D24 attachment and matching sampled R16F
+linear depth. The final default framebuffer is entirely far-plane depth in
+both sampled frames, including ordinary gameplay. The 0.95.9 OpenXR copy
+read that default buffer; format/blit success is not usable scene depth.
+Live per-eye source identification/copy remains open. Full receipts and a
+tested offline analyzer: `HPL_SCENE_DEPTH_PROOF_2026-09-09.md`.
+
+PreyVR's latest arm IK is useful but still has headset-reported crosstalk and
+reach/calibration issues. Its shared-goal pattern exposed a specific SOMA
+conflict: the old arm solver used the raw controller point, then the wrist writer
+added 6.4 cm of calibration offsets and ignored the solver's reach clamp.
+The source-proven conflict is now corrected; visual acceptance remains open. Transfer priorities and
+test contract: `PREYVR_ARM_IK_TRANSFER_2026-09-09.md`.
+
+Project-only code Graphify refresh completed after 0.96.1 on September 9:
+5054 nodes, 8537 links, preserving 925 document/concept nodes across 43 sources. The LAN semantic
+runner remains unreachable, so September 9 document semantics are not yet
+indexed, including the new interaction review; use the direct links here and in
+`FEATURE_TRACEABILITY.md` for those.
+
+The previous engineering and gameplay test build was
+`0.95.9-player-space-recovery`. It responded to the September 7 test of 0.95.8:
+
+- Corrects clockwise heading versus quaternion yaw signs for torso/snap turns;
+  elbow poles now use the same virtual torso heading as shoulder placement.
+- Adds an explicitly scene-world HMD orientation composed from native camera
+  basis and tracking-relative rotation. Story placement and wrist position
+  offsets use it; existing movement consumers retain their relative convention.
+  Story distance remains latched once, but its direction follows the current
+  player view, including turns after pickup. Settled orientation follows the
+  view unless manipulated with grip.
+- Applies the configured wrist pitch in the geometric calibration path as well
+  as its fallback. This repairs an omitted calibration step, not a claim that
+  all forearm twist/deformation is resolved.
+- Remaps terminal source scissors even when they incidentally overlap the
+  private capture target. Empty clips remain empty; disabling clipping is no
+  longer a fallback. Full email rendering still requires headset acceptance.
+- Gates replay on a live viewport world and no loading screen. The last log
+  showed a world-less save-load pass disabling continuous stereo at frame 11248.
+  Valid gameplay mismatches still fail closed; loading cannot disable the mode.
+- Increases slide velocity/position gains to 1.25/18 and hinge velocity gain to
+  1.5, retaining native joint axes, travel limits, and speed caps. Feel is untested.
+- Extends Ctrl+F10 to two paired-eye RGB samples, 15 game frames apart, under
+  `logs/eye-captures`. Pose-frame labels identify coherent versus AFR pairs.
+  Existing terminal RGB/alpha captures remain. Readback can briefly stall.
+
+The archived 0.95.8 log has 289 coherent sampled node/palette pairs, followed by
+the loading-triggered stereo fallback. This narrows but does not close the
+reported per-eye lag. No arm images were captured by the old terminal-only
+hotkey. Evidence, limitations and next test: `TEST_REVIEW_2026-09-07.md` and
+`NEXT_LIVE_EVIDENCE.md`. New build verification is offline only; SOMA was not
+launched.
+
+### Previous Evidence Build
+
+The preceding engineering and gameplay test build was
+`0.95.8-arm-palette-evidence`, layered on the
 visually proven `0.9.0-calibration-haptics` OpenXR transport, native HPL camera
 bridge, AFR stereo, full projection centering, one-key F10 activation, and
-compatibility probes:
+compatibility probes. It preserves every `0.95.6-regression-recovery` behavior
+change and extends the bounded, read-only arm-render witness for the next
+headset run:
+
+- The visible-arm regression is now measured at the exact first-eye and replay-
+  eye viewport boundary. For the shared arm root and both 15-node
+  clavicle-to-wrist chains, the bridge records hashes before and after each
+  render pass and compares the first pass with the replay pass. This separates
+  three failure classes without changing a pose: different input matrices per
+  eye, mutation during a render call, and mutation between passes. The sample
+  policy covers the first eight eligible pairs and every thirtieth pair after
+  that, so walking evidence is collected without turning every draw into a
+  memory probe. Static HPL3 RE now confirms that `0x1401fe1a0` builds the final
+  64-byte-per-bone palette at mesh `+0x340`, and `0x140338900` consumes it to
+  CPU-skin each submesh into a dynamic VBO. Version 0.95.8 safely copies that
+  validated palette at the same sampled boundaries. The next log can therefore
+  distinguish node-input drift, render-time palette divergence, and a later
+  CPU-skin/VBO-consumption fault without changing a pose or hooking a hot path.
+
+Version `0.95.8` otherwise retains the focused recovery work derived from the
+2026-09-03 headset log:
+
+- One transient `thread_open` race while installing
+  `FadeCameraAspectMultiplier` rolled back the entire comfort bridge in 0.95.5.
+  That single failure restored head bob, terminal camera takeover, and Read
+  depth-of-field blur. Vanished Toolhelp snapshot threads are now skipped, and
+  depth-of-field plus optics patches have independent failure domains: an
+  optional optics failure can no longer remove the already-installed camera-add
+  suppression. Startup and summary rows report requested versus installed state
+  for every lane.
+
+- A 125 ms first-eye Read transition correctly rejected the cached pair base,
+  but continuous same-frame stereo misclassified the expected abort as an eye
+  sequence fault and disabled itself permanently. The replay owner now leaves
+  the mode armed after `expected_pair_abort_retry_next_frame`; genuine
+  unexplained eye/pose mismatches still invalidate caches and fail closed. This
+  targets the observed left-eye locomotion lag and the later `stereoPoseGap=2`
+  AFR fallback without weakening the 100 ms absolute-replay staleness guard.
+
+- Native snap turn now commits the exact same yaw delta to the virtual torso in
+  the turn tick and ignores that tick's pre-turn camera sample. Slow physical
+  follow remains available for real-world body turns, but snap turn no longer
+  leaves the shoulders behind or applies the delta twice.
+
+- The laptop's live source viewport animates from `256x145` to `2048x1155`
+  while the private capture remains `1024x577`. Origin-only scissor translation
+  was therefore insufficient. Fully offscreen source clips now receive a
+  conservative affine origin-and-scale mapping before draw and exact GL-state
+  restoration afterward; unmappable clips retain the bounded disable fallback.
+
+- The release/default story-object distance multiplier is now `1.5` instead of
+  `2.0`, moving the stable Read presentation 25% closer while preserving the
+  first-frame non-recursive placement and native scale.
+
+- The 2026-09-02 headset log exposed a coordinate-frame error in physical body
+  follow: the recentered HMD yaw was about `0.19 degrees`, but it was compared
+  directly with SOMA's roughly `115 degree` world camera heading. That made the
+  virtual torso begin sideways and slowly unwind, reversing shoulders and
+  tangling the arm mesh. Version 0.95.5 composes native body yaw plus relative
+  HMD yaw before evaluating the 45-degree follow threshold. New anchor rows log
+  all three values so another reference-frame mismatch is immediately visible.
+
+- The stable opaque terminal background disproves OpenXR layer dropout as the
+  source of the remaining email flash. HPL2 source explains the captured clip
+  pattern: `cGuiSet::Render` emits scissors in the engine's cached source
+  framebuffer viewport, while SOMAVR has privately rebound a `1024x577` FBO.
+  Version 0.95.5 translates fully offscreen clips by the saved source viewport
+  origin and restores the original scissor after each draw. Translation is used
+  only when the result intersects the capture target; the prior disable-scissor
+  lane remains a logged fallback for unmappable clips.
+
+- Both 34-node arm/finger hierarchies are named and parent-mapped, and the
+  released `hands_human.dae` documents the shirt/hand skin-weight overlap. The
+  current visual prototype still solves the anatomical hinges through
+  `Arm_1` and `Arm_6`; intermediate `Arm_*` and `Elbow_*` nodes are restored but
+  do not yet receive distributed swing/twist. With `HandTrackingProbe=1`, each
+  fresh hand seed now emits `hpl_arm_hierarchy` rows for all 34 nodes, parent
+  indices, segment lengths, and solver roles. This follows FarCry2-VR's useful
+  distinction between a joint solve and the bones that actually deform skin.
+
+- The 2026-09-01 headset run proved the retained shared arm root was first
+  seeded after SOMA had already applied the medicine animation's exact
+  `+0.6643875 m` local lift. Version 0.95.4 narrowly recognizes that authored
+  translation and substitutes the established neutral root before retention;
+  all other root poses stay native. `hpl_arm_root_pose_seed` reports the
+  incoming and retained translations plus `authoredCorrection`, and the final
+  summary counts corrections separately from drift repairs.
+
+- Terminal overlay input now intersects a ray from the tracked controller
+  origin with the exact configured VIEW-space HUD quad or cylinder. This adds
+  the missing positional parallax and vertical offset that made the cursor
+  disagree with the visible beam. The terminal capture alone receives opaque
+  alpha after RGB capture, masking the native laptop that remained visible
+  beneath mostly transparent GUI pixels and flashed as the HMD crossed it.
+  Both visual changes require headset acceptance; non-terminal HUD surfaces
+  retain their existing alpha behavior.
+
+- Read/story objects now receive a stable view-forward presentation position
+  on their first eligible frame, using the first native camera distance once.
+  Native orientation continues through the bounded 45-frame settle window,
+  after which grip rotation may take ownership. This separates comfortable
+  placement from SOMA's below-view entrance animation and prevents recursive
+  distance expansion.
+
+- Version 0.95.3 removes the residual `iEntity3D::SetVisible` hook from the
+  retained-hands subsystem. That function was typed for child `Entity3D`
+  objects, while the bridge retained a `cMeshEntity`; the comparison could
+  never suppress the intended hide and the wrong pointer type caused the F10
+  activation crashes. Hand retention now has one lifecycle owner:
+  signature-verified `iLuxEntity::SetActive`, with matrix-only synthetic pose
+  updates. The correct `cMeshEntity::SetVisible` entry remains documented but
+  intentionally unhooked because live `wake=1` evidence proves `SetActive`
+  performs the required visibility work.
+
+- A camera pair-base rejection during an active per-eye history transaction is
+  now an expected abort, not an eye-sequence fault. The bridge snapshots the
+  cumulative pair-rejection count around each first/replay render; an increase
+  clears only that active transaction, increments `viewHistoryAborts`, and
+  leaves the per-eye bank armed for the next valid pair. Unexplained eye/pose
+  mismatches still fail closed. This directly addresses F-21's observed
+  tracking-interruption latch without weakening the genuine mismatch guard.
+
+- The test-only `tools/xrsim` port now has SOMAVR-owned edges end to end. The
+  launcher proves runtime/session/frame progress from xr-sim's own `state.json`;
+  the sequence runner uses SOMA PID-bound window input instead of the absent
+  BioShock command channel; and its self-test covers the runner as well as
+  runtime selection, WGL swapchains, actions, 600 frames, and stereo capture.
+  This is protocol/lifecycle evidence only, not a substitute for real-runtime
+  transfer timing or headset visual acceptance.
 
 - Version 0.95.2 completes the applicable 2026-08-29 executable-playbook
   conformance pass without changing XR, stereo, IK, or interaction policy.
@@ -150,11 +381,14 @@ compatibility probes:
   instrumentation; headset acceptance remains the promotion gate.
 
 - Version 0.90 prices the native OpenGL OpenXR handoff before SOMAVR adopts the
-  D3D11 interop architecture proven by TheDarkModVR. Per-eye acquire, wait,
+  D3D11 interop architecture independently demonstrated by TheDarkModVR and
+  OpenMW-VR. Per-eye acquire, wait,
   copy dispatch, flush, release and total CPU timings are source-tagged, while
   a combined projection timer reports average, maximum and display-budget
-  pressure. The comparison procedure and conditional backend shape live in
-  `OPENXR_GL_TRANSFER_RE.md`.
+  pressure. Version 0.95.3 also logs the runtime's `XR_KHR_D3D11_enable` and
+  the live SOMA context's `WGL_NV_DX_interop2` availability without changing
+  backend selection. The comparison procedure and conditional backend shape
+  live in `OPENXR_GL_TRANSFER_RE.md`.
 
 - Version 0.89 makes the compositor and AFR contracts explicit. Every begun XR
   frame carries a projection layer; loading, tracking loss and recovery retain
@@ -1273,20 +1507,21 @@ The OpenXR build now asks for:
 The prioritized multi-feature live plan is maintained in
 `docs/NEXT_LIVE_EVIDENCE.md`.
 
-Launch the rolling 0.92 package:
+Launch the rolling `0.95.4-rig-terminal-read` package:
 
 ```powershell
 & "D:\Dev Debug\SOMAVR\out\SOMAVR-latest\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe" "D:\Dev Debug\SOMAVR\out\SOMAVR-latest\somavr.dll"
 ```
 
 Run `somavr_injector --doctor` first and require zero failures. The next normal
-headset pass should confirm the 0.91 visual/gameplay baseline while collecting
-the new `openxr_gl_transfer`, `hpl_occlusion_query_summary`,
-`hpl_framebuffer_copy_summary`, XR lock-contention, and guarded camera-memory
-counters. A separate opt-in `HandTrackingProbe=1` pass can then prove the
-player-hands owner timing. Exact steps, expected records, rollback rules, and
-promotion gates are kept only in `docs/NEXT_LIVE_EVIDENCE.md` to avoid another
-stale duplicate checklist here.
+headset pass should first validate the retained-hands crash cleanup and
+automatic per-eye-history recovery after tracking loss, then collect the
+matched-scene `openxr_gl_transfer`, `openxr_pacing`, freshness,
+`hpl_occlusion_query_summary`, and `hpl_framebuffer_copy_summary` evidence. A
+separate opt-in `HandTrackingProbe=1` pass can then prove the player-hands owner
+timing. Exact steps, expected records, rollback rules, and promotion gates are
+kept only in `docs/NEXT_LIVE_EVIDENCE.md` to avoid another stale duplicate
+checklist here.
 
 ## apitrace Camera Confirmation (2026-08-10)
 

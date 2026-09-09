@@ -4,6 +4,20 @@ This document defines code ownership and growth rules for the injected DLL. It i
 the guardrail against turning runtime hooks into a collection of unrelated feature
 logic as the mod grows.
 
+## Camera Space Contract
+
+`HPLCameraBridgeStatus::headWorldRotation*` is a legacy misnomer: it is the
+recentered tracking-relative orientation, used by movement. New scene-space
+consumers must use `headSceneOrientation` after checking its validity. The camera
+bridge composes native camera basis before that tracking delta. Read presentation
+and wrist world offsets use the scene value. Do not globally reinterpret the
+legacy fields: that would rotate locomotion twice.
+
+`HPLInputMath::ResolveHorizontalYaw` is clockwise from -Z. Its inverse is
+`OrientationFromHorizontalYaw`, not a positive-Y angle quaternion. Shoulder root
+placement and elbow poles share `GetHPLVirtualTorsoYaw`. See the September 7
+receipt in `TEST_REVIEW_2026-09-07.md` for regression cases and evidence limits.
+
 ## Dependency Direction
 
 ```text
@@ -39,6 +53,12 @@ HPLDualRenderControl
   -> explicit configured/ready/enabled/fail-closed state
   -> HPLCompatibilityProbe exact-player viewport replay executor
   -> HPLStatusPanelBridge guarded runtime toggle
+
+HPLArmRenderDiagnostics
+  -> HPLCompatibilityProbe first-eye/replay-eye viewport boundaries
+  -> read-only HPLHandsBridge shared-root and bilateral arm-chain snapshots
+  -> bounded matrix-hash evidence for input coherence and in/inter-pass mutation
+  -> no pose, stereo-state, or OpenGL mutation
 
 HPLGrabBridge
   -> signature-guarded vector PID output
@@ -127,6 +147,7 @@ lifecycle.
 | `OpenGLHooks` | Hook registration, GL/WGL interception, frame-boundary dispatch | New gameplay systems or OpenXR session policy |
 | `OpenGLMatrixAnalysis` | Pure matrix classification and formatting | GL state, logging lifecycle, hooks |
 | `OpenXRRuntime` | Instance/system/session state, delayed loss recovery, one-wait/one-locate upcoming-render frame pacing, independent Wait/Begin/End timing, fresh/held/fallback frame ledger, symmetric manual suspend/restart, extension negotiation, view snapshots, projection/quad/cylinder submission, comfort-vignette envelope/layer policy, and bounded comfort-black frames | HPL camera transforms, AFR pair ownership, or raw gameplay input semantics |
+| `tools/xrsim` | Test-only x64 OpenXR runtime, OpenGL compositor, deterministic pose/action/lifecycle control, per-process launch, verified SOMA window input, and compositor captures | Production runtime policy, machine-wide runtime registration, real-driver performance claims, gameplay hooks, or headset acceptance |
 | `OpenXRInput` | OpenXR action set, five standard suggested profiles, active per-hand interaction-profile diagnostics, action synchronization, grip/aim spaces, immutable input snapshots | SOMA movement, interaction, hand placement, or camera policy |
 | `ConfigPreset` | Pure named comfort-profile parsing and application before ordinary INI overrides | File I/O, native hooks, runtime toggles, or experimental feature activation |
 | Injector doctor | Non-invasive build/config/runtime/game/proxy readiness report with failing exit status for hard prerequisites | Launch, injection, runtime instance creation, or headset hardware acceptance |

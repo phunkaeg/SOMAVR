@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.95.2-playbook-conformance")
+set(SOMAVR_BUILD_VERSION "0.96.1-interaction-follow")
 
 include(FetchContent)
 
@@ -19,6 +19,7 @@ FetchContent_Declare(
 )
 
 option(SOMAVR_ENABLE_OPENXR "Build and link the OpenXR loader for the VR bootstrap path." OFF)
+option(SOMAVR_BUILD_XRSIM "Build the test-only headless OpenXR runtime and smoke client." ON)
 set(SOMAVR_OPENXR_GIT_TAG "release-1.1.60" CACHE STRING "OpenXR-SDK release tag")
 if(SOMAVR_ENABLE_OPENXR)
     set(SOMAVR_BUILD_OPENXR 1)
@@ -125,6 +126,7 @@ add_library(somavr SHARED
     src/dll/CrashHandler.cpp
     src/dll/DllMain.cpp
     src/dll/HPLCompatibilityProbe.cpp
+    src/dll/HPLArmRenderDiagnostics.cpp
     src/dll/HPLDualRenderControl.cpp
     src/dll/HPLDualRenderDiagnostics.cpp
     src/dll/HPLPerEyeViewHistory.cpp
@@ -156,6 +158,7 @@ add_library(somavr SHARED
     src/dll/HPLPlayerState.cpp
     src/dll/OpenGLHooks.cpp
     src/dll/OpenXRGLBridge.cpp
+    src/dll/OpenXRSceneDepth.cpp
     src/dll/OpenXRRuntime.cpp
     src/dll/StartupConfigLog.cpp
 )
@@ -284,10 +287,74 @@ if(SOMAVR_ENABLE_OPENXR)
     target_link_libraries(somavr PRIVATE openxr_loader delayimp)
     target_link_options(somavr PRIVATE "/DELAYLOAD:$<TARGET_FILE_NAME:openxr_loader>")
 
+    if(BUILD_TESTING)
+        add_executable(somavr_scene_depth_gl_tests
+            tests/SceneDepthGLTests.cpp src/dll/OpenXRGLBridge.cpp src/dll/OpenXRSceneDepth.cpp)
+        target_include_directories(somavr_scene_depth_gl_tests PRIVATE src/dll)
+        target_compile_definitions(somavr_scene_depth_gl_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX
+            SOMAVR_ENABLE_OPENXR=1 XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_OPENGL)
+        target_link_libraries(somavr_scene_depth_gl_tests PRIVATE
+            somavr_common somavr_render_math openxr_loader opengl32 gdi32 user32)
+        add_test(NAME somavr_scene_depth_gl COMMAND somavr_scene_depth_gl_tests)
+        set_tests_properties(somavr_scene_depth_gl PROPERTIES SKIP_RETURN_CODE 77)
+    endif()
+
     add_custom_command(TARGET somavr POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:openxr_loader>
             "$<TARGET_FILE_DIR:somavr>/$<TARGET_FILE_NAME:openxr_loader>"
         VERBATIM
     )
+
+    if(SOMAVR_BUILD_XRSIM)
+        add_library(somavr_xrsim64 SHARED
+            tools/xrsim/runtime/xrsim_common.h
+            tools/xrsim/runtime/xrsim_internal.h
+            tools/xrsim/runtime/xrsim_math.h
+            tools/xrsim/runtime/xrsim_log.cpp
+            tools/xrsim/runtime/xrsim_instance.cpp
+            tools/xrsim/runtime/xrsim_session.cpp
+            tools/xrsim/runtime/xrsim_frame.cpp
+            tools/xrsim/runtime/xrsim_actions.cpp
+            tools/xrsim/runtime/xrsim_control.cpp
+            tools/xrsim/runtime/xrsim_compositor.cpp
+            tools/xrsim/runtime/xrsim.def
+        )
+        set_target_properties(somavr_xrsim64 PROPERTIES
+            PREFIX ""
+            OUTPUT_NAME "somavr_xrsim64"
+        )
+        target_include_directories(somavr_xrsim64 PRIVATE
+            tools/xrsim/runtime
+            "${openxr_SOURCE_DIR}/include"
+        )
+        target_compile_definitions(somavr_xrsim64 PRIVATE
+            WIN32_LEAN_AND_MEAN
+            NOMINMAX
+        )
+        target_compile_options(somavr_xrsim64 PRIVATE /EHa)
+        target_link_libraries(somavr_xrsim64 PRIVATE
+            opengl32
+            gdi32
+            user32
+            shell32
+            ole32
+            windowscodecs
+        )
+
+        add_executable(somavr_xrsim_smoke tools/xrsim/smoke/main.cpp)
+        target_include_directories(somavr_xrsim_smoke PRIVATE "${openxr_SOURCE_DIR}/include")
+        target_compile_definitions(somavr_xrsim_smoke PRIVATE
+            WIN32_LEAN_AND_MEAN
+            NOMINMAX
+            XR_USE_PLATFORM_WIN32
+            XR_USE_GRAPHICS_API_OPENGL
+        )
+        target_link_libraries(somavr_xrsim_smoke PRIVATE
+            openxr_loader
+            opengl32
+            gdi32
+            user32
+        )
+    endif()
 endif()

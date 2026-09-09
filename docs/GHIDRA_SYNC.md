@@ -1,5 +1,18 @@
 # Ghidra Synchronization Ledger
 
+## 2026-09-05 Arm Skinning Pipeline Sync
+
+| Program/address | Ghidra name | Evidence/use |
+| --- | --- | --- |
+| NoSteam `0x1401fe1a0` | `HPL3_MeshEntity_UpdateGraphicsForFrame` | Exact HPL3 analogue of released HPL2 `cMeshEntity::UpdateGraphicsForFrame`. Builds the 64-byte-per-bone deform palette in the vector at mesh `+0x340` from bone states at `+0x2a0`. Version 0.95.8 reads this validated vector at the existing sparse arm-render boundary; no hot-path hook was added. |
+| NoSteam `0x140338900` | `HPL3_SubMeshEntity_UpdateGraphicsForFrame` | Exact HPL3 analogue of released HPL2 `cSubMeshEntity::UpdateGraphicsForFrame`. Calls the mesh update, CPU-skins weighted positions/normals/tangents from the palette, and updates the dynamic vertex buffer. Documented as the next downstream evidence boundary; intentionally not hooked. |
+
+Both functions were decompiled, renamed, and saved in the selected
+`Soma_NoSteam.exe` Ghidra database. Their installed prologues were also read
+from the database. Released AMFP HPL2 source independently confirms the call
+order and data roles, while the HPL3 decompilation supplies the target-specific
+offsets.
+
 ## 2026-08-23 Player-Hands Module Owner Sync
 
 | Program/address | Ghidra name | Evidence/use |
@@ -26,7 +39,7 @@ Ghidra MCP. Static HPL2 `Node3D.cpp` independently matches both semantics.
 | Program/address | Ghidra name | Evidence/use |
 | --- | --- | --- |
 | NoSteam `0x1400b3700` | `SOMA_iLuxEntity_SetActive` | Confirmed native `void SetActive(bool)` implementation used by `PlayerHandsHandler.hps`; exact signature and prototype synchronized for the Normal-only retention hook. |
-| NoSteam `0x1402cb5a0` | `HPL3_Entity3D_SetVisible` | Confirmed native `void SetVisible(bool)` wrapper used by the player-hands mesh; exact signature and prototype synchronized. |
+| NoSteam `0x1402cb5a0` | `HPL3_SubMeshEntity_SetVisible` | Confirmed native `void SetVisible(bool)` for `cSubMeshEntity`, called by `cMeshEntity::SetVisible` for each child. It is not valid for a parent `cMeshEntity*`; name and prototype corrected and saved in Ghidra on 2026-09-02. |
 
 Both functions were renamed and typed in the selected `Soma_NoSteam.exe`
 database. Version 0.77 gates them by exact hands identity, cached mesh pointer,

@@ -397,7 +397,7 @@ bool DispatchControllerVirtualPosition(
             "hpl_terminal_pointer applied=%llu dispatch=%llu route=%s imGui=%p set=%p entity=%p virtual=%.2f,%.2f relative=%.2f,%.2f size=%.1f,%.1f owner=manager_world_input_0x170",
             static_cast<unsigned long long>(applied),
             static_cast<unsigned long long>(dispatch),
-            directVirtual ? "spatial_mesh_ray_direct_dispatch" : "head_cone_direct_dispatch",
+            directVirtual ? "spatial_mesh_ray_direct_dispatch" : "overlay_surface_ray_direct_dispatch",
             imGui,
             guiSet,
             spatialOwner->guiEntity,
@@ -474,7 +474,7 @@ void HookSendMouseVirtualPosition(void* imGui, const Vector2f* position, const V
             "hpl_terminal_pointer applied=%llu hookCall=%llu route=%s imGui=%p set=%p entity=%p virtual=%.2f,%.2f relative=%.2f,%.2f size=%.1f,%.1f offset=%.1f,%.1f owner=manager_world_input_0x170",
             static_cast<unsigned long long>(applied),
             static_cast<unsigned long long>(call),
-            directVirtual ? "spatial_mesh_ray" : "head_cone_fallback",
+            directVirtual ? "spatial_mesh_ray" : "overlay_surface_ray",
             imGui,
             guiSet,
             owner.guiEntity,
@@ -643,7 +643,7 @@ bool InstallHPLTerminalBridge(const Config& config, OpenXRRuntime* openxr)
         diegeticRequested ? 1 : 0,
         config.hplControllerTerminalOverlay ? 1 : 0,
         config.hplControllerTerminalRayPointer ? 1 : 0,
-        config.hplControllerTerminalOverlay ? "head_locked_overlay" : "world_mesh",
+        config.hplControllerTerminalOverlay ? "controller_ray_head_locked_surface" : "world_mesh",
         config.hplControllerTerminalRayLengthMeters,
         static_cast<unsigned long long>(kImGuiSendMouseVirtualPositionRva),
         static_cast<unsigned long long>(kProjectRayToVirtualRva),
@@ -717,12 +717,30 @@ bool UpdateHPLTerminalPointer(
 
     g_headConeFallbacks.fetch_add(1, std::memory_order_relaxed);
     terminal_math::HudPointerPosition pointer;
+    const camera_math::Vector3 headPosition = headPose.positionTracked
+        ? camera_math::Vector3{
+            headPose.positionX,
+            headPose.positionY,
+            headPose.positionZ,
+        }
+        : camera_math::Vector3{};
+    const camera_math::Vector3 aimPosition =
+        headPose.positionTracked && aimPose.positionTracked
+        ? camera_math::Vector3{
+            aimPose.positionX,
+            aimPose.positionY,
+            aimPose.positionZ,
+        }
+        : headPosition;
     if (!terminal_math::ProjectAimToHudSurface(
+            headPosition,
             {headPose.orientationX, headPose.orientationY, headPose.orientationZ, headPose.orientationW},
+            aimPosition,
             {aimPose.orientationX, aimPose.orientationY, aimPose.orientationZ, aimPose.orientationW},
             g_config.openxrHudShape == "cylinder",
             g_config.openxrHudCylinderAngleDegrees,
             g_config.openxrHudDistanceMeters,
+            g_config.openxrHudVerticalOffsetMeters,
             g_config.openxrHudWidthMeters,
             static_cast<float>(g_config.openxrHudWidthPixels)
                 / static_cast<float>(std::max(g_config.openxrHudHeightPixels, 1)),
@@ -761,7 +779,7 @@ bool UpdateHPLTerminalPointer(
     if (ShouldLog(failure)) {
         Logger::Instance().Write(
             LogLevel::Warn,
-            "hpl_terminal_pointer dispatch_failed=%llu route=head_cone policy=manager_world_input_owner",
+            "hpl_terminal_pointer dispatch_failed=%llu route=overlay_surface_ray policy=manager_world_input_owner",
             static_cast<unsigned long long>(failure));
     }
     DeactivateHPLTerminalPointer();

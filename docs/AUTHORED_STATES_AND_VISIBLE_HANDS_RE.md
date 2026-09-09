@@ -14,6 +14,64 @@ scripts/assets, released HPL2 source, the current SOMAVR bridge, and confirmed
 No camera or bone mutation was enabled by this pass. Build
 `0.69.0-authored-hands-probe` adds passive state-ownership and skeleton probes.
 
+## 0.95.8 Skin-Palette Witness And CPU-Skinning Owner
+
+Static HPL3 RE closes the downstream owner left open by 0.95.7. Function
+`0x1401fe1a0` is the exact HPL3 analogue of released HPL2
+`cMeshEntity::UpdateGraphicsForFrame`: it updates the bone states in the vector
+at mesh `+0x2a0`, composes each bone with mesh inverse-world and inverse-bind
+data, and writes one 64-byte deform matrix per bone to the vector at mesh
+`+0x340`. Function `0x140338900` is the matching
+`cSubMeshEntity::UpdateGraphicsForFrame`: it calls the mesh update, consumes
+bone indices and weights with that palette, CPU-skins positions, normals, and
+tangents, and updates the dynamic vertex buffer.
+
+Version 0.95.8 extends the existing sparse viewport-boundary witness to copy
+the validated palette vector before and after both eye passes. It accepts only
+a non-null ordered vector, a byte count divisible by 64, and at most 128 bones;
+an unavailable or stale mesh is logged rather than dereferenced. No hook was
+added to either update function and no palette is modified.
+
+The next live result is therefore decisive:
+
+- coherent arm-node inputs plus different final palettes localises the fault to
+  HPL's render-time bone update;
+- coherent palettes with visible eye disagreement moves the owner one rung
+  later, into sub-mesh CPU skinning or dynamic-VBO consumption;
+- different node inputs preserve the existing CPU animation/bridge diagnosis;
+- unavailable palettes mean the retained mesh identity is incomplete at that
+  boundary and require identity/lifetime work, not IK tuning.
+
+## 0.95.7 Per-Eye Arm Render Witness
+
+The locomotion-only report that the left-eye arm lags the right eye admits two
+different owners: the retained CPU bone matrices may change between the two
+same-frame viewport renders, or those matrices may be coherent while HPL builds
+or uploads a different deform palette downstream. Endpoint IK tuning cannot
+distinguish those cases.
+
+`HPLArmRenderDiagnostics` now observes the exact first-eye and replay-eye render
+boundary. It snapshots the retained shared root plus nodes `0..14` on each arm,
+covering clavicle through wrist, immediately before and after each viewport
+render. Pair rows compare entity identity, rendered eye, submitted pose frame,
+and local/world matrix hashes. They also expose mutation inside either render
+call and between the first pass return and replay entry.
+
+The lane is deliberately bounded to the first eight eligible pairs and every
+thirtieth pair thereafter, and it never writes a matrix. Interpretation is
+strict:
+
+- coherent opposite-eye snapshots on one pose frame move the investigation to
+  the final skinning/deform palette or its GL upload;
+- changed first/replay inputs prove a CPU animation or bridge last-writer issue;
+- mutation inside a render call identifies render-time skeletal evaluation;
+- an eye/pose mismatch is an AFR transaction fault, not an arm-solver fault.
+
+This follows the FarCry2-VR fleet lesson that correct controller endpoints do
+not prove correct weighted-bone deformation. SOMA's released 34-node hierarchy
+still prevents assuming that the current three solved hinges represent every
+bone consumed by skinning.
+
 ## 0.92 Player-Hands Owner And Creation Route
 
 Released SOMA scripts close the model-selection question. The public
@@ -496,6 +554,32 @@ with distributed swing/twist, native clavicle/root anchoring, reach limits, an
 elbow pole vector, and authored-state blending. The exact chain and staged
 implementation are maintained in `FUTURE_SYSTEMS_RE.md`.
 
+### 2026-09-02 FarCry2-VR Comparison And Torso Frame Correction
+
+FarCry2-VR provided a useful diagnostic distinction, not a transferable rig
+layout. Its joint controls and deform bones occupy separate array ranges, so a
+solver can place the hand correctly while the visible mesh still stretches.
+SOMA's named HPL hierarchy is more explicit, and released `hands_human.dae`
+weights already prove which numbered arm nodes deform the shirt/hand overlap.
+The same validation rule still applies: wrist target success is not visual
+deformation proof.
+
+SOMAVR currently resolves and restores all 34 nodes per side, but directly
+solves only `Arm_1` and `Arm_6` before the wrist. Swing/twist distribution over
+the intermediate `Arm_*` and `Elbow_*` nodes remains a staged visual refinement,
+not something to infer from the endpoint alone. Version 0.95.5 adds one runtime
+hierarchy census per fresh seed (`hpl_arm_hierarchy`) so active mesh variants,
+parents, and segment lengths can be checked against the released asset before
+that distribution is enabled.
+
+The 2026-09-02 tangle was earlier than skinning. Telemetry showed relative HMD
+yaw `0.19 degrees` compared directly with a native world yaw roughly `115
+degrees` away. The virtual torso therefore initialized sideways and spent
+seconds rate-limiting toward the head. Physical body follow now computes world
+head yaw as native body yaw plus recentered tracking-space yaw; roll and pitch
+remain excluded, and the correction still changes only the virtual torso, not
+the HMD camera.
+
 Markers:
 
 ```text
@@ -656,6 +740,24 @@ Retained body pose may not replace the accepted current-frame basis scale.
 Scale eligibility is camera/state based and independent of controller poses;
 per-hand pose availability continues to gate wrist and IK mutation separately.
 
+### 0.95.4 Live Root-Seed Correction
+
+The 2026-09-01 opening-apartment run exposed a later ownership variant. The
+shared root was not merely overwritten after retention; its first retained seed
+was already the medicine animation's authored local translation:
+`(0.0000, 0.6644, -0.0431)`. Earlier accepted neutral sessions seeded the same
+node near `(0, 0, -0.0002)`. The observed shoulder bar about 0.30 m above the
+tracked HMD and near-continuous `reachClamped=1` followed directly from retaining
+the wrong first pose.
+
+Version 0.95.4 recognizes only the released medicine translation
+`(0, 0.6643875, -0.0431139)`, within a 1 cm component tolerance, and replaces
+it with the established neutral local translation before the seed is retained.
+Every other translation remains native. The seed log records both matrices and
+`authoredCorrection`; the summary separates these corrections from ordinary
+root drift repair. This is a named authored-state adapter, not a general rule
+that the first nonzero arm root is wrong.
+
 ## 0.85 Terminal Compatibility And Read Presentation Ownership
 
 The 0.84.1 live log resolves the terminal hand-loss question without another
@@ -698,6 +800,17 @@ remain eligible during Read, because the log proved camera and tracking
 ownership did not require suspension. The decisive evidence is
 `hpl_read_presentation` with `settleAge>=settleFrames`, one stable entity, and
 no `hpl_hands_visibility suspended=1` on entry to state 10.
+
+The 2026-09-01 headset pass showed that waiting the full window also leaves the
+uncomfortable native entrance fully visible: the object rises from below and
+too close, then pops to the accepted scaled distance on frame 45. Version 0.95.4
+therefore splits position and orientation ownership. On the first eligible
+frame it converts the native object-to-view distance into one normalized
+view-forward offset, then applies that fixed offset from the current tracked
+head or game camera on every update. SOMA may continue authoring orientation
+during the 45-frame settle; grip rotation ownership begins afterward. Position
+never derives from a previously submitted presentation matrix, preserving the
+0.85 non-recursion rule.
 
 The apartment log also proved a useful middle rung for persistent hands:
 `PlayerHands_0` had already been created and retained before controller

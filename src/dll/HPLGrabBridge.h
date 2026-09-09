@@ -6,7 +6,8 @@
 namespace somavr {
 
 bool InstallHPLGrabBridge(const Config& config, OpenXRRuntime* openxr);
-void ArmHPLControllerThrow(const OpenXRControllerPose& gripPose, uint64_t gameFrame);
+bool ArmHPLControllerThrow(const OpenXRControllerPose& gripPose, uint64_t gameFrame);
+void CancelHPLControllerThrow();
 void RemoveHPLGrabBridge();
 void LogHPLGrabBridgeSummary();
 

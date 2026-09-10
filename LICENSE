@@ -19,16 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This license covers the SOMAVR mod's own source code and documentation only.
-
-It does NOT cover, and grants no rights in, SOMA or any Frictional Games asset.
-SOMA and its game assets belong to Frictional Games. This project is unofficial
-and is not affiliated with or endorsed by Frictional Games. A licensed copy of
-the game is required to use this mod, and neither the game executable nor any
-game asset is redistributed here.
-
-Third-party components distributed with or linked into the built binaries carry
-their own licenses. See THIRD-PARTY-NOTICES.md.

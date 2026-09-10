@@ -1,6 +1,6 @@
 # Current State
 
-Date: 2026-09-09
+Date: 2026-09-10
 
 ## Objective
 
@@ -21,7 +21,17 @@ Bootstrap SOMAVR: a reverse-engineered VR mod for SOMA/HPL3, likely using DLL in
 
 ## Active Baseline
 
-The active headset build is **`0.96.1-interaction-follow`**. Built after the user
+The rolling test package is now **`0.96.2-hands-bootstrap`**. It adds guarded,
+campaign-owned creation before the vial through the hands module's native
+PostUpdate script lifecycle. `HandBootstrap=1` is independent of the existing
+retention/IK settings. The native receiver contract was corrected: module
+updateable is a secondary base at `+0x110`, not the full script owner. No game
+launch or headset acceptance has occurred for this build. See
+`HANDS_BOOTSTRAP_RE.md` and the first test in `NEXT_LIVE_EVIDENCE.md`.
+
+Previous build and retained interaction changes:
+
+The previous headset candidate was **`0.96.1-interaction-follow`**. Built after the user
 quit; not launched. It retains all 0.96.0 arm/depth work and profile tuning below.
 Drawer gain now applies consistently to displacement and velocity; door leverage
 uses the actual body-attached handle. Fast tracked trigger releases use a bounded,

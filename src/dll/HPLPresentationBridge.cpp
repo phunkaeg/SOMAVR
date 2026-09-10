@@ -451,6 +451,11 @@ bool IsHPLLoadingScreenActive()
     return g_loadingActive.load(std::memory_order_relaxed);
 }
 
+uint64_t GetHPLLoadingGeneration()
+{
+    return g_loadingEntries.load(std::memory_order_relaxed);
+}
+
 void PublishHPLWakeSetAsleep(bool asleep)
 {
     if (!g_config.hplScriptedPresentationControl) return;

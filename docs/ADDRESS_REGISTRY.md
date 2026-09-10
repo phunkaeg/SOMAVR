@@ -7,6 +7,14 @@ runtime authority. Source signatures are authoritative: every code hook or
 patch must require exactly one signature match and disable its lane on zero or
 multiple matches.
 
+September 10 hands-bootstrap correction: `HANDS_BOOTSTRAP_RE.md` owns the
+constructor and secondary-base proof. Full cLuxUserModule primary table is
+`0x14068fcc8`; iUpdateable at full `+0x110` has table `0x14068fbb8`.
+PostUpdate `0x1401ab3a0` adjusts the receiver back to the full script wrapper.
+New guarded calls: lookup `0x1401dc170`, prepare `0x1401dd830`, argument bool
+`0x1401dc190`, execute `0x1401dd340`. Current-map chain is confirmed by
+`0x1400cccb0`. Six entry signatures are exact/unique; no live acceptance yet.
+
 | Address | Status | Notes |
 | --- | --- | --- |
 | `0x1400b3700` | Confirmed, guarded control hook built | Native `iLuxEntity::SetActive(bool)`. Version 0.77 suppresses only `false` for exact `PlayerHands_*` entities during tracked Normal/Normal gameplay; authored states pass through. Ghidra: `SOMA_iLuxEntity_SetActive`. |
@@ -64,7 +72,7 @@ So `+0x168` is `mbIsVisible`, `[+0x1f0,+0x1f8)` is `mvSubMeshes`, and the childr
 | `0x14022f7d0` | Confirmed by HPL2 match | Viewport pre/post-world callback dispatcher. Phase `0` invokes callback vtable `+0x08`; phase `1` invokes `+0x10`. Ghidra: `HPL3_Viewport_RunWorldDrawCallbacks`. |
 | `0x1402332b0` | Confirmed | Main engine run loop. Dispatches script `OnDraw`, renders viewports through `0x140298850`, dispatches `OnPostRender`, then presents. |
 | `0x1402328f0` | Confirmed | Script object/module lifecycle dispatcher. Callback id `2` is `_OnDraw`, `3` is post-render, `4/5/6` are update/post-update/variable-update. |
-| `0x140154c40` | Confirmed, guarded read-only probe built | Generic active-updateable message dispatcher. Callback ID `4` reaches the native update virtual at vtable `+0x28`. Version 0.92 observes candidates only when module ID at `+0x158` is `18`, the vtable contains confirmed `SOMA_cLuxUserModule_OnAction`, and the script object at `+0x90` is safely readable. No script call or state mutation. Ghidra: `SOMA_iLuxUpdateable_RunMessage`. |
+| `0x140154c40` | Confirmed dispatcher; corrected read-only probe | Callback ID `4` calls update virtual `+0x28`. For cLuxUserModule the receiver is secondary `full+0x110`; read ID18 at full `+0x158`, script at full `+0xe8`, and require both exact module vtables. Old `+0x90`/OnAction identity assumptions were wrong. Bootstrap now uses `0x1ab3a0` after native PostUpdate instead. |
 | `0x140298850` | Confirmed | Enumerates active viewports and calls `0x140298630` for each one. `0.45.0` deliberately remains below this boundary and never replays the enumerator. |
 | `0x140298850` globals | Confirmed | Increments the renderer frame counter and resets render statistics once before active viewport enumeration; this boundary executes once per game frame in the continuous dual-render prototype. |
 | `0x140297f20` | Confirmed | `HPL3_Scene_CreateViewport`; allocates `0xb0`, stores camera/world/renderer/post ownership and default `-1,-1` size, then inserts the viewport into the scene list. |
@@ -76,7 +84,7 @@ So `+0x168` is `mbIsVisible`, `[+0x1f0,+0x1f8)` is `mvSubMeshes`, and the childr
 | `0x1401f1480` | Confirmed by decompilation, HPL2 source, and order; guarded control built | `HPL3_Renderer_RenderPostPostEffects`, a full deferred/post-post renderer phase after the optional post chain and before final GUI drawing. It performs GPU work and callbacks, clears renderer `+0x69`, and copies the active frustum's `0x40`-byte view matrix from `*(renderer+0x20)+0x158` into previous-view history at `*(renderer+0x438)+0x80`; HPL2 identifies the destination field as `cMatrixf m_mtxPrevView`. `0.47.0` banks this exact packet per eye in AFR and same-frame stereo, restoring before the complete exact-player viewport and committing after the native copy only when predicted and actual eye/pose identities agree. Renderer/history replacement, recenter generation, and pose gaps over eight frames reseed from native state. All pointer access is guarded and faults closed to shared native history. Other temporal resources remain unclassified. |
 | `0x1402981e0` | Confirmed | Collects, priority-sorts, and renders viewport GUI sets after scene post effects. Parent iteration boundary for gameplay-HUD capture classification. |
 | `0x1401297c0` | Confirmed | `cLuxUserModule` script `OnGui(float)` dispatcher; `mlId` is at module `+0x158`. Shipped IDs include GameOver `10`, Wake `12`, Credits `19`. Callback traffic is not an activity signal because scripts may immediately return. Ghidra: `SOMA_cLuxUserModule_OnGui`. |
-| `0x1401378e0` | Confirmed, observer hook built | Native `cLuxUserModule::OnAction(int,bool)` wrapper. Its exact 26-byte body loads the AngelScript object from module `+0x90` and forwards action/pressed to `0x140129a40`. `0.44.0` reads confirmed `mlId +0x158` and authorizes inventory HUD capture only for module `15`, action `12`, pressed edges. Ghidra: `SOMA_cLuxUserModule_OnAction`. |
+| `0x1401378e0` | Owner corrected; old inventory observer needs review | **cLuxMapHandler**, NOT cLuxUserModule: RTTI-backed vtable at `0x1406877e8`, COL `0x140718740`, type descriptor `0x140786d70`. Forwards receiver `+0x90` to `0x140129a40`. Historical inventory `mlId +0x158` interpretation was not valid native-owner proof. Not used for hands bootstrap. Ghidra: `SOMA_MapHandler_OnAction_ScriptForwarder`. |
 | `0x140129a40` | Confirmed | AngelScript `OnAction(int,bool)` dispatcher reached by the native user-module wrapper. Resolves and invokes the script method when present. Ghidra: `SOMA_ScriptObject_OnAction`. |
 | `0x1401ae870` | Confirmed registration | Registers `cLuxUserModule`, property `int mlId` at native offset `+0x158`, and the module action interface. Ghidra: `SOMA_Script_Register_cLuxUserModule`. |
 | `0x14022f8e0` | Confirmed | Creates an iterator over the viewport GUI-set list at viewport `+0x90`. Ghidra: `HPL3_Viewport_CreateGuiSetIterator`. |

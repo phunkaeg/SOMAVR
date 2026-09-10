@@ -12,6 +12,7 @@
 #include "HPLGrabBridge.h"
 #include "HPLGameplayHapticsBridge.h"
 #include "HPLHandsBridge.h"
+#include "HPLHandsBootstrap.h"
 #include "HPLHudBridge.h"
 #include "HPLMenuBridge.h"
 #include "HPLNativeLocomotion.h"
@@ -323,6 +324,8 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     }
     if (!somavr::InstallHPLHandsBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_hands_bridge install_failed");
+    } else if (!somavr::InstallHPLHandsBootstrap(g_config->Get())) {
+        somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_hands_bootstrap install_failed action=retain_vial_first_path");
     }
     if (!somavr::InstallHPLHudBridge(g_config->Get(), g_openxr.get())) {
         somavr::Logger::Instance().Write(somavr::LogLevel::Error, "hpl_hud_bridge install_failed");
@@ -370,6 +373,7 @@ DWORD WINAPI WorkerThreadProc(LPVOID)
     somavr::LogHPLHudBridgeSummary();
     somavr::RemoveHPLHudBridge();
     somavr::LogHPLHandsBridgeSummary();
+    somavr::RemoveHPLHandsBootstrap();
     somavr::RemoveHPLHandsBridge();
     somavr::LogHPLGrabBridgeSummary();
     somavr::RemoveHPLGrabBridge();

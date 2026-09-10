@@ -92,6 +92,7 @@ bool ParseLateControllerConfig(
     else if (key == "handrootrolldegrees") config.hplHandRootRollDegrees = ParseFloat(value, config.hplHandRootRollDegrees, -180.0f, 180.0f);
     else if (key == "handarmik") config.hplHandArmIK = ParseBool(value, config.hplHandArmIK);
     else if (key == "handalwaysvisible") config.hplHandAlwaysVisible = ParseBool(value, config.hplHandAlwaysVisible);
+    else if (key == "handbootstrap") config.hplHandBootstrap = ParseBool(value, config.hplHandBootstrap);
     else if (key == "handfreezepose") config.hplHandFreezePose = ParseBool(value, config.hplHandFreezePose);
     else if (key == "handarmikblend") config.hplHandArmIKBlend = ParseFloat(value, config.hplHandArmIKBlend, 0.0f, 1.0f);
     else if (key == "handarmikmaxreach") config.hplHandArmIKMaxReach = ParseFloat(value, config.hplHandArmIKMaxReach, 0.5f, 1.0f);
@@ -503,6 +504,7 @@ void ConfigManager::WriteDefaultConfig() const
         << "HandWristViewForwardOffsetMeters=0\n"
         << "HandArmIK=0\n"
         << "HandAlwaysVisible=0\n"
+        << "HandBootstrap=0\n"
         << "HandFreezePose=0\n"
         << "HandTargetScale=1.0\n"
         << "HandShoulderVerticalOffsetMeters=-0.30\n"

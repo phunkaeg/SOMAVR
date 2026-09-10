@@ -209,6 +209,7 @@ struct Config {
     float hplHandWristViewForwardOffsetMeters = 0.0f;
     bool hplHandArmIK = false;
     bool hplHandAlwaysVisible = false;
+    bool hplHandBootstrap = false;
     bool hplHandFreezePose = false;
     float hplHandTargetScale = 1.0f;
     float hplHandShoulderVerticalOffsetMeters = -0.30f;

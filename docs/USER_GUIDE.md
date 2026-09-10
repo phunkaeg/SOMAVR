@@ -1,5 +1,16 @@
 # SOMAVR User Guide
 
+## Arms Before The Medicine
+
+The 0.96.2 test build can request the game's own campaign hand model before
+the vial sequence. Load a pre-vial save, enter normal gameplay, press F10, and
+allow a couple of seconds for arms to appear. Loading/splash time does not
+count toward this delay. This new lifecycle path still needs headset acceptance.
+
+To revert only initial creation, set `[Controller] HandBootstrap=0` in the
+package's `somavr.ini`; existing hand tracking and post-vial retention remain.
+Keep a baseline save while testing. See `NEXT_LIVE_EVIDENCE.md` for checks.
+
 SOMAVR is an experimental OpenXR mod for the 64-bit `Soma_NoSteam.exe` build.
 Keep a known-good package available when testing a new version.
 
@@ -40,6 +51,13 @@ manifests are reported for diagnosis and are not failures by themselves.
 
 ## Launch
 
+In the development checkout, double-click `Launch-SOMAVR.bat` in the project
+root. It always uses `out/SOMAVR-latest`, refuses a duplicate SOMA process, and
+starts the normal game without developer flags. `Launch-SOMAVR.bat --check`
+runs readiness checks only. Load your save normally, then press F10 for VR.
+
+For an installed package:
+
 ```powershell
 & "$env:LOCALAPPDATA\SOMAVR\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
 ```
@@ -59,8 +77,8 @@ signatures.
 Load a save on the monitor, face forward, and press `F10` once. F10 enters or
 leaves the complete VR camera/stereo path. `F2` recenters position and yaw;
 pitch and roll remain tied to OpenXR's level horizon. `F1` opens the
-head-locked status/options panel. Same-frame stereo remains an explicit panel
-option; AFR remains the fallback. When supported, `HUD SHAPE` switches the
+head-locked status/options panel. The current profile enables same-frame stereo;
+the F1 panel can switch it and AFR remains the fallback. When supported, `HUD SHAPE` switches the
 gameplay HUD between a flat quad and curved cylinder without restarting.
 
 The packaged profile requests a 70-degree curve. To select it explicitly:

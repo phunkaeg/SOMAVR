@@ -1,679 +1,279 @@
 # SOMAVR
 
-Reverse-engineering and OpenXR scaffold for a SOMA/HPL3 VR mod.
+An experimental **PC VR mod for SOMA**, bringing Frictional Games' HPL3/OpenGL
+world into an OpenXR headset with stereoscopic rendering, tracked head movement,
+motion-controller interaction, and the game's own hands and arms.
 
-## Build
+This is a reverse-engineered, injected mod, not an engine port or an official
+Frictional Games release. SOMA itself is required and is not included.
 
-Default OpenGL telemetry probe:
+**Current candidate: `0.96.2-hands-bootstrap` | Work in progress / testing build**
 
-```powershell
-cmake -S . -B build -A x64
-cmake --build build --config Release --parallel
-```
+The core VR experience is working and has been tested in a headset. That does
+**not** mean every feature, scene, device, or campaign sequence is finished.
+Most hands-on testing has been in the opening apartment. Expect rough edges,
+regressions, and configuration changes between builds. Keep a backup of your
+saves and a known-good package. Do not overwrite your only baseline save while
+testing new authored interactions.
 
-OpenXR presentation build:
+## Features
 
-```powershell
-cmake -S . -B build-openxr -A x64 -DSOMAVR_ENABLE_OPENXR=ON
-cmake --build build-openxr --config Release --parallel
-```
+| Area | Implementation and current state |
+| --- | --- |
+| Stereo and head tracking | Native game-camera integration, per-eye view/projection, positional and rotational tracking. This is not mouse-emulated head tracking. The current profile enables same-frame stereo, with alternate-frame rendering (AFR) as a fallback. |
+| Locomotion | Analog movement, left-controller-relative direction by default, configurable head/body-relative movement, snap/smooth turning, and physical crouch support. Walking while carrying loose props and manipulating supported mechanisms is implemented. |
+| Motion-controller interaction | Either hand can aim and interact. The initiating hand owns a held interaction; translucent aim guides shorten against scene collision geometry and brighten over interactables. |
+| Physics objects and mechanisms | Tracked pickup, pull-to-hand assistance, rotation, drop/throw, drawers, doors, curtains, and other native interaction states. SOMA's physics and joint limits remain in charge; sensitivity and throw feel are still being tuned. |
+| Native hands and arms | Uses SOMA's bilateral rig with wrist tracking, two-arm IK, estimated shoulders/torso, and compatible-state retention. Alignment, elbow behavior, and per-eye deformation still need wider testing. |
+| Story-object inspection | Controller rotation plus adjustable camera-relative distance and scale. Current tuning brings objects closer and doubles their authored linear scale; different objects still need validation. |
+| Terminals | Diegetic-camera preservation, a floating terminal panel, controller pointer/clicks, cancel, and look-away exit. Laptop email capture and beam/cursor alignment remain known problem areas. |
+| HUD and menus | Spatialized HUD, flat/curved layer support with quad fallback, subtitles, interaction indicators, a desktop mirror, and controller menu input. Coverage varies by screen and state. |
+| VR options and comfort | F1 in-headset panel, yaw/position recentering, bob/shake and selected camera/effect suppression, snap-turn black frames, comfort vignette, and collision-aware roomscale safeguards. These are comfort aids, not a guarantee of comfort. |
+| Haptics and tools | Controller flashlight aiming and implementations for interaction, authored rumble, and contact feedback. Later-game tools and effects need further testing. |
+| Diagnostics | Build/configuration logs, readiness doctor, crash dumps, paired-eye/terminal captures, scene-depth probes, and arm/palette witnesses for regressions. |
 
-Run deterministic camera/projection and OpenGL matrix tests:
+### New In This Candidate
 
-```powershell
-ctest --test-dir build -C Release --output-on-failure
-ctest --test-dir build-openxr -C Release --output-on-failure
-```
+`HandBootstrap=1` requests the **campaign-selected native hand model before
+the first medicine/vial animation**. It waits for settled, controllable VR
+gameplay and invokes the game's own hands handler after native PostUpdate.
+It does not spawn a hardcoded replacement model or force an arbitrary mesh
+visible. Existing rigs are left alone; attempts are bounded and logged.
 
-Create or replace the validated stable OpenXR bundle and ZIP:
+This new creation path has passed static native-contract checks and automated
+policy tests, but **has not yet been run in-game or accepted in a headset**.
+The intended result is tracked arms without first picking up the vial, not a
+claim that always-visible hands are already validated throughout the campaign.
 
-```powershell
-& ".\scripts\Package-Release.ps1" -IncludeDumper
-```
+## Requirements And Compatibility
 
-The default output is `out\SOMAVR-latest` plus `out\SOMAVR-latest.zip`; older
-generated SOMAVR package folders and ZIPs are removed after the new archive is
-successfully created. Pass `-Versioned` only when intentionally preserving an
-archival release. The packager rejects non-OpenXR build metadata, stages the injector, DLL,
-OpenXR loader, active config, diagnostics, and core docs, then writes
-`SHA256SUMS.txt` beside the runtime files. Output is under `out\`.
-The concise player-facing instructions are in `docs\USER_GUIDE.md`.
+- **64-bit Windows** and a legitimate PC installation of SOMA.
+- The supported **`Soma_NoSteam.exe`** supplied with the tested installation.
+  The Steam-integrated `Soma.exe` has a different native layout and is not
+  interchangeable. The injector's doctor checks compatibility; do not rename
+  executables or force another version through a failed signature check.
+- A PC-connected VR headset and an active **64-bit OpenXR runtime supporting
+  OpenGL (`XR_KHR_opengl_enable`)**. A bundled loader is not a headset runtime.
+  A standalone Quest cannot run this mod locally.
+- Working motion controllers. Bindings exist for Touch, Index, Windows Mixed
+  Reality/Microsoft Motion, Vive, and Khronos Simple profiles; bindings are
+  **not** a tested-device certification. Simple controllers cannot expose all
+  stick/button workflows.
+- A graphics driver supporting SOMA's OpenGL renderer and the selected
+  runtime's OpenGL requirements, plus enough GPU headroom for stereo rendering.
+  There is no established minimum GPU/performance specification yet.
+- A keyboard and mouse for initial launch, loading saves, diagnostics, and
+  fallback interaction when a menu or sequence is not fully controller-ready.
 
-Install or update a packaged build into a dedicated directory:
+Recent development testing uses Quest 3 with VirtualDesktopXR and an NVIDIA
+GPU. Other runtime/GPU/headset combinations are not comprehensively validated.
+Avoid stacking ReShade, other graphics proxies, VR injectors, and capture
+wrappers during the first test. The doctor reports known conflicts.
+
+## Install
+
+Use an OpenXR-enabled SOMAVR package containing `somavr.dll`,
+`somavr_injector.exe`, `openxr_loader.dll`, `somavr.ini`, build metadata, and
+`SHA256SUMS.txt`. Keep those files together. **Do not copy them over SOMA's
+own DLLs or into the game installation.**
+
+Extract the ZIP and open PowerShell in its `SOMAVR-latest` folder:
 
 ```powershell
 & ".\Install-Or-Update-SOMAVR.ps1" -Destination "$env:LOCALAPPDATA\SOMAVR"
 ```
 
-The installer verifies every packaged SHA-256 before copying. Existing
-`somavr.ini` is preserved and changed package defaults are written to
-`somavr.defaults.ini`. Updates and uninstall delete only a built-in SOMAVR file
-allowlist; the writable install manifest is inventory, not deletion authority,
-and unknown files are preserved. Non-default destinations require the explicit
-`-AllowCustomDestination` switch. Uninstall is equally bounded:
+The installer verifies package checksums and uses a dedicated mod directory.
+Updates preserve your existing `somavr.ini`; new package defaults are written
+to `somavr.defaults.ini`. Compare those files when updating: a preserved older
+configuration will not automatically enable new features such as `HandBootstrap`.
+Unknown files are preserved rather than treated as installer-owned.
 
-```powershell
-& ".\Uninstall-SOMAVR.ps1" -Destination "$env:LOCALAPPDATA\SOMAVR"
-```
-
-This preserves `somavr.ini`; pass `-RemoveConfig` to remove it. The injector also
-scans the target process and game directory for known graphics/VR hook conflicts.
-Warnings are advisory, while an already loaded `somavr.dll` blocks duplicate
-injection.
+You can also run directly from an extracted package without installing it.
+Replace the mod path in the commands below with that package directory.
 
 ## Run
 
-Check the selected build, config, OpenXR runtime, game executable, architecture,
-shared interaction-hook signatures, and game-directory hook conflicts without
-launching SOMA:
+1. Start your headset connection and the intended OpenXR runtime. Close any
+   already-running SOMA instance.
+2. Set the actual game executable path, then run the readiness check:
 
 ```powershell
-& ".\somavr_injector.exe" --doctor "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
+$Soma = "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
+$Mod = "$env:LOCALAPPDATA\SOMAVR"
+& "$Mod\somavr_injector.exe" --doctor $Soma "$Mod\somavr.dll"
 ```
 
-Launch suspended and inject before OpenGL/GLEW initialization:
+3. Resolve failures before continuing. Launch through the injector:
 
 ```powershell
-& "D:\Dev Debug\SOMAVR\build\Release\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe" "D:\Dev Debug\SOMAVR\build\Release\somavr.dll"
+& "$Mod\somavr_injector.exe" --launch $Soma "$Mod\somavr.dll"
 ```
 
-OpenXR launch:
+4. Load your save normally on the desktop. Once in gameplay, face your intended
+   forward direction and press **F10**. One press requests the complete VR path;
+   you do not need the old F8 > F10 > F11 sequence.
+5. Use **F2** to recenter and **F1** for the VR options panel.
 
-```powershell
-& "D:\Dev Debug\SOMAVR\out\SOMAVR-latest\somavr_injector.exe" --launch "G:\SteamLibrary\steamapps\common\SOMA\Soma_NoSteam.exe"
-```
+PowerShell needs the leading `&` when running an executable whose quoted path
+contains spaces. Launching through the injector is recommended over attaching
+late, because some hooks must observe OpenGL initialization.
 
-Launch the supported NoSteam executable with SOMA's developer configuration,
-optionally jumping directly to a map:
+### Existing Development Checkout
 
-```powershell
-& "D:\Dev Debug\SOMAVR\scripts\Launch-SOMAVR-Dev.ps1"
-& "D:\Dev Debug\SOMAVR\scripts\Launch-SOMAVR-Dev.ps1" -Map "00_01_apartment.hpm" -MapFolder "maps/chapter00/"
-```
+Double-click `Launch-SOMAVR.bat` in the repository root. It uses
+`out\SOMAVR-latest`, refuses a duplicate SOMA process, and starts the **normal**
+game. Its default game path is the `G:` path shown above; adjust `SOMA_EXE` in
+the batch file for a different installation. `Launch-SOMAVR.bat --check` runs
+the doctor without launching.
 
-`Soma.exe` is the Steam-integrated binary and imports `steam_api64.dll`. Its
-native layout differs from the supported `Soma_NoSteam.exe`; the injector doctor
-therefore rejects it instead of applying NoSteam RVAs to the wrong code.
+`Launch-SOMAVR-Dev.ps1` is a separate developer launcher. Do not use it for
+ordinary save-game testing unless requested: developer settings can change
+startup behavior, debug UI, and map selection.
 
-Attach to an already-running process:
+## Essential Controls
 
-```powershell
-& "D:\Dev Debug\SOMAVR\build\Release\somavr_injector.exe" Soma_NoSteam.exe "D:\Dev Debug\SOMAVR\build\Release\somavr.dll"
-```
+Defaults below assume Touch-style controllers and the packaged profile.
+Mappings are context-sensitive, especially when holding or inspecting objects.
 
-Logs are written to `logs\somavr.log`; the immediately preceding run is retained
-as `logs\somavr.previous.log`. Unhandled crashes write bounded rich dumps plus
-`somavr-crash.log` under `logs\dumps`; use `SOMAVR_FULLDUMP=1` only when full
-memory is explicitly needed. On first DLL load, `somavr.ini` is created with
-probe settings. Clean shutdown also records encountered HPL calibration keys in
-the telemetry-only `somavr_entity_profiles.ini`.
-`[Comfort] Preset` accepts `custom`, `minimal`, `balanced`, or `maximum`.
-The preset is applied first, then every explicit INI key overrides it, so existing
-hand-tuned configs remain authoritative. The packaged development profile stays
-on `custom`.
+| Control | Action |
+| --- | --- |
+| F10 | Enter/leave VR mode. |
+| F2 | Recenter position and yaw; pitch/roll keep the level tracking horizon. |
+| F1 | Open/close VR options; gameplay input is suppressed while the panel is open. |
+| Left stick | Walk, relative to the left movement controller by default. |
+| Right stick | Turn; snap turning is the default. Turning is gated in some interaction states. |
+| Either trigger | Aim/select/interact; the initiating hand owns the interaction. |
+| Holding hand's grip | Rotate compatible held/inspected objects. |
+| Right A or B in inspection/terminal | Back/cancel. This is not a universal gameplay mapping. |
+| Slow trigger release while holding a loose prop | Place/drop. |
+| Fast trigger release, or holding hand's primary button | Native throw path for loose physics props; still under tuning. |
+| Ctrl+F10 | Bounded diagnostic captures; expect a brief capture hitch. |
 
-Each build folder now carries `somavr_build_flavor.txt`. If `[OpenXR] Probe=1` and the injector is pointed at a non-OpenXR DLL, it prints a warning before injection.
-The OpenXR DLL also preloads `openxr_loader.dll` from its own folder before the first OpenXR call; check `openxr_loader_load ok/failed` in the log.
-After loading a save, F10 is the normal VR-mode toggle. One press requests OpenXR,
-waits for valid views, calibrates the current head pose, enables native tracking
-and AFR stereo, and applies the fully centered projection. Press F10 again to
-leave VR camera/stereo mode. F8 and F11 remain diagnostic runtime/stereo controls;
-F3-F6 retain the existing targeted diagnostics. Plain F12 toggles the entire
-post chain, `Ctrl+F12` cycles reversible render-only isolation across currently
-active effects, and `Shift+F12` restores the normal effect chain.
-The development-only `HPLDualRenderReplayProbe=1` adds `Ctrl+F6`: one press
-replays only the next exact player viewport once, suppresses screen GUI on the
-second pass, and logs whether both eyes came from the same tracked pose. With
-`HPLDualRenderAutoProbe=1`, three automatically spaced samples run after the
-tracked player viewport becomes stable. Each sample also records the CPU regions
-mutated by HPL3's deferred/post-post phase. These remain bounded evidence probes.
-`HPLDualRenderContinuousControl=1` separately exposes `SAME FRAME STEREO` in the
-F1 panel. It is off by default, reuses the exact-player replay without per-frame
-diagnostic snapshots, and returns to AFR if eye-one caching or eye sequencing
-fails.
-`HPLPerEyeViewHistoryControl=1` isolates HPL3's confirmed 64-byte previous-view
-matrix for each eye in both AFR and same-frame stereo. The feature restores
-before each player-eye viewport, captures after SOMA's native update, resets on
-recenter or stale-pose gaps, and falls back to shared native history on any
-pointer or eye-sequence failure.
-`HPLPerEyeImageTrailControl=1` adds a second native ImageTrail accumulation
-texture/framebuffer and banks both pointers plus the effect's clear flag by
-eye. It is signature- and lifecycle-guarded, resets on calibration/stale gaps,
-and falls back to `HPLPostEffectDisableImageTrail=1` on any disagreement.
-Generated configs leave this experimental path off. The active test profile
-enables it and sets `HPLPostEffectDisableImageTrail=0`; restore those two values
-to `0` and `1` respectively for the proven suppression baseline.
-`HPLToneMappingFrameControl=1` makes shared ToneMapping exposure, white-cut,
-window fade, color-grading transitions, and film-grain sampling advance once
-per same-pose stereo pair. Eye two replays eye one's pre-update state and only
-one native update is retained. It is guarded and opt-in; set it to `0` for
-immediate native behavior.
-`HPLPerEyeSSAOTemporalControl=1` isolates SOMA's temporal SSAO history per eye.
-It signature-hooks the confirmed native SSAO writer and keeps two matching GPU
-history copies while leaving the original AO shaders and render targets intact.
-`HPLSSAOFrameOwnerControl=1` additionally makes the native temporal AO jitter
-phase advance once per same-pose stereo pair. It can be disabled independently
-without giving up per-eye GPU history.
-It is opt-in and faults back to native shared history if GL copy support,
-resource identity, or allocation disagrees; set it to `0` for immediate rollback.
-With `HudLayer=1`, the exact gameplay HUD set is removed from the eye render and
-submitted once as a transparent, compositor head-locked OpenXR layer.
-`HudShape=cylinder` requests `XR_KHR_composition_layer_cylinder` and preserves
-the configured center distance, physical width, and texture aspect; unsupported
-or rejected cylinder layers fall back to the existing quad. The F1 panel can
-switch `HUD SHAPE` live when the extension is available. Diegetic terminal GUIs
-remain in the stereo world.
-`ComfortVignette=1` adds a soft head-locked peripheral mask while accepted
-gameplay locomotion is active. Its target comes from the resolved movement stick
-and, in smooth-turn mode, the turn stick; loading, pause, terminals, dead state,
-authored cameras, stale input, and the F1 panel all drive it back to zero. The
-F1 panel can toggle it live. `ComfortVignetteStrength`, `InnerRadius`, and
-`FadeMilliseconds` tune intensity, clear center, and attack/release; set
-`ComfortVignette=0` for a hard rollback.
-`PlayerHands_*` is one bilateral rig whose released handler selects quarter or
-full scale. Shared `HandControllerRoot` control remains disabled because it
-moves both native hands to one controller. Version 0.77 preserves the shared
-native root, normalizes its authored `0.25` scale to `1.0`, solves each confirmed
-shoulder/elbow/wrist chain toward its controller, and retains or wakes the
-native model across proven-compatible gameplay, physical-interaction, Read, and
-terminal states after SOMA creates it. Unclassified authored states fail closed.
-With `ControllerFlashlightAim=1`, the exact scripted `Flashlight` spotlight
-follows the dominant controller aim pose. Independent local offset and rotation
-calibration align different controller profiles; stale/lost tracking and
-authored cameras automatically retain SOMA's camera-mounted transform.
-`ControllerFlashlightGameplayRay=1` also redirects only the recovered
-low-frequency flashlight agent/gobo ray pattern to that exact visual origin and
-basis while preserving SOMA's randomized cone, length, hit outputs, and all
-unrelated physics-ray callers.
-With `HPLRoomscaleSafety=1`, physical HMD translation is checked against SOMA's
-world before it is applied. `HPLRoomscaleSafetyDynamic=1` includes moving bodies;
-set it to `0` for the prior static-only policy. Blocked movement is shortened by a bounded
-search plus `HPLRoomscaleSafetyClearanceMeters`; both eyes, controller poses,
-hands, interaction, and flashlight reuse the same result. A configurable
-horizontal ring plus top/bottom probes approximate head volume; invalid probes
-are skipped so a tight authored starting position cannot trap the view. Moving
-away from the body for 30 tracked poses can also trigger optional native capsule
-catch-up. `HPLRoomscaleBodyReconciliation=1` uses small collision-tested feet
-steps and compensates the tracking neutral so the visible world should remain
-stationary; set it to `0` for immediate rollback while live acceptance proceeds.
-Native player-capsule reconciliation remains separate work.
-`DesktopMirrorEye=left` or `right` replaces the alternating desktop image with a
-stable cached eye after headset submission. `DesktopMirrorAspect` accepts `fit`,
-`fill`, or `stretch`; `native` eye mode restores SOMA's untouched backbuffer.
-Paused menus suppress all gameplay injection. The dominant controller aim moves
-the native menu cursor and trigger/select clicks when `MenuPointer=1`.
-With `MovementReference=head`, movement follows calibrated HMD yaw. The
-`controller` mode instead follows the calibrated left movement-controller yaw;
-both ignore pitch/roll. The current package uses semantic movement keys after
-the 0.68.2 live pass exposed severe under-speed behavior in the raw character
-body accumulator. `NativeLocomotion=1` remains available for diagnosis.
-`PhysicalCrouch=1` drives SOMA's native crouch
-toggle from tracked height with hysteresis. `GrabTranslation=1` augments only
-the exact Grab-state force PID with interaction-owner controller displacement; SOMA keeps
-  mass, collision, constraints, gravity, and callbacks. `GrabAttachToHand=1`
-  adds a bounded selected-hit-to-grip pull at Grab start without replacing that
-  solver. `GrabRotation=1` extends
-  that contract through SOMA's torque PID, while `ThrowRedirect=1` redirects one
-  native Grab impulse along tracked release velocity. `TwoHandHudObject=1`
-  optionally points an independent held tool from the interaction-owner grip toward a
-  squeezed support grip. `TwoHandGrabRotation=1` applies the same bounded
-  direction contract to Grab-state torque without replacing native physics.
-  `InteractionBothHands=1` probes SOMA's native closest-entity ray with both
-  tracked controllers and locks the initiating hand through physical
-  interaction states. `RotateAngularVelocityScale` adds wrist twist along a
-  native door/lever pin. `ReadPresentation=1` waits for the native entrance
-  transform to settle, then applies separately configurable Read-object distance
-  and scale while right A/B holds native cancel. Hands remain tracked in Read.
-  `LocomotionDuringInteractions=1` preserves walking while Wheel, Slide, Door,
-  Lever, Tear, or MovingButton owns a mechanism.
-  `AimGuide=1` displays both controller-ray guides while
-  the selected native semantic icon follows the winning beam's hit depth. The
-  packaged guides query SOMA's native collision ray and terminate before scene
-  geometry, using a faint radial glow that brightens over interactables.
-  `HudSuppressCenterCrosshair=0` preserves the complete native HUD;
-  pixel-clearing the old gaze icon also damaged unrelated overlays and is no
-  longer part of the test profile.
-  `HPLComfortCameraAddControl=1` removes semantic Bob, Shake, and optional Sway
-  only while F10 tracking is active. `HPLComfortCameraRollControl=1` separately
-  suppresses configured Script, Lean, Move, or Climb roll at the exact native
-  setters; the active profile preserves Script roll. World depth of field and
-  named VideoDistortion can also be disabled only during active VR, while short
-  transition blackouts cover ladder, climb, camera animation, sit, and death.
-  Same-camera authored ownership changes preserve tracking/stereo while
-  refreshing the native pose baseline and all per-eye temporal histories.
-  The interaction bridge publishes
-  native hit depth/world position. `InteractionReticle=1` presents that exact
-  controller hit as an application-space OpenXR quad. With
-  `InteractionReticleSemantic=1`, SOMA's own crosshair callback chooses semantic
-  state after native interaction policy; `InteractionReticleNativeIcons=1`
-  aspect-fits the matching shipped artwork with a procedural fallback.
-  `FocusHaptics=1` adds a bounded intent-scaled pulse when confirmed entity/body
-  focus changes. `GameplayHaptics=1` also mirrors SOMA's authored global rumble
-  for damage, scripted tools/actions, death, and environmental effects through
-  bounded bilateral OpenXR segments. `ContactHaptics=1` separately observes
-  SOMA's native surface-impact speed and contact point, then pulses only the
-  initiating hand while its freshly tracked Grab-state grip is near the collision.
-  Native physics, impact audio/effects, and physical-gamepad output remain
-  authoritative. Contact and focus feedback remain generated-off,
-  live-acceptance features.
-  Suggested bindings cover Khronos Simple, Oculus Touch, Valve Index,
-  Microsoft Motion Controller, and HTC Vive profiles. Runtime profile-change
-  events log the exact active profile for each hand, including reconnects and
-  profile switches.
+See [the user guide](docs/USER_GUIDE.md) for tuning and additional controls.
 
-## Current Goal
+## Configuration And Rollback
 
-The proven default remains OpenXR transport, native head tracking, and AFR stereo
-geometry. `0.53.0` adds guarded once-per-frame ToneMapping exposure, fade, and
-grading-transition ownership for same-frame stereo. `0.52.0` adds guarded per-eye ImageTrail resource and clear-state
-ownership with exact native teardown and automatic suppression fallback.
-`0.51.0` adds locomotion-gated compositor comfort tunneling with
-tested fade/radial math, preset integration, and a live F1 toggle. `0.50.0`
-adds an extension-negotiated curved HUD with live F1
-quad/curved switching and automatic fallback. `0.49.0` adds deterministic comfort presets, a non-invasive readiness
-doctor, and a packaged end-user guide. `0.48.0` adds HTC Vive controller bindings and exact per-hand active
-interaction-profile diagnostics. `0.47.0` applies the first opt-in per-eye temporal resource to every
-active stereo mode: HPL3's confirmed previous-view matrix is banked by eye in
-both AFR fallback and same-frame rendering, with recenter and stale-gap resets.
-`0.45.0` introduced the sustained
-prototype below HPL3's
-once-per-frame viewport owner. It is deliberately not the default until live
-visual, temporal, performance, and rollback acceptance. `0.36.0` also advances physical
-presence with bounded two-hand independent-tool and carried-object control.
-`0.37.0` maps each active post effect's bound GL textures, dimensions, formats,
-and framebuffer writes, and classifies same-pose left/right resources as shared
-or eye-distinct.
+The active `somavr.ini` lives **beside the DLL being injected**, not necessarily
+in the source checkout. Startup logs name the loaded DLL and configuration.
+Restart SOMA after editing the INI unless the setting has an explicit F1 control.
 
-`0.39.0` adds a head-locked in-VR status and control panel. Press `F1` or
-`Menu + Secondary`, navigate with the movement stick, and activate with dominant
-  select/trigger. It exposes recenter plus reversible roomscale, centered
-  projection, same-frame stereo, HUD-layer, HUD-shape, interaction-reticle, and
-  comfort-vignette controls
-  while suppressing all underlying gameplay input.
-
-The focused state-8 terminal `cGuiSet` renders at its native logical size and is
-upscaled into the head-locked OpenXR HUD layer. SOMA's email path emits sparse
-rectangles, but current live evidence found no interceptable nested color clear.
-The retained-surface policy therefore falls back automatically to live frames
-after eight unsupported samples rather than preserving a black panel.
-Controller aim and clicks still use SOMA's routes. Looking away sends native
-cancel after a short dwell.
-Set `TerminalOverlay=0` to return to
-world-mesh ray input; `TerminalDiegetic=0` separately restores SOMA's authored
-body/camera takeover. `TerminalPreserveDirtyRects=0` selects live-frame capture
-immediately. Handheld state `9` retains its authored presentation.
-
-- signature-guarded native eye view/projection integration,
-- persistent per-eye OpenGL cache transfer,
-- preserve validated runtime IPD/world scale with the confirmed centered-FOV compatibility policy,
-- bounded AFR fallback and telemetry,
-- head-relative FMOD listener orientation,
-- deferred reconstruction UBO attribution and eye-invariant shadow/reflection state,
-- selective post-effect classification using active object/vtable inventories and reversible per-effect isolation,
-- gameplay HUD extraction into configurable OpenXR quad/cylinder layers,
-- controller-owned native hands with calibration and authored-state fallback,
-- paused-menu aim pointer and hard gameplay-input suppression,
-- live-validate and tune the opt-in same-frame renderer before default promotion.
-
-The repository-root `somavr.ini` is an ignored developer scratch profile and
-may enable expensive captures for a specific RE session. Release packaging
-uses the tracked `config/somavr.release.ini`, which preserves the known-good VR
-feature set with exploratory captures and probes disabled. The block below
-documents the development profile; it is not copied into releases:
+Useful independent switches include:
 
 ```ini
-[Hooks]
-FrameSummaryInterval=120
-UniformMatrixProjectionOnly=1
-UniformMatrixLogLimit=256
-MatrixCapture=1
-MatrixCaptureFrames=120
-MatrixCaptureStackDepth=8
-MatrixCaptureMaxSites=64
-MatrixCaptureSamplesPerUniform=4
-RenderDiagnosticCapture=1
-RenderDiagnosticFrames=4
-RenderDiagnosticMaxPrograms=128
-RenderDiagnosticMaxDraws=8192
-HPLCameraBridge=1
-HPLLifecycleShutdown=1
-HPLProjectionCenterControl=1
-HPLProjectionCenteredDefault=1
-HPLRoomscaleControl=1
-HPLRoomscaleEnabledDefault=1
-HPLRoomscaleVertical=1
-HPLRoomscaleSafety=1
-HPLRoomscaleSafetyDynamic=1
-HPLRoomscaleSafetyClearanceMeters=0.02
-HPLRoomscaleSafetyIterations=6
-HPLRoomscaleSafetyRadiusMeters=0.09
-HPLRoomscaleSafetyVerticalRadiusMeters=0.12
-HPLRoomscaleSafetyRadialSamples=6
-HPLRoomscaleBodyReconciliation=1
-HPLRoomscaleBodyReconciliationThresholdMeters=0.45
-HPLRoomscaleBodyReconciliationTargetMeters=0.25
-HPLRoomscaleBodyReconciliationMaxStepMeters=0.015
-HPLRoomscaleBodyReconciliationHoldFrames=30
-HPLReflectionFadeControl=1
-HPLComfortCameraAddControl=1
-HPLComfortSuppressHeadBob=1
-HPLComfortSuppressCameraShake=1
-HPLComfortSuppressSway=1
-HPLComfortCameraRollControl=1
-HPLComfortSuppressScriptRoll=0
-HPLComfortSuppressLeanRoll=1
-HPLComfortSuppressMoveRoll=1
-HPLComfortSuppressClimbRoll=1
-HPLComfortDepthOfFieldControl=1
-HPLComfortOpticsControl=1
-HPLComfortSuppressFov=1
-HPLComfortSuppressFovMultiplier=1
-HPLComfortSuppressAspectMultiplier=1
-HPLLoadingScreenControl=1
-HPLLoadingScreenExitBlackoutFrames=2
-HPLScriptedPresentationControl=1
-HPLInventoryPresentationControl=1
-HPLVideoLifecycleProbe=1
-HPLScreenEffectControl=1
-HPLScreenEffectDistanceMeters=1.5
-HPLComfortLogInterval=120
-HPLCameraLogInterval=120
-HPLStereoAFR=1
-HPLWorldScale=1.0
-HPLRenderStageProbe=0
-HPLDualRenderReplayProbe=0
-HPLDualRenderAutoProbe=0
-HPLDualRenderAutoProbeCount=3
-HPLDualRenderAutoProbeDelayFrames=180
-HPLDualRenderAutoProbeIntervalFrames=180
-HPLDualRenderContinuousControl=1
-HPLDualRenderContinuousDefault=1
-HPLPerEyeViewHistoryControl=1
-HPLPerEyeImageTrailControl=1
-HPLToneMappingFrameControl=1
-HPLPerEyePerformanceTelemetry=0
-HPLPerEyeGpuTelemetry=0
-HPLGpuQueryPoolSize=128
-HPLAudioListenerProbe=1
-HPLAudioListenerCorrection=1
-HPLAudioListenerTranslation=1
-HPLPostEffectControl=1
-HPLPostEffectResourceProbe=0
-HPLPostEffectBypassDefault=0
-HPLPostEffectDisableImageTrail=0
-HPLPostEffectDisableVideoDistortion=1
-HPLPostEffectDisableChromaticAberration=1
-HPLPostEffectDisableRadialBlur=1
-HPLShadowJitterControl=1
-HPLShadowJitterSuppressedDefault=0
-HPLCompatibilityLogInterval=120
-
-[OpenXR]
-Probe=1
-SessionProbe=1
-ReleaseAfterProbe=0
-BootstrapFrame=120
-HoldFrames=0
-ManualStart=1
-FrameSubmit=1
-MirrorBackbuffer=1
-DesktopMirrorEye=left
-DesktopMirrorAspect=fit
-DepthCompositionProbe=1
-DepthCompositionSubmit=0
-Foveation=1
-FoveationLevel=2
-FoveationDynamic=0
-FoveationVerticalOffset=0.0
-ResolutionScalePercent=100
-ReferenceSpace=local
-RecoveryEnabled=1
-RecoveryDelayFrames=120
-TrackingHoldFrames=30
-TrackingRecoveryBlackoutFrames=2
-HudLayer=1
-HudWidthPixels=1600
-HudHeightPixels=900
-HudDistanceMeters=1.5
-HudWidthMeters=1.6
-HudVerticalOffsetMeters=0.0
-HudMaxAgeFrames=2
-InteractionReticle=1
-InteractionReticleSemantic=1
-InteractionReticleNativeIcons=1
-InteractionReticleSizePixels=64
-InteractionReticleAngularSizeDegrees=1.10
-InteractionReticleMinSizeMeters=0.012
-InteractionReticleMaxSizeMeters=0.12
-InteractionReticleMinDistanceMeters=0.15
-InteractionReticleMaxDistanceMeters=8.0
-InteractionReticleMaxAgeFrames=2
-StatusPanel=1
-StatusPanelWidthPixels=1024
-StatusPanelHeightPixels=512
-StatusPanelDistanceMeters=1.25
-StatusPanelWidthMeters=1.15
-StatusPanelVerticalOffsetMeters=0.0
-
 [Controller]
-Enabled=1
-NativeLocomotion=0
-LocomotionDuringInteractions=1
-MovementReference=controller
-InteractionBothHands=1
-AimGuide=1
-AimGuideLengthMeters=1.2
-AimGuideSceneDepth=1
-AimGuideIdleAlpha=0.05
-AimGuideInteractableAlpha=0.25
-PhysicalBodyFollow=1
-PhysicalBodyFollowThresholdDegrees=45
-PhysicalBodyFollowReleaseDegrees=10
-PhysicalBodyFollowDegreesPerSecond=20
-PhysicalBodyFollowDelayMs=250
-PhysicalCrouch=1
-PhysicalCrouchEnterMeters=0.35
-PhysicalCrouchExitMeters=0.25
-NativeTurn=1
-SnapTurnDegrees=30
-SmoothTurnDegreesPerSecond=120
-NativeTurnSign=-1
-Flashlight=1
-Inventory=1
-MenuPointer=1
-MenuPointerHorizontalDegrees=70
-MenuPointerVerticalDegrees=50
-MenuPointerSmoothing=0.35
-Haptics=1
-HapticAmplitude=0.35
-HapticDurationMs=30
-GameplayHaptics=1
-GameplayHapticAmplitudeScale=0.75
-GameplayHapticMinAmplitude=0.05
-GameplayHapticRetriggerDelta=0.08
-GameplayHapticRefreshMs=80
-GameplayHapticSegmentMs=100
-ContactHaptics=1
-ContactHapticMinSpeed=0.5
-ContactHapticMaxSpeed=5.0
-ContactHapticMaxDistanceMeters=0.75
-ContactHapticMinAmplitude=0.08
-ContactHapticMaxAmplitude=0.55
-ContactHapticDurationMs=35
-ContactHapticCooldownMs=45
-FocusHaptics=1
-FocusHapticAmplitude=0.12
-FocusHapticDurationMs=15
-FocusHapticCooldownFrames=15
-DominantHand=right
-SwapSticks=0
-OneHandFallback=1
-SuppressDuringAuthoredCamera=1
-InteractionRay=1
-InteractionRayOriginTolerance=0.75
-TerminalOverlay=1
-TerminalPreserveDirtyRects=1
-TerminalLookAwayExit=1
-TerminalLookAwayDegrees=65
-TerminalLookAwayFrames=8
-GrabTranslation=1
-GrabAttachToHand=1
-GrabTranslationScale=1.0
-GrabMaxOffsetMeters=1.5
-GrabRotation=1
-GrabRotationGain=20.0
-GrabRotationSign=1.0
-GrabMaxAngularSpeed=6.0
-TwoHandHudObject=1
-TwoHandGrabRotation=1
-TwoHandSqueezeThreshold=0.75
-TwoHandMinSeparationMeters=0.08
-TwoHandMaxSeparationMeters=1.2
-TwoHandDirectionBlend=1.0
-ThrowRedirect=1
-ThrowVelocityScale=1
-ThrowVelocityThreshold=0.35
-ThrowVelocityReference=2.0
-ManipulationMappings=1
-ManipulationMotionPixelsPerMeter=900
-ManipulationSlidePixelsPerMeter=2700
-ManipulationReadPixelsPerRadian=900
-SlideDirectVelocity=1
-SlideVelocityScale=1
-SlidePositionGain=12
-SlideMaxVelocityMetersPerSecond=2.5
-RotateDirectVelocity=1
-RotateVelocityScale=1
-RotateAngularVelocityScale=1
-RotateMaxAngularSpeed=4
-ReadPresentation=1
-ReadObjectDistanceScale=2
-ReadObjectScale=1
-HandTrackingProbe=1
-HandControllerRoot=0
-HandScaleNormalization=1
-HandWristPosition=1
-HandWristRotation=1
-HandWristRollDegrees=-90
-HandSocketedPropStabilization=1
-HandArmIK=1
 HandAlwaysVisible=1
-HandTargetScale=1.0
-HandShoulderVerticalOffsetMeters=-0.30
-HandArmIKBlend=1.0
-HandArmIKMaxReach=0.985
-HandRootOffsetX=0.0
-HandRootOffsetY=-0.075
-HandRootOffsetZ=0.0
-HandRootPitchDegrees=0.0
-HandRootYawDegrees=0.0
-HandRootRollDegrees=0.0
-ControllerFlashlightAim=1
-ControllerFlashlightGameplayRay=1
-FlashlightOffsetX=0.0
-FlashlightOffsetY=0.0
-FlashlightOffsetZ=0.03
-FlashlightPitchDegrees=0.0
-FlashlightYawDegrees=0.0
-FlashlightRollDegrees=0.0
-ComfortBlackoutFrames=2
-StateTransitionBlackoutFrames=2
+HandBootstrap=1
+MovementReference=controller
+ReadObjectDistanceScale=1.2
+ReadObjectScale=2
 ```
 
-`ReadObjectDistanceScale` scales the current native camera-relative position
-once on submission; it does not feed the result back into SOMA's pickup
-animation. `ReadObjectScale` multiplies each object's authored per-axis scale,
-so `1` preserves real relative size. Hold the owning grip to rotate an inspected
-object through unrestricted pitch, yaw, and roll.
+Set `HandBootstrap=0` to restore vial-first model creation while retaining the
+existing hand/arm tracking system. `HandAlwaysVisible` controls retention, not
+initial creation by itself. Do not enable every diagnostic or experimental
+switch at once; start with the package profile and change one thing at a time.
 
-`HandTrackingProbe=1` retains the visible-hands evidence bursts.
-`HandScaleNormalization=1` changes only supported quarter-scale root basis
-lengths while preserving root pose. `HandWristPosition=1` applies independent
-Normal-state wrist position corrections and immediately restores SOMA's post
-matrix/flag. `HandWristRotation=1` derives a deterministic model palm-to-wrist
-basis, then follows controller yaw, pitch, and roll. `HandWristRollDegrees`
-applies a final controller-forward calibration. `HandArmIK=1` adds the confirmed shoulder/elbow solve before wrist
-placement; `HandShoulderVerticalOffsetMeters=-0.30` lowers its shared root by
-30 cm. `HandAlwaysVisible=1` retains only a native-seeded hands entity, suspends
-controller mutation across pause/menu or authored ownership, and reacquires it
-when Normal gameplay returns; real player/body teardown invalidates the seed.
-Disable any one independently to isolate behavior; keep `HandControllerRoot=0`. See
-`docs/AUTHORED_STATES_AND_VISIBLE_HANDS_RE.md`.
+## Known Limitations
 
-Curtains and drawers use the selected body's native joint pin and velocity PID
-by default. The 0.68.2 log proved the semantic Look route deferred every event
-because its assumed state-script pointer stayed null. `SlideDirectVelocity=0`
-restores that diagnostic route. Grab's initial hit-to-hand pull is separate from
-`GrabMaxOffsetMeters`, which bounds only later controller travel. Rotation uses
-`GrabMaxAngularSpeed` as both target-speed and PID-error cap; the packaged
-`20/6` gain/speed defaults retain bounded correction with native responsiveness.
+- **Not a complete campaign conversion.** Later maps, special tools, ladders,
+  cutscenes, death sequences, and changes of player model need more coverage.
+  Some authored states deliberately suspend or limit VR overrides.
+- **Arms are inferred from three tracked points.** There are no tracked elbows
+  or shoulders. Wrist calibration, tangled poses, torso alignment, and
+  locomotion-only per-eye arm lag have been reported and remain acceptance work.
+- **Terminals are unfinished.** The laptop email region can flash or display
+  fragmented/missing content, especially when looking directly at the physical
+  screen. Pointer and beam alignment are also under investigation.
+- **Interaction is not universally 1:1.** Native mass, collision and joint
+  constraints remain. Doors/drawers and throwing still need feel validation;
+  weak throws and player recoil have been reported. New follow-through/throw
+  fixes should be tested rather than assumed to resolve every object.
+- **Story inspection and UI need tuning.** Scale/distance vary with authored
+  assets. Menu input, captions, cropping, and context-icon placement are not
+  guaranteed correct in every state.
+- **Stereo costs performance.** Same-frame mode renders the player viewport
+  twice. AFR can reduce fresh updates per eye and introduce motion-dependent
+  disagreement. Neither mode guarantees headset refresh rate on every system.
+- **Swapchain resolution is not source detail.** The world currently derives
+  from SOMA's render target/backbuffer. Increasing only the OpenXR target scale
+  does not produce a higher-resolution native scene; aliasing remains possible.
+- **Depth is diagnostic, not a shipping reprojection feature.** Scene-depth
+  capture exists, but depth submission is off. AFW/spacewarp is not implemented.
+- **Binary- and runtime-sensitive.** A different SOMA executable, graphics
+  wrapper, driver, or runtime can break a previously working path. Hooks fail
+  closed on mismatched contracts rather than supporting arbitrary builds.
+- No standalone-headset build, full-body tracking, or established Linux/Proton
+  support is claimed.
 
-`DepthCompositionSubmit` is opt-in in generated configurations until live
-runtime and hardware-matrix acceptance is complete. The development
-`somavr.ini` enables it; setting it to `0` immediately restores color-only
-submission while retaining the independent depth evidence probe.
+Stop testing if you feel uncomfortable. Recenter and diagnose stationary
+before continuing movement tests; visual correctness and comfort require a
+person in the headset, not just passing automated tests.
 
-`Foveation` is also opt-in in generated configurations. It requires the complete
-FB foveation extension family and otherwise falls back to ordinary eye
-swapchains. Levels are `0` (none), `1` (low), `2` (medium), and `3` (high).
-Set `Foveation=0` for hard rollback; use per-eye GPU telemetry before choosing a
-quality level rather than assuming the runtime gains performance.
+## Testing And Bug Reports
 
-## Known Install
+Start with [the next-test checklist](docs/NEXT_LIVE_EVIDENCE.md). For this build,
+the key test is **a pre-vial save: F10, then arms appearing without the vial**,
+followed by the medicine sequence, pause/resume, reload, and normal exit.
 
-Current local install:
+Attach `logs\somavr.log` from the directory beside the injected DLL. The prior
+session is kept as `logs\somavr.previous.log`. Include the exact action/scene,
+headset/runtime, affected eye(s), and whether the issue also appears on the
+desktop. Keep the build-identity banner, including any `dirty` suffix.
 
-```text
-G:\SteamLibrary\steamapps\common\SOMA\
-```
+Ctrl+F10 captures paired scene eyes and, when relevant, terminal surfaces under
+`logs\eye-captures` and `logs\terminal-captures`. The paired scene images do
+not include every final OpenXR overlay. Crash reports may also be written under
+`logs\dumps`; share dumps privately because they can contain process memory.
 
-Relevant binaries:
+Readiness, unit tests, xr-sim, and xr-tape can check specific contracts. They do
+not prove the game rendered the right view or that a headset experience is good.
 
-- `Soma_NoSteam.exe`
-- `Soma.exe`
-- `SDL2.dll`
-- `glew32.dll`
+## Build From Source
 
-## Documentation
+Developers need Git, CMake 3.24+, and Visual Studio/MSVC with C++20 and Windows
+SDK support. CMake fetches pinned MinHook and OpenXR SDK dependencies, so first
+configuration needs network access (or populated dependency caches).
 
-- `docs\ARCHITECTURE.md`: DLL module ownership, dependency direction, growth rules, and planned structural splits.
-- `docs\CURRENT_STATE.md`: active baseline, proven behavior, and next test.
-- `docs\ADDRESS_REGISTRY.md`: Ghidra/runtime address ledger.
-- `docs\HYPOTHESES.md`: testable claims and redirect criteria.
-- `docs\future-hook-map.md`: evolving hook map and Graphify seed.
-- `docs\FUTURE_SYSTEMS_RE.md`: locomotion, hands/tools, HUD, and full-screen-effect research roadmap.
-- `docs\VR_COMPATIBILITY_RE.md`: interaction physics, authored cameras, audio, loading/video, and dual-render boundaries.
-- `docs\NEXT_LIVE_EVIDENCE.md`: four prioritized headset passes that settle multiple project phases per log.
-- `docs\FEATURE_TRACEABILITY.md`: stable `FEATURE.*` ownership, dependency, hook, and acceptance-gate registry.
-- `docs\BIOSHOCK_VR_TRANSFER_AUDIT.md`: source-level transfer audit and staged implementation plan from the independent BioShock VR project.
-- `docs\GHIDRA_SYNC.md`: Ghidra names, prototypes, comments, tags, and promotion policy.
-- `re\regenny\SOMAVR.genny`: modular, read-only live-memory schemas for confirmed HPL3 object layouts.
-- `docs\RUNTIME_ANALYSIS_0.5.1.md`: successful stereo run, render-stage/FBO evidence, and audio/shader conclusions.
-- `docs\RUNTIME_ANALYSIS_0.5.2.md`: audio result, F12 redirect, and deferred-shadow jitter evidence.
-- `docs\RUNTIME_ANALYSIS_0.5.3.md`: F7 attribution, reflection RE, render diagnostics, and process-lifetime diagnosis.
-- `docs\RUNTIME_ANALYSIS_0.5.4.md`: first deferred reconstruction UBO and exit-dump analysis.
-- `docs\RUNTIME_ANALYSIS_0.5.5.md`: confirmed F5 result and remaining shadow/reflection attribution.
-- `docs\RUNTIME_ANALYSIS_0.5.6.md`: F3/F4 redirects, clean shutdown proof, and vertical-asymmetry finding.
-
-For a process that remains after the game window closes, capture a thread-aware
-minidump before ending it:
+From a suitable Visual Studio developer shell:
 
 ```powershell
-& "D:\Dev Debug\SOMAVR\build-openxr-onekey\Release\somavr_dumper.exe" Soma_NoSteam.exe
+cmake -S . -B build-openxr -A x64 -DSOMAVR_ENABLE_OPENXR=ON
+cmake --build build-openxr --config Release --parallel
+ctest --test-dir build-openxr -C Release --output-on-failure
 ```
 
-The dumper only writes diagnostic state; it deliberately does not close the game.
-Add `--full` only when full process memory is specifically needed, because it can
-produce a much larger file.
+The default CMake option without `SOMAVR_ENABLE_OPENXR=ON` is a telemetry build,
+not the headset build. Keep build flavor metadata with its matching DLL.
 
-Graphify is installed for repository navigation. Generated output is local in
-`graphify-out\`; refresh it after architecture or code changes with:
+Create a package in a **dedicated disposable output directory**, never your
+game directory, installed mod directory, or a folder containing captured logs:
 
 ```powershell
-graphify update .
+& ".\scripts\Package-Release.ps1" -BuildDirectory "build-openxr\Release" -OutputDirectory "dist" -IncludeDumper
 ```
 
-Use `graphify-out\graph.html` for the relationship view and
-`graphify-out\GRAPH_TREE.html` for the file/symbol hierarchy. The source corpus is
-kept focused by `.graphifyignore` so CMake and fetched dependency trees do not
-obscure SOMAVR-owned code.
+The packager replaces generated staging and prunes older `SOMAVR-*` artifacts
+inside that output directory. Treat it as build output, not archival storage.
+
+Repository documentation: [current state](docs/CURRENT_STATE.md),
+[feature ownership](docs/FEATURE_TRACEABILITY.md), [native address registry](docs/ADDRESS_REGISTRY.md),
+[build history](docs/BUILD_HISTORY.md), and [hands bootstrap evidence](docs/HANDS_BOOTSTRAP_RE.md).
+The complete RE documentation is in the repository; packaged documentation is
+a smaller tester-focused subset. Graphify navigation is available locally via
+`graphify-out/`; `Graphify-Update-CodeOnly.ps1` refreshes the deterministic code
+graph while preserving existing document nodes.
+
+## Attribution And Distribution
+
+SOMA and its game assets belong to Frictional Games. This project is unofficial
+and is not affiliated with or endorsed by Frictional Games. A licensed copy of
+the game is required; do not redistribute the executable or game assets with
+the mod.
+
+This work draws on the in-house VR modding playbook and prior VR-mod research,
+including SS2VR, BioShockVR, UEVR, and other source-available projects. MinHook
+and the OpenXR loader/SDK have their own licenses. Released HPL2 source is
+GPL-licensed reference material; source availability is not permission to
+ignore its terms. A project-wide distribution license and final third-party
+notice review are still pending before public source/binary release.

@@ -1,23 +1,59 @@
+# Generated build trees and release packages (upload ZIPs as release assets).
 build*/
 out/
 out-pending/
-logs/
-.vs/
 Testing/
+CMakeFiles/
+CMakeCache.txt
 CMakeUserPresets.json
 compile_commands.json
-__pycache__/
-*.py[cod]
+
+# Local marketing projects and videos are not part of the source repository.
+/marketing/
+
+# Runtime output, diagnostics and generated knowledge graphs.
+logs/
+captures/
+*.log
 *.dmp
-*.user
-*.suo
+*.mdmp
+*.rdc
+*.trace
+*.trace.*
+graphify-out/
+
+# Compiled binaries, libraries and intermediate files, including tools/.
+*.dll
+*.exe
+*.lib
+*.a
+*.so
+*.so.*
+*.dylib
 *.pdb
 *.ilk
 *.obj
-*.dll
-*.exe
-!tools/*.exe
+*.o
+*.exp
+*.pch
+*.idb
+*.ipdb
+*.iobj
+
+# Packaged downloads belong in GitHub Releases, not Git history.
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+
+# Machine-local settings and caches; config/somavr.release.ini stays tracked.
+.vs/
+__pycache__/
+*.py[cod]
+*.user
+*.suo
 somavr.ini
-graphify-out/
 .claude/settings.local.json
 AGENTS.md.bak-remcp-*

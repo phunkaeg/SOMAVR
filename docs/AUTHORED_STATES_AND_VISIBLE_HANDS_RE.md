@@ -74,6 +74,13 @@ bone consumed by skinning.
 
 ## 0.92 Player-Hands Owner And Creation Route
 
+**Superseded receiver assumptions:** the September 10 constructor/vtable proof
+in `HANDS_BOOTSTRAP_RE.md` corrects the three probe conditions below. The
+secondary updateable is at full module `+0x110`; the full object itself is the
+script wrapper and its low script object is at `+0xe8`. `0x1378e0` belongs to
+cLuxMapHandler, not cLuxUserModule. Version 0.96.2 fixes discovery and adds a
+guarded after-PostUpdate creation/activation path, still awaiting a headset test.
+
 Released SOMA scripts close the model-selection question. The public
 `PlayerHands_SetVisible(true)` route obtains module ID `18` and calls
 `PlayerHandsHandler.SetVisible`. That method always calls

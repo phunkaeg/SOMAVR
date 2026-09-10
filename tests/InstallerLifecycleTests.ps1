@@ -25,11 +25,11 @@ function Get-Sha256Hex([string]$Path) {
 }
 
 function Write-PackageChecksums {
-    Get-ChildItem -LiteralPath $package -File |
+    Get-ChildItem -LiteralPath $package -File -Recurse |
         Where-Object Name -ne "SHA256SUMS.txt" |
         Sort-Object Name |
         ForEach-Object {
-            $relative = $_.Name
+            $relative = $_.FullName.Substring($package.Length + 1).Replace('\', '/')
             $hash = Get-Sha256Hex $_.FullName
             "$hash  $relative"
         } |
@@ -52,6 +52,10 @@ try {
     Set-Content -LiteralPath (Join-Path $package "somavr_build_manifest.txt") -Value "version=0.32.0-test1"
     Set-Content -LiteralPath (Join-Path $package "somavr.ini") -Value "UserScale=1.0"
     Set-Content -LiteralPath (Join-Path $package "somavr_dumper.exe") -Value "dumper-v1"
+    New-Item -ItemType Directory -Path (Join-Path $package "docs") -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $package "somavr_test_profile.txt") -Value "probe-only"
+    Set-Content -LiteralPath (Join-Path $package "docs/NEXT_LIVE_EVIDENCE.md") -Value "next-test"
+    Set-Content -LiteralPath (Join-Path $package "docs/HANDS_BOOTSTRAP_RE.md") -Value "hands-test"
     Set-Content -LiteralPath (Join-Path $package "unknown-payload.bin") -Value "reject-me"
     Write-PackageChecksums
 
@@ -81,6 +85,9 @@ try {
     & (Join-Path $package "Install-Or-Update-SOMAVR.ps1") `
         -Destination $destination -AllowCustomDestination
     Assert-Text (Join-Path $destination "somavr.ini") "UserScale=1.0" "Fresh config mismatch"
+    Assert-Text (Join-Path $destination "docs/NEXT_LIVE_EVIDENCE.md") "next-test" "Missing test checklist"
+    Assert-Text (Join-Path $destination "docs/HANDS_BOOTSTRAP_RE.md") "hands-test" "Missing hands evidence"
+    Assert-Text (Join-Path $destination "somavr_test_profile.txt") "probe-only" "Missing test profile"
 
     Set-Content -LiteralPath (Join-Path $destination "somavr.ini") -Value "UserScale=1.75"
     Set-Content -LiteralPath (Join-Path $destination "user-owned.txt") -Value "preserve-me"

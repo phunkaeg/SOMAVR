@@ -153,7 +153,7 @@ Copy-Item -LiteralPath (Join-Path $repositoryRoot "scripts\Uninstall-SOMAVR.ps1"
 
 $packageDocs = Join-Path $stagePath "docs"
 New-Item -ItemType Directory -Path $packageDocs | Out-Null
-foreach ($doc in @("USER_GUIDE.md", "CURRENT_STATE.md", "TEST_CHECKLISTS.md", "SMOKE_TEST_MATRIX.md", "NEXT_LIVE_EVIDENCE.md")) {
+foreach ($doc in @("USER_GUIDE.md", "CURRENT_STATE.md", "TEST_CHECKLISTS.md", "SMOKE_TEST_MATRIX.md", "NEXT_LIVE_EVIDENCE.md", "HANDS_BOOTSTRAP_RE.md")) {
     Copy-Item -LiteralPath (Join-Path $repositoryRoot "docs\$doc") -Destination $packageDocs
 }
 

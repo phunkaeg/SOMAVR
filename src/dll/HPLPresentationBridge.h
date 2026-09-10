@@ -11,6 +11,7 @@ bool InstallHPLPresentationBridge(const Config& config, OpenXRRuntime* openxr);
 void RemoveHPLPresentationBridge();
 void UpdateHPLPresentationBridge(uint64_t frameIndex);
 bool IsHPLLoadingScreenActive();
+uint64_t GetHPLLoadingGeneration();
 void PublishHPLWakeSetAsleep(bool asleep);
 void PublishHPLWakeStart(float durationSeconds);
 bool IsHPLWakePresentationActive();

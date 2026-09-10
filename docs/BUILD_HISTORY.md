@@ -1,5 +1,20 @@
 # Build History
 
+## 2026-09-10
+
+### 0.96.2-hands-bootstrap
+
+- Added one-shot, gameplay-gated creation through the campaign hands handler's
+  `SetVisible(true)` / `SetActive(true)` methods after native PostUpdate.
+  Existing tracked rigs are untouched; loading generations re-arm for new worlds.
+- Corrected secondary-base/full-owner confusion in the optional module probe.
+  Six unique entry signatures and five concrete virtual callees checked offline
+  against the installed NoSteam hash. Updated and saved the Ghidra database.
+- Added a bootstrap policy CTest, config parsing coverage, offline PE-contract
+  checker, gate/callback/attempt/seed diagnostics, and `HandBootstrap=0` rollback.
+- No game launch. Pre-vial creation, authored animations, reload and full-game
+  compatibility require live acceptance. Evidence and test: `HANDS_BOOTSTRAP_RE.md`.
+
 ## 2026-09-09
 
 ### 0.96.1-interaction-follow

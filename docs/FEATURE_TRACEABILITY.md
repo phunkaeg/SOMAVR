@@ -9,6 +9,14 @@ Status values: `PROVEN`, `EXPERIMENTAL`, `BUILT`, `DESIGNED`, `RE_REQUIRED`, `BL
 
 ## Registry
 
+September 10: `FEATURE.VISIBLE_HANDS` adds `HPLHandsBootstrap` and its tested
+one-shot policy. Native PostUpdate `0x1ab3a0` uses secondary receiver `+0x110`;
+the full module owns the script wrapper. Before-vial creation is BUILT, not
+headset-proven. `HANDS_BOOTSTRAP_RE.md` supersedes old `0x154c40` probe ownership
+claims and owns the new bootstrap acceptance test. Inventory's old `0x1378e0`
+module identity claim is refuted (that function belongs to cLuxMapHandler);
+its presentation observer needs a separately scoped audit.
+
 September 9 interaction follow-through update: `FEATURE.PHYSICAL_MANIPULATION`
 now includes consistent scaled slide targets, body-attached hinge leverage and
 exact-body fast-release/native-throw handoff. Source/log evidence, tests and

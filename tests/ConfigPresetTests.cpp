@@ -75,7 +75,7 @@ int main()
             << "TerminalPointer=0\nTerminalDiegetic=0\nTerminalPreserveDirtyRects=0\nTerminalRayPointer=0\nTerminalRayLengthMeters=99\n"
             << "TerminalLookAwayExit=0\nTerminalLookAwayDegrees=999\nTerminalLookAwayFrames=999\n"
             << "ManipulationSlidePixelsPerMeter=99999\n"
-            << "HandScaleNormalization=1\nHandWristPosition=1\nHandWristRotation=1\nHandWristRollDegrees=-999\nHandArmIK=1\nHandAlwaysVisible=1\nHandFreezePose=1\nHandTargetScale=9\n"
+            << "HandScaleNormalization=1\nHandWristPosition=1\nHandWristRotation=1\nHandWristRollDegrees=-999\nHandArmIK=1\nHandAlwaysVisible=1\nHandBootstrap=1\nHandFreezePose=1\nHandTargetScale=9\n"
             << "HandShoulderVerticalOffsetMeters=-9\nHandShoulderBackOffsetMeters=9\nHandArmIKElbowDownMeters=9\n"
             << "HandArmIKErgonomics=1\nHandShoulderReachCompensation=1\nHandShoulderReachStart=0\nHandShoulderReachMaxMeters=9\nHandArmIKMaxSwivelDegreesPerFrame=999\n"
             << "HandArmIKBlend=9\nHandArmIKMaxReach=0\nAuthoredInteractions=1\nMedicineInteraction=1\nHandSocketedPropStabilization=1\n"
@@ -122,6 +122,7 @@ int main()
             && manager.Get().hplHandWristRollDegrees == -180.0f
             && manager.Get().hplHandArmIK
             && manager.Get().hplHandAlwaysVisible
+            && manager.Get().hplHandBootstrap
             && manager.Get().hplHandFreezePose
             && manager.Get().hplHandTargetScale == 2.0f
             && manager.Get().hplHandShoulderVerticalOffsetMeters == -1.0f

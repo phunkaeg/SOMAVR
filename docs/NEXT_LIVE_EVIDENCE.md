@@ -1,13 +1,29 @@
 # Next Live Evidence
 
-Date: 2026-09-09
+Date: 2026-09-10
 
 Use `out\SOMAVR-latest`
-(`0.96.1-interaction-follow`) for the next run. The prepared rolling test
+(`0.96.2-hands-bootstrap`) for the next run. The prepared rolling test
 package has `DepthCompositionProbe=1` and `DepthCompositionSubmit=0`; no manual
 configuration change is needed. Do not enable depth submission for this test.
 
-## First: Joint Follow-Through And Throws
+## First: Arms Before The Vial
+
+1. Load a save BEFORE picking up the medicine. Enter normal gameplay, then F10.
+   Within a couple of seconds, check that full-size arms appear and track without
+   first touching the vial. Long splash/save loading is fine; it does not start
+   the creation countdown.
+2. Pick up the vial, remove cap/drink, then test a physics object and laptop.
+   Check no duplicate hands, unwanted bottle, lost tracking, or shoulder jump.
+3. Pause/resume, reload the pre-vial save, and toggle F10 off/on. Exit normally.
+   Keep your original save; don't overwrite it for this lifecycle test yet.
+4. Attach `out/SOMAVR-latest/logs/somavr.log`. Bootstrap counters and blocked-gate
+   reasons are automatic. Ctrl+F10 is useful only for a visible rig problem.
+
+Rollback: `HandBootstrap=0` in the package INI preserves IK/retention but lets
+the game create the model through the vial as before. Details: `HANDS_BOOTSTRAP_RE.md`.
+
+## Then: Joint Follow-Through And Throws
 
 1. Same drawer: slowly open and close without stick movement; repeat with a mild
    diagonal pull. Pause halfway, then reverse. Check for late-travel slowdown or drift.

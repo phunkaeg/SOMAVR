@@ -1,5 +1,19 @@
 # Ghidra Synchronization Ledger
 
+## 2026-09-10 Hands Bootstrap And Receiver Correction
+
+Selected `/SOMA/Soma_NoSteam.exe`: renamed constructor `0x1b00b0`, PostUpdate
+`0x1ab3a0`, method lookup/prepare/boolean argument/execute at
+`0x1dc170/0x1dd830/0x1dc190/0x1dd340`. Renamed `0x1378e0` to
+`SOMA_MapHandler_OnAction_ScriptForwarder`, correcting the former module label.
+Plate comments on `0x1ab3a0`, `0x1378e0`, and registration `0x1ae870` now explain
+the secondary base and distinguish registration declarations from native owners.
+Save returned success. Raw static evidence and runtime limits: `HANDS_BOOTSTRAP_RE.md`.
+
+The 2026-08-23 owner-probe assumptions below are superseded: the dispatch
+receiver is full module `+0x110`; module ID is full `+0x158`, low script object
+full `+0xe8`; neither `+0x90` nor the map-handler vtable identifies that owner.
+
 ## 2026-09-05 Arm Skinning Pipeline Sync
 
 | Program/address | Ghidra name | Evidence/use |

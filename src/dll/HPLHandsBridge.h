@@ -36,6 +36,7 @@ bool ResolveHPLControllerBeamDistance(
     float maxDistanceMeters,
     float& distanceMeters);
 void UpdateHPLHandsBridge(uint64_t frameIndex);
+bool HasHPLRetainedHandsSeed();
 bool CaptureHPLArmRenderSnapshot(HPLArmRenderSnapshot& snapshot);
 void RemoveHPLHandsBridge();
 void LogHPLHandsBridgeSummary();

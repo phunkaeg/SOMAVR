@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(SOMAVR_BUILD_VERSION "0.96.1-interaction-follow")
+set(SOMAVR_BUILD_VERSION "0.96.2-hands-bootstrap")
 
 include(FetchContent)
 
@@ -150,6 +150,7 @@ add_library(somavr SHARED
     src/dll/HPLCrosshairBridge.cpp
     src/dll/HPLUserModuleBridge.cpp
     src/dll/HPLHandsBridge.cpp
+    src/dll/HPLHandsBootstrap.cpp
     src/dll/HPLEntityCalibrationProfiles.cpp
     src/dll/HPLAuthoredInteractionBridge.cpp
     src/dll/HPLGrabBridge.cpp
@@ -208,6 +209,9 @@ add_executable(somavr_dumper
 target_link_libraries(somavr_dumper PRIVATE somavr_common dbghelp)
 
 if(BUILD_TESTING)
+    add_executable(somavr_hands_bootstrap_tests tests/HPLHandsBootstrapTests.cpp)
+    target_include_directories(somavr_hands_bootstrap_tests PRIVATE src/dll)
+    add_test(NAME somavr_hands_bootstrap COMMAND somavr_hands_bootstrap_tests)
     add_executable(somavr_render_math_tests
         tests/RenderMathTests.cpp
     )

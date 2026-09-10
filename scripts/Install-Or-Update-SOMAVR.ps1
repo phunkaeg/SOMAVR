@@ -23,6 +23,7 @@ function Get-ManagedFileAllowlist {
         "openxr_loader.dll",
         "somavr_build_flavor.txt",
         "somavr_build_manifest.txt",
+        "somavr_test_profile.txt",
         "somavr.ini",
         "somavr.defaults.ini",
         "README.md",
@@ -33,6 +34,8 @@ function Get-ManagedFileAllowlist {
         "docs/CURRENT_STATE.md",
         "docs/TEST_CHECKLISTS.md",
         "docs/SMOKE_TEST_MATRIX.md",
+        "docs/NEXT_LIVE_EVIDENCE.md",
+        "docs/HANDS_BOOTSTRAP_RE.md",
         "SHA256SUMS.txt",
         ".somavr-install.json"
     )) {

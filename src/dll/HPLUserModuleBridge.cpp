@@ -44,9 +44,9 @@ constexpr uint8_t kScriptDispatchLifecycleSignature[] = {
     0x7c, 0x09,
     0x83, 0xfa, 0x06,
 };
-constexpr size_t kScriptObjectOffset = 0x90;
+constexpr size_t kScriptObjectOffset = 0xe8;
+constexpr size_t kUpdateableSubobjectOffset = 0x110;
 constexpr int kUpdateCallbackId = 4;
-constexpr size_t kVtableSlotsToCheck = 64;
 
 using UserModuleOnActionFn = void (*)(void* userModule, int action, bool pressed);
 using ScriptDispatchLifecycleFn = void (*)(void* updateable, int callbackId, float timeStep);
@@ -154,47 +154,40 @@ bool ReadModuleId(const void* userModule, int& moduleId)
 
 bool IsLuxUserModule(const void* updateable)
 {
-    void* vtable = nullptr;
-    if (!native_memory::TryRead(updateable, vtable) || vtable == nullptr) return false;
-
-    void* entries[kVtableSlotsToCheck] = {};
-    if (!native_memory::TryReadBytes(vtable, entries, sizeof(entries))) return false;
-
-    HMODULE executable = GetModuleHandleW(nullptr);
-    if (executable == nullptr) return false;
-    const void* expectedOnAction = reinterpret_cast<const std::byte*>(executable)
-        + kUserModuleOnActionRva;
-    for (const void* entry : entries) {
-        if (entry == expectedOnAction) return true;
-    }
-    return false;
+    uintptr_t vtable = 0;
+    const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+    return base != 0 && native_memory::TryRead(updateable, vtable)
+        && vtable == base + 0x68fbb8;
 }
 
 void ObservePlayerHandsModule(void* updateable, int callbackId)
 {
     g_lifecycleCalls.fetch_add(1, std::memory_order_relaxed);
     if (callbackId != kUpdateCallbackId || updateable == nullptr) return;
-
-    int moduleId = -1;
-    if (!ReadModuleId(updateable, moduleId) || moduleId != kPlayerHandsModuleId) return;
-    g_handsIdCandidates.fetch_add(1, std::memory_order_relaxed);
     if (!IsLuxUserModule(updateable)) return;
+    void* module = reinterpret_cast<std::byte*>(updateable) - kUpdateableSubobjectOffset;
+    uintptr_t primaryVtable = 0;
+    if (!native_memory::TryRead(module, primaryVtable)
+        || primaryVtable != reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)) + 0x68fcc8) return;
+    int moduleId = -1;
+    if (!ReadModuleId(module, moduleId) || moduleId != kPlayerHandsModuleId) return;
+    g_handsIdCandidates.fetch_add(1, std::memory_order_relaxed);
     g_handsVtableMatches.fetch_add(1, std::memory_order_relaxed);
 
     void* scriptObject = nullptr;
-    if (native_memory::TryReadField(updateable, kScriptObjectOffset, scriptObject)) {
+    if (native_memory::TryReadField(module, kScriptObjectOffset, scriptObject)) {
         g_handsScriptObjectReads.fetch_add(1, std::memory_order_relaxed);
     }
 
-    void* previous = g_handsModule.exchange(updateable, std::memory_order_relaxed);
+    void* previous = g_handsModule.exchange(module, std::memory_order_relaxed);
     g_handsScriptObject.store(scriptObject, std::memory_order_relaxed);
-    if (previous != updateable) {
+    if (previous != module) {
         const uint64_t change = g_handsOwnerChanges.fetch_add(1, std::memory_order_relaxed) + 1;
         Logger::Instance().Write(
             LogLevel::Info,
             "hpl_player_hands_module owner_acquired change=%llu module=%p moduleId=%d scriptObject=%p callback=%d policy=read_only_owner_discovery",
             static_cast<unsigned long long>(change),
-            updateable,
+            module,
             moduleId,
             scriptObject,
             callbackId);

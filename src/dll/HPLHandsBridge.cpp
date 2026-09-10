@@ -3972,6 +3972,13 @@ void UpdateHPLHandsBridge(uint64_t frameIndex)
     }
 }
 
+bool HasHPLRetainedHandsSeed()
+{
+    std::lock_guard lock(g_retainedHandsMutex);
+    return g_retainedHands.valid && g_retainedHands.entity != nullptr
+        && g_retainedHands.mesh != nullptr;
+}
+
 bool CaptureHPLArmRenderSnapshot(HPLArmRenderSnapshot& snapshot)
 {
     snapshot = {};

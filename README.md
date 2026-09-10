@@ -272,8 +272,14 @@ the game is required; do not redistribute the executable or game assets with
 the mod.
 
 This work draws on the in-house VR modding playbook and prior VR-mod research,
-including SS2VR, BioShockVR, UEVR, and other source-available projects. MinHook
-and the OpenXR loader/SDK have their own licenses. Released HPL2 source is
-GPL-licensed reference material; source availability is not permission to
-ignore its terms. A project-wide distribution license and final third-party
-notice review are still pending before public source/binary release.
+including SS2VR, BioShockVR, UEVR, and other source-available projects. Released
+HPL2 source is GPL-licensed reference material; it has been used only as
+reference for reverse engineering, and no HPL2 source is copied into or derived
+within this project's code.
+
+SOMAVR's own source and documentation are released under the MIT License --- see
+[LICENSE](LICENSE). That license covers this mod only; it grants no rights in
+SOMA or any Frictional Games asset. Third-party components linked into or
+distributed with the built binaries (MinHook, BSD 2-Clause; the OpenXR SDK and
+loader, Apache 2.0) carry their own terms, reproduced in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
